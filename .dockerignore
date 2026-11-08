@@ -17,7 +17,6 @@ docs
 **/.corepack
 web/dist
 web/dist-mock
-web/screenshots
 web/test-results
 web/playwright-report
 data

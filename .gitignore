@@ -17,9 +17,6 @@ ENVIRONMENT.local.md
 *.sql.gz
 backups/
 
-# --- Screenshots with real attack data ---
-screenshots/real/
-
 # --- Python ---
 __pycache__/
 *.py[cod]

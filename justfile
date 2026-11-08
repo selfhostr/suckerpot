@@ -11,7 +11,6 @@ uv_cache := "suckerpot-uv-cache"
 # No default project name on purpose: recipes that touch the live stack need COMPOSE_PROJECT_NAME
 # and SUCKERPOT_VOLUME_PREFIX from .env (see _need-project), so a checkout without .env can never act on the live volumes.
 node_image := "node:26.13.0-trixie-slim"
-playwright_image := "mcr.microsoft.com/playwright:v1.65.0-noble"
 web_cache := "suckerpot-web-cache"
 web_env := "-e HOME=/tmp -e CI=1 -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 -e COREPACK_HOME=/cache/corepack -e npm_config_store_dir=/cache/pnpm-store -e npm_config_cache=/cache/npm -e npm_config_update_notifier=false -e npm_config_fund=false -e npm_config_audit=false"
 # Node 25+ no longer bundles corepack: install a pinned one first. It then provides the exact pnpm
@@ -150,13 +149,6 @@ web-dev:
     docker run --rm -it --user "$(id -u):$(id -g)" -p 127.0.0.1:5173:5173 \
       -v "$PWD/web:/web" -v "{{web_cache}}:/cache" -w /web {{web_env}} \
       {{node_image}} sh -c "{{pnpm_setup}} && pnpm install --frozen-lockfile && VITE_MOCK=1 pnpm exec vite --host 0.0.0.0"
-
-# Screenshots on mock data (desktop and mobile, dark and light) into web/screenshots.
-screenshots:
-    {{just_executable()}} _cache_vol
-    docker run --rm --ipc=host --user "$(id -u):$(id -g)" \
-      -v "$PWD/web:/web" -v "{{web_cache}}:/cache" -w /web {{web_env}} \
-      {{playwright_image}} sh -c "{{pnpm_setup}} && pnpm install --frozen-lockfile && pnpm run build:mock && pnpm exec playwright test"
 
 # Real SSH login against the sensor from a throwaway container, then check the API.
 ssh-test:

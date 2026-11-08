@@ -78,7 +78,6 @@ All commands are `just` recipes. Run `just` with no arguments to list them.
 | `just web-test` | Unit tests (`vitest`) |
 | `just web-build` | Production build into `web/dist` |
 | `just web-dev` | Vite dev server on `http://127.0.0.1:5173` with mock data (Ctrl+C to stop) |
-| `just screenshots` | Playwright screenshots on mock data, at 1440 px and 390 px, dark and light, into `web/screenshots` |
 
 ## Tooling runs in containers
 
@@ -86,7 +85,6 @@ The host needs only Docker and `just`. No Python, Node.js or database is install
 
 - **Python.** `lint`, `typecheck` and `test` run in a pinned `uv` image, once per package, as your user. The virtual environments live inside the container, and the `uv` download cache lives in a Docker volume (`suckerpot-uv-cache`). Nothing is written to the repository.
 - **Web.** The web recipes run in a pinned Node image, with `pnpm` enabled through Corepack. A Docker volume (`suckerpot-web-cache`) holds the Corepack and `pnpm` caches. The lock file is always installed with `--frozen-lockfile`.
-- **Screenshots.** They run in the pinned Playwright image, against a build with mock data. Mock data uses documentation addresses only, so the screenshots are safe to publish.
 - **Images.** Every base image is pinned to a version, so a build today and a build next month use the same tools.
 
 ## Repository layout
@@ -182,7 +180,6 @@ The GitHub Actions workflows run on every push and pull request to `main`:
 | `ci.yml`, `gitleaks` | Scans the full git history with `gitleaks` |
 | `ci.yml`, `python` | Lint, type check and unit tests of each Python package |
 | `ci.yml`, `web` | Install, lint, type check, unit tests and production build of the web app |
-| `ci.yml`, `web-screenshots` | Playwright screenshots on mock data, uploaded as an artifact for 7 days |
 | `ci.yml`, `python-integration` | Integration tests against a real database and Redis |
 | `ci.yml`, `compose` | Runs the port guard, builds the stack, checks the API health and the SSH sensor health, runs a real SSH login (`scripts/ssh-test.sh`), generates demo data, and waits until the API shows the stored sessions |
 
