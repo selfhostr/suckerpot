@@ -37,6 +37,47 @@ jobs:
       - name: Scan full history
         run: gitleaks git --config .gitleaks.toml --redact --verbose .
 
+  licences:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.15"
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Python dependencies (uv.lock)
+        run: |
+          set -euo pipefail
+          allowed="MIT;Apache;BSD;ISC;MPL;Mozilla Public;SIL Open Font;OFL;CC0;Unlicense;0BSD;Zlib;BSL-1.0;Boost;Python Software Foundation;PSF;HPND;LGPL;GPL;AGPL;Public Domain"
+          uv venv "$RUNNER_TEMP/tool" >/dev/null
+          uv pip install --python "$RUNNER_TEMP/tool/bin/python" pip-licenses >/dev/null
+          status=0
+          while IFS= read -r lock; do
+            dir=$(dirname "$lock")
+            echo "::group::$dir"
+            uv export --frozen --no-hashes --no-emit-project --no-emit-workspace --project "$dir" -o "$RUNNER_TEMP/req.txt" >/dev/null
+            rm -rf "$RUNNER_TEMP/venv"
+            uv venv "$RUNNER_TEMP/venv" >/dev/null
+            uv pip install --python "$RUNNER_TEMP/venv/bin/python" --no-deps -r "$RUNNER_TEMP/req.txt" >/dev/null
+            "$RUNNER_TEMP/tool/bin/pip-licenses" --python "$RUNNER_TEMP/venv/bin/python" --partial-match --allow-only="$allowed" --format=plain || status=1
+            echo "::endgroup::"
+          done < <(git ls-files '*uv.lock')
+          exit "$status"
+      - name: Web dependencies (pnpm)
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run licences
+
   python:
     runs-on: ubuntu-latest
     steps:

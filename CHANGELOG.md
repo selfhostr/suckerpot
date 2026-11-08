@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- CI job `licences`: fails when a Python (`uv.lock`) or web (pnpm) dependency has a licence outside the open-source allow-list (MIT, Apache-2.0, BSD, ISC, MPL-2.0, OFL-1.1, CC0, Unlicense, 0BSD, Zlib, BSL-1.0, LGPL/GPL/AGPL). `pnpm run licences` runs the web half locally.
+
 ## [0.10.0] - 2026-11-06
 
 ### Upgrading
