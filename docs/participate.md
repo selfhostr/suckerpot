@@ -12,10 +12,12 @@ SuckerPot is built to be attacked. Use a dedicated machine that holds nothing el
 
 | Item | Needed |
 | --- | --- |
-| Machine | A Linux VM or small server, `x86_64` or `aarch64`, with 2 GiB of memory or more and 15 GiB of free disk |
+| Machine | A Linux VM or small server, `x86_64` or `aarch64`, with 2 GiB of memory or more and 15 GiB of free disk. A 1 GiB VPS or Raspberry Pi works with `--lite` |
 | Software | Docker Engine 24+ with the Compose plugin, `git`, `curl`, Bash 4+. Your user must run `docker` without `sudo` |
-| Router | You can forward ports to this machine |
+| Router | You can forward ports to this machine (not needed on a VPS) |
 | VPN | Not needed |
+
+No spare machine, or no access to your router? Use a cheap VPS or a Raspberry Pi: see [Join from a cheap VPS or a Raspberry Pi](vps.md).
 
 The full list of checks is in [Install SuckerPot](install.md#requirements).
 

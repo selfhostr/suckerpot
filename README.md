@@ -24,6 +24,8 @@ cd suckerpot
 
 Needs Docker with the compose plugin. The installer creates the secrets, starts the stack and prints the dashboard address; the six recommended sensors are on by default (`--sensors all` turns on all twelve). Back up with `just backup`. Before you expose anything, follow the [go-live checklist](https://suckerpot.selfhostr.io/docs/deployment/).
 
+Only want to help the SuckerPot network? `./scripts/install.sh --participant` installs sensors without a dashboard (see [Join the network](https://suckerpot.selfhostr.io/docs/participate/)); a 1 GiB VPS works with `--lite` ([VPS guide](https://suckerpot.selfhostr.io/docs/vps/)).
+
 ## Features
 
 - **Twelve sensors.** SSH, Telnet, ADB, Web, Docker, Synology, Redis, MySQL, MSSQL, RDP, SMB and SIP.

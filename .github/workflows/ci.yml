@@ -64,7 +64,7 @@ jobs:
           while IFS= read -r lock; do
             dir=$(dirname "$lock")
             echo "::group::$dir"
-            uv export --frozen --no-hashes --no-emit-project --no-emit-workspace --project "$dir" -o "$RUNNER_TEMP/req.txt" >/dev/null
+            uv export --frozen --no-hashes --no-emit-project --no-emit-workspace --no-emit-local --project "$dir" -o "$RUNNER_TEMP/req.txt" >/dev/null
             rm -rf "$RUNNER_TEMP/venv"
             uv venv "$RUNNER_TEMP/venv" >/dev/null
             uv pip install --python "$RUNNER_TEMP/venv/bin/python" --no-deps -r "$RUNNER_TEMP/req.txt" >/dev/null

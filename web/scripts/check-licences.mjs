@@ -23,7 +23,10 @@ const OSI = new Set([
 const COPYLEFT = /^(LGPL|GPL|AGPL)-/
 
 function allowedTerm(term) {
-  const t = term.trim().replace(/\+$/, "").replace(/ WITH .*/, "")
+  const t = term
+    .trim()
+    .replace(/\+$/, "")
+    .replace(/ WITH .*/, "")
   return OSI.has(t) || COPYLEFT.test(t)
 }
 
