@@ -20,7 +20,7 @@ A change must pass these (CI runs the same):
 
 ```bash
 just check        # lint, typecheck, unit tests and web build
-just --list       # integration tests, screenshots and more
+just --list       # integration tests and more
 ```
 
 Add tests for any behaviour you change. Sensor tests use a real client where possible.
@@ -39,7 +39,6 @@ The repository is public and history is forever. Never commit:
 
 - `.env`, API keys, tokens, passwords or password hashes;
 - captured data: attacker IPs, credentials, sessions, payloads or database dumps;
-- screenshots that contain real attack data (use `just demo`);
 - GeoLite2 `.mmdb` files or SSH host keys;
 - real hostnames, IP addresses or details of your own network.
 

@@ -1,6 +1,6 @@
 # Load demo data
 
-`just demo` fills SuckerPot with synthetic attack data. Use it to try the pipeline and the dashboard, to develop against it, and to make screenshots.
+`just demo` fills SuckerPot with synthetic attack data. Use it to try the pipeline and the dashboard, to develop against it.
 
 The demo data is fake. The generator never contacts real attackers and never sends traffic to the internet. It publishes events to Redis the same way a sensor does, so the rest of the pipeline is tested too.
 
@@ -76,7 +76,3 @@ docker compose --profile tools run --rm demo --days 2 --sessions 50 --dry-run
 ## Running it twice
 
 Each run adds data. To start from scratch on purpose, stop the stack and remove the database volume by name (`docker volume rm suckerpot_db-data`); `docker compose down -v` no longer deletes the data volumes, which are external. See [Deployment](deployment.md#deleting-data-on-purpose). This deletes all data, real or fake.
-
-## Screenshots use demo data only
-
-Every screenshot in the README and in these docs comes from demo data. Never take a screenshot of a real capture. Real attack data contains attacker addresses, credentials and payloads, and the repository is public.

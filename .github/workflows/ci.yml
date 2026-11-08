@@ -99,39 +99,6 @@ jobs:
       - name: Build
         run: pnpm run build
 
-  web-screenshots:
-    runs-on: ubuntu-latest
-    # Same image as `just screenshots`. Mock data only (documentation IPs).
-    container:
-      image: mcr.microsoft.com/playwright:v1.65.0-noble
-      options: --ipc=host
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        with:
-          package_json_file: web/package.json
-      - name: Install
-        run: pnpm install --frozen-lockfile
-      - name: Build with mock data
-        run: pnpm run build:mock
-      - name: Take screenshots
-        run: pnpm exec playwright test
-        env:
-          CI: "1"
-          HOME: /root
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: web-screenshots
-          path: web/screenshots
-          if-no-files-found: ignore
-          retention-days: 7
-
   python-integration:
     runs-on: ubuntu-latest
     services:
