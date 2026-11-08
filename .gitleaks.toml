@@ -48,4 +48,5 @@ paths = [
 # "key" in the repository name next to a tag). They are public image names, not secrets.
 [[allowlists]]
 description = "valkey/valkey image references"
+regexTarget = "line"
 regexes = ['''valkey/valkey:[0-9][0-9A-Za-z.\-]*''']
