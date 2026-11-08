@@ -69,7 +69,7 @@ services:
     pids_limit: 64
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_HEALTH_PASSWORD" redis-cli --user health ping | grep -q PONG']
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_HEALTH_PASSWORD" valkey-cli --user health ping | grep -q PONG']
       interval: 10s
       timeout: 3s
       retries: 5

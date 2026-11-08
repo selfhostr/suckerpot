@@ -1,5 +1,5 @@
 #!/bin/sh
-# Black-box check with real clients (redis-cli, redis-py, nmap -sV) against the built container.
+# Black-box check with real clients (valkey-cli, redis-py, nmap -sV) against the built container.
 # Usage (repo root):  sg docker -c "sh sensors/redis/tests/blackbox.sh"
 # Needs docker and network access to pull redis, python and instrumentisto/nmap. Everything runs
 # on a private throwaway network with no published ports; a throwaway Redis (no auth) collects
@@ -16,7 +16,7 @@ trap cleanup EXIT; cleanup
 docker build -q -f sensors/redis/Dockerfile -t "$IMG" . >/dev/null
 # --internal: no route out of the network, like the sensors-redis network in compose.
 docker network create --internal "$NET" >/dev/null
-docker run -d --name "$STREAM" --network "$NET" redis:8.10-alpine >/dev/null
+docker run -d --name "$STREAM" --network "$NET" valkey/valkey:9.1-alpine3.24 >/dev/null
 docker run -d --name "$NAME" --network "$NET" --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --memory-swap 256m \
   --cpus 0.5 --pids-limit 128 -v "$NAME-data:/data" \
@@ -27,16 +27,16 @@ for _ in $(seq 1 30); do
 done
 [ "$(docker inspect -f '{{.State.Health.Status}}' "$NAME")" = healthy ] || { echo "not healthy"; exit 1; }
 echo HEALTHY
-CLI="docker run --rm --network $NET redis:8.10-alpine redis-cli -h $NAME"
+CLI="docker run --rm --network $NET valkey/valkey:9.1-alpine3.24 valkey-cli -h $NAME"
 
-echo "--- redis-cli basics"
+echo "--- valkey-cli basics"
 $CLI PING
 $CLI INFO server | head -12
 $CLI SET foo bar
 $CLI --version
 
 echo "--- kinsing/cron chain (one connection, as bots do)"
-docker run --rm --network "$NET" redis:8.10-alpine sh -c "redis-cli -h $NAME <<'CMDS'
+docker run --rm --network "$NET" valkey/valkey:9.1-alpine3.24 sh -c "valkey-cli -h $NAME <<'CMDS'
 FLUSHALL
 CONFIG SET dir /var/spool/cron/
 CONFIG SET dbfilename root
@@ -78,10 +78,10 @@ echo "--- cross-protocol and garbage"
 docker run --rm --network "$NET" alpine:3.24 sh -c "printf 'POST / HTTP/1.1\r\nHost: x\r\n\r\n' | nc -w 2 $NAME 6379 | od -c | head -2; echo post_done; printf 'GET / HTTP/1.0\r\n\r\n' | nc -w 2 $NAME 6379"
 sleep 1
 echo "--- events"
-docker exec "$STREAM" redis-cli XRANGE events:redis - + | grep '^{' | \
+docker exec "$STREAM" valkey-cli XRANGE events:redis - + | grep '^{' | \
   sed -E 's/.*"type":"([a-z_]+)".*/\1/' | sort | uniq -c
-docker exec "$STREAM" redis-cli XRANGE events:redis - + | grep -o '"flags":\[[^]]*\]' | sort | uniq -c | sort -rn | head -20
-docker exec "$STREAM" redis-cli XRANGE events:redis - + | grep '"download_attempt"' | cut -c1-400
-docker exec "$STREAM" redis-cli XRANGE events:redis - + | grep '"redis_replication"' | cut -c1-400
-docker exec "$STREAM" redis-cli XRANGE events:redis - + | grep '"config_changes"' | tail -1 | cut -c1-600
+docker exec "$STREAM" valkey-cli XRANGE events:redis - + | grep -o '"flags":\[[^]]*\]' | sort | uniq -c | sort -rn | head -20
+docker exec "$STREAM" valkey-cli XRANGE events:redis - + | grep '"download_attempt"' | cut -c1-400
+docker exec "$STREAM" valkey-cli XRANGE events:redis - + | grep '"redis_replication"' | cut -c1-400
+docker exec "$STREAM" valkey-cli XRANGE events:redis - + | grep '"config_changes"' | tail -1 | cut -c1-600
 docker logs "$NAME" 2>&1 | grep -ci "honeypot\|suckerpot\|traceback" | sed 's/^/giveaway_or_traceback_lines_in_logs=/' || true

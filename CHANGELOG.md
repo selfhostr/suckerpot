@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The message broker is now Valkey 9.1 (`valkey/valkey:9.1.3-alpine3.24`, BSD-3-Clause) instead of Redis 8.10. It is a drop-in replacement: same protocol, same configuration and ACL file, same volumes and ports, and the Streams data is reused as is. The container now runs `valkey-server` and the health check `valkey-cli`.
+
 ## [0.10.0] - 2026-11-06
 
 ### Upgrading

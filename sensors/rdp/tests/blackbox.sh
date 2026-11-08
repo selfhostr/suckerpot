@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT; cleanup
 docker build -q -f sensors/rdp/Dockerfile -t "$IMG" . >/dev/null
 docker network create "$NET" >/dev/null
-docker run -d --name "$REDIS" --network "$NET" redis:8.10-alpine >/dev/null
+docker run -d --name "$REDIS" --network "$NET" valkey/valkey:9.1-alpine3.24 >/dev/null
 docker run -d --name "$NAME" --network "$NET" --read-only --tmpfs /tmp --cap-drop ALL \
   --security-opt no-new-privileges:true --memory 128m --cpus 0.5 --pids-limit 128 \
   -v "$NAME-data:/data" -e REDIS_HOST="$REDIS" -e EVENTS_STREAM=events:rdp "$IMG" >/dev/null
@@ -34,9 +34,9 @@ echo "--- non-RDP traffic"
 docker run --rm --network "$NET" alpine:3.24 sh -c "printf 'GET / HTTP/1.1\r\nHost: x\r\n\r\n' | nc -w 3 $NAME 3389 | od -c | head -2; echo http_done"
 sleep 1
 echo "--- events (type, username / kind, reason)"
-docker exec "$REDIS" redis-cli XRANGE events:rdp - + | grep '^{' | \
+docker exec "$REDIS" valkey-cli XRANGE events:rdp - + | grep '^{' | \
   sed -E 's/.*"type":"([a-z_]+)".*/\1/' | sort | uniq -c
-docker exec "$REDIS" redis-cli XRANGE events:rdp - + | grep -o '"username":"[^"]*"\|"reason":"[^"]*"\|"kind":"[^"]*"\|"negotiation":"[^"]*"' | sort | uniq -c
-docker exec "$REDIS" redis-cli XRANGE events:rdp - + | grep -c Winter2026 | sed 's/^/password_occurrences_in_events=/' || true
-docker exec "$REDIS" redis-cli XRANGE events:rdp - + | grep '"credssp_not_supported"' | tail -1 | cut -c1-1500
+docker exec "$REDIS" valkey-cli XRANGE events:rdp - + | grep -o '"username":"[^"]*"\|"reason":"[^"]*"\|"kind":"[^"]*"\|"negotiation":"[^"]*"' | sort | uniq -c
+docker exec "$REDIS" valkey-cli XRANGE events:rdp - + | grep -c Winter2026 | sed 's/^/password_occurrences_in_events=/' || true
+docker exec "$REDIS" valkey-cli XRANGE events:rdp - + | grep '"credssp_not_supported"' | tail -1 | cut -c1-1500
 docker logs "$NAME" 2>&1 | grep -ci "honeypot\|suckerpot\|traceback" | sed 's/^/giveaway_or_traceback_lines_in_logs=/'

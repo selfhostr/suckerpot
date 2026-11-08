@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT; cleanup
 docker build -q -f sensors/mysql/Dockerfile -t "$IMG" . >/dev/null
 docker network create "$NET" >/dev/null
-docker run -d --name "$REDIS" --network "$NET" redis:8.10-alpine >/dev/null
+docker run -d --name "$REDIS" --network "$NET" valkey/valkey:9.1-alpine3.24 >/dev/null
 docker run -d --name "$NAME" --network "$NET" --read-only --tmpfs /tmp --cap-drop ALL \
   --security-opt no-new-privileges:true --memory 256m --memory-swap 256m --cpus 0.5 --pids-limit 128 \
   -v "$NAME-data:/data" -e REDIS_HOST="$REDIS" -e EVENTS_STREAM=events:mysql \
