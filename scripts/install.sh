@@ -30,6 +30,8 @@
 #   scripts/install.sh --participant [--yes] [--pseudonym NAME | --no-pseudonym]
 #                      [--country CC [--show-country]] [--wg-conf PATH [--verifier]]
 #                      [--no-auto-update] [--feeds] [--self-address ADDR] [--sensors LIST]
+#                      [--lite]  (1 GiB VPS or Raspberry Pi: lowest memory limits, sensors
+#                                 ssh,telnet,web,redis unless --sensors is given; docs/vps.md)
 #   scripts/install.sh --full         on a participant install: switch to full mode (keeps data)
 #   scripts/install.sh --repair       existing install: volumes, start and schedule steps again
 #
@@ -90,6 +92,7 @@ no_auto_update=0
 feeds=0
 self_address=""
 repair=0
+lite=0
 
 need_value() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
 while [ $# -gt 0 ]; do
@@ -125,6 +128,7 @@ while [ $# -gt 0 ]; do
     --feeds) feeds=1 ;;
     --self-address) need_value "$@"; self_address=$2; shift ;;
     --repair) repair=1 ;;
+    --lite) lite=1 ;;
     -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
@@ -136,6 +140,9 @@ if [ "$dry_run" = 1 ] && [ -z "$env_out" ]; then die "--dry-run needs --env-out 
 if [ "$dry_run" = 0 ] && [ -n "$env_out" ]; then die "--env-out is only for --dry-run"; fi
 case ${lowmem:-auto} in auto | on | off) ;; *) die "--lowmem must be auto, on or off" ;; esac
 lowmem=${lowmem:-auto}
+if [ "$lite" = 1 ]; then
+  case $lowmem in auto | on) lowmem=on ;; *) die "--lite needs the low-memory overlay: it cannot be combined with --lowmem off" ;; esac
+fi
 
 # Interactive answers come from the terminal (or SELFHOSTR_TTY, used by the tests), so that
 # stdin stays free for --admin-password-stdin.
@@ -189,6 +196,9 @@ if [ -e .env ]; then
     if [ -f scripts/status.sh ]; then bash scripts/status.sh || true; fi
     exit 0
   elif [ "$cur_stack" = participant ] && [ "$stack" = full ]; then
+    case ":$(env_get COMPOSE_FILE docker-compose.yml):" in
+      *:docker-compose.lite.yml:*) die "a lite node cannot switch to full mode: its memory limits and database settings are too small for the dashboard. Reinstall without --lite." ;;
+    esac
     switching=1
   else
     die "switching a full install to participant mode would remove the dashboard; not supported"
@@ -224,6 +234,7 @@ else
   [ "$no_auto_update" = 0 ] || bad+=(--no-auto-update)
   [ "$feeds" = 0 ] || bad+=(--feeds)
   [ -z "$self_address" ] || bad+=(--self-address)
+  [ "$lite" = 0 ] || bad+=(--lite)
   [ "${#bad[@]}" -eq 0 ] || die "these flags need --participant: ${bad[*]}"
 fi
 if [ "$existing" = 1 ]; then
@@ -237,6 +248,7 @@ if [ "$existing" = 1 ]; then
   [ -z "$wg_conf" ] || bad+=(--wg-conf)
   [ "$no_network" = 0 ] || bad+=(--no-network)
   [ "$lowmem" = auto ] || bad+=(--lowmem)
+  [ "$lite" = 0 ] || bad+=(--lite)
   [ "${#bad[@]}" -eq 0 ] || die "an existing install keeps its settings; these flags are only for a fresh install: ${bad[*]}. Change settings with: just set, just sensors, ./scripts/participant.sh"
   if [ "$repair" = 1 ] && [ "$pw_stdin" = 1 ]; then die "--repair does not change settings: --admin-password-stdin"; fi
 fi
@@ -293,10 +305,29 @@ else
   meminfo=${SELFHOSTR_MEMINFO:-/proc/meminfo}
   mem_kb=$(awk '/^MemTotal:/ {print $2}' "$meminfo" 2> /dev/null || true)
   [[ ${mem_kb:-} =~ ^[0-9]+$ ]] || die "cannot read the memory size from $meminfo"
-  if [ "$fresh" = 1 ]; then
-    if [ "$mem_kb" -lt $((2 * 1024 * 1024 - 65536)) ]; then
-      die "less than 2 GiB of memory: SuckerPot needs at least 2 GiB (with --lowmem on)"
+  if [ "$fresh" = 1 ] || [ "$switching" = 1 ]; then
+    if [ "$lite" = 1 ]; then
+      # A "1 GiB" machine reports a little less than 1 GiB to the kernel.
+      if [ "$mem_kb" -lt $((1024 * 1024 - 131072)) ]; then
+        die "less than 1 GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
+      fi
+      # Containers never swap (memswap_limit equals mem_limit). Host swap only gives the host room
+      # when a burst of attacks pushes the whole machine, so the global OOM killer is less likely
+      # to restart the database.
+      swap_kb=$(awk '/^SwapTotal:/ {print $2}' "$meminfo" 2> /dev/null || true)
+      [[ ${swap_kb:-} =~ ^[0-9]+$ ]] || swap_kb=0
+      if [ "$swap_kb" -lt $((512 * 1024)) ]; then
+        warn "this machine has less than 512 MiB of swap. On 1 GiB, a burst of attacks can make the kernel kill a container (the database included). Add 1 GiB of swap first (docs/vps.md)."
+        if [ "$assume_yes" = 0 ]; then
+          ask a "Continue without enough swap? (yes/no)" no
+          case $a in y | yes) ;; *) die "add swap, then run the installer again" ;; esac
+        fi
+      fi
+    elif [ "$mem_kb" -lt $((2 * 1024 * 1024 - 65536)) ]; then
+      die "less than 2 GiB of memory: SuckerPot needs at least 2 GiB (with --lowmem on), or 1 GiB with --participant --lite"
     fi
+  fi
+  if [ "$fresh" = 1 ]; then
 
     root=$(docker info --format '{{.DockerRootDir}}' 2> /dev/null || true)
     free_kb=${SELFHOSTR_FREE_DISK_KB:-$(df -Pk "${root:-/}" 2> /dev/null | awk 'NR==2 {print $4}')}
@@ -346,7 +377,9 @@ if [ "$fresh" = 1 ]; then
   fi
 
   if [ -z "$sensors_arg" ]; then
-    if [ "$stack" = participant ]; then
+    if [ "$stack" = participant ] && [ "$lite" = 1 ]; then
+      sensors_arg=$(IFS=,; echo "${LITE_SENSORS[*]}")
+    elif [ "$stack" = participant ]; then
       sensors_arg=recommended
     else
       ask sensors_arg "Sensors: recommended, all, or a list like ssh,web" recommended
@@ -436,6 +469,9 @@ if [ "$fresh" = 1 ]; then
   fi
   if [ "$lowmem" = on ] && [ ! -f docker-compose.lowmem.yml ]; then
     die "this checkout has no docker-compose.lowmem.yml, so --lowmem on is not possible"
+  fi
+  if [ "$lite" = 1 ] && [ ! -f docker-compose.lite.yml ]; then
+    die "this checkout has no docker-compose.lite.yml, so --lite is not possible"
   fi
 fi
 
@@ -582,6 +618,14 @@ fi
 if [ "$fresh" = 1 ]; then
   if [ -z "$admin_ssh_port" ]; then
     if [ "$ssh_moved" = 1 ] || { [ "$dry_run" = 0 ] && is_busy 22; }; then admin_ssh_port=22; fi
+    if [ -z "$admin_ssh_port" ] && [ "$dry_run" = 0 ] && [ "$stack" = participant ]; then
+      # Port 22 is free: the admin SSH may already have been moved (docs/vps.md). Use what sshd
+      # is configured for, so the host firewall protects that port.
+      # shellcheck source=scripts/lib/firewall.sh
+      . scripts/lib/firewall.sh
+      read -r fw_port fw_src <<< "$(fw_admin_port)"
+      if [ "$fw_src" != default ] && [ "$fw_port" != 22 ]; then admin_ssh_port=$fw_port; fi
+    fi
     if [ "$noask" = 0 ]; then
       ask admin_ssh_port "Port of this machine's own admin SSH (so no sensor can take it; empty = none)" "$admin_ssh_port"
     fi
@@ -775,6 +819,8 @@ else
       # ingest reads the defaults baked into the signed image; an explicit value here would win.
       cf=docker-compose.yml
       if [ "$lowmem" = on ]; then cf="$cf:docker-compose.lowmem.yml"; fi
+      # Lite (M35) lives in COMPOSE_FILE like the low-memory overlay, so updates keep it.
+      if [ "$lite" = 1 ]; then cf="$cf:docker-compose.lite.yml"; fi
       setv COMPOSE_FILE "$cf:docker-compose.participant.yml"
       setv SUCKERPOT_STACK_MODE participant
       if [ -n "$wg_conf" ]; then

@@ -23,6 +23,7 @@ SuckerPot is made by selfhostr, an organisation that builds self-hosted tools. T
 getting-started
 install
 participate
+vps
 deployment
 ```
 
