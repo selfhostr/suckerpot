@@ -24,6 +24,8 @@ MIGRATE_DEFAULTS=(SUCKERPOT_INSTALL_MODE=source SUCKERPOT_STACK_MODE=full AUTO_U
 
 SENSORS=(ssh telnet web rdp redis docker mysql adb mssql smb sip synology)
 RECOMMENDED_SENSORS=(ssh telnet web redis docker adb)
+# Default of `install.sh --participant --lite` (1 GiB machines): the four busiest, cheapest sensors.
+LITE_SENSORS=(ssh telnet web redis)
 
 # Variables that `just set` may change. Patterns are shell globs.
 SETTABLE_VARS=(

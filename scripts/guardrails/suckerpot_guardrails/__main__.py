@@ -25,7 +25,8 @@ def main(argv: list[str]) -> int:
         # and without the low-memory overlay.
         lowmem = root / "docker-compose.lowmem.yml"
         participant = root / "docker-compose.participant.yml"
-        for extra in ([lowmem], [participant], [lowmem, participant]):
+        lite = root / "docker-compose.lite.yml"
+        for extra in ([lowmem], [participant], [lowmem, participant], [lowmem, lite, participant]):
             if not all(f.exists() for f in extra):
                 continue
             merged = load_compose([*base, *extra])

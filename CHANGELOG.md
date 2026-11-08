@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/install.sh --participant --lite` for a 1 GiB VPS or Raspberry Pi: a new `docker-compose.lite.yml` overlay (stacked after the low-memory overlay, recorded in `COMPOSE_FILE` so updates keep it) lowers the database and Redis limits, and the default sensors become SSH, Telnet, web and Redis. Total memory limit of the participant stack: 3,248 MiB by default, 1,936 MiB with the low-memory overlay, 1,424 MiB with `--lite`. No security setting changes; a new guardrail test only allows memory figures in the overlay, and the CLI guardrail renders it.
+- `docs/vps.md`: join the network from a cheap VPS (no home address, no router change) with the steps to move admin SSH off port 22 first, including the `ssh.socket` case of Ubuntu 24.04 and newer, and a Raspberry Pi section (64-bit system, arm64 images).
+
 ### Changed
 
 - The message broker is now Valkey 9.1 (`valkey/valkey:9.1.3-alpine3.24`, BSD-3-Clause) instead of Redis 8.10. It is a drop-in replacement: same protocol, same configuration and ACL file, same volumes and ports, and the Streams data is reused as is. The container now runs `valkey-server` and the health check `valkey-cli`.
+
 
 ## [0.10.0] - 2026-11-06
 
