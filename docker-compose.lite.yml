@@ -1,0 +1,43 @@
+# Lite overlay (M35): participant mode on a 1 GiB VPS or a Raspberry Pi with 1 GiB. It is stacked
+# on top of docker-compose.lowmem.yml and only lowers two more resource limits (the database and
+# Redis) together with the matching tuning figures. Sensor and ingest limits stay as the low-memory
+# overlay sets them (ingest also runs the network CLI of status.sh and update.sh in its cgroup).
+# Every limit equals its memswap limit, so containers never swap: host swap only gives the host
+# headroom, and a burst can still make the kernel restart a container. Networks, volumes, capabilities, ports and every security setting are
+# untouched, and scripts/guardrails/tests/test_lite.py fails if this file ever sets anything else.
+#
+# The installer turns it on with `scripts/install.sh --participant --lite`, which writes:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.lowmem.yml:docker-compose.lite.yml:docker-compose.participant.yml
+#
+# and a default sensor list of ssh, telnet, web and redis (docs/vps.md).
+services:
+  db:
+    # Replaces the whole command, like the low-memory overlay does.
+    command: !override
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=160MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=20
+      - -c
+      - timescaledb.max_background_workers=2
+      - -c
+      - timescaledb.telemetry_level=off
+      - -c
+      - log_min_duration_statement=1000
+    shm_size: 96m
+    mem_limit: 320m
+    memswap_limit: 320m
+
+  redis:
+    environment:
+      REDIS_MAXMEMORY_MB: "64"
+    mem_limit: 128m
+    memswap_limit: 128m

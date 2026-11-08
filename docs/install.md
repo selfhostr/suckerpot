@@ -133,6 +133,7 @@ A log without any secret goes to `install.log` in the checkout. The file is igno
 | `--admin-password-stdin` | Read the admin password from the first line of standard input. |
 | `--admin-ssh-port N` | Port of this machine's own SSH daemon, protected from the sensors. |
 | `--lowmem auto\|on\|off` | Low-memory overlay. Default `auto`: asked below 6 GiB. `on` requires the overlay file in the checkout. |
+| `--lite` | Participant mode only, fresh install: 1 GiB machines (VPS, Raspberry Pi). Adds `docker-compose.lite.yml` on top of the low-memory overlay and defaults the sensors to `ssh,telnet,web,redis`. Needs 1 GiB of memory. See [VPS guide](vps.md). |
 | `--wg-conf PATH` | WireGuard `.conf` file from your VPN provider. It is read as plain text and never run. |
 | `--skip-verify` | Do not check the image signatures. Not recommended. See [updates](updates.md#image-signatures). |
 | `--dry-run --env-out PATH` | Write the `.env` that would be made to `PATH`, with a placeholder hash. Makes no Docker call. Used to test the installer. |

@@ -435,3 +435,11 @@ Owner request (2026-11-04): a second person joins as a participant; the three-co
 - [x] Every dependency upgraded in one coordinated change: Python 3.15, Node 26, Redis 8, TimescaleDB 2.31, web and GitHub Actions majors; TypeScript 7, PostgreSQL 18 (hub) and pnpm 11 held back with a reason.
 - [x] Dependabot monthly, grouped per ecosystem (minor/patch and majors).
 - [x] Release (v0.10.0).
+
+## M35 — Easier joining
+
+The network has one node. The frictions are a spare machine, port forwards on a home router and memory.
+
+- [x] Lite participant footprint: `install.sh --participant --lite` (1 GiB, four sensors, lower database, Redis and ingest limits), kept in `COMPOSE_FILE`, with guardrail tests; no security setting loosened.
+- [x] VPS and Raspberry Pi guide (`docs/vps.md`), linked from the participant page and the README.
+- [ ] Site join page.
