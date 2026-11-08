@@ -6,15 +6,15 @@ Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all servic
 
 - [x] Docker Engine + compose plugin installed on the VM (needs `sudo`).
 - [x] Push access to GitHub (fine-grained token scoped to this repo only, Contents: read/write).
-- [ ] Enable secret scanning and push protection in the GitHub repo settings.
-- [ ] Enable GitHub Pages (Source: GitHub Actions) and import the project on Read the Docs.
-- [ ] Grow the VM disk (≥ 64 GB).
-- [ ] Apply the host firewall (scripts/host/firewall.nft + suckerpot-firewall.service).
+- [x] Enable secret scanning and push protection in the GitHub repo settings.
+- [x] ~~Enable GitHub Pages and import the project on Read the Docs.~~ Superseded: site and docs live at `suckerpot.selfhostr.io` (v0.8.0).
+- [x] Grow the VM disk (≥ 64 GB).
+- [x] Apply the host firewall (scripts/host/firewall.nft + suckerpot-firewall.service).
 
 ## Host / owner actions before go-live (from the M1 security review)
 
-- [ ] Host firewall (nftables, applied by the owner): drop NEW connections from Docker bridge ranges to the host's admin SSH port and the dashboard port.
-- [ ] Block NEW outbound connections from the `dashboard` and `ingress` bridges (DOCKER-USER chain), and/or enable the hypervisor IP filter on the VM NIC.
+- [x] Host firewall (nftables, applied by the owner): drop NEW connections from Docker bridge ranges to the host's admin SSH port and the dashboard port.
+- [x] Block NEW outbound connections from the `dashboard` and `ingress` bridges (DOCKER-USER chain), and/or enable the hypervisor IP filter on the VM NIC.
 - [ ] Admin SSH: key-only, password login disabled.
 - [ ] Optional: `"userland-proxy": false` in the Docker daemon config.
 - [ ] Dashboard port filtered upstream so only the reverse tunnel can reach it.
