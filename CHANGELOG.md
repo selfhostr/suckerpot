@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- CI job `licences`: fails when a Python (`uv.lock`) or web (pnpm) dependency has a licence outside the open-source allow-list (MIT, Apache-2.0, BSD, ISC, MPL-2.0, OFL-1.1, CC0, Unlicense, 0BSD, Zlib, BSL-1.0, LGPL/GPL/AGPL). `pnpm run licences` runs the web half locally.
 - `scripts/install.sh --participant --lite` for a 1 GiB VPS or Raspberry Pi: a new `docker-compose.lite.yml` overlay (stacked after the low-memory overlay, recorded in `COMPOSE_FILE` so updates keep it) lowers the database and Redis limits, and the default sensors become SSH, Telnet, web and Redis. Total memory limit of the participant stack: 3,248 MiB by default, 1,936 MiB with the low-memory overlay, 1,424 MiB with `--lite`. No security setting changes; a new guardrail test only allows memory figures in the overlay, and the CLI guardrail renders it.
 - `docs/vps.md`: join the network from a cheap VPS (no home address, no router change) with the steps to move admin SSH off port 22 first, including the `ssh.socket` case of Ubuntu 24.04 and newer, and a Raspberry Pi section (64-bit system, arm64 images).
 
