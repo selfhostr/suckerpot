@@ -69,9 +69,8 @@ Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all servic
 - [x] Base components: Card, StatTile, TagBadge, EventRow, SessionStory, IPChip, CountryFlag, EmptyState, Skeleton.
 - [x] App layout and navigation for all pages from §4.
 - [x] Live event feed over WebSocket on demo data.
-- [x] `just screenshots`: Playwright at 1440 and 390, dark and light.
 
-**Acceptance:** `ui-designer` approves the screenshots; WCAG AA contrast; web lint, typecheck and tests green.
+**Acceptance:** WCAG AA contrast; web lint, typecheck and tests green.
 
 ## M4 — Enrichment and tagging
 

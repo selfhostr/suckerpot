@@ -243,4 +243,4 @@ SSH sessions are recorded with the bytes the attacker typed and the bytes the se
 just web-dev
 ```
 
-The Vite dev server starts on `http://127.0.0.1:5173` with mock data, so you do not need the stack. `just screenshots` takes desktop (1440 px) and mobile (390 px) screenshots in dark and light themes, on mock data. See [Development](development.md).
+The Vite dev server starts on `http://127.0.0.1:5173` with mock data, so you do not need the stack. See [Development](development.md).
