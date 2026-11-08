@@ -43,3 +43,10 @@ paths = [
   '''^config/network-defaults\.env$''',
   '''^netproto/suckerpot_netproto/data/network_defaults\.env$''',
 ]
+
+# Container image references such as `valkey/valkey:9.1-alpine3.24` trip generic-api-key (the word
+# "key" in the repository name next to a tag). They are public image names, not secrets.
+[[allowlists]]
+description = "valkey/valkey image references"
+regexTarget = "line"
+regexes = ['''valkey/valkey:[0-9][0-9A-Za-z.\-]*''']
