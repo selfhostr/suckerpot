@@ -446,3 +446,18 @@ class VerifyDaily(Base):
     attested: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     malware_like: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     expired: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+
+
+class ObservatoryDaily(Base):
+    """Network-wide aggregates of one final day, frozen once (design M34, migration h0010).
+
+    No node reference: ``nodes`` counts the distinct nodes behind a row, ``total`` the distinct
+    values (attacking addresses for most metrics)."""
+
+    __tablename__ = "observatory_daily"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    metric: Mapped[str] = mapped_column(Text, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    total: Mapped[int] = mapped_column(Integer)
+    nodes: Mapped[int] = mapped_column(Integer)

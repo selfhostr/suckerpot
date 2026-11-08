@@ -125,6 +125,9 @@ class Settings:
     feed_breaker_min: int = 200
     feed_never: tuple[str, ...] = ()
     external_ranges_enabled: bool = True
+    # Public network observatory (design M34): network.json in HUB_FEED_DIR, once a day. Off until
+    # the operator turns it on; independent of HUB_FEED_MODE.
+    observatory_enabled: bool = False
     # Public delisting (design M30 section 9): proof-of-work bits, requests per day, and how many
     # inbound values may be hidden at once, per day, before an operator has looked at them.
     delist_pow_difficulty: int = 20
@@ -215,6 +218,7 @@ class Settings:
                 v.strip() for v in e.get("HUB_FEED_NEVER", "").split(",") if v.strip()
             ),
             external_ranges_enabled=_bool(e, "HUB_EXTERNAL_RANGES_ENABLED", True),
+            observatory_enabled=_bool(e, "HUB_OBSERVATORY_ENABLED"),
             delist_pow_difficulty=_int(e, "HUB_DELIST_POW_DIFFICULTY", 20, 0, 32),
             delist_daily_cap=_int(e, "HUB_DELIST_DAILY_CAP", 200, 0),
             delist_auto_suppress_daily=_int(e, "HUB_DELIST_AUTO_SUPPRESS_DAILY", 50, 0),

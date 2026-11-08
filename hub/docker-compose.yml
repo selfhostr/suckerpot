@@ -89,6 +89,8 @@ services:
     environment:
       HUB_DOMAIN: ${HUB_DOMAIN:?HUB_DOMAIN must be set in .env}
       HUB_FEEDS_DOMAIN: ${HUB_FEEDS_DOMAIN:?HUB_FEEDS_DOMAIN must be set in .env}
+      # The one origin allowed to read network.json from a browser (design M34).
+      HUB_OBSERVATORY_ORIGIN: ${HUB_OBSERVATORY_ORIGIN:-https://suckerpot.selfhostr.io}
     ports:
       - "80:80"
       - "443:443"
@@ -168,6 +170,9 @@ services:
       HUB_ABUSECH_MODE: ${HUB_ABUSECH_MODE:-off}
       HUB_ABUSECH_AUTH_KEY: ${HUB_ABUSECH_AUTH_KEY:-}
       HUB_ABUSECH_DAILY_CAP: ${HUB_ABUSECH_DAILY_CAP:-50}
+      # Public network observatory (design M34): network.json in HUB_FEED_DIR, independent of
+      # HUB_FEED_MODE.
+      HUB_OBSERVATORY_ENABLED: ${HUB_OBSERVATORY_ENABLED:-false}
     healthcheck:
       test: ["CMD", "python", "-m", "hub.worker", "--health"]
       interval: 60s

@@ -82,6 +82,12 @@
 		header @page Content-Security-Policy "default-src 'none'; script-src 'sha256-Zp2mLyxOAn1EMFrIZjQnA9PcHojINbKic2Hjw1GrkSY='; style-src 'sha256-vTVC0cS3214e7DOUbc/X6p6MV78OWzfhcKo5DhngLhY='; connect-src 'self'; worker-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 		@project path /v1/stats.json /v1/index.json
 		header @project Access-Control-Allow-Origin "*"
+		# The public observatory (design M34): one browser origin, read only.
+		@observatory path /v1/network.json /v1/network.json.gz
+		header @observatory {
+			Access-Control-Allow-Origin "{$HUB_OBSERVATORY_ORIGIN:https://suckerpot.selfhostr.io}"
+			Access-Control-Allow-Methods "GET"
+		}
 
 		# The feed index names files in lower case (a format rule); README.txt is its public name.
 		@readme path /v1/README.txt /v1/README.txt.minisig /v1/README.txt.gz

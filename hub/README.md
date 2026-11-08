@@ -546,6 +546,27 @@ Add these to your checks. A held run or a failed run needs a look.
 
 Feed tests run in `just test`. The end-to-end feed test runs in `just hub-integration`, including a minisign check of the published files.
 
+## Public network observatory
+
+The worker can publish `network.json` on the feed site: anonymised figures about the network for the project site (node counts, the bootstrap state, confirmations, reports, takedowns and the attack traffic the network sees). The design, the schema and every anonymity rule are in [M34](../docs/design/m34.md); the public description is in [The SuckerPot network](../docs/network.md#public-network-figures).
+
+It is **off by default**. It does not depend on `HUB_FEED_MODE`: the lists can stay off while the observatory publishes.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `HUB_OBSERVATORY_ENABLED` | `false` | Build `network.json` into `HUB_FEED_DIR` once a day. `false` reads and writes nothing |
+| `HUB_OBSERVATORY_ORIGIN` | `https://suckerpot.selfhostr.io` | The one browser origin Caddy allows to read the file (CORS, `GET` only). Read by `caddy`, not by the worker |
+
+To turn it on, set `HUB_OBSERVATORY_ENABLED=true` in `hub/.env` and run `docker compose up -d hub-worker caddy`. The file appears after the next worker cycle at `https://<HUB_FEEDS_DOMAIN>/v1/network.json`. To unpublish, turn it off and delete `network.json` and `network.json.gz` from the feeds volume.
+
+Things to know:
+
+- Each final day (four days back, when no batch for it can arrive) is counted once into `observatory_daily` and never recounted. Only days still covered by the observations (`HUB_OBS_RETENTION_DAYS`) can be counted, so a newly enabled observatory starts with about ten days of history and builds up from there.
+- Only nodes eligible for consensus count. `min_nodes` in the file is `HUB_MIN_NODES`.
+- Relaxed thresholds are handled in code: with any eligibility setting below its default, the activity figures stay coarse; with relaxed consensus (`HUB_MIN_NODES`, `HUB_MIN_WEIGHT`, `HUB_COHORT_MAX_SHARE`) the outcomes are weekly and rounded to tens, and with `HUB_MIN_NODES` below 3 no outcome number is published.
+- The bootstrap figures are counted once per ISO week and kept in `worker_state`.
+- The file is not signed and not listed in the feed index. It is informational.
+
 ## Operator CLI
 
 ```bash
@@ -592,10 +613,11 @@ Each cycle runs these steps. A failing step is logged by type and does not stop 
 4. Re-checks the never-list against confirmed targets.
 5. Expires targets that nobody has seen for 30 days.
 6. Once a day: reputation, weekly member statistics and the network summary.
-7. Runs retention.
-8. Queues, approves and sends reports, if the mode allows it.
-9. Queues, approves and sends abuse.ch submissions, if a mode and an Auth-Key are set.
-10. Writes a heartbeat. The container health check fails when the heartbeat is older than three cycles.
+7. With `HUB_OBSERVATORY_ENABLED=true`: counts the newly final days and, once a day, publishes `network.json`.
+8. Runs retention.
+9. Queues, approves and sends reports, if the mode allows it.
+10. Queues, approves and sends abuse.ch submissions, if a mode and an Auth-Key are set.
+11. Writes a heartbeat. The container health check fails when the heartbeat is older than three cycles.
 
 Takedown votes come from members' local re-checks. Members do not send those yet in this release, so no target moves to `taken_down` for now. See [Takedown checks](../docs/network.md#takedown-checks).
 
@@ -614,6 +636,7 @@ Takedown votes come from members' local re-checks. Members do not send those yet
 | Recipient log (report counts per day) | 90 days |
 | Reports sent, failed or cancelled | 365 days |
 | abuse.ch submissions sent, failed or rejected | 365 days |
+| Observatory daily aggregates (network-wide, no node reference) | 400 days |
 | Nodes with no request for 30 days | Deleted, with everything linked to them |
 | Delisting requests | 180 days once decided (an open request is kept until its decision); evidence and contact 30 days after the decision, or 180 days after the request while it is still open |
 

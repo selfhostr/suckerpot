@@ -11,6 +11,7 @@
   rows and payload links straight away;
 * verification tasks (clear link included) and their attestations: 14 days after the task ended;
   the daily counters stay;
+* observatory aggregates (network-wide, no node reference): 400 days;
 * nodes with no request for 30 days are deleted with everything linked to them.
 """
 
@@ -35,6 +36,7 @@ FEED_RUN_DAYS = 30
 DELIST_EVIDENCE_DAYS = 30
 DELIST_REQUEST_DAYS = 180
 VERIFY_TASK_DAYS = 14  # clear links go with their task (H9); attestations cascade
+OBSERVATORY_DAYS = 400  # network-wide daily aggregates of the observatory (no node reference)
 
 
 @dataclass
@@ -196,6 +198,13 @@ async def run_retention(
         "verify_tasks",
         "DELETE FROM verify_tasks WHERE ended_day < :c",
         {"c": today - timedelta(days=VERIFY_TASK_DAYS)},
+        out,
+    )
+    await _delete(
+        session,
+        "observatory_daily",
+        "DELETE FROM observatory_daily WHERE day < :c",
+        {"c": today - timedelta(days=OBSERVATORY_DAYS)},
         out,
     )
     await _delete(

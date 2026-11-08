@@ -26,6 +26,7 @@ import httpx
 import pytest
 from suckerpot_netproto.feeds import minisign
 
+from hub import observatory
 from hub.config import Settings
 from hub.feeds import external, publish
 
@@ -196,6 +197,30 @@ async def test_feeds_through_caddy_and_upstream_minisign(env: Env, tmp_path: Pat
     (io / "tampered.txt").write_bytes(served["inbound.txt"] + b"192.0.2.99\n")
     (io / "tampered.txt.minisig").write_bytes((root / "inbound.txt.minisig").read_bytes())
     assert not (await upstream(f"verifyio tampered.txt {pub}"))[0]
+
+
+@needs_stack
+async def test_the_observatory_is_served_to_one_origin() -> None:
+    """network.json (design M34): CORS for the project site only, GET only, gzip sidecar."""
+    root = Path(FEEDS_DIR)
+    body = observatory.render_bytes(observatory.ObservatoryInput(today=NOW.date(), min_nodes=5))
+    observatory.publish(root, body)
+    origin = "https://suckerpot.selfhostr.io"
+    async with httpx.AsyncClient(base_url=FEEDS_URL, timeout=10, follow_redirects=False) as web:
+        r = await web.get("/v1/network.json", headers={"Accept-Encoding": "identity"})
+        assert r.status_code == 200 and r.content == body
+        assert r.headers["content-type"].startswith("application/json")
+        assert r.headers["access-control-allow-origin"] == origin
+        assert r.headers["access-control-allow-methods"] == "GET"
+        assert "set-cookie" not in r.headers
+        gz = await web.get("/v1/network.json", headers={"Accept-Encoding": "gzip"})
+        assert gz.headers["content-encoding"] == "gzip" and gz.content == body
+        assert gz.headers["access-control-allow-origin"] == origin
+        assert (await web.post("/v1/network.json", content=b"x")).status_code == 405
+        assert (await web.request("OPTIONS", "/v1/network.json")).status_code == 405
+        # The wildcard stays on the feed statistics only.
+        stats = await web.get("/v1/stats.json")
+        assert stats.headers.get("access-control-allow-origin") in (None, "*")
 
 
 @needs_stack

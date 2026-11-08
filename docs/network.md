@@ -125,6 +125,28 @@ What joining does change:
 
 Joining does not give you a private list or an early copy. Members get the same files as everyone else.
 
+## Public network figures
+
+The hub can publish one more public file, `network.json`, next to the lists on the feed site. The project site reads it to show how the network is doing. Anyone can download it. It is CC0, like the lists, and the same rules apply: no access log, no cookies, no query string. The design and the exact schema are in [M34](design/m34.md).
+
+| Section | What it says |
+| --- | --- |
+| Nodes | Members, nodes that sent a batch last week, and countries shown by at least three members |
+| Bootstrap | How many eligible nodes consensus needs (`HUB_MIN_NODES`) and how many are still missing, counted once a week once that week's late batches are in |
+| Outcomes | Targets confirmed, reported and taken down per day over 90 days, reports and abuse.ch submissions sent in 30 days, the median time to takedown. Exact only when the hub runs the production consensus thresholds; otherwise weekly and rounded to tens (totals over the last four complete weeks), or nothing at all when a confirmation could rest on fewer than three nodes |
+| Activity | Attacking addresses per day and how many logged in, ran commands, downloaded or sent exploits; download links, files and command servers seen; the most targeted services, the most frequent tags and malware families over 30 days |
+
+How the file protects members:
+
+- **Nothing per node.** No node id, fingerprint, pseudonym, address, reputation or tier.
+- **Days only, and late.** Outcomes stop two days back. Activity stops four days back, when no batch for that day can arrive any more. A day is counted once and never recounted, so a node that joins or leaves cannot change a published figure.
+- **Rounded.** Activity counts have two significant figures and are never finer than tens. Lists give shares, not counts.
+- **Only eligible nodes count.** A node counts only once it is eligible for consensus (old enough, active enough, good reputation). Freshly enrolled nodes cannot unlock finer figures or test what another node saw.
+- **Coarse while the network is small.** A day with fewer than three eligible nodes is never shown alone: its week is one average of attacking addresses, logins and commands, with one significant figure, and the smaller figures (downloads, exploits, links, files, command servers) stay empty. A single node's day off or exact volume does not show. A service, tag or family needs enough support, over several weeks, before it is named; a CVE tag needs two nodes.
+- **Countries.** A member country appears only when at least three members chose to show it.
+
+The activity figures describe attackers, not members. They show the traffic the network received, never where a sensor is or who runs it. With very few nodes, the list of services also shows which sensors those nodes run.
+
 ## How consensus protects against poisoning
 
 Poisoning means that someone sends false sightings to get an innocent address or site listed. The network makes this expensive. A single node can never publish anything.
@@ -344,6 +366,10 @@ The lists are public, so they are visible to everyone, attackers included.
 - **Downloads:** the feed site keeps no access log and sets no cookies. Nobody can see who fetches the lists.
 - **Poisoning:** an attacker who controls many sensors could try to list a third party. Only the hub's own confirmed targets can enter a list, after stricter rules than reports. A text typed into a honeypot command never lists an address by itself. Public resolvers, CDNs, shared hosting and Tor exit relays are never listed.
 - **Forgery:** each file is signed with a feed key that is separate from the hub's key. Your node checks the signature, the serial and the expiry before it stores anything.
+
+### What the public figures reveal
+
+`network.json` follows the same idea as the lists: nothing in it names a member. Figures are network totals from eligible nodes only, at day level, published days later, rounded, and coarse below three nodes ([Public network figures](#public-network-figures)). Someone who sends a lot of traffic (several hundred addresses a day for a week) to an address they suspect is a sensor could look for a jump in the weekly average. That only tells them what they could already learn by probing the address, that it runs a sensor, not who runs it.
 
 ### What is not protected
 

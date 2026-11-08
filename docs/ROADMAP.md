@@ -436,6 +436,19 @@ Owner request (2026-11-04): a second person joins as a participant; the three-co
 - [x] Dependabot monthly, grouped per ecosystem (minor/patch and majors).
 - [x] Release (v0.10.0).
 
+## M34 — Public network observatory
+
+Owner request (2026-11-07): the project site shows public, anonymised figures about the network, honest at one node. Design: `docs/design/m34.md`.
+
+- [x] `network.json` (schema `selfhostr-network-stats/1`, CC0) on the feed site next to `stats.json`: nodes, bootstrap (eligible nodes missing against `HUB_MIN_NODES`, weekly), outcomes over 90 days, attack traffic per day and the 30-day services, tags and families.
+- [x] Anonymity rules: no per-node value, eligible nodes only, day granularity with delay (outcomes 2 days, activity 4 days), final days counted once and never recounted, rounded counts, coarse weekly figures below three eligible nodes, outcome precision tied to the consensus thresholds, weekly bootstrap, minimum support for every named item, node countries only from three members.
+- [x] Builder and daily publication in the hub worker (`HUB_OBSERVATORY_ENABLED`, off by default, independent of `HUB_FEED_MODE`), atomic write, migration `h0010` with 400-day retention.
+- [x] Caddy: one CORS origin (`HUB_OBSERVATORY_ORIGIN`), `GET` only, in both Caddyfiles.
+- [x] Tests: every anonymity rule, a key walker over the whole document, publication with feed mode off, freeze-once, end-to-end through the real Caddyfile.
+- [x] Docs: network guide, feeds guide, hub operator guide, changelog.
+- [ ] Observatory page on the project site.
+- [x] Security review (PASS after one round of fixes: eligible nodes only, outcome precision tied to the consensus thresholds, weekly bootstrap, coarse low-volume fields, CVE tags, complete weeks, no UPDATE grant; then weekly rounded totals and a settled weekly count).
+
 ## M35 — Easier joining
 
 The network has one node. The frictions are a spare machine, port forwards on a home router and memory.

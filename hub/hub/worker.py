@@ -2,9 +2,9 @@
 
 Every cycle (hourly by default): built-in never-list entries, consensus, takedown votes,
 never-list re-check, expiry, link verification tasks (when enabled), daily jobs (reputation,
-statistics and the network summary), retention, then grouped reports (queue, auto-approve in
-``auto`` mode, send what is approved),
-then the abuse.ch submissions (same three steps) when a mode and an Auth-Key are set.
+statistics and the network summary), the public observatory (when enabled), retention, then
+grouped reports (queue, auto-approve in ``auto`` mode, send what is approved), then the abuse.ch
+submissions (same three steps) when a mode and an Auth-Key are set.
 A failing step is logged by type only and never stops the others.
 """
 
@@ -16,11 +16,12 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from . import abusech, consensus, egress_check, reputation, retention, stats, verify
+from . import abusech, consensus, egress_check, observatory, reputation, retention, stats, verify
 from . import logging as hub_logging
 from .config import Settings
 from .db import make_engine, make_sessionmaker, utcnow
@@ -38,6 +39,7 @@ log = logging.getLogger("hub.worker")
 
 HEARTBEAT = "heartbeat"
 STATS_MARKER = "stats_day"
+OBSERVATORY_MARKER = "observatory_day"
 
 
 @dataclass
@@ -154,6 +156,21 @@ async def run_cycle(ctx: WorkerContext) -> CycleReport:
         return "ran"
 
     await step("stats", do_stats)
+
+    async def do_observatory(ses: AsyncSession) -> object:
+        # Independent of HUB_FEED_MODE: only the directory is shared with the feeds.
+        frozen = await observatory.freeze_days(ses, s, today)
+        root = Path(s.feed_dir)
+        published = await _get_marker(ses, OBSERVATORY_MARKER) == today.isoformat()
+        if published and frozen == 0 and (root / observatory.FILE).exists():
+            return {"frozen": 0, "published": False}
+        data = observatory.render_bytes(await observatory.load(ses, s, today))
+        await asyncio.to_thread(observatory.publish, root, data)
+        await _set_marker(ses, OBSERVATORY_MARKER, today.isoformat())
+        return {"frozen": frozen, "published": True}
+
+    if s.observatory_enabled:
+        await step("observatory", do_observatory)
     await step("retention", lambda ses: retention.run_retention(ses, s, now, today))
 
     if s.report_mode != "off" and ctx.resolver is not None:

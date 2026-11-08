@@ -251,3 +251,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - One coordinated upgrade replaces the 24 open Dependabot pull requests: Python 3.15 and uv 0.13 in every image (Debian trixie), Node 26, react-router 8, ESLint 10, Redis 8.10, TimescaleDB 2.31, gluetun v3.41.3, hub Caddy 2.11.9 and Alpine 3.24, Actions majors pinned by SHA.
 - Found and fixed on the way: the TimescaleDB 2.31 concurrent-refresh error in the `migrate` backfill (now retried), the redis-py 8 reply types in ingest, the SQLAlchemy 2.1 types in the api, a timing-dependent api test.
 - Lint, typecheck, unit and integration tests (Python and vitest), guardrails, hub integration tests, web build and every image build green; CI green.
+
+## 2026-11-07 - M34 (public network observatory)
+
+- The hub worker can publish `network.json` (schema `selfhostr-network-stats/1`, CC0) on the feed site, once a day and independent of `HUB_FEED_MODE`; off by default (`HUB_OBSERVATORY_ENABLED`). Caddy serves it to one browser origin (`HUB_OBSERVATORY_ORIGIN`), `GET` only. Design: `docs/design/m34.md`.
+- Final days are aggregated once from consensus-eligible nodes into `observatory_daily` (migration `h0010`, 400 days, no UPDATE grant). Figures are rounded, published with a delay, coarse (complete ISO weeks, one significant figure, small figures left out) below three eligible nodes, and outcomes are exact only with production consensus thresholds. Bootstrap figures are counted once a week, from Thursday on.
+- Security review: first pass FAIL (Sybils could unlock precision, exact outcomes with relaxed thresholds, a daily-moving bootstrap, movable small figures, CVE tags, partial weeks, an UPDATE grant); all fixed. Second pass PASS; its two low findings (sliding rounded totals, a weekly count taken before late batches) fixed as well.
+- Lint, full typecheck, hub unit tests and hub integration tests green.

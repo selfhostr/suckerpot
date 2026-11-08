@@ -480,6 +480,10 @@ The lookup gives no dates, no categories, no list names and no node counts. It i
 
 `stats.json` holds the totals per list, 90 days of daily counts, the median time from listing to takedown, the delisting figures and the number of excluded ranges. No value appears in it.
 
+## Network figures: `network.json`
+
+`network.json` holds anonymised figures about the network itself: node counts, how close the network is to its first collective report, confirmations, reports, takedowns and the attack traffic the network sees. When the hub operator turns it on, it is published even while the lists are off. The rules are in [The SuckerPot network](network.md#public-network-figures) and the schema in [M34](design/m34.md). Browsers may read it from the project site only.
+
 ## Privacy
 
 | Question | Answer |
