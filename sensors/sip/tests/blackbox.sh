@@ -23,7 +23,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends sipsak 
     && pip install -q --no-cache-dir sipvicious && rm -rf /var/lib/apt/lists/*
 DOCKERFILE
 docker network create "$NET" >/dev/null
-docker run -d --name "$STREAM" --network "$NET" redis:8.10-alpine >/dev/null
+docker run -d --name "$STREAM" --network "$NET" valkey/valkey:9.1-alpine3.24 >/dev/null
 docker run -d --name "$NAME" --network "$NET" --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --cap-drop ALL --security-opt no-new-privileges:true --memory 128m --memory-swap 128m \
   --cpus 0.5 --pids-limit 128 -v "$NAME-data:/data" \
@@ -72,9 +72,9 @@ docker logs "$NAME" 2>&1 | grep -ci "honeypot\|suckerpot\|traceback" | sed 's/^/
 docker stop -t 3 "$NAME" >/dev/null   # flushes the session summaries / disconnect events
 sleep 1
 echo "--- events by type"
-docker exec "$STREAM" redis-cli XRANGE events:sip - + | grep '^{' | \
+docker exec "$STREAM" valkey-cli XRANGE events:sip - + | grep '^{' | \
   sed -E 's/.*"type":"([a-z_]+)".*/\1/' | sort | uniq -c
-docker exec "$STREAM" redis-cli XRANGE events:sip - + | grep -o '"flags":\[[^]]*\]' | sort | uniq -c | sort -rn | head
-docker exec "$STREAM" redis-cli XRANGE events:sip - + | grep '"login_attempt"' | head -3 | cut -c1-500
-docker exec "$STREAM" redis-cli XRANGE events:sip - + | grep '"toll_fraud"' | head -1 | cut -c1-500
-docker exec "$STREAM" redis-cli XRANGE events:sip - + | grep '"sip_summary"' | head -2 | cut -c1-500
+docker exec "$STREAM" valkey-cli XRANGE events:sip - + | grep -o '"flags":\[[^]]*\]' | sort | uniq -c | sort -rn | head
+docker exec "$STREAM" valkey-cli XRANGE events:sip - + | grep '"login_attempt"' | head -3 | cut -c1-500
+docker exec "$STREAM" valkey-cli XRANGE events:sip - + | grep '"toll_fraud"' | head -1 | cut -c1-500
+docker exec "$STREAM" valkey-cli XRANGE events:sip - + | grep '"sip_summary"' | head -2 | cut -c1-500
