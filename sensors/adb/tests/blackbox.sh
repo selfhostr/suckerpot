@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT; cleanup
 docker build -q -f sensors/adb/Dockerfile -t "$IMG" . >/dev/null
 docker network create "$NET" >/dev/null
-docker run -d --name "$REDIS" --network "$NET" --memory 64m redis:8.10-alpine >/dev/null
+docker run -d --name "$REDIS" --network "$NET" --memory 64m valkey/valkey:9.1-alpine3.24 >/dev/null
 docker run -d --name "$NAME" --network "$NET" --read-only --tmpfs /tmp --cap-drop ALL \
   --security-opt no-new-privileges:true --memory 256m --memory-swap 256m --cpus 0.5 --pids-limit 128 \
   -v "$NAME-data:/data" -e REDIS_HOST="$REDIS" -e EVENTS_STREAM=events:adb "$IMG" >/dev/null
@@ -71,9 +71,9 @@ docker run --rm --network "$NET" instrumentisto/nmap -sV -p 5555 "$NAME" | grep 
 docker run --rm --network "$NET" instrumentisto/nmap -sV --version-all -p 5555 "$NAME" | grep -E "^5555|SF|Service" | head -5 || true
 sleep 2
 echo "--- stream events:adb"
-docker exec "$REDIS" redis-cli XLEN events:adb
-docker exec "$REDIS" redis-cli XRANGE events:adb - + COUNT 1000 | grep -o '"type":"[a-z_]*"' | sort | uniq -c
-docker exec "$REDIS" redis-cli XRANGE events:adb - + COUNT 1000 | grep -E "adb_push|adb_install|198\.51\.100" | cut -c1-200 | head -8
+docker exec "$REDIS" valkey-cli XLEN events:adb
+docker exec "$REDIS" valkey-cli XRANGE events:adb - + COUNT 1000 | grep -o '"type":"[a-z_]*"' | sort | uniq -c
+docker exec "$REDIS" valkey-cli XRANGE events:adb - + COUNT 1000 | grep -E "adb_push|adb_install|198\.51\.100" | cut -c1-200 | head -8
 docker logs "$NAME" 2>&1 | head -5
 docker logs "$NAME" 2>&1 | grep -ci "honeypot\|suckerpot" | sed "s/^/giveaway_lines_in_logs=/" || true
 docker stats --no-stream --format 'mem={{.MemUsage}} cpu={{.CPUPerc}} pids={{.PIDs}}' "$NAME"

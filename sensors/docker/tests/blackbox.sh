@@ -7,7 +7,7 @@ set -euo pipefail
 NET=sp-docker-bb
 IMG=sp-docker-bb:dev
 docker network create --internal $NET >/dev/null
-docker run -d --rm --name sp-docker-bb-redis --network $NET --network-alias redis redis:8.10-alpine >/dev/null
+docker run -d --rm --name sp-docker-bb-redis --network $NET --network-alias redis valkey/valkey:9.1-alpine3.24 >/dev/null
 docker build -q -f sensors/docker/Dockerfile -t $IMG . >/dev/null
 docker run -d --rm --name sp-docker-bb --network $NET --network-alias sensor \
   -e REDIS_HOST=redis -e EVENTS_STREAM=events:docker \
@@ -35,4 +35,4 @@ docker run --rm --network $NET curlimages/curl -si -X POST -H 'Content-Type: app
   http://sensor:2375/containers/create
 # Takes several minutes: the version probes that send partial requests wait for the head timeout.
 docker run --rm --network $NET instrumentisto/nmap -sV -p 2375 -Pn sensor
-docker exec sp-docker-bb-redis redis-cli XLEN events:docker
+docker exec sp-docker-bb-redis valkey-cli XLEN events:docker

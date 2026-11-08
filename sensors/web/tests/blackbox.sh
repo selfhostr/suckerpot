@@ -5,7 +5,7 @@
 set -euo pipefail
 NET=sp-web-bb
 docker network create $NET >/dev/null
-docker run -d --rm --name sp-web-bb-redis --network $NET redis:8.10-alpine >/dev/null
+docker run -d --rm --name sp-web-bb-redis --network $NET valkey/valkey:9.1-alpine3.24 >/dev/null
 docker build -q -f sensors/web/Dockerfile -t sp-web-bb:dev . >/dev/null
 docker run -d --rm --name sp-web-bb --network $NET -e REDIS_HOST=sp-web-bb-redis \
   -e EVENTS_STREAM=events:web -e WEB_CONN_RATE=200 -e WEB_CONN_BURST=400 -e WEB_MAX_PER_IP=50 \
