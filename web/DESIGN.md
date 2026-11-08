@@ -278,5 +278,5 @@ Primitives (button, card, badge, tooltip, dropdown-menu, sheet, separator, skele
 - **API clients**: one `src/lib/<feature>-api.ts` per feature, exporting its own `<feature>QueryKeys`. Do not extend `api.ts` or its `queryKeys`.
 - **Mocks**: one `src/mocks/<feature>.ts` per feature (campaigns, defend, scripts, alerts, search, today), already imported by `handlers.ts`.
 - **Styleguide**: add `src/pages/styleguide/<feature>.tsx` exporting `section: FeatureSection` (see `registry.ts`); it is picked up automatically, listed in the table of contents and cropped by the screenshot run.
-- **Screenshot specs**: `e2e/screenshots.spec.ts` covers the original pages. New specs go in `e2e/<feature>.spec.ts` and import `settle`, `shoot`, `shootTall`, `h1` from `e2e/helpers.ts`.
+- **E2E specs**: new specs go in `e2e/<feature>.spec.ts` and import `settle`, `shoot`, `shootTall`, `h1` from `e2e/helpers.ts`.
 - **Settings** is a tab layout driven by `?tab=` (general, keys, users, audit, alerts, feeds). Add content to a tab, not a new section above it.
