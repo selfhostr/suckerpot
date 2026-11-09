@@ -13,10 +13,13 @@ from ssh_sensor.shell.util import MAX_LINE_CHARS, fmt_date, human_size, read_tex
 MAX_DATE_FORMAT = 128
 MAX_DATE_OUTPUT = 1024
 
-# user, pid, %cpu, %mem, vsz, rss, tty, stat, start, time, command
-_PROCS: tuple[tuple[str, int, float, float, int, int, str, str, str, str, str], ...] = (
-    ("root", 1, 0.0, 0.3, 22560, 13408, "?", "Ss", "Oct12", "0:07", "/sbin/init"),
-    ("root", 2, 0.0, 0.0, 0, 0, "?", "S", "Oct12", "0:00", "[kthreadd]"),
+# A worker spawned when the load rose, some days after boot (clamped to the uptime).
+_WORKER_START = 3 * 86400
+
+# user, pid, %cpu, %mem, vsz, rss, tty, stat, start (seconds after boot), time, command
+_PROCS: tuple[tuple[str, int, float, float, int, int, str, str, int, str, str], ...] = (
+    ("root", 1, 0.0, 0.3, 22560, 13408, "?", "Ss", 0, "0:07", "/sbin/init"),
+    ("root", 2, 0.0, 0.0, 0, 0, "?", "S", 0, "0:00", "[kthreadd]"),
     (
         "root",
         412,
@@ -26,13 +29,13 @@ _PROCS: tuple[tuple[str, int, float, float, int, int, str, str, str, str, str], 
         20328,
         "?",
         "S<s",
-        "Oct12",
+        5,
         "0:03",
         "/lib/systemd/systemd-journald",
     ),
-    ("root", 689, 0.0, 0.1, 6600, 4096, "?", "Ss", "Oct12", "0:00", "/usr/sbin/cron -f -P"),
-    ("root", 702, 0.0, 0.3, 15432, 9216, "?", "Ss", "Oct12", "0:01", "/usr/sbin/sshd -D"),
-    ("mysql", 811, 0.3, 9.8, 1791260, 394688, "?", "Ssl", "Oct12", "21:44", "/usr/sbin/mysqld"),
+    ("root", 689, 0.0, 0.1, 6600, 4096, "?", "Ss", 9, "0:00", "/usr/sbin/cron -f -P"),
+    ("root", 702, 0.0, 0.3, 15432, 9216, "?", "Ss", 11, "0:01", "/usr/sbin/sshd -D"),
+    ("mysql", 811, 0.3, 9.8, 1791260, 394688, "?", "Ssl", 14, "21:44", "/usr/sbin/mysqld"),
     (
         "root",
         903,
@@ -42,7 +45,7 @@ _PROCS: tuple[tuple[str, int, float, float, int, int, str, str, str, str, str], 
         28852,
         "?",
         "Ss",
-        "Oct12",
+        16,
         "0:19",
         "/usr/sbin/apache2 -k start",
     ),
@@ -55,7 +58,7 @@ _PROCS: tuple[tuple[str, int, float, float, int, int, str, str, str, str, str], 
         21404,
         "?",
         "S",
-        "Oct19",
+        _WORKER_START,
         "0:02",
         "/usr/sbin/apache2 -k start",
     ),
@@ -68,7 +71,7 @@ _PROCS: tuple[tuple[str, int, float, float, int, int, str, str, str, str, str], 
         21380,
         "?",
         "S",
-        "Oct19",
+        _WORKER_START,
         "0:02",
         "/usr/sbin/apache2 -k start",
     ),
@@ -81,7 +84,7 @@ _PROCS: tuple[tuple[str, int, float, float, int, int, str, str, str, str, str], 
         7936,
         "?",
         "Ss",
-        "Oct12",
+        6,
         "0:00",
         "/lib/systemd/systemd-logind",
     ),
@@ -90,6 +93,19 @@ _PROCS: tuple[tuple[str, int, float, float, int, int, str, str, str, str, str], 
 
 def _uptime(sh: Shell) -> int:
     return max(0, int(sh.now()) - sh.profile.boot_epoch)
+
+
+def _stime(sh: Shell, offset: int) -> str:
+    """ps START/STIME of a process started ``offset`` seconds after boot: the clock time if it
+    started today, else ``MonDD``, else the year."""
+    now = int(sh.now())
+    ts = min(sh.profile.boot_epoch + offset, now - 60 * (offset > 0))
+    t, n = time.gmtime(ts), time.gmtime(now)
+    if (t.tm_year, t.tm_yday) == (n.tm_year, n.tm_yday):
+        return f"{t.tm_hour:02d}:{t.tm_min:02d}"
+    if now - ts < 365 * 86400:
+        return f"{bi_mon(t.tm_mon)}{t.tm_mday:02d}"
+    return str(t.tm_year)
 
 
 def _uptime_str(sh: Shell) -> str:
@@ -209,8 +225,13 @@ def cmd_last(sh: Shell, io: CmdIO) -> int:
     t = time.gmtime(sh.started)
     stamp = f"{bi_day(t.tm_wday)} {bi_mon(t.tm_mon)} {t.tm_mday:2d} {t.tm_hour:02d}:{t.tm_min:02d}"
     io.write(f"{sh.user.name:<8} pts/0        {sh.client_ip:<16} {stamp}   still logged in\n")
-    io.write(f"reboot   system boot  {sh.profile.kernel:<16} Sun Oct 12 06:11   still running\n\n")
-    io.write("wtmp begins Sun Oct 12 06:11:12 2026\n")
+    b = time.gmtime(sh.profile.boot_epoch)
+    boot = f"{bi_day(b.tm_wday)} {bi_mon(b.tm_mon)} {b.tm_mday:2d} {b.tm_hour:02d}:{b.tm_min:02d}"
+    io.write(f"reboot   system boot  {sh.profile.kernel:<16} {boot}   still running\n\n")
+    io.write(
+        f"wtmp begins {bi_day(b.tm_wday)} {bi_mon(b.tm_mon)} {b.tm_mday:2d} "
+        f"{b.tm_hour:02d}:{b.tm_min:02d}:{b.tm_sec:02d} {b.tm_year}\n"
+    )
     return 0
 
 
@@ -238,9 +259,11 @@ def cmd_ps(sh: Shell, io: CmdIO) -> int:
     if flags & {"a", "e", "A", "x"} or "ef" in args or "aux" in args:
         if "f" in flags and "u" not in flags and "aux" not in args:
             io.write("UID          PID    PPID  C STIME TTY          TIME CMD\n")
-            for user, pid, *_rest, cmd in _PROCS:
+            for user, pid, _c, _m, _v, _r, _t, _s, start, _x, cmd in _PROCS:
                 ppid = 0 if pid <= 2 else 1
-                io.write(f"{user[:8]:<8} {pid:>7} {ppid:>7}  0 Oct12 ?        00:00:00 {cmd}\n")
+                io.write(
+                    f"{user[:8]:<8} {pid:>7} {ppid:>7}  0 {_stime(sh, start):<5} ?        00:00:00 {cmd}\n"
+                )
             io.write(
                 f"{sh.user.name[:8]:<8} {sh.pid + 1:>7} {sh.pid:>7}  0 {_login_time(sh)} pts/0    00:00:00 -bash\n"
             )
@@ -251,7 +274,7 @@ def cmd_ps(sh: Shell, io: CmdIO) -> int:
         io.write("USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND\n")
         for user, pid, cpu, mem, vsz, rss, tty, stat, start, cputime, cmd in _PROCS:
             io.write(
-                f"{user[:8]:<8} {pid:>7} {cpu:>4.1f} {mem:>4.1f} {vsz:>6} {rss:>5} {tty:<8} {stat:<4} {start:<5} {cputime:>5} {cmd}\n"
+                f"{user[:8]:<8} {pid:>7} {cpu:>4.1f} {mem:>4.1f} {vsz:>6} {rss:>5} {tty:<8} {stat:<4} {_stime(sh, start):<5} {cputime:>5} {cmd}\n"
             )
         t = _login_time(sh)
         io.write(

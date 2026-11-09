@@ -3,19 +3,22 @@ believable output, then drop a tiny stub file into the fake filesystem."""
 
 from __future__ import annotations
 
+import ipaddress
 import posixpath
 import re
 from urllib.parse import urlsplit
 
 from suckerpot_common import EventType
 
-from ssh_sensor.shell.baseimage import ELF_STUB
 from ssh_sensor.shell.core import CmdIO, PendingEvent, parse_flags
 from ssh_sensor.shell.fs import FSError
 from ssh_sensor.shell.interp import Shell
+from ssh_sensor.shell.payload import Payload, payload_for
 
 MAX_URLS = 8
-_SCRIPT_STUB = b"#!/bin/sh\nexit 0\n"
+# Top-level names that never resolve on the public internet (RFC 2606, RFC 6761, mDNS, Tor).
+_DEAD_TLDS = frozenset({"invalid", "test", "example", "localhost", "local", "onion", "lan"})
+_LABEL_RE = re.compile(r"^[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?$")
 _IP_ECHO_HOSTS = (
     "ifconfig.me",
     "icanhazip.com",
@@ -36,15 +39,54 @@ def _record(sh: Shell, url: str, tool: str, io: CmdIO) -> None:
     )
 
 
-def _drop(sh: Shell, io: CmdIO, path: str, url: str) -> int:
-    """Create the fake downloaded file. Returns its size."""
-    name = posixpath.basename(urlsplit(url).path)
-    script = name.endswith((".sh", ".py", ".pl"))
-    data = _SCRIPT_STUB if script else ELF_STUB
+def _drop(sh: Shell, io: CmdIO, path: str, url: str) -> Payload:
+    """Create the fake downloaded file. Its type and size depend on the URL."""
+    payload = payload_for(url)
     if not sh.fs.may_write(path, sh.user.name, sh.user.home):
         raise FSError("Permission denied")
-    sh.fs.write(path, data, append=False, owner=sh.user.name, tag="script" if script else "elf")
-    return len(data)
+    sh.fs.write(
+        path,
+        payload.content,
+        append=False,
+        owner=sh.user.name,
+        tag=payload.tag,
+        size=payload.size,
+    )
+    return payload
+
+
+def host_exists(host: str) -> bool:
+    """False for a host name that cannot resolve: malformed, no dot, or a reserved TLD."""
+    host = host.rstrip(".").lower()
+    if not host or len(host) > 253:
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return True
+    except ValueError:
+        pass
+    labels = host.split(".")
+    if len(labels) < 2 or labels[-1] in _DEAD_TLDS:
+        return False
+    if all(part.isdigit() for part in labels):
+        return False  # a dotted quad that is not a valid address
+    return all(_LABEL_RE.match(part) for part in labels)
+
+
+def _is_loopback(host: str) -> bool:
+    return host.lower() == "localhost" or host.startswith("127.")
+
+
+def _human(n: int) -> str:
+    """wget's legible size: ``512``, ``5.3K``, ``14K``, ``1.2M``."""
+    value = float(n)
+    for unit in ("", "K", "M", "G"):
+        if value < 1024 or unit == "G":
+            if not unit:
+                return str(n)
+            return f"{value:.1f}{unit}" if value < 10 else f"{value:.0f}{unit}"
+        value /= 1024
+    return str(n)
 
 
 def _local_name(sh: Shell, url: str, directory: str, default: str = "index.html") -> str:
@@ -87,33 +129,57 @@ def cmd_wget(sh: Shell, io: CmdIO) -> int:
     for url in urls:
         _record(sh, url, "wget", io)
         parts = urlsplit(url)
-        host = parts.hostname or "localhost"
-        port = parts.port or (443 if parts.scheme == "https" else 80)
+        try:
+            host = parts.hostname or ""
+            port = parts.port or (443 if parts.scheme == "https" else 80)
+        except ValueError:
+            host, port = "", 80
+        if not host_exists(host) and not _is_loopback(host):
+            if not quiet:
+                shown = host or url
+                io.error(
+                    f"--{_stamp(sh)}--  {url}\n"
+                    f"Resolving {shown} ({shown})... failed: Name or service not known.\n"
+                    f"wget: unable to resolve host address ‘{shown}’\n"
+                )
+            status = 4
+            continue
+        if _is_loopback(host):
+            if not quiet:
+                io.error(
+                    f"--{_stamp(sh)}--  {url}\n"
+                    f"Resolving {host} ({host})... 127.0.0.1\n"
+                    f"Connecting to {host} ({host})|127.0.0.1|:{port}... "
+                    "failed: Connection refused.\n"
+                )
+            status = 4
+            continue
+        dest_shown = out_name or posixpath.basename(parts.path) or "index.html"
         try:
             if out_name == "-":
-                size = len(_SCRIPT_STUB)
+                payload = payload_for(url)
                 dest_shown = "STDOUT"
             else:
                 dest = sh.abspath(out_name) if out_name else _local_name(sh, url, directory)
-                size = _drop(sh, io, dest, url)
+                payload = _drop(sh, io, dest, url)
                 dest_shown = posixpath.basename(dest)
+            size = payload.size
         except FSError as exc:
-            io.error(
-                f"{dest_shown if out_name else posixpath.basename(urlsplit(url).path) or 'index.html'}: {exc}\n"
-            )
+            io.error(f"{dest_shown}: {exc}\n")
             status = 1
             continue
         ip = sh.profile.resolve(host)
+        speed = f"{0.8 + sh.profile._num('wget-speed|' + url, 40) / 10:.1f}"
         if not quiet:
             io.error(
                 f"--{_stamp(sh)}--  {url}\n"
                 f"Resolving {host} ({host})... {ip}\n"
                 f"Connecting to {host} ({host})|{ip}|:{port}... connected.\n"
                 f"HTTP request sent, awaiting response... 200 OK\n"
-                f"Length: {size} ({size}) [application/octet-stream]\n"
+                f"Length: {size} ({_human(size)}) [{payload.mime}]\n"
                 f"Saving to: ‘{dest_shown}’\n\n"
                 f"{dest_shown:<24} 100%[===================>] {size:>5}  --.-KB/s    in 0s\n\n"
-                f"{_stamp(sh)} (1.2 MB/s) - ‘{dest_shown}’ saved [{size}/{size}]\n\n"
+                f"{_stamp(sh)} ({speed} MB/s) - ‘{dest_shown}’ saved [{size}/{size}]\n\n"
             )
         _wait(sh, 1.0)
     return status
@@ -128,12 +194,30 @@ def cmd_curl(sh: Shell, io: CmdIO) -> int:
     status = 0
     for url in urls:
         _record(sh, url, "curl", io)
-        host = urlsplit(url).hostname or ""
+        try:
+            host = urlsplit(url).hostname or ""
+            port = urlsplit(url).port or (443 if url.startswith("https") else 80)
+        except ValueError:
+            host, port = "", 80
+        quiet = ("s" in flags or "silent" in flags) and "S" not in flags
+        if not host_exists(host) and not _is_loopback(host):
+            if not quiet:
+                io.error(f"curl: (6) Could not resolve host: {host or url}\n")
+            status = 6
+            continue
+        if _is_loopback(host):
+            if not quiet:
+                io.error(
+                    f"curl: (7) Failed to connect to {host} port {port} after 0 ms: "
+                    "Couldn't connect to server\n"
+                )
+            status = 7
+            continue
         saves = "o" in values or "O" in flags or "remote-name" in flags
         if saves:
             try:
                 dest = sh.abspath(values["o"]) if "o" in values else _local_name(sh, url, sh.cwd)
-                size = _drop(sh, io, dest, url)
+                size = _drop(sh, io, dest, url).size
             except FSError as exc:
                 io.error(f"curl: (23) Failure writing output to destination: {exc}\n")
                 status = 23
