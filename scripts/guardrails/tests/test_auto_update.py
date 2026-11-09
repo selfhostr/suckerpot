@@ -209,7 +209,7 @@ def test_images_that_do_not_verify_are_refused_before_any_change(sandbox: Sandbo
 
 def test_a_failed_update_rolls_back_and_remembers_the_version(sandbox: Sandbox) -> None:
     stage_auto(sandbox)
-    sandbox.env["SHIM_UPDATE_RC"] = "1"
+    sandbox.env["SHIM_UPDATE_RC"] = "10"  # update.sh: a regression caused by the release
     sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
     proc = run_auto(sandbox)
     assert proc.returncode == 1
@@ -228,9 +228,31 @@ def test_a_failed_update_rolls_back_and_remembers_the_version(sandbox: Sandbox) 
     assert result(sandbox)["error_code"] == "up_to_date"
 
 
-def test_a_failed_rollback_is_reported_and_blocks_later_runs(sandbox: Sandbox) -> None:
+def test_a_failed_update_that_is_not_a_regression_is_retried(sandbox: Sandbox) -> None:
+    """A failure not caused by the release (for example a node that was already degraded) never
+    blacklists the version: it is rolled back and tried again on the next run."""
     stage_auto(sandbox)
     sandbox.env["SHIM_UPDATE_RC"] = "1"
+    sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
+    assert run_auto(sandbox).returncode == 1
+    assert names(sandbox) == ["update", "rollback"]
+    assert result(sandbox)["error_code"] == "update_failed_rolled_back"
+    assert not (sandbox.root / ".suckerpot-state" / "bad-versions").exists()
+    # The next run tries the same release again.
+    sandbox.log.write_text("")
+    sandbox.git_set("head", OLD)
+    (sandbox.root / ".suckerpot-state" / "last-update.json").write_text(
+        '{\n  "completed": true,\n}\n'
+    )
+    sandbox.env["SHIM_UPDATE_RC"] = "0"
+    assert run_auto(sandbox).returncode == 0
+    assert names(sandbox) == ["update"]
+    assert result(sandbox)["last_result"] == "updated"
+
+
+def test_a_failed_rollback_is_reported_and_blocks_later_runs(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    sandbox.env["SHIM_UPDATE_RC"] = "10"
     sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
     sandbox.env["SHIM_ROLLBACK_RC"] = "1"
     assert run_auto(sandbox).returncode == 1

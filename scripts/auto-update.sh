@@ -14,7 +14,11 @@
 #     major version is tried, at most 3 per run; it never goes below the installed version;
 #   - its images verify (scripts/verify-images.sh).
 # Then it runs scripts/update.sh --yes --auto (backup first). If the update fails after the code
-# changed, it runs scripts/rollback.sh --yes, remembers the version as bad and never retries it.
+# changed, it runs scripts/rollback.sh --yes (which restores the database only if the schema
+# moved). The version is remembered as bad and never retried only when the release itself is at
+# fault (update.sh exit 10: a service that was healthy turned unhealthy, a migration or a
+# verification failed). Any other failure is logged and retried on the next run, and a node that
+# was already degraded before the update never blacklists a release.
 #
 # One run at a time (flock on .suckerpot-state/update.lock). A random wait of up to 30 minutes
 # keeps a fleet from updating at the same second (AUTO_UPDATE_JITTER_S overrides the maximum).
@@ -167,10 +171,17 @@ if [ "$(git rev-parse HEAD)" = "$head_before" ]; then
   record failed update_failed
 fi
 
+# Only a failure caused by the release itself blacklists it (update.sh exit 10).
+release_fault=0
+[ "$up_rc" -ne 10 ] || release_fault=1
+if [ "$release_fault" = 0 ]; then
+  log "not held against $target: the failure is not a regression introduced by that release (exit $up_rc); it is retried on the next run"
+fi
+
 log "rolling back to $from_version"
 if bash scripts/rollback.sh --yes; then
-  printf '%s\n' "$target" >> "$BAD"
+  if [ "$release_fault" = 1 ]; then mark_bad "$target" update_regression; fi
   record failed update_failed_rolled_back
 fi
-printf '%s\n' "$target" >> "$BAD"
+if [ "$release_fault" = 1 ]; then mark_bad "$target" update_regression; fi
 record failed rollback_failed

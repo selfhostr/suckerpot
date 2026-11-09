@@ -58,6 +58,12 @@ If you are already on the target, it says `Already on vX.Y.Z. Nothing to update.
 
 Installs made before the install modes existed count as `source`. An update keeps them on source, unless you change the mode in `.env` yourself.
 
+### Health is judged against the node before the update
+
+Before it changes anything, the update records the health of every service. After the restart it fails only on a regression: a service that was healthy (or had no healthcheck) before and is not healthy afterwards. A service that was `starting` gets up to `UPDATE_HEALTH_WAIT_SECONDS` (default 180) to turn healthy.
+
+A service that was already unhealthy before and still is does not fail the update. The update prints a warning (`was already unhealthy before the update`) so you can fix it. This matters when a release fixes the very bug that made the service unhealthy.
+
 ### Settings that are added
 
 Step 5 adds three kinds of settings to `.env`, under a comment with the date:
@@ -89,9 +95,9 @@ The time is a random minute between 03:00 and 05:59 local time, chosen at instal
 3. It picks the newest release tag of the **same major version** that is newer than the running one and not marked bad.
 4. It verifies the signed release manifest (`scripts/verify-release.sh`) and the image signatures. The manifest must be signed by the release workflow, its commit must be the commit of the tag, and the release must be old enough. The minimum age is the largest of 48 hours, the `auto_min_age_h` of the manifest and `AUTO_UPDATE_MIN_AGE_H` in `.env` (hours; it can only make the wait longer, never below 48). A release cannot shorten its own waiting time.
 5. It runs `update.sh --yes --auto`, which takes a database dump first.
-6. It waits up to 10 minutes for every service to be healthy, the running version to match, and the network node to answer.
+6. It waits for the services, the running version to match, and the network node to answer. See [Health is judged against the node before the update](#health-is-judged-against-the-node-before-the-update).
    If the release has a real verdict against it (no signed manifest, a manifest that does not match its tag, or a signature that cosign rejects), it is written to `.suckerpot-state/bad-versions` with its reason in `bad-versions.log`, and the next newest release of the same major version is tried, up to 3 per run. It never installs a version older than the running one. A release that is only too young stops the run and is tried again the next day. Anything that gives no verdict (a download that fails, Docker or Sigstore not reachable, a full disk) is not held against the release: the run ends as `verification_unavailable` and tries again the next day. To allow a tag again, delete its line from `bad-versions`.
-7. If anything fails after the code changed, it runs the [rollback](#rollback), marks the version as bad and never tries it again. The next release is tried normally.
+7. If anything fails after the code changed, it runs the [rollback](#rollback). The version is marked as bad, and never tried again, only when the release itself is at fault: a service that was healthy turned unhealthy, a migration failed, or a verification failed. Any other failure is logged and the release is tried again on the next run, so a node that was already degraded never blacklists a fix. The next release is tried normally.
 
 The outcome of the last run is in `.suckerpot-state/auto-update.json`, and the log is in `.suckerpot-state/auto-update.log` (rotated at 1 MiB). `./scripts/status.sh` shows both.
 
@@ -201,6 +207,7 @@ Migrations are forward-only. A new release may change the database in a way that
   "from_branch": "",
   "mode": "images",
   "dump": "suckerpot-preupdate-20261102T031500Z.dump",
+  "alembic_before": "3f1a9c0d2b7e",
   "target": "v0.9.0",
   "at": "2026-11-02T03:15:00Z",
   "completed": false,
@@ -237,7 +244,9 @@ Before it changes anything, it checks:
 - the dump is in the `suckerpot_backups` volume (if the retention removed it, rollback stops);
 - the update was made with a backup (an update with `--no-backup` cannot be rolled back).
 
-It then prints what it will do and asks you to type `rollback`:
+It then compares the database schema revision (Alembic) recorded before the update with the current one. If the schema moved, or the revision cannot be read, the database is restored from the dump. If it did not move, the data is kept and only the code and images go back. Force either choice with `bash scripts/rollback.sh --restore-db` or `--keep-db`.
+
+It then prints what it will do and asks you to type `rollback`. When the schema moved:
 
 ```text
 Rollback of the update made at 2026-11-02T03:15:00Z:
@@ -249,18 +258,18 @@ Events received since that dump are lost.
 Type "rollback" to continue:
 ```
 
-After you confirm, it runs four steps:
+When the schema did not move, the database line reads `database: KEPT as it is, no event is lost`. After you confirm, it runs four steps:
 
 | Step | Action |
 | --- | --- |
 | `[1/4]` | Checks out the previous code, on its branch when it had one. |
 | `[2/4]` | Restores the previous version in `.env`. In images mode it verifies the old images and pulls them by digest. In source mode it rebuilds. |
-| `[3/4]` | Restores the database from the dump. `scripts/restore-db.sh` asks its own confirmation. |
+| `[3/4]` | Restores the database from the dump, only when the schema moved (or with `--restore-db`). `scripts/restore-db.sh` asks its own confirmation. |
 | `[4/4]` | Starts the stack and waits until every service is healthy. |
 
 ### What a rollback costs
 
-- Every row written to the database after the dump is gone. That includes events, sessions, indicators, reports, alerts, accounts and settings changed after the dump.
+- When the database is restored, every row written to it after the dump is gone. That includes events, sessions, indicators, reports, alerts, accounts and settings changed after the dump.
 - Only the database is restored. The other volumes, such as the sensor data, are not touched.
 - `.env` is not rolled back. Settings that the update added stay in it. Only `SUCKERPOT_VERSION` changes, in images mode.
 
@@ -274,7 +283,7 @@ update FAILED after the code was changed. Nothing was rolled back automatically.
       just rollback
 ```
 
-A rollback is your decision, because it replaces the database.
+A rollback is your decision, because it may replace the database.
 
 ## Automatic updates and the docker group
 

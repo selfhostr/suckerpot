@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Updates no longer fail, roll back and blacklist a release because a service was already unhealthy before the update: the health of every service is recorded first and only a regression fails (`UPDATE_HEALTH_WAIT_SECONDS`, default 180, bounds the wait for `starting` services). A rollback restores the database only when the Alembic revision changed (`--restore-db` and `--keep-db` override it), and the automatic updater adds a release to `bad-versions` only when the release itself is at fault.
+
 ### Added
 
 - Hub: public network observatory (design M34). With `HUB_OBSERVATORY_ENABLED=true` (off by default) the worker publishes `network.json` (schema `selfhostr-network-stats/1`, CC0) on the feed site once a day, independent of `HUB_FEED_MODE`: node counts, the bootstrap state against `HUB_MIN_NODES`, confirmations, reports and takedowns, attack traffic per day and the most targeted services, tags and malware families. Every figure is a network total from consensus-eligible nodes only, at day level, published with a delay, rounded, and coarse (weekly, one significant figure, small figures left out) while fewer than three eligible nodes contribute; outcomes are exact only with production consensus thresholds, and bootstrap figures are counted once a week. No per-node value appears. Caddy allows one browser origin to read it (`HUB_OBSERVATORY_ORIGIN`, default `https://suckerpot.selfhostr.io`, `GET` only).

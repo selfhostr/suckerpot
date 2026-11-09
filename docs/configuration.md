@@ -676,6 +676,7 @@ Participant mode is described in [Join the network](participate.md). The install
 | `SELF_TERMS_AUTO_CONFIRM` | `false` (`true` in participant mode) | `ingest` | Learned own addresses act without a click |
 | `SELF_ADDRESS` | empty | `ingest` | Optional own public address. No script looks it up |
 | `AUTO_UPDATE_ENABLED` | `false` (`true` in participant mode) | scripts | Install new signed releases once a day from the user's crontab. See [Updates](updates.md#automatic-updates) |
+| `UPDATE_HEALTH_WAIT_SECONDS` | `180` | scripts | How long an update waits for services that are still starting. Only a service that was healthy before the update fails it. See [Updates](updates.md#health-is-judged-against-the-node-before-the-update) |
 
 The hub address and key are not in `.env` by default. They ship inside each release (`config/network-defaults.env`), and an explicit `.env` value always wins. `NETWORK_HUB_KEY` accepts up to three comma-separated keys, for a key rollover.
 
