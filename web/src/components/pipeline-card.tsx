@@ -39,7 +39,7 @@ export function PipelineCard() {
             </dd>
           </div>
           <div className="space-y-1">
-            <dt className="text-xs text-fg-muted">Last successful write</dt>
+            <dt className="text-xs text-fg-muted">Last healthy check</dt>
             <dd className="text-sm text-fg">
               {p.last_ok_at ? <RelativeTime iso={p.last_ok_at} className="text-sm" /> : "Not known"}
             </dd>
