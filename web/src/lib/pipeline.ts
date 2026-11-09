@@ -63,7 +63,7 @@ export function formatStalledFor(seconds: number): string {
 
 export function stalledSentence(seconds: number): string {
   const d = formatStalledFor(seconds)
-  return `Events have not been stored for ${d}. Attacks reaching your sensors are being lost.`
+  return `Events have not been stored for ${d}. They are waiting in a queue for now, but once it fills up, the oldest attacks are lost.`
 }
 
 export function parkedSentence(n: number): string {
@@ -72,7 +72,8 @@ export function parkedSentence(n: number): string {
 
 /** Settings finding sentence. */
 export function pipelineFinding(p: PipelineStatus): string {
-  if (p.status === "stalled") return stalledSentence(p.stalled_for_seconds)
+  if (p.status === "stalled")
+    return `Ingest has not checked in for ${formatStalledFor(p.stalled_for_seconds)}.`
   if (p.status === "ok")
     return p.parked_events > 0
       ? `Events are being stored, but ${plural(p.parked_events, "event")} had to be set aside.`

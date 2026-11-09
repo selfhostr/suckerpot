@@ -22,7 +22,7 @@ describe("formatStalledFor", () => {
 describe("sentences", () => {
   it("tells the loss in plain words", () => {
     expect(stalledSentence(42 * 60)).toBe(
-      "Events have not been stored for 42 minutes. Attacks reaching your sensors are being lost.",
+      "Events have not been stored for 42 minutes. They are waiting in a queue for now, but once it fills up, the oldest attacks are lost.",
     )
     expect(parkedSentence(1)).toBe("1 event could not be stored and was set aside.")
     expect(parkedSentence(1200)).toBe("1,200 events could not be stored and were set aside.")
@@ -30,6 +30,9 @@ describe("sentences", () => {
   it("has a finding for every state", () => {
     expect(pipelineFinding(UNKNOWN_PIPELINE)).toMatch(/not available/)
     expect(pipelineFinding({ ...UNKNOWN_PIPELINE, status: "ok" })).toMatch(/normally/)
+    expect(
+      pipelineFinding({ ...UNKNOWN_PIPELINE, status: "stalled", stalled_for_seconds: 42 * 60 }),
+    ).toBe("Ingest has not checked in for 42 minutes.")
   })
 })
 

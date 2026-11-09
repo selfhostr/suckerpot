@@ -36,15 +36,18 @@ function Reveal({ children }: { children: React.ReactNode }) {
 function Stalled({ p }: { p: PipelineStatus }) {
   return (
     <div
-      role="alert"
+      data-testid="pipeline-stalled"
       className="tint-severe flex items-start gap-3 rounded-lg border border-sev-severe/40 px-4 py-3"
     >
+      <span role="alert" className="sr-only">
+        Events are not being stored.
+      </span>
       <OctagonAlert
         aria-hidden
         className="mt-0.5 size-5 shrink-0 text-sev-severe"
         strokeWidth={2}
       />
-      <div className="min-w-0 space-y-1">
+      <div aria-live="off" className="min-w-0 space-y-1">
         <p className="text-sm font-medium text-pretty text-fg">
           {stalledSentence(p.stalled_for_seconds)}
         </p>
@@ -55,8 +58,8 @@ function Stalled({ p }: { p: PipelineStatus }) {
         ) : null}
         <p className="text-xs text-fg-muted">
           Check the ingest service:{" "}
-          <code className="font-mono text-fg">docker compose ps ingest</code> and{" "}
-          <code className="font-mono text-fg">docker compose logs ingest</code>.
+          <code className="font-mono whitespace-nowrap text-fg">docker compose ps ingest</code> and{" "}
+          <code className="font-mono whitespace-nowrap text-fg">docker compose logs ingest</code>.
         </p>
       </div>
     </div>
@@ -81,7 +84,7 @@ function Parked({ count, onDismiss }: { count: number; onDismiss: () => void }) 
         variant="ghost"
         size="icon"
         aria-label="Dismiss this notice"
-        className="size-7 shrink-0"
+        className="size-8 shrink-0"
         onClick={onDismiss}
       >
         <X aria-hidden className="size-4" />

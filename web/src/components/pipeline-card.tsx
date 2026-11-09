@@ -21,7 +21,7 @@ export function PipelineCard() {
     <FindingCard
       eyebrow="Pipeline"
       finding={loading ? "Checking the pipeline…" : pipelineFinding(p)}
-      detail="Sensors hand events to the ingest service, which stores them. If it stops, new attacks are lost."
+      detail="Sensors hand events to the ingest service, which stores them. If it stops, events wait in a short queue, then the oldest are lost. Ingest checks in every 30 seconds while every stream is healthy."
     >
       {loading ? (
         <SkeletonText lines={2} className="py-1" />

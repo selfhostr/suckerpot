@@ -239,7 +239,7 @@ SSH sessions are recorded with the bytes the attacker typed and the bytes the se
 
 ## Pipeline banner
 
-- **Stalled pipeline.** When the ingest service has stopped storing events, a red alert appears above the content of every page: "Events have not been stored for 42 minutes. Attacks reaching your sensors are being lost.", with the last error and the commands to check the service. It disappears by itself once events are stored again.
+- **Stalled pipeline.** When the ingest service has stopped storing events, a red alert appears above the content of every page: "Events have not been stored for 42 minutes. They are waiting in a queue for now, but once it fills up, the oldest attacks are lost.", with the last error and the commands to check the service. It disappears by itself once events are stored again.
 - **Events set aside.** When some events could not be stored and were set aside, a quiet notice says how many and links to Settings, where the Pipeline card shows the status and the last healthy check. You can dismiss it; it returns only if the count grows. An older API without this status shows nothing.
 
 ## Run it locally

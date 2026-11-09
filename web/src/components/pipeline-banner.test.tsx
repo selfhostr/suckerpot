@@ -43,7 +43,8 @@ describe("PipelineBanner", () => {
       json({ ...BASE, status: "stalled", stalled_for_seconds: 42 * 60, last_error: "57014 boom" }),
     )
     mount()
-    const alert = await screen.findByRole("alert")
+    expect(await screen.findByRole("alert")).toHaveTextContent("Events are not being stored.")
+    const alert = await screen.findByTestId("pipeline-stalled")
     expect(alert).toHaveTextContent("Events have not been stored for 42 minutes.")
     expect(alert).toHaveTextContent("57014 boom")
     expect(alert).toHaveTextContent("docker compose logs ingest")
@@ -52,7 +53,8 @@ describe("PipelineBanner", () => {
   it("omits the error line when there is none", async () => {
     stub(() => json({ ...BASE, status: "stalled", stalled_for_seconds: 3 * 3600 }))
     mount()
-    const alert = await screen.findByRole("alert")
+    expect(await screen.findByRole("alert")).toHaveTextContent("Events are not being stored.")
+    const alert = await screen.findByTestId("pipeline-stalled")
     expect(alert).toHaveTextContent("for 3 hours")
     expect(alert).not.toHaveTextContent("Last error")
   })
