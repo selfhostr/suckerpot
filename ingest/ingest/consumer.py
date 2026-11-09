@@ -2,7 +2,8 @@
 
 Redis commands used (ACL user ``ingest``): XGROUP CREATE, XREADGROUP, XACK, XAUTOCLAIM,
 XTRIM (plus AUTH/HELLO performed implicitly by the client on connect), and XADD on the one key
-``events:parked`` (events that cannot be stored, see "Failure handling").
+``events:parked`` (events that cannot be stored, see "Failure handling": at most 500
+entries, each reduced to its identifying fields and 2 KB of ``data``).
 
 Failure handling. A failed write is classified (``classify_failure``): a data error (the event
 itself is bad) is retried per message and then dropped; an outage (connection, restart, Redis)
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 from collections.abc import Iterable, Sequence
@@ -52,7 +54,11 @@ MAX_ATTEMPTS = 5
 FUTURE_ID_SLACK_MS = 24 * 3600 * 1000
 WARN_INTERVAL_S = 60.0
 PARKED_STREAM = "events:parked"
-PARKED_MAXLEN = 10000
+# Nothing reads the parked stream and the broker never evicts (noeviction): keep it small, so a
+# bad day cannot fill the broker's memory and make every sensor XADD fail.
+PARKED_MAXLEN = 500
+PARKED_DATA_BYTES = 2048
+RETRY_PAUSE_S = 1.0
 MAX_CONSECUTIVE_PARKS = 3
 ERROR_CHARS = 200
 STATE_INTERVAL_S = 30.0
@@ -229,6 +235,7 @@ class Consumer:
         await self._bisect(stream, good, done, poisoned, top=True)
         if done:
             self.consecutive_parks[stream] = 0
+        leftover: Exception | None = None
         if poisoned:
             systemic = not done and (
                 len(good) > 1 or self.consecutive_parks.get(stream, 0) >= MAX_CONSECUTIVE_PARKS
@@ -236,11 +243,19 @@ class Consumer:
             if systemic:
                 self.failures[stream] = 0
                 raise poisoned[0][2]
-            for msg_id, ev, exc in poisoned:
+            # Never park more than a few per call: intermittent timeouts under load must not
+            # turn a busy batch into parked events. The rest stays pending and is retried.
+            for msg_id, ev, exc in poisoned[:MAX_CONSECUTIVE_PARKS]:
                 await self._park(stream, msg_id, ev, exc)
                 done.append(msg_id)
-            self.consecutive_parks[stream] = self.consecutive_parks.get(stream, 0) + len(poisoned)
+            self.consecutive_parks[stream] = self.consecutive_parks.get(stream, 0) + min(
+                len(poisoned), MAX_CONSECUTIVE_PARKS
+            )
+            if len(poisoned) > MAX_CONSECUTIVE_PARKS:
+                leftover = poisoned[MAX_CONSECUTIVE_PARKS][2]
         self.failures[stream] = 0
+        if leftover is not None:
+            raise leftover
         return done + bad
 
     async def _bisect(
@@ -261,7 +276,19 @@ class Consumer:
                 if classify_failure(exc) == "outage":
                     raise
                 if len(items) == 1:
-                    poisoned.append((items[0][0], items[0][1], exc))
+                    # One more try after a pause: a timeout under load is not a bad event.
+                    await self._sleep(RETRY_PAUSE_S)
+                    if self.stop.is_set():
+                        return  # stays pending
+                    try:
+                        await self._write([items[0][1]])
+                    except (StatementError, DBAPIError) as again:
+                        if classify_failure(again) == "outage":
+                            raise
+                        poisoned.append((items[0][0], items[0][1], again))
+                    else:
+                        await self._ack(stream, [items[0][0]])
+                        done.append(items[0][0])
                     return
             else:
                 ids = [i for i, _ in items]
@@ -282,10 +309,19 @@ class Consumer:
             ev.sensor,
             _sqlstate(exc) or "none",
         )
-        fields: dict[Any, Any] = dict(ev.to_stream_fields())
-        fields.update(
-            {"origin_stream": stream, "origin_id": mid, "error": _sqlstate(exc) or "none"}
-        )
+        data = json.dumps(ev.data, default=str).encode("utf-8", "replace")
+        fields: dict[Any, Any] = {
+            "sensor": str(ev.sensor),
+            "session_id": ev.session_id[:128],
+            "src_ip": str(ev.src_ip),
+            "type": str(ev.type),
+            "ts": ev.ts.isoformat(),
+            "origin_stream": stream,
+            "origin_id": mid,
+            "error": _sqlstate(exc) or "none",
+            "data": data[:PARKED_DATA_BYTES].decode("utf-8", "ignore"),
+            "truncated": "1" if len(data) > PARKED_DATA_BYTES else "0",
+        }
         await self.redis.xadd(PARKED_STREAM, fields, maxlen=PARKED_MAXLEN, approximate=True)
         await self._ack(stream, [msg_id])
         self.parked += 1
@@ -448,7 +484,7 @@ class Consumer:
                 for stream, messages in await self._read():
                     try:
                         await self.process(stream, messages)
-                    except SQLAlchemyError as exc:
+                    except Exception as exc:
                         if classify_failure(exc) == "outage":
                             raise
                         self._stream_failed(stream, exc)
@@ -461,13 +497,23 @@ class Consumer:
                 await self._state_ok()
                 backoff = 1.0
             except (RedisError, SQLAlchemyError, OSError) as exc:
+                if isinstance(exc, ResponseError) and str(exc).startswith("NOGROUP"):
+                    # The broker lost its data while we ran: recreate the groups and go on.
+                    try:
+                        await self.ensure_groups()
+                    except RedisError:
+                        pass  # fall through to the backoff below
+                    else:
+                        log.warning("consumer group missing on the broker, recreated")
+                        self.draining = set(self.s.streams)
+                        continue
                 log.error("batch failed (%s), retrying in %.0fs", _describe(exc), backoff)
                 self.draining = set(self.s.streams)  # unacked entries stay pending: re-read
                 await self._sleep(backoff)
                 backoff = min(backoff * 2, MAX_STREAM_BACKOFF_S)
         log.info("consumer stopped")
 
-    def _stream_failed(self, stream: str, exc: SQLAlchemyError) -> None:
+    def _stream_failed(self, stream: str, exc: Exception) -> None:
         """Back this stream off alone; its unacknowledged entries are re-read from "0"."""
         delay = self.stream_backoff.get(stream, 1.0)
         log.error(

@@ -8,6 +8,7 @@ counters. Nothing here calls the network.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Sequence
 from datetime import UTC, date
 from typing import Any
@@ -39,6 +40,7 @@ from ingest.scanners import event_is_benign_safe, stays_benign
 
 log = logging.getLogger(__name__)
 
+RETRACT_LOG_INTERVAL_S = 60.0
 RETRACT_SLICE = 1000  # retract_benign refuses more sessions than this per call
 
 _UNION_TAGS: ColumnElement[Any] = literal_column(
@@ -235,6 +237,22 @@ async def write_batch(
                 await store_indicators(session, events, enricher.indicators, enricher.link_cap)
 
 
+_skips = 0
+_skips_logged = -RETRACT_LOG_INTERVAL_S
+
+
+def _retract_skipped(sqlstate: str) -> None:
+    """One WARNING per minute at most, with the number of skips since the last one."""
+    global _skips, _skips_logged
+    _skips += 1
+    now = time.monotonic()
+    if now - _skips_logged >= RETRACT_LOG_INTERVAL_S:
+        log.warning(
+            "retract_benign skipped %d time(s) in the last minute (SQLSTATE %s)", _skips, sqlstate
+        )
+        _skips, _skips_logged = 0, now
+
+
 async def _retract_benign(session: AsyncSession, ids: list[str]) -> None:
     """Clear the benign flag of earlier events, in a savepoint.
 
@@ -252,7 +270,7 @@ async def _retract_benign(session: AsyncSession, ids: list[str]) -> None:
         if exc.connection_invalidated:
             raise
         sqlstate = str(getattr(exc.orig, "sqlstate", None) or "unknown")
-        log.warning("retract_benign skipped for %d session(s): SQLSTATE %s", len(ids), sqlstate)
+        _retract_skipped(sqlstate)
 
 
 async def _apply_session_rules(

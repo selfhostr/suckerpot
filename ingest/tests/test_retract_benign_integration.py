@@ -92,13 +92,21 @@ async def test_retraction_skips_compressed_chunks_and_still_reaches_them(
         for name in names:
             assert name.split(".")[1] not in plan, plan
 
-    async with factory() as session:
-        start = time.monotonic()
-        await session.execute(
-            text("SELECT retract_benign(CAST(:ids AS text[]))"), {"ids": ["recent"]}
-        )
-        await session.commit()
-        assert time.monotonic() - start < 1.0
+    # Hold an exclusive lock on every compressed chunk: a statement that touches one blocks until
+    # the timeout. The call for the recent session must finish at once, so the planner excluded
+    # them (the plan is made with the parameter values of the one-shot EXECUTE).
+    async with engine.connect() as locker:
+        for name in names:
+            await locker.execute(text(f"LOCK TABLE {name} IN ACCESS EXCLUSIVE MODE"))
+        async with factory() as session:
+            await session.execute(text("SET LOCAL statement_timeout = '5s'"))
+            start = time.monotonic()
+            await session.execute(
+                text("SELECT retract_benign(CAST(:ids AS text[]))"), {"ids": ["recent"]}
+            )
+            await session.commit()
+            assert time.monotonic() - start < 1.0
+        await locker.rollback()
 
     # A session whose events sit in the compressed chunk is still retracted.
     async with factory() as session:

@@ -26,12 +26,17 @@ class FakeRedis:
         self.batches = batches or []
         self.trim_error = trim_error
         self.reads = 0
+        self.groups_created = 0
+        self.read_errors: list[Exception] = []
         self.parked: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
         self.streams: list[list[Any]] = []
 
     async def xadd(self, stream: str, fields: dict[str, Any], **kwargs: Any) -> str:
         self.parked.append((stream, fields, kwargs))
         return "1-0"
+
+    async def xgroup_create(self, *args: Any, **kwargs: Any) -> None:
+        self.groups_created += 1
 
     async def xack(self, stream: str, group: str, *ids: Any) -> int:
         self.acked.extend(ids)
@@ -45,11 +50,18 @@ class FakeRedis:
 
     async def xreadgroup(self, *args: Any, **kwargs: Any) -> Any:
         self.reads += 1
+        if self.read_errors:
+            raise self.read_errors.pop(0)
         if self.streams:
             return self.streams.pop(0)
         if self.batches:
             return [[b"events:ssh", self.batches.pop(0)]]
         return []
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ingest.consumer.RETRY_PAUSE_S", 0.0)
 
 
 def fields() -> dict[Any, Any]:
@@ -193,9 +205,126 @@ async def test_a_poisonous_event_is_parked_after_repeated_failures(
     assert parked_fields["origin_stream"] == "events:ssh"
     assert parked_fields["origin_id"] == "3-5"
     assert parked_fields["error"] == "57014"
-    assert kwargs == {"maxlen": 10000, "approximate": True}
+    assert kwargs == {"maxlen": 500, "approximate": True}
     assert c.parked == 1
     assert c.failures.get("events:ssh", 0) == 0
+
+
+async def test_a_parked_entry_is_small_and_marked_truncated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    big = make_event("command", sid="big", data={"cmd": "x" * 15000})
+
+    async def write(_f: Any, events: list[Any], *_a: Any) -> None:
+        raise DBAPIError("stmt", {}, _Orig("57014"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    await c._park("events:ssh", b"1-0", big, DBAPIError("s", {}, _Orig("57014")))
+    _, entry, kwargs = r.parked[0]
+    assert set(entry) == {
+        "sensor", "session_id", "src_ip", "type", "ts", "origin_stream", "origin_id",
+        "error", "data", "truncated",
+    }  # fmt: skip
+    assert len(entry["data"].encode()) <= 2048
+    assert entry["truncated"] == "1"
+    assert "event" not in entry
+    assert kwargs["maxlen"] == 500
+    small = make_event("command", sid="small", data={"cmd": "ls"})
+    await c._park("events:ssh", b"2-0", small, DBAPIError("s", {}, _Orig("57014")))
+    assert r.parked[1][1]["truncated"] == "0"
+
+
+async def test_a_single_failure_is_retried_before_parking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = {"n": 0}
+
+    async def write(_f: Any, events: list[Any], *_a: Any) -> None:
+        calls["n"] += 1
+        if len(events) == 1 and calls["n"] <= 1:
+            raise DBAPIError("stmt", {}, _Orig("57014"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    c.failures["events:ssh"] = c.s.max_batch_failures
+    await c.process("events:ssh", [(b"1-0", fields())])
+    assert r.parked == [] and r.acked == [b"1-0"]
+
+
+async def test_at_most_a_few_events_are_parked_per_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def write(_f: Any, events: list[Any], *_a: Any) -> None:
+        if any(e.session_id.startswith("bad") for e in events):
+            raise DBAPIError("stmt", {}, _Orig("57014"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    batch = [(b"1-0", dict(make_event("connect", sid="good").to_stream_fields()))]
+    batch += [
+        (f"{i}-0".encode(), dict(make_event("connect", sid=f"bad{i}").to_stream_fields()))
+        for i in range(2, 8)
+    ]
+    c.failures["events:ssh"] = c.s.max_batch_failures
+    with pytest.raises(DBAPIError):
+        await c.process("events:ssh", batch)
+    assert len(r.parked) == MAX_CONSECUTIVE_PARKS
+    assert b"1-0" in r.acked  # the stored event stays acknowledged
+    assert len(r.acked) == 1 + MAX_CONSECUTIVE_PARKS  # the others stay pending
+    assert c.failures["events:ssh"] == 1  # reset, then counted once for the raised error
+
+
+async def test_nogroup_recreates_the_groups_and_goes_on(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    r = FakeRedis()
+    r.read_errors = [ResponseError("NOGROUP No such key 'events:ssh' or consumer group 'ingest'")]
+    c = consumer(r, tmp_path)
+    c.reclaim_stale = _noop  # type: ignore[method-assign,assignment]
+    c._state = _noop  # type: ignore[method-assign]
+    orig = r.xreadgroup
+
+    async def read_then_stop(*a: Any, **k: Any) -> Any:
+        res = await orig(*a, **k)
+        if r.reads >= 2:
+            c.stop.set()
+        return res
+
+    r.xreadgroup = read_then_stop  # type: ignore[method-assign]
+    with caplog.at_level(logging.WARNING):
+        await c.run()
+    assert r.groups_created == 2 * len(c.s.streams)  # at startup, then again after NOGROUP
+    assert any("recreated" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_an_unexpected_exception_backs_the_stream_off_and_the_loop_survives(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def write(_f: Any, events: list[Any], *_a: Any) -> None:
+        raise ValueError("bug")
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+    r = FakeRedis()
+    r.streams = [[("events:ssh", [(b"1-0", fields())])]]
+    c = consumer(r, tmp_path)
+    c.ensure_groups = _noop  # type: ignore[method-assign]
+    c.reclaim_stale = _noop  # type: ignore[method-assign,assignment]
+    c._state = _noop  # type: ignore[method-assign]
+    orig = r.xreadgroup
+
+    async def read_then_stop(*a: Any, **k: Any) -> Any:
+        res = await orig(*a, **k)
+        if not res:
+            c.stop.set()
+        return res
+
+    r.xreadgroup = read_then_stop  # type: ignore[method-assign]
+    await c.run()
+    assert "events:ssh" in c.unhealthy and c.failures["events:ssh"] == 1
 
 
 async def test_a_whole_batch_that_fails_is_never_parked(

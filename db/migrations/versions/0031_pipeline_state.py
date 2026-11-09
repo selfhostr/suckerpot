@@ -25,19 +25,20 @@ depends_on: str | Sequence[str] | None = None
 
 _NEW = """
 CREATE OR REPLACE FUNCTION retract_benign(ids text[]) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE r record;
 BEGIN
     IF cardinality(ids) > 1000 THEN
         RAISE EXCEPTION 'retract_benign: too many sessions';
     END IF;
     FOR r IN SELECT s.session_id, s.sensor, s.started_at, s.last_event_at
-             FROM sessions s WHERE s.session_id = ANY(ids)
+             FROM public.sessions s WHERE s.session_id = ANY(ids)
     LOOP
-        EXECUTE format(
-            'UPDATE events SET benign = false WHERE sensor = %L AND session_id = %L'
-            ' AND ts >= %L::timestamptz AND ts <= %L::timestamptz AND benign IS TRUE',
-            r.sensor, r.session_id, r.started_at, r.last_event_at + interval '1 minute');
+        -- Values are parameters of a one-shot EXECUTE: the plan is made with them (chunks are
+        -- excluded) and does not depend on the caller's DateStyle or TimeZone.
+        EXECUTE 'UPDATE public.events SET benign = false WHERE sensor = $1 AND session_id = $2'
+            ' AND ts >= $3 AND ts <= $4 AND benign IS TRUE'
+            USING r.sensor, r.session_id, r.started_at, r.last_event_at + interval '1 minute';
     END LOOP;
 END $$
 """

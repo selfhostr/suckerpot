@@ -563,5 +563,7 @@ def test_pipeline_state_is_modelled_and_least_privilege() -> None:
 def test_retract_benign_migration_prunes_chunks() -> None:
     script = (VERSIONS / "0031_pipeline_state.py").read_text()
     assert "FOR r IN SELECT s.session_id" in script
-    assert "ts >= %L::timestamptz" in script
+    assert "USING r.sensor, r.session_id, r.started_at" in script
+    assert "SET search_path = pg_catalog, public, pg_temp" in script
+    assert "public.events" in script and "public.sessions" in script
     assert "REVOKE ALL ON FUNCTION retract_benign(text[]) FROM PUBLIC" in script

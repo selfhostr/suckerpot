@@ -70,3 +70,24 @@ async def test_process_acks_bad_and_does_not_ack_on_db_failure(monkeypatch: Any)
     with pytest.raises(OSError):
         await c.process("events:ssh", [(b"3-0", good_fields)])
     assert redis.acked == []
+
+
+def test_skipped_retractions_log_one_warning_a_minute(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import ingest.writer as w
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr("time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr(w, "_skips", 0)
+    monkeypatch.setattr(w, "_skips_logged", -w.RETRACT_LOG_INTERVAL_S)
+    with caplog.at_level("WARNING"):
+        for _ in range(5):
+            w._retract_skipped("57014")
+            clock["t"] += 5
+        assert len(caplog.records) == 1  # the first skip logs, the next four are counted
+        clock["t"] += 60
+        w._retract_skipped("57014")
+    msgs = [r.getMessage() for r in caplog.records]
+    assert len(msgs) == 2
+    assert "skipped 1 time(s)" in msgs[0] and "skipped 5 time(s)" in msgs[1]
