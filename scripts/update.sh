@@ -20,7 +20,7 @@
 # UPDATE_HEALTH_WAIT_SECONDS (default 180). A service that was already unhealthy is only reported.
 #
 # Exit codes: 0 done, 1 failed, 2 bad usage, 10 failed because of the release itself (a
-# regression, a migration or a verification failure). scripts/auto-update.sh blacklists a version
+# regression, a failed migration, a wrong running version). scripts/auto-update.sh blacklists a version
 # only on 10.
 set -euo pipefail
 
@@ -71,6 +71,18 @@ health_snapshot() { docker compose ps --format '{{.Service}} {{.Health}}' 2> /de
 # health_of SERVICE SNAPSHOT: prints the health of SERVICE (maybe empty), fails when it is absent.
 health_of() { printf '%s\n' "$2" | awk -v s="$1" '$1 == s { print $2; f = 1 } END { exit !f }'; }
 is_good() { [ "$1" = healthy ] || [ -z "$1" ]; }
+# good_before SERVICE: true when SERVICE was healthy (or had no healthcheck) before the update.
+good_before() {
+  local h
+  h=$(health_of "$1" "$health_before") || return 1
+  is_good "$h"
+}
+# release_or_warn SERVICE MESSAGE: a release fault if SERVICE was good before the update, otherwise
+# only a warning (the node was already degraded and the update did not change that).
+release_or_warn() {
+  if good_before "$1"; then die_release "$2"; fi
+  echo "      warning: $2, but $1 was already unhealthy before the update. The update did not change that." >&2
+}
 # The Alembic revision the database is at ("" when it cannot be read).
 db_alembic_revision() {
   local rev
@@ -308,7 +320,7 @@ if [ "$mode" = images ]; then
     docker compose pull
   else
     # Verify the digest, pull exactly that digest, tag it: what runs is what was verified.
-    bash scripts/verify-images.sh --pull ${expect_file:+--expect "$expect_file"} "$target" || die_release "the image signatures could not be verified; nothing was started. Run just rollback to go back, or retry with --skip-verify only if you accept the risk"
+    bash scripts/verify-images.sh --pull ${expect_file:+--expect "$expect_file"} "$target" || die "the image signatures could not be verified; nothing was started. Run just rollback to go back, or retry with --skip-verify only if you accept the risk"
     docker compose pull --policy missing
   fi
   expected=$target
@@ -349,7 +361,7 @@ else
     if curl -fsS --max-time 5 "http://$bind:$dport/healthz" > /dev/null 2>&1; then ok=1; break; fi
     sleep 3
   done
-  [ "$ok" = 1 ] || die_release "the dashboard does not answer on http://$bind:$dport/healthz"
+  [ "$ok" = 1 ] || release_or_warn api "the dashboard does not answer on http://$bind:$dport/healthz"
 fi
 # Judge each service against the snapshot taken before the update. Only a regression fails:
 # healthy (or no healthcheck) before, not healthy after the wait. A service that was already
@@ -394,7 +406,7 @@ if [ "$running" != "$expected" ]; then
 fi
 if [ "$stack_mode" = participant ]; then
   docker compose exec -T ingest python -m ingest.network.cli status --json > /dev/null 2>&1 \
-    || die_release "the network client of ingest does not answer (ingest.network.cli status)"
+    || release_or_warn ingest "the network client of ingest does not answer (ingest.network.cli status)"
 fi
 
 # ---------------------------------------------------------------- 9. done

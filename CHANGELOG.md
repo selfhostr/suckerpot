@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Updates no longer fail, roll back and blacklist a release because a service was already unhealthy before the update: the health of every service is recorded first and only a regression fails (`UPDATE_HEALTH_WAIT_SECONDS`, default 180, bounds the wait for `starting` services). A rollback restores the database only when the Alembic revision changed (`--restore-db` and `--keep-db` override it), and the automatic updater adds a release to `bad-versions` only when the release itself is at fault.
+- Updates no longer fail, roll back and blacklist a release because a service was already unhealthy before the update: the health of every service is recorded first and only a regression fails (`UPDATE_HEALTH_WAIT_SECONDS`, default 180, bounds the wait for `starting` services). A rollback restores the database only when the Alembic revision changed (`--restore-db` and `--keep-db` override it), and the automatic updater adds a release to `bad-versions` only when the release itself is at fault (or after `AUTO_UPDATE_MAX_ATTEMPTS`, default 3, repeated failures).
 
 ### Added
 

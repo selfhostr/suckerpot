@@ -250,6 +250,58 @@ def test_a_failed_update_that_is_not_a_regression_is_retried(sandbox: Sandbox) -
     assert result(sandbox)["last_result"] == "updated"
 
 
+def fail_once_more(sb: Sandbox) -> None:
+    """One more automatic run whose update fails (not a regression) and is rolled back."""
+    sb.log.write_text("")
+    sb.git_set("head", OLD)
+    (sb.root / ".suckerpot-state" / "last-update.json").write_text('{\n  "completed": true,\n}\n')
+    assert run_auto(sb).returncode == 1
+
+
+def test_repeated_non_regression_failures_blacklist_after_three_attempts(
+    sandbox: Sandbox,
+) -> None:
+    stage_auto(sandbox)
+    sandbox.env["SHIM_UPDATE_RC"] = "1"
+    sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
+    state = sandbox.root / ".suckerpot-state"
+    assert run_auto(sandbox).returncode == 1
+    assert (state / "update-attempts").read_text() == "v0.9.0 1\n"
+    assert not (state / "bad-versions").exists()
+    fail_once_more(sandbox)
+    assert (state / "update-attempts").read_text() == "v0.9.0 2\n"
+    assert not (state / "bad-versions").exists()
+    fail_once_more(sandbox)
+    assert (state / "bad-versions").read_text() == "v0.9.0\n"
+    assert "update_failed_repeatedly" in (state / "bad-versions.log").read_text()
+    assert not (state / "update-attempts").exists()
+
+
+def test_the_attempt_cap_is_configurable(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    sandbox.env["SHIM_UPDATE_RC"] = "1"
+    sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
+    sandbox.env["AUTO_UPDATE_MAX_ATTEMPTS"] = "1"
+    assert run_auto(sandbox).returncode == 1
+    assert (sandbox.root / ".suckerpot-state" / "bad-versions").read_text() == "v0.9.0\n"
+
+
+def test_a_success_resets_the_attempt_counter(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    sandbox.env["SHIM_UPDATE_RC"] = "1"
+    sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
+    state = sandbox.root / ".suckerpot-state"
+    assert run_auto(sandbox).returncode == 1
+    assert (state / "update-attempts").exists()
+    sandbox.log.write_text("")
+    sandbox.git_set("head", OLD)
+    (state / "last-update.json").write_text('{\n  "completed": true,\n}\n')
+    sandbox.env["SHIM_UPDATE_RC"] = "0"
+    assert run_auto(sandbox).returncode == 0
+    assert names(sandbox) == ["update"]
+    assert not (state / "update-attempts").exists()
+
+
 def test_a_failed_rollback_is_reported_and_blocks_later_runs(sandbox: Sandbox) -> None:
     stage_auto(sandbox)
     sandbox.env["SHIM_UPDATE_RC"] = "10"

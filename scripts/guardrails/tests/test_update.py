@@ -504,6 +504,8 @@ def test_participant_update_fails_when_the_network_client_does_not_answer(
     prepare(sandbox)
     participant(sandbox)
     sandbox.env["SHIM_NETWORK_CLI_RC"] = "1"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "ingest healthy\ndb healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "ingest healthy\ndb healthy"
     rc, out = run_update(sandbox, "--yes")
     assert rc != 0
     assert "network client of ingest does not answer" in out
@@ -708,3 +710,65 @@ def test_rollback_documents_and_validates_its_flags(sandbox: Sandbox) -> None:
     assert sandbox.run("scripts/rollback.sh", "--restore-db=1").returncode == 2
     text = (sandbox.root / "scripts" / "rollback.sh").read_text()
     assert "--restore-db" in text and "--keep-db" in text
+
+
+def test_image_verification_failure_in_update_exits_1_not_a_release_fault(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    (sandbox.root / "scripts/verify-images.sh").write_text("#!/bin/sh\nexit 1\n")
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 1, out
+    assert "signatures could not be verified" in out
+
+
+def test_dashboard_not_answering_is_a_warning_when_api_was_unhealthy(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_CURL_RC"] = "22"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api unhealthy\ndb healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api unhealthy\ndb healthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "the dashboard does not answer" in out
+    assert "api was already unhealthy before the update" in out
+
+
+def test_dashboard_not_answering_is_a_release_fault_when_api_was_healthy(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_CURL_RC"] = "22"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_network_client_check_is_a_warning_when_ingest_was_unhealthy(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    participant(sandbox)
+    sandbox.env["SHIM_NETWORK_CLI_RC"] = "1"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "ingest unhealthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "ingest unhealthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "ingest was already unhealthy before the update" in out
+
+
+def test_network_client_check_is_a_release_fault_when_ingest_was_healthy(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    participant(sandbox)
+    sandbox.env["SHIM_NETWORK_CLI_RC"] = "1"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "ingest healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "ingest healthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_the_running_version_check_stays_strict_on_a_degraded_node(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api unhealthy\ndb healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api unhealthy\ndb healthy"
+    sandbox.env["SHIM_RUNNING_VERSION"] = "v0.8.0"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out

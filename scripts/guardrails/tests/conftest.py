@@ -120,7 +120,7 @@ exit 0
 
 CURL_SHIM = r"""#!/bin/sh
 echo "curl $*" >> "$SHIM_LOG"
-exit 0
+exit "${SHIM_CURL_RC:-0}"
 """
 
 SS_SHIM = r"""#!/bin/sh
