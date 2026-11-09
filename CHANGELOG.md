@@ -17,8 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- The message broker is now Valkey 9.1 (`valkey/valkey:9.1.3-alpine3.24`, BSD-3-Clause) instead of Redis 8.10. It is a drop-in replacement: same protocol, same configuration and ACL file, same volumes and ports, and the Streams data is reused as is. The container now runs `valkey-server` and the health check `valkey-cli`.
+- The message broker is now Valkey 9.1 (`valkey/valkey:9.1.3-alpine3.24`, BSD-3-Clause) instead of Redis 8.10. It is a drop-in replacement: same protocol, same configuration and ACL file, same volumes and ports, and the volumes and ports are unchanged. The Streams buffer survives the engine change only when the AOF holds no RDB preamble (see Fixed). The container now runs `valkey-server` and the health check `valkey-cli`.
 
+
+### Fixed
+
+- Broker: Valkey 9.1 cannot read the RDB preamble of a Redis 8.10 AOF (`Can't handle RDB format version 15`), so the first start on an existing volume crash-looped. The base file is now plain commands (`aof-use-rdb-preamble no`), and when the server cannot load `/data` the entrypoint moves it aside (`*.unreadable-<UTC time>`, two copies kept) and starts empty. Before updating a running Redis 8.10, run `CONFIG SET aof-use-rdb-preamble no` and `BGREWRITEAOF` to keep the unconsumed events. Tested by `scripts/test-broker.sh`.
 
 ## [0.10.0] - 2026-11-06
 

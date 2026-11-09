@@ -82,4 +82,102 @@ if [ "$MAXMEMORY_MB" -lt 32 ] || [ "$MAXMEMORY_MB" -gt 4096 ]; then
   exit 1
 fi
 
-exec "$@" --maxmemory "${MAXMEMORY_MB}mb"
+set -- "$@" --maxmemory "${MAXMEMORY_MB}mb"
+
+# --- Start the server, with a safety net for unreadable persisted data ----------
+# The stream is only a buffer in front of the database: losing the few seconds of
+# events not yet consumed is far cheaper than a broker that crash-loops, because
+# then every sensor drops every event for as long as it lasts. So when the server
+# cannot load /data (for example an RDB written by a newer or different engine),
+# the files are moved aside and the server starts empty.
+#
+# Conservative on purpose, data the server can load is never touched. All of
+# these must hold: the server exited with status 1 within STARTUP_WINDOW seconds,
+# it did so twice in a row (rules out a transient fault), and the bundled
+# valkey-check-aof / valkey-check-rdb tools also reject the files.
+DATA_DIR=/data
+AOF_DIR=$DATA_DIR/appendonlydir
+RDB_FILE=$DATA_DIR/dump.rdb
+STARTUP_WINDOW=30
+KEEP_UNREADABLE=2
+
+log() { echo "suckerpot-redis: $*" >&2; }
+
+pid=
+stopping=
+trap 'stopping=1; if [ -n "$pid" ]; then kill -TERM "$pid" 2>/dev/null || true; fi' TERM INT
+
+# Runs the server in the background (so that a signal reaches it through the trap)
+# and sets rc to its exit status.
+run_server() {
+  rc=0
+  "$@" &
+  pid=$!
+  wait "$pid" || rc=$?
+  # A trapped signal interrupts wait before the server is gone: wait for the real status.
+  while kill -0 "$pid" 2>/dev/null; do
+    wait "$pid" || rc=$?
+  done
+  pid=
+}
+
+has_persisted_data() {
+  [ -e "$AOF_DIR" ] || [ -e "$RDB_FILE" ]
+}
+
+# Succeeds only when a persisted file exists and the check tools reject it.
+persisted_data_is_unreadable() {
+  bad=1
+  if [ -f "$AOF_DIR/appendonly.aof.manifest" ]; then
+    valkey-check-aof "$AOF_DIR/appendonly.aof.manifest" >/dev/null 2>&1 || bad=0
+  fi
+  if [ -f "$RDB_FILE" ]; then
+    valkey-check-rdb "$RDB_FILE" >/dev/null 2>&1 || bad=0
+  fi
+  return "$bad"
+}
+
+# Keeps only the newest KEEP_UNREADABLE copies of "$1.unreadable-*" (the UTC
+# timestamp suffix sorts alphabetically), so the volume cannot fill up.
+prune_unreadable() {
+  n=0
+  for old in $(ls -1d "$1".unreadable-* 2>/dev/null | sort -r); do
+    n=$((n + 1))
+    if [ "$n" -gt "$KEEP_UNREADABLE" ]; then rm -rf "$old"; fi
+  done
+}
+
+move_aside() {
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  for f in "$AOF_DIR" "$RDB_FILE"; do
+    if [ -e "$f" ]; then
+      mv "$f" "$f.unreadable-$stamp"
+      prune_unreadable "$f"
+    fi
+  done
+  log "persisted data could not be loaded: moved to *.unreadable-$stamp in $DATA_DIR, starting with an empty stream buffer"
+}
+
+attempt=0
+moved=
+while :; do
+  attempt=$((attempt + 1))
+  started=$(date +%s)
+  run_server "$@"
+  if [ -n "$stopping" ]; then exit 0; fi
+  elapsed=$(($(date +%s) - started))
+  # Not a start-up failure (it ran for a while, or was killed): the restart policy decides.
+  if [ "$rc" -ne 1 ] || [ "$elapsed" -ge "$STARTUP_WINDOW" ]; then exit "$rc"; fi
+  if [ -n "$moved" ] || ! has_persisted_data; then exit "$rc"; fi
+  if [ "$attempt" -lt 2 ]; then
+    log "server failed to start, trying once more before touching the persisted data"
+    continue
+  fi
+  if persisted_data_is_unreadable; then
+    move_aside
+    moved=1
+    continue
+  fi
+  log "server failed to start but the persisted data passes the checks, leaving it untouched"
+  exit "$rc"
+done

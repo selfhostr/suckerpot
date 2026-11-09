@@ -92,6 +92,10 @@ ports:
     scripts/check-ports.sh
     scripts/check-vpn-env.sh
 
+# Broker image against Redis 8 volumes and damaged data (throwaway sp-brokertest-* resources).
+broker-test:
+    scripts/test-broker.sh
+
 # Static compose guardrails (network isolation, egress invariants).
 guardrails:
     docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -v "{{uv_cache}}:/cache" -w /work/scripts/guardrails \
