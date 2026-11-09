@@ -18,6 +18,7 @@ import { ChannelsCard } from "@/components/alerts/channels-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { EgressCard } from "@/components/egress-card"
+import { PipelineCard } from "@/components/pipeline-card"
 import { FeedsTab } from "@/components/feeds/feeds-tab"
 import { FindingCard } from "@/components/finding-card"
 import { Meter } from "@/components/meter"
@@ -438,6 +439,7 @@ export function SettingsPage() {
           <SetupChecklistCard />
           <UpdatesCard />
           <SensorsCard data={q.data} loading={q.isPending} />
+          <PipelineCard />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <StorageCard data={q.data} loading={q.isPending} />
             <RetentionCard data={q.data} loading={q.isPending} />

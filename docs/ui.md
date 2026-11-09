@@ -237,6 +237,11 @@ The contract below applies to the terminal replay on the Session detail page.
 
 SSH sessions are recorded with the bytes the attacker typed and the bytes the server sent back. An attacker controls those bytes, and a terminal emulator interprets escape sequences. The replay must therefore be built under the rules in [Security](SECURITY.md#terminal-replay-safety-contract).
 
+## Pipeline banner
+
+- **Stalled pipeline.** When the ingest service has stopped storing events, a red alert appears above the content of every page: "Events have not been stored for 42 minutes. Attacks reaching your sensors are being lost.", with the last error and the commands to check the service. It disappears by itself once events are stored again.
+- **Events set aside.** When some events could not be stored and were set aside, a quiet notice says how many and links to Settings, where the Pipeline card shows the status and the last successful write. You can dismiss it; it returns only if the count grows. An older API without this status shows nothing.
+
 ## Run it locally
 
 ```bash
