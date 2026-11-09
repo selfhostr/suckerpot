@@ -247,7 +247,7 @@ services:
       # Decrypts the keys saved from the Settings page (empty = only the .env keys are used).
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-}
       ABUSEIPDB_DAILY_QUOTA: ${ABUSEIPDB_DAILY_QUOTA:-1000}
-      GREYNOISE_DAILY_QUOTA: ${GREYNOISE_DAILY_QUOTA:-50}
+      GREYNOISE_DAILY_QUOTA: ${GREYNOISE_DAILY_QUOTA:-7}
       REPUTATION_MIN_EVENTS: ${REPUTATION_MIN_EVENTS:-10}
       REPUTATION_INTERVAL_S: ${REPUTATION_INTERVAL_S:-30}
       # Indicators and threat intelligence (M13): passive lookups, fixed API hosts only.
@@ -447,6 +447,8 @@ services:
       LOGIN_RATE: ${LOGIN_RATE:-5}
       LOGIN_RATE_GLOBAL: ${LOGIN_RATE_GLOBAL:-30}
       LOGIN_RATE_USER: ${LOGIN_RATE_USER:-10}
+      LOGIN_VERIFY_CONCURRENCY: ${LOGIN_VERIFY_CONCURRENCY:-2}
+      LOGIN_VERIFY_WAIT: ${LOGIN_VERIFY_WAIT:-5}
       AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-}
       API_ALLOWED_HOSTS: ${API_ALLOWED_HOSTS:-}
       # Setup checklist and wizard (M28): which sensors are on and which ports the owner must forward.
