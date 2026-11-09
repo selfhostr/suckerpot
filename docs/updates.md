@@ -60,7 +60,7 @@ Installs made before the install modes existed count as `source`. An update keep
 
 ### Health is judged against the node before the update
 
-Before it changes anything, the update records the health of every service. After the restart it fails only on a regression: a service that was healthy (or had no healthcheck) before and is not healthy afterwards. A service that was `starting` gets up to `UPDATE_HEALTH_WAIT_SECONDS` (default 180) to turn healthy.
+Before it changes anything, the update records the health of every service. After the restart it fails only on a regression: a service that was healthy (or had no healthcheck) before and is not healthy afterwards. A service that was `starting` gets up to `UPDATE_HEALTH_WAIT_SECONDS` (default 180) to turn healthy. Before the snapshot, services that are still `starting` get up to 60 seconds to settle; one that is still starting then counts as healthy. A service without a healthcheck is healthy only while its container is `running`: one that is restarting or has exited is treated like an unhealthy one.
 
 A service that was already unhealthy before and still is does not fail the update. The update prints a warning (`was already unhealthy before the update`) so you can fix it. The same goes for the dashboard answer check and the network client check when the `api` or `ingest` service was not healthy before; the running-version check is always strict. This matters when a release fixes the very bug that made the service unhealthy.
 

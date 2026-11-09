@@ -69,7 +69,13 @@ case "$*" in
   "compose ps --format"*)
     # SHIM_HEALTH_BEFORE / SHIM_HEALTH_AFTER: "service health" lines, switched by the first `up`.
     if [ -f "$SHIM_DIR/upped" ]; then h="${SHIM_HEALTH_AFTER:-}"; else h="${SHIM_HEALTH_BEFORE:-}"; fi
-    if [ -n "$h" ]; then printf '%s\n' "$h"; else echo "api healthy"; echo "db healthy"; fi ;;
+    [ -n "$h" ] || h=$(printf 'api healthy\ndb healthy')
+    # Lines are "service health" (shorthand for a running container) or "service state health".
+    printf '%s\n' "$h" | awk '{
+      if (NF == 1) print $1, "running", "";
+      else if (NF == 2 && ($2 == "healthy" || $2 == "unhealthy" || $2 == "starting")) print $1, "running", $2;
+      else if (NF == 2 && $2 != "") print $1, $2, "";
+      else print }' ;;
   "compose exec -T db sh -c"*) [ -z "${SHIM_ALEMBIC:-}" ] || echo "$SHIM_ALEMBIC" ;;
   "compose exec -T backup /bin/sh /backup-service.sh now preupdate") exit "${SHIM_BACKUP_RC:-0}" ;;
   "compose exec -T backup sh -c"*) echo "/backups/suckerpot-preupdate-20261101T020000Z.dump" ;;

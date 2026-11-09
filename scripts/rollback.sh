@@ -64,6 +64,8 @@ at=$(state_get "$STATE" at)
 [[ $from_ref =~ ^[0-9a-f]{7,64}$ ]] || die "the state file has no valid commit"
 case $mode in images | source) ;; *) die "the state file has a bad install mode" ;; esac
 alembic_before=$(state_get "$STATE" alembic_before)
+# The state file is only trusted for a plain revision id: anything else counts as "unknown".
+[[ $alembic_before =~ ^[A-Za-z0-9_]{1,64}$ ]] || alembic_before=""
 # A dump name that is set must be a plain file name, whatever the database decision is.
 [ -z "$dump" ] || [[ $dump =~ ^suckerpot-[A-Za-z0-9._-]+\.dump$ ]] || die "the state file has a bad dump name"
 [[ $from_version =~ ^[A-Za-z0-9._-]+$ ]] || die "the state file has a bad version"
@@ -83,7 +85,7 @@ case $db_mode in
     elif [ -n "$alembic_before" ] && [ -n "$alembic_now" ]; then
       restore_db=1; db_reason="the schema changed ($alembic_before -> $alembic_now)"
     else
-      restore_db=1; db_reason="the Alembic revision could not be compared"
+      restore_db=1; db_reason="the Alembic revision is missing, invalid or unreadable, so the database is restored unless --keep-db is given"
     fi ;;
 esac
 

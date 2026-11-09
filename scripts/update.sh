@@ -66,10 +66,12 @@ fi
 die() { echo "update: $*" >&2; exit 1; }
 # A failure caused by the release itself (exit 10, see the header).
 die_release() { echo "update: $*" >&2; exit 10; }
-# "service health" per line; an empty health means a running container without a healthcheck.
-health_snapshot() { docker compose ps --format '{{.Service}} {{.Health}}' 2> /dev/null | tr -d '\r' | sort || true; }
-# health_of SERVICE SNAPSHOT: prints the health of SERVICE (maybe empty), fails when it is absent.
-health_of() { printf '%s\n' "$2" | awk -v s="$1" '$1 == s { print $2; f = 1 } END { exit !f }'; }
+# "service state health" per line; an empty health means a container without a healthcheck.
+health_snapshot() { docker compose ps --format '{{.Service}} {{.State}} {{.Health}}' 2> /dev/null | tr -d '\r' | sort || true; }
+# health_of SERVICE SNAPSHOT: prints the status of SERVICE, fails when it is absent. The status is
+# the container state when it is not "running" (restarting, exited...), else its health (empty for
+# a running container without a healthcheck, which is good).
+health_of() { printf '%s\n' "$2" | awk -v s="$1" '$1 == s { print ($2 != "running") ? $2 : $3; f = 1 } END { exit !f }'; }
 is_good() { [ "$1" = healthy ] || [ -z "$1" ]; }
 # good_before SERVICE: true when SERVICE was healthy (or had no healthcheck) before the update.
 good_before() {
@@ -217,10 +219,19 @@ fi
 confirm "Update now? A database backup is taken first." || { echo "aborted"; exit 1; }
 
 # What the node looks like before anything changes: the update is judged against this.
-health_before=$(health_snapshot)
-alembic_before=$(db_alembic_revision)
 wait_s=$(env_get UPDATE_HEALTH_WAIT_SECONDS "${UPDATE_HEALTH_WAIT_SECONDS:-180}")
 [[ $wait_s =~ ^[0-9]{1,4}$ ]] || wait_s=180
+# Let services that are still starting settle first (at most 60 s). One that is still starting
+# after that counts as good: the release is then held to the normal standard for it.
+pre_wait=$wait_s
+[ "$pre_wait" -le 60 ] || pre_wait=60
+for ((i = 0; i <= pre_wait / 5; i++)); do
+  health_before=$(health_snapshot)
+  printf '%s\n' "$health_before" | awk '$2 == "running" && $3 == "starting" { f = 1 } END { exit !f }' || break
+  [ "$i" -lt $((pre_wait / 5)) ] && sleep 5
+done
+health_before=$(printf '%s\n' "$health_before" | awk '$2 == "running" && $3 == "starting" { $3 = "healthy" } { print }')
+alembic_before=$(db_alembic_revision)
 
 # ---------------------------------------------------------------- 2. backup
 step 2 "Backing up the database"

@@ -772,3 +772,68 @@ def test_the_running_version_check_stays_strict_on_a_degraded_node(sandbox: Sand
     sandbox.env["SHIM_RUNNING_VERSION"] = "v0.8.0"
     rc, out = run_update(sandbox, "--yes")
     assert rc == 10, out
+
+
+def test_a_service_still_starting_before_the_update_counts_as_good(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ningest starting"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ningest unhealthy"
+    sandbox.env["UPDATE_HEALTH_WAIT_SECONDS"] = "20"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    assert "ingest(unhealthy)" in out
+
+
+def test_the_pre_update_snapshot_waits_a_bounded_time_for_starting_services(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ningest starting"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ningest unhealthy"
+    sandbox.env["UPDATE_HEALTH_WAIT_SECONDS"] = "600"  # capped at 60 s for this pre-step
+    run_update(sandbox, "--yes")
+    calls = sandbox.calls()
+    first_up = next(i for i, c in enumerate(calls) if c.startswith("docker compose up"))
+    before = [c for c in calls[:first_up] if c.startswith("docker compose ps --format")]
+    assert len(before) == 60 // 5 + 1
+
+
+def test_a_crash_looping_service_without_a_healthcheck_is_a_regression(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\nworker "
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\nworker restarting"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    assert "worker(restarting)" in out
+
+
+def test_an_exited_service_without_a_healthcheck_is_a_regression(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\nworker "
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\nworker exited"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_a_service_already_crash_looping_before_is_only_a_warning(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\nworker restarting"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\nworker restarting"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "worker was already unhealthy before the update" in out
+
+
+def test_rollback_ignores_an_invalid_recorded_revision(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, "x;rm -rf /")
+    sandbox.env["SHIM_ALEMBIC"] = "x"
+    proc = sandbox.run("scripts/rollback.sh", "--yes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert restored(sandbox)
+    assert "restored unless --keep-db is given" in proc.stdout
+    sandbox.log.write_text("")
+    proc = sandbox.run("scripts/rollback.sh", "--yes", "--keep-db")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not restored(sandbox)
