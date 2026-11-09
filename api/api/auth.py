@@ -74,8 +74,9 @@ RATE_WINDOW_S = 60.0
 MAX_TRACKED_IPS = 10_000
 MAX_REVOKED = 1_000
 MAX_REAUTH_FAILURES = 5  # consecutive wrong re-authentication passwords before the session dies
-MAX_VERIFY_CONCURRENCY = 1  # one argon2 verify holds ~64 MiB: more would risk the memory limit
-MAX_VERIFY_PENDING = 3  # running + queued; beyond this login answers 429 immediately
+VERIFY_CONCURRENCY = 2  # argon2 checks at once; each holds ~64 MiB, so keep this small
+VERIFY_WAIT_S = 5.0  # how long a check may queue for a slot before login answers 429
+PRESSURE_DELAY_S = 1.0  # extra delay on a wrong password while the server-wide budget is spent
 OWNER = "o"  # token subject of the owner account; database users are "u<id>"
 TOKEN_VERSION = "v2"  # noqa: S105 - the token format tag, not a password
 MAX_TRACKED_SOURCES = 10_000
@@ -90,7 +91,7 @@ class AuthConfigError(RuntimeError):
 
 
 class LoginBusy(RuntimeError):
-    """Too many password checks are already queued."""
+    """No password-check slot became free in time."""
 
 
 def _truthy(value: str | None, default: bool) -> bool:
@@ -110,6 +111,8 @@ class AuthSettings:
     rate_per_ip: int = 5
     rate_global: int = 30
     rate_per_user: int = 10
+    verify_concurrency: int = VERIFY_CONCURRENCY
+    verify_wait_s: float = VERIFY_WAIT_S
     trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = ()
 
     @classmethod
@@ -132,6 +135,12 @@ class AuthSettings:
             rate_per_ip=int(env.get("LOGIN_RATE", "").strip() or 5),
             rate_global=int(env.get("LOGIN_RATE_GLOBAL", "").strip() or 30),
             rate_per_user=int(env.get("LOGIN_RATE_USER", "").strip() or 10),
+            verify_concurrency=max(
+                1, int(env.get("LOGIN_VERIFY_CONCURRENCY", "").strip() or VERIFY_CONCURRENCY)
+            ),
+            verify_wait_s=max(
+                0.5, float(env.get("LOGIN_VERIFY_WAIT", "").strip() or VERIFY_WAIT_S)
+            ),
             trusted_proxies=tuple(proxies),
         )
         if disabled:
@@ -261,8 +270,7 @@ class AuthService:
         self._global = self._global_window("")
         self._sources: dict[tuple[int, str], _SourceState] = {}
         self._reauth_failures: dict[str, int] = {}
-        self._verify_sem = asyncio.Semaphore(MAX_VERIFY_CONCURRENCY)
-        self._pending = 0
+        self._verify_sem = asyncio.Semaphore(settings.verify_concurrency)
 
     # -- session tokens -------------------------------------------------------------------------
 
@@ -383,15 +391,20 @@ class AuthService:
     # -- credentials and rate limit -------------------------------------------------------------
 
     async def _limited[T](self, fn: Callable[[], T]) -> T:
-        """Run one slow argon2 call in a thread, at most one at a time, a few waiting."""
-        if self._pending >= MAX_VERIFY_PENDING:
-            raise LoginBusy
-        self._pending += 1
+        """Run one slow argon2 call in a thread, a few at a time.
+
+        This bounds the CPU and memory cost. Extra attempts queue for a slot (first come, first
+        served) up to ``verify_wait_s``, then raise ``LoginBusy``. Nothing is refused for a
+        whole window, so a correct password only waits its turn.
+        """
         try:
-            async with self._verify_sem:
-                return await asyncio.to_thread(fn)
+            await asyncio.wait_for(self._verify_sem.acquire(), self.settings.verify_wait_s)
+        except TimeoutError:
+            raise LoginBusy from None
+        try:
+            return await asyncio.to_thread(fn)
         finally:
-            self._pending -= 1
+            self._verify_sem.release()
 
     async def check_credentials(self, username: str, password: str) -> bool:
         """The owner's credentials. Constant work whether the name matches or not."""
@@ -445,23 +458,24 @@ class AuthService:
     def rate_limited(self, ip: str, scope: str = "", username: str | None = None) -> int | None:
         """Check the limits. Returns Retry-After seconds when over one, else None.
 
-        Three windows: per client address (charged here, on every attempt), per account name
-        (case-insensitive) and global. The account and global windows are charged by
-        ``record_failure`` only: successful sign-ins never use them up, so a busy tunnel or an
-        attacker's wrong guesses cannot shut a legitimate user out for long. ``scope`` gives
-        another action (password re-authentication) its own windows, separate from login.
+        Windows: per client address (charged here, on every attempt), per account name
+        (case-insensitive) and, for ``scope`` actions only, a global one. The account and global
+        windows are charged by ``record_failure`` only: successful sign-ins never use them up.
+        Sign-in itself has no global refusal: an anonymous client could use it to lock the owner
+        out. The server-wide failure count only adds delay there (``under_pressure``).
+        ``scope`` gives another action (password re-authentication, which needs a session) its
+        own windows, separate from login.
         Callers pass no ``username`` for the owner, so the owner is never limited by name.
         """
         key = rate_key(ip)
         if scope:
             key = f"{scope}|{key}"
         now = self.clock()
-        glob = self._global_window(scope)
-        glob.prune(now)
-        windows = [
-            (self._window(key, now), self.settings.rate_per_ip),
-            (glob, self.settings.rate_global),
-        ]
+        windows = [(self._window(key, now), self.settings.rate_per_ip)]
+        if scope:  # sign-in has no refusing global window, see ``under_pressure``
+            glob = self._global_window(scope)
+            glob.prune(now)
+            windows.append((glob, self.settings.rate_global))
         if username is not None:
             windows.insert(
                 1,
@@ -474,6 +488,12 @@ class AuthService:
                 return max(1, int(RATE_WINDOW_S - (now - w.hits[0])) + 1)
         windows[0][0].hits.append(now)  # type: ignore[union-attr]
         return None
+
+    def under_pressure(self, scope: str = "") -> bool:
+        """True while wrong passwords server-wide have used up the global budget."""
+        glob = self._global_window(scope)
+        glob.prune(self.clock())
+        return len(glob.hits) >= self.settings.rate_global
 
     @staticmethod
     def _user_key(scope: str, username: str) -> str:
@@ -915,8 +935,11 @@ async def login(body: LoginBody, request: Request) -> Response:
         return JSONResponse({"detail": "Sign-in is temporarily unavailable"}, status_code=503)
     if result is None:
         service.record_failure(ip, username=by_name)
+        pressure = service.under_pressure()
         log.warning("dashboard login failed ip=%s", ip[:64])  # never the submitted values
-        await asyncio.sleep(FAILURE_DELAY_S)
+        # The same delay for every wrong answer, known account or not; more while the
+        # server-wide budget is spent. A correct password is never delayed or refused for it.
+        await asyncio.sleep(FAILURE_DELAY_S + (PRESSURE_DELAY_S if pressure else 0.0))
         return JSONResponse({"detail": "Invalid credentials"}, status_code=401)
     previous = service.validate(service.session_token(request.scope))
     if previous is not None:

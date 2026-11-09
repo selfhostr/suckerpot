@@ -417,3 +417,45 @@ def test_a_database_failure_is_a_plain_401_for_other_names_and_does_not_block_th
         r = login(c, PASSWORD, "colleague")
         assert r.status_code == 401 and r.json() == {"detail": "Invalid credentials"}
         assert login(c).status_code == 204  # the owner still gets in
+
+
+def _by_header_address(app: FastAPI) -> None:
+    """Give each test request the address named in X-Test-Ip (the test peer is not an IP)."""
+    app.state.auth.client_ip = lambda conn: conn.headers.get("x-test-ip", "192.0.2.1")
+
+
+def test_a_hammered_address_does_not_lock_another_one_out() -> None:
+    app = make_app(rate_per_ip=3, rate_global=3)
+    _by_header_address(app)
+    with TestClient(app, base_url="https://testserver") as c:
+        codes = [login(c, "wrong", **{"X-Test-Ip": "198.51.100.7"}).status_code for _ in range(12)]
+        assert codes[:3] == [401] * 3 and codes[3:] == [429] * 9  # that address is blocked
+        # The server-wide failure budget is spent too, yet a correct password still works.
+        assert app.state.auth.under_pressure()
+        r = login(c, **{"X-Test-Ip": "203.0.113.9"})
+        assert r.status_code == 204
+        assert c.get("/api/v1/auth/me").status_code == 200
+
+
+async def test_more_attempts_than_the_cap_are_all_answered() -> None:
+    import asyncio
+
+    import httpx
+
+    app = make_app(rate_per_ip=1000, rate_global=5, verify_concurrency=2)
+    _by_header_address(app)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as c:
+
+        async def attempt(i: int) -> int:
+            right = i == 11
+            r = await c.post(
+                "/api/v1/auth/login",
+                json={"username": "admin", "password": PASSWORD if right else "nope"},
+                headers={**ORIGIN, "Origin": "https://testserver", "X-Test-Ip": "192.0.2.50"},
+            )
+            return r.status_code
+
+        codes = await asyncio.gather(*(attempt(i) for i in range(24)))
+    assert set(codes) <= {204, 401}
+    assert codes[11] == 204 and codes.count(401) == 23

@@ -184,7 +184,9 @@ The owner account lives in `.env`: it is always an administrator and works even 
 | `SESSION_TTL_HOURS` | `12` | How long a login lasts |
 | `COOKIE_SECURE` | `true` | Cookies are `Secure` and named `__Host-sp_session` and `__Host-sp_csrf`. Keep `true`, also behind a TLS-terminating tunnel (the browser talks HTTPS to the tunnel). `false` gives the plain names `sp_session` and `sp_csrf` without `Secure`: local development over HTTP only. |
 | `LOGIN_RATE` | `5` | Login attempts per client address per minute (every attempt counts) |
-| `LOGIN_RATE_GLOBAL` | `30` | **Wrong passwords** per minute for the whole server; successful sign-ins do not count |
+| `LOGIN_RATE_GLOBAL` | `30` | **Wrong passwords** per minute for the whole server. Over this budget, each further wrong answer is delayed by one more second. It never refuses a sign-in, so anonymous traffic cannot lock the owner out. Successful sign-ins do not count |
+| `LOGIN_VERIFY_CONCURRENCY` | `2` | Password checks (argon2, about 64 MiB each) running at once. Extra attempts queue |
+| `LOGIN_VERIFY_WAIT` | `5` | Seconds an attempt may queue for a free check slot before it gets `429` with `Retry-After`. Minimum 0.5 |
 | `LOGIN_RATE_USER` | `10` | Wrong passwords per minute for one username (any letter case), from any address. Not applied to the owner's name. |
 | `AUTH_TRUSTED_PROXIES` | empty | Comma-separated CIDR list of proxy addresses (such as `203.0.113.0/24`). Only from those peers does the API read `CF-Connecting-IP`, or the rightmost non-proxy `X-Forwarded-For` entry, as the client address. Empty means the headers are never trusted. Replaces the old `AUTH_TRUST_PROXY_HEADERS`. |
 | `API_ALLOWED_HOSTS` | empty | Comma-separated host names the API answers to. If empty, the hosts of `API_ALLOWED_ORIGINS` are used. `localhost` and `127.0.0.1` are always allowed. If both are empty, any host is allowed and the API logs a warning: set one in production, for example the tunnel's host name. |
