@@ -70,12 +70,6 @@ async def test_sid_forge_flag_and_cve(harness: Harness) -> None:
         flags, d = await flags_of(harness)
         assert "sid_forge" in flags, (path, headers)
         assert d["cve"] == ["CVE-2026-13639", "CVE-2026-13684"]
-    # a login without any password is how a guessed session would be presented
-    await harness.form(
-        "/webapi/entry.cgi", "api=SYNO.API.Auth&version=7&method=login&account=admin"
-    )
-    flags, d = await flags_of(harness)
-    assert "sid_forge" in flags and "cve" in d
 
 
 async def test_sid_forge_negative(harness: Harness) -> None:
@@ -87,6 +81,21 @@ async def test_sid_forge_negative(harness: Harness) -> None:
     )
     flags, _ = await flags_of(harness)
     assert "sid_forge" not in flags
+    # a login with an account and no password is an ordinary (failed) login, not a forged session
+    await harness.form(
+        "/webapi/entry.cgi", "api=SYNO.API.Auth&version=7&method=login&account=admin"
+    )
+    flags, d = await flags_of(harness)
+    assert "dsm_login" in flags and "sid_forge" not in flags and "cve" not in d
+    # a session id or cookie on an ordinary page (not a DSM web API call) is not an exploit shape
+    for path, headers in (
+        ("/?_sid=abcd", {}),
+        ("/webman/index.cgi", {"Cookie": "id=AAAA"}),
+        ("/index.html?sid=1", {"X-SYNO-TOKEN": "t0k"}),
+    ):
+        await get(harness, path, headers)
+        flags, d = await flags_of(harness)
+        assert "sid_forge" not in flags and "cve" not in d, path
 
 
 async def test_scgi_injection_positive(harness: Harness) -> None:

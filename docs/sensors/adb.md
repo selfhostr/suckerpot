@@ -42,7 +42,7 @@ Rules live in `ingest/rules/services.yaml`.
 | Tag | Set when the sensor flags |
 | --- | --- |
 | `malware-drop` | `adb_push` or `adb_install`, or any `download_attempt`. |
-| `mirai` | A shell command with BusyBox loader tokens (`busybox`, `ecchi`, `mirai`, `/dev/watchdog`), or a download made with BusyBox. |
+| `mirai` | A Mirai-family indicator in a shell command or a recorded download: the BusyBox echo-check with a variant token (`busybox ECCHI`, `busybox MIRAI`, ...) or a Mirai binary name. Plain `busybox` use is not tagged. |
 
 Other flags on the session: `adb_shell`, `adb_pull`, `adb_reboot` and `adb_service`.
 

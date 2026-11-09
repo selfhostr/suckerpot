@@ -211,6 +211,22 @@ TAG_ADVICE: dict[str, TagAdvice] = {
         "look": ["Firewall logs: connections to TCP 445 from the internet."],
         "fix": ["Patch Windows, disable SMBv1 and block port 445 at the edge."],
     },
+    "smb-v1-probe": {
+        "title": "Old SMB1 probing",
+        "what": "Scanners and old exploit kits speak SMBv1 to Windows file sharing to see whether it still answers. This alone does not say which exploit was meant.",
+        "look": ["Firewall logs: connections to TCP 445 from the internet."],
+        "fix": ["Disable SMBv1, patch Windows and block port 445 at the edge."],
+    },
+    "php-upload-progress-probe": {
+        "title": "PHP upload-progress probing",
+        "what": "Scanners touch the PHP upload-progress feature to see whether the server is a target. A probe carries no code.",
+        "look": [
+            "Web server logs: requests with PHP_SESSION_UPLOAD_PROGRESS and no PHP code in the value."
+        ],
+        "fix": [
+            "Update PHP to a fixed release and disable session.upload_progress where it is not needed."
+        ],
+    },
     "bluekeep": {
         "title": "RDP vulnerability probing",
         "what": "Scanners look for Remote Desktop services that are vulnerable to BlueKeep.",

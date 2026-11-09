@@ -167,6 +167,8 @@ from_tags:
   redis-rogue-master: [T1190, T1105]
   container-escape: [T1611, T1610]
   eternalblue: [T1210]
+  smb-v1-probe: [T1595.002]
+  php-upload-progress-probe: [T1595.002]
   bluekeep: [T1210]
   rdp-cleartext: [T1078]
   sip-fraud: [T1657]

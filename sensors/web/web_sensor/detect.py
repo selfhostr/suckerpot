@@ -379,7 +379,10 @@ class Detector:
         if any(d["tool"] == "rfi" for d in out.downloads):
             flags.add("rfi")
         out.basic_auth = _basic_auth(req.header("authorization"))
-        if flags & {"php2shell", "upload_progress", "session_include"}:
+        # CVE-specific claim: the upload-progress field carrying PHP code, or the include of a
+        # session file this sensor saw created through that field. Touching the feature, or a
+        # bare session-file include, stays a probe (`upload_progress` / `session_include`).
+        if ("upload_progress" in flags and "php_code" in flags) or "session_ref_match" in flags:
             flags.add("php2shell")
             out.cve = list(CVES)
         out.flags = sorted(flags)
@@ -417,7 +420,7 @@ class Detector:
             pos = body_low.find(field_name + b"=") if "x-www-form-urlencoded" in ctype else -1
         in_query = field_name + b"=" in query_low
         if pos != -1 or in_query or b"upload_progress_" in low:
-            flags.update({"php2shell", "upload_progress"})
+            flags.add("upload_progress")
             info["field"] = self._cfg.upload_progress_name
             info["multipart"] = "multipart/form-data" in ctype
             info["where"] = "body" if pos != -1 else ("query" if in_query else "payload")

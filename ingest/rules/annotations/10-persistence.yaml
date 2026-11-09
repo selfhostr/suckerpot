@@ -1,14 +1,32 @@
 annotations:
+  # Writing commands only: `cat ~/.ssh/id_rsa` or `cat authorized_keys` is a read (see 20-recon),
+  # `cat key.pub >> authorized_keys` is a write (the cat entry that needs a redirect).
   - id: ssh-key-install
-    commands: [echo, cat, printf, tee, mkdir, chmod, sed]
+    commands: [echo, printf, tee, sed]
     args_any: [authorized_keys, .ssh]
     explain: Adds the attacker's SSH key so they can log in again later without a password.
     phrase: installs its own SSH key
     risk: severe
     technique: T1098.004
+  - id: ssh-key-install-cat
+    commands: [cat]
+    args_any: [authorized_keys]
+    args_all: [">"]
+    explain: Adds the attacker's SSH key so they can log in again later without a password.
+    phrase: installs its own SSH key
+    risk: severe
+    technique: T1098.004
   - id: write-cron-or-rc
-    commands: [echo, cat, printf, tee, sed]
+    commands: [echo, printf, tee, sed]
     args_any: [/etc/cron, /var/spool/cron, /etc/rc.local, .bashrc, .profile, /etc/init.d, systemd]
+    explain: Edits a startup or schedule file so the attacker's program starts again after a reboot.
+    phrase: edits a startup file to persist
+    risk: severe
+    technique: T1037.004
+  - id: write-cron-or-rc-cat
+    commands: [cat]
+    args_any: [/etc/cron, /var/spool/cron, /etc/rc.local, .bashrc, .profile, /etc/init.d, systemd]
+    args_all: [">"]
     explain: Edits a startup or schedule file so the attacker's program starts again after a reboot.
     phrase: edits a startup file to persist
     risk: severe
@@ -19,6 +37,13 @@ annotations:
     phrase: creates an SSH key
     risk: warning
     technique: T1098.004
+  - id: cron-list
+    commands: [crontab]
+    args_any: ["-l"]
+    explain: Lists the scheduled jobs of an account. Attackers look for jobs to hide among or to remove.
+    phrase: lists scheduled jobs
+    risk: notice
+    technique: T1053.003
   - id: cron
     commands: [crontab, at, anacron]
     explain: Schedules a program to run again later. A common way to survive a reboot.

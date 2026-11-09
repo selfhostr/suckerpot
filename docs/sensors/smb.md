@@ -34,9 +34,10 @@ Rules live in `ingest/rules/services.yaml`.
 
 | Tag | Set when |
 | --- | --- |
-| `eternalblue` | The sensor sees the first SMB1 message of an exploit chain: a `Trans`, `Trans2` or `NT Transact` request. The sensor does not add this tag itself. Ingest does, from the recorded command name. |
+| `smb-v1-probe` | A client that speaks only SMB1 (the sensor resets it), or an SMB1 command after the negotiate (`Trans`, `Trans2`, `NT Transact`, `Session Setup`...). It does not say which exploit was meant. |
+| `eternalblue` | Only when the sensor sets the `eternalblue` or `ms17_010` flag. The sensor keeps SMB1 messages opaque and cannot see the malformed transaction of MS17-010, so it does not set them today. |
 
-A plain SMBv1 negotiate is not tagged. The flags `ntlm`, `smbv1`, `null_session` and `compound_request` are shown on the session.
+A multi-protocol negotiate from a modern client (steered to SMB2) is not tagged. The flags `ntlm`, `smbv1`, `null_session` and `compound_request` are shown on the session.
 
 ## Limits
 

