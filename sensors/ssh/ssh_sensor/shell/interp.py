@@ -11,6 +11,7 @@ import fnmatch
 import logging
 import posixpath
 import re
+import secrets
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -28,7 +29,7 @@ from ssh_sensor.shell.core import (
 )
 from ssh_sensor.shell.fs import BaseImage, FakeFS, FSError
 from ssh_sensor.shell.parser import Command, ParseError, Pipeline, Word, parse
-from ssh_sensor.shell.procfs import proc_nodes
+from ssh_sensor.shell.procfs import cwd_links, proc_nodes
 from ssh_sensor.shell.stubs import run_stub
 
 log = logging.getLogger("ssh_sensor.shell")
@@ -144,6 +145,7 @@ class Shell:
     _truncated: bool = False
     _budget: int = MAX_BUDGET
     _depth: int = 0
+    _expand_failed: bool = False
     prev_cwd: str = "/"
     user_stack: list[UserInfo] = field(default_factory=list)
 
@@ -159,6 +161,7 @@ class Shell:
         self.cwd = self.user.home
         self.pid = 1873 + (hash(self.client_ip) & 0x3FF)
         self.fs.seed(proc_nodes(self))
+        self.set_cwd(self.cwd)
         self.env = {
             "SHELL": "/bin/bash",
             "PWD": self.cwd,
@@ -186,6 +189,11 @@ class Shell:
             self._history_bytes = sum(len(h) + 1 for h in self.history)
         except FSError:
             self.history = []
+
+    def set_cwd(self, path: str) -> None:
+        """Change directory; ``/proc/self/cwd`` and ``/proc/<pid>/cwd`` follow it."""
+        self.cwd = path
+        self.fs.seed(cwd_links(self))
 
     # ---- user handling -------------------------------------------------------------------
     def _setup_user(self, name: str) -> UserInfo:
@@ -322,7 +330,7 @@ class Shell:
         if name == "UID" or name == "EUID":
             return str(self.user.uid)
         if name == "RANDOM":
-            return str(int(self.now() * 1000) % 32768)
+            return str(secrets.randbelow(32768))
         return self.env.get(name, "")
 
     def _expand_vars(self, text: str, limit: int = MAX_WORD) -> str:
@@ -398,7 +406,9 @@ class Shell:
         """Value of ``$(( expr ))``; an invalid expression expands to nothing (bash aborts)."""
         try:
             return str(evaluate(self._expand_vars(expr, 512), self.lookup))
-        except ArithError:
+        except ArithError as exc:
+            self._to_terminal(f"{self.error_prefix()}{expr.strip()[:64]}: {exc}\n", True)
+            self._expand_failed = True
             return ""
 
     def _substitute(self, inner: str) -> str:
@@ -649,6 +659,9 @@ class Shell:
                 )
                 return "", 126
             fields.extend(expanded)
+        if self._expand_failed:  # a bad $(( )): bash abandons the command
+            self._expand_failed = False
+            return "", 1
         if not fields:
             for name, value in assigns:
                 if not self.set_var(name, value):
@@ -804,8 +817,7 @@ class Shell:
         if not node.mode & 0o111 or not self.can_read(path):
             io.error(f"{prefix}{name}: Permission denied\n")
             return 126
-        content = self.fs.read(path)
-        if content.startswith(b"\x7fELF"):
+        if node.content.startswith(b"\x7fELF"):
             digest = sum(path.encode()) % 3
             if digest == 0:
                 io.error(f"{prefix}{name}: cannot execute binary file: Exec format error\n")
@@ -815,6 +827,7 @@ class Shell:
             else:
                 io.error(f"{prefix}{self.pid + 7} Segmentation fault (core dumped) {name}\n")
             return 139
+        content = self.fs.read(path, 64 * 1024)
         return self.run_script(content.decode("utf-8", "replace"), io)
 
     def run_script(self, text: str, io: CmdIO) -> int:

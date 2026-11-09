@@ -38,15 +38,18 @@ class Node:
         return max(self.size, len(self.content))
 
 
-def pad_content(path: str, node: Node) -> bytes:
-    """The bytes of ``node``: its stored content, then deterministic filler up to its size."""
-    if node.size <= len(node.content):
-        return node.content
-    want = min(node.size, MAX_VIRTUAL_READ) - len(node.content)
+def pad_content(key: bytes, node: Node, limit: int = MAX_VIRTUAL_READ) -> bytes:
+    """The bytes of ``node``: its stored content, then filler up to its size.
+
+    The filler depends on the install secret ``key``, the stored header and the size, not on
+    the path, so a copy of a file reads back identical bytes. At most ``limit`` bytes are
+    generated."""
+    stored = len(node.content)
+    want = min(node.size, MAX_VIRTUAL_READ, limit) - stored
     if want <= 0:
         return node.content
-    filler = hashlib.shake_128(path.encode() + node.content[:64]).digest(want)
-    return node.content + filler
+    seed = key + node.content[:64] + node.size.to_bytes(8, "big")
+    return node.content + hashlib.shake_128(seed).digest(want)
 
 
 @dataclass(frozen=True)
@@ -57,12 +60,14 @@ class BaseImage:
     children: dict[str, tuple[str, ...]]
     dynamic: dict[str, Callable[[], bytes]] = field(default_factory=dict)
     binaries: tuple[str, ...] = ()
+    secret: bytes = b""  # install secret: keys the filler of virtual files
 
     @staticmethod
     def build(
         nodes: dict[str, Node],
         dynamic: dict[str, Callable[[], bytes]],
         binaries: tuple[str, ...],
+        secret: bytes = b"",
     ) -> BaseImage:
         kids: dict[str, set[str]] = {}
         for path in nodes:
@@ -75,6 +80,7 @@ class BaseImage:
             children={k: tuple(sorted(v)) for k, v in kids.items()},
             dynamic=dynamic,
             binaries=binaries,
+            secret=secret,
         )
 
 
@@ -167,7 +173,8 @@ class FakeFS:
         node = self._raw(path)
         return node is not None and node.kind == "d"
 
-    def read(self, path: str) -> bytes:
+    def read(self, path: str, limit: int = MAX_VIRTUAL_READ) -> bytes:
+        """File content; a file with a declared size is generated up to ``limit`` bytes."""
         node = self._raw(path)
         if node is None:
             raise FSError("No such file or directory")
@@ -177,7 +184,7 @@ class FakeFS:
         if dyn is not None and path not in self._added:
             return dyn()
         if node.size > len(node.content):
-            return pad_content(path, node)
+            return pad_content(self._base.secret, node, limit)
         return node.content
 
     def listdir(self, path: str) -> list[str]:
@@ -241,11 +248,11 @@ class FakeFS:
         appending = append and old is not None
         # Check the projected size BEFORE concatenating: `>>` on a large file must not build
         # a copy that would then be refused.
-        old_len = len(self.read(path)) if appending else 0
+        base = self.read(path, self._max_bytes + 1) if appending else b""
+        old_len = len(base)
         held = len(old.content) if old is not None and path in self._added else 0
         if self._bytes + old_len + len(data) - held > self._max_bytes:
             raise FSError("No space left on device")
-        base = self.read(path) if appending else b""
         node = Node(
             "f",
             mode=old.mode if old is not None else mode,
@@ -311,7 +318,9 @@ class FakeFS:
         if node.kind == "d":
             raise FSError("omitting directory")
         self._check_parent(dst)
-        self._put(dst, replace(node, content=self.read(src), owner=owner, mtime=self._now))
+        # a file with a declared size is copied as header + size: the filler is regenerated
+        content = node.content if node.size > len(node.content) else self.read(src)
+        self._put(dst, replace(node, content=content, owner=owner, mtime=self._now))
 
     def rename(self, src: str, dst: str) -> None:
         node = self._raw(src)
@@ -320,6 +329,8 @@ class FakeFS:
         if node.kind == "d":
             raise FSError("Operation not permitted")
         self._check_parent(dst)
-        content = self.read(src)
+        content = node.content if node.size > len(node.content) else self.read(src)
+        if dst == src:
+            return
+        self._put(dst, replace(node, content=content, mtime=self._now))  # quota check first
         self.remove(src)
-        self._put(dst, replace(node, content=content, mtime=self._now))

@@ -181,7 +181,7 @@ def cmd_cd(sh: Shell, io: CmdIO) -> int:
         io.error(f"{sh.error_prefix()}cd: {target}: Permission denied\n")
         return 1
     sh.prev_cwd = sh.cwd
-    sh.cwd = path
+    sh.set_cwd(path)
     sh.env["PWD"] = path
     return 0
 

@@ -59,36 +59,54 @@ def _status(name: str, pid: int, ppid: int, uid: int, gid: int, rss_kb: int, sta
     return "".join(f"{key}:\t{value}\n" for key, value in rows)
 
 
+_UIDS = {"root": 0, "www-data": 33, "mysql": 102}
+
+
+def _node(kind: str, who: str, mt: int, content: str = "", target: str = "") -> Node:
+    mode = {"d": 0o555, "l": 0o777}.get(kind, 0o444)
+    return Node(
+        kind, mode=mode, owner=who, group=who, mtime=mt, content=content.encode(), target=target
+    )
+
+
+def cwd_links(sh: Shell) -> dict[str, Node]:
+    """The ``cwd`` link of the session's bash, which follows ``cd``."""
+    return {
+        f"/proc/{sh.pid + 1}/cwd": _node("l", sh.user.name, sh.profile.boot_epoch, target=sh.cwd)
+    }
+
+
 def proc_nodes(sh: Shell) -> dict[str, Node]:
-    """``/proc/self`` (the session's bash), ``/proc/<its pid>`` and ``/proc/1``."""
+    """``/proc/self`` (the session's bash) and one directory per process ``ps`` lists."""
+    from ssh_sensor.shell.cmd_sys import _PROCS
+
     pid = sh.pid + 1
     mt = sh.profile.boot_epoch
     uid, gid = sh.user.uid, sh.user.gid
     owner = sh.user.name
+    nodes: dict[str, Node] = {"/proc/self": _node("l", owner, mt, target=str(pid))}
 
-    def d(path: str, who: str) -> Node:
-        return Node("d", mode=0o555, owner=who, group=who, mtime=mt)
+    def add(
+        p: int, ppid: int, who: str, u: int, g: int, cmd: str, rss: int, comm: str | None = None
+    ) -> None:
+        base = f"/proc/{p}"
+        name = comm or cmd.split()[0].rsplit("/", 1)[-1]
+        argv = "" if cmd.startswith("[") else cmd.replace(" ", "\x00") + "\x00"
+        nodes[base] = _node("d", who, mt)
+        nodes[f"{base}/status"] = _node(
+            "f", who, mt, _status(name[:15], p, ppid, u, g, rss, "S (sleeping)")
+        )
+        nodes[f"{base}/cmdline"] = _node("f", who, mt, argv)
+        nodes[f"{base}/comm"] = _node("f", who, mt, name[:15] + "\n")
 
-    def f(text: str, who: str, mode: int = 0o444) -> Node:
-        return Node("f", mode=mode, owner=who, group=who, mtime=mt, content=text.encode())
-
-    def link(target: str, who: str) -> Node:
-        return Node("l", mode=0o777, owner=who, group=who, mtime=mt, target=target)
-
-    shell = f"/proc/{pid}"
-    init = "/proc/1"
-    return {
-        "/proc/self": link(str(pid), owner),
-        shell: d(shell, owner),
-        f"{shell}/status": f(_status("bash", pid, sh.pid, uid, gid, 5120, "S (sleeping)"), owner),
-        f"{shell}/cmdline": f("-bash\x00", owner),
-        f"{shell}/comm": f("bash\n", owner),
-        f"{shell}/exe": link("/usr/bin/bash", owner),
-        f"{shell}/cwd": link(sh.cwd, owner),
-        init: d(init, "root"),
-        f"{init}/status": f(_status("systemd", 1, 0, 0, 0, 13408, "S (sleeping)"), "root"),
-        f"{init}/cmdline": f("/sbin/init\x00", "root"),
-        f"{init}/comm": f("systemd\n", "root"),
-        f"{init}/exe": link("/usr/lib/systemd/systemd", "root"),
-        f"{init}/cwd": link("/", "root"),
-    }
+    for user, p, _c, _m, _v, rss, _tty, _stat, _start, _cpu, cmd in _PROCS:
+        who_uid = _UIDS.get(user, 0)
+        comm = "systemd" if p == 1 else None
+        add(p, 0 if p <= 2 else 1, user, who_uid, who_uid, cmd, rss, comm)
+    add(sh.pid, 702, owner, uid, gid, f"sshd: {owner}@pts/0", 9216, "sshd")
+    add(pid, sh.pid, owner, uid, gid, "-bash", 5120, "bash")
+    nodes[f"/proc/{pid}/exe"] = _node("l", owner, mt, target="/usr/bin/bash")
+    nodes["/proc/1/exe"] = _node("l", "root", mt, target="/usr/lib/systemd/systemd")
+    nodes["/proc/1/cwd"] = _node("l", "root", mt, target="/")
+    nodes.update(cwd_links(sh))
+    return nodes

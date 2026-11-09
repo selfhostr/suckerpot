@@ -641,7 +641,7 @@ def _switch(sh: Shell, name: str, login: bool) -> bool:
         return False
     sh.user_stack.append(previous)
     if login:
-        sh.cwd = sh.user.home
+        sh.set_cwd(sh.user.home)
         sh.env["PWD"] = sh.cwd
     return True
 

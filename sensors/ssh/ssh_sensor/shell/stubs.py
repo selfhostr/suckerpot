@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ssh_sensor.shell.core import CmdIO, parse_flags
+from ssh_sensor.shell.fs import FSError, Node
 
 if TYPE_CHECKING:
     from ssh_sensor.shell.interp import Shell
@@ -19,6 +20,15 @@ if TYPE_CHECKING:
 Stub = Callable[["Shell", CmdIO], int]
 
 _TRY = "Try '{0} --help' for more information.\n"
+
+
+def _lookup(sh: Shell, path: str) -> tuple[Node | None, str]:
+    """``(node, "")``, or ``(None, strerror)`` for a missing or invalid path."""
+    try:
+        node = sh.fs.stat(sh.abspath(path))
+    except FSError as exc:
+        return None, str(exc)
+    return (node, "") if node is not None else (None, "No such file or directory")
 
 
 def _missing(name: str, msg: str) -> Stub:
@@ -47,7 +57,9 @@ def _bare(text: str, status: int) -> Stub:
 
 
 def _tar(sh: Shell, io: CmdIO) -> int:
-    args = ["-" + io.args[0], *io.args[1:]] if io.args and io.args[0][0] != "-" else io.args
+    args = (
+        ["-" + io.args[0], *io.args[1:]] if io.args and not io.args[0].startswith("-") else io.args
+    )
     flags, values, operands = parse_flags(args, "CfzjJ")
     if not io.args:
         io.error(
@@ -57,12 +69,9 @@ def _tar(sh: Shell, io: CmdIO) -> int:
         return 2
     path = values.get("f") or (operands[0] if operands else "")
     if flags & {"x", "t"} and path:
-        try:
-            exists = sh.fs.exists(sh.abspath(path))
-        except Exception:
-            exists = False
-        if not exists:
-            io.error(f"tar: {path}: Cannot open: No such file or directory\n")
+        node, why = _lookup(sh, path)
+        if node is None:
+            io.error(f"tar: {path}: Cannot open: {why}\n")
             io.error("tar: Error is not recoverable: exiting now\n")
             return 2
     return 0
@@ -92,9 +101,11 @@ def _find(sh: Shell, io: CmdIO) -> int:
     if not io.args:
         io.write(".\n")
         return 0
-    if operands and not sh.fs.exists(sh.abspath(start)):
-        io.error(f"find: ‘{start}’: No such file or directory\n")
-        return 1
+    if operands:
+        node, why = _lookup(sh, start)
+        if node is None:
+            io.error(f"find: ‘{start}’: {why}\n")
+            return 1
     return 0
 
 
@@ -127,6 +138,38 @@ _GIT_USAGE = (
 _GIT_REPO = frozenset("status log diff pull push add commit checkout branch fetch show".split())
 
 
+def _git_clone(io: CmdIO) -> int:
+    from urllib.parse import urlsplit
+
+    from ssh_sensor.shell.cmd_net import host_exists
+
+    ops = [a for a in io.args[1:] if not a.startswith("-")]
+    if not ops:
+        io.error("fatal: You must specify a repository to clone.\n")
+        return 129
+    url = ops[0][:2048]
+    name = ops[1] if len(ops) > 1 else url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    io.error(f"Cloning into '{name or 'repo'}'...\n")
+    try:
+        parts = urlsplit(url)
+        host, port = parts.hostname or "", parts.port
+    except ValueError:
+        parts, host, port = urlsplit(""), "", None
+    if not host or parts.scheme not in ("http", "https"):
+        io.error(f"fatal: repository '{url}' does not exist\n")
+        return 128
+    shown = url if url.endswith("/") else url + "/"
+    if not host_exists(host):
+        io.error(f"fatal: unable to access '{shown}': Could not resolve host: {host}\n")
+    else:
+        where = port or (443 if parts.scheme == "https" else 80)
+        io.error(
+            f"fatal: unable to access '{shown}': Failed to connect to {host} port {where} "
+            "after 0 ms: Couldn't connect to server\n"
+        )
+    return 128
+
+
 def _git(sh: Shell, io: CmdIO) -> int:
     if not io.args:
         io.error(_GIT_USAGE + "\nThese are common Git commands used in various situations:\n")
@@ -139,10 +182,7 @@ def _git(sh: Shell, io: CmdIO) -> int:
         io.error("fatal: not a git repository (or any of the parent directories): .git\n")
         return 128
     if sub == "clone":
-        name = (io.args[-1].rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")) or "repo"
-        io.error(f"Cloning into '{name}'...\n")
-        io.error("fatal: unable to access the repository: Could not resolve host\n")
-        return 128
+        return _git_clone(io)
     if sub.startswith("-"):
         return 0
     io.error(f"git: '{sub}' is not a git command. See 'git --help'.\n")
@@ -236,7 +276,7 @@ def _seq(sh: Shell, io: CmdIO) -> int:
     _, _, operands = parse_flags(io.args)
     nums: list[int] = []
     for op in operands:
-        digits = op.lstrip("-")
+        digits = op[1:] if op[:1] in "+-" else op
         if not (digits.isascii() and digits.isdigit() and len(digits) < 9):
             io.error(f"seq: invalid floating point argument: ‘{op}’\n")
             io.error(_TRY.format("seq"))
@@ -268,7 +308,7 @@ def _readlink(sh: Shell, io: CmdIO) -> int:
         return 1
     try:
         node = sh.fs.stat(sh.fs.resolve(sh.cwd, operands[0], follow_last=False))
-    except Exception:
+    except FSError:
         node = None
     if node is None or node.kind != "l":
         return 1
@@ -280,9 +320,9 @@ def _du(sh: Shell, io: CmdIO) -> int:
     _, _, operands = parse_flags(io.args)
     status = 0
     for path in operands[:16] or ["."]:
-        node = sh.fs.stat(sh.abspath(path))
+        node, why = _lookup(sh, path)
         if node is None:
-            io.error(f"du: cannot access '{path}': No such file or directory\n")
+            io.error(f"du: cannot access '{path}': {why}\n")
             status = 1
         else:
             io.write(f"{max(4, -(-node.length // 4096) * 4)}\t{path}\n")

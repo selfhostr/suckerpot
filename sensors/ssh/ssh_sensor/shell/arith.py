@@ -20,6 +20,15 @@ _INT64 = 1 << 63
 class ArithError(Exception):
     """Syntax error, division by zero or a bound exceeded."""
 
+    def __init__(self, message: str, token: str = "") -> None:
+        super().__init__(message)
+        self.message = message
+        self.token = token
+
+    def __str__(self) -> str:
+        suffix = f' (error token is "{self.token}")' if self.token else ""
+        return self.message + suffix
+
 
 def _wrap(value: int) -> int:
     return (value + _INT64) % (1 << 64) - _INT64
@@ -97,7 +106,7 @@ class _Parser:
                 value = _wrap(value * rhs)
                 continue
             if rhs == 0:
-                raise ArithError("division by 0")
+                raise ArithError("division by 0", self.tokens[self.pos - 1][1])
             quotient = abs(value) // abs(rhs)  # C semantics: truncate toward zero
             if (value < 0) != (rhs < 0):
                 quotient = -quotient

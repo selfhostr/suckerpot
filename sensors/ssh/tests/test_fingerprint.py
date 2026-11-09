@@ -57,3 +57,11 @@ async def test_keyboard_interactive_is_not_offered(
     async with make_harness() as h:
         with pytest.raises(asyncssh.PermissionDenied):
             await h.connect(preferred_auth="keyboard-interactive", password="root")
+
+
+async def test_advertised_auth_methods_are_publickey_and_password(
+    make_harness: Callable[..., AbstractAsyncContextManager[Harness]],
+) -> None:
+    async with make_harness() as h:
+        methods = await asyncssh.get_server_auth_methods("127.0.0.1", h.port, "root")
+    assert ",".join(methods) == "publickey,password"

@@ -6,7 +6,7 @@ from __future__ import annotations
 import ipaddress
 import posixpath
 import re
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from suckerpot_common import EventType
 
@@ -28,6 +28,14 @@ _IP_ECHO_HOSTS = (
 )
 
 
+def _split(url: str) -> SplitResult:
+    """``urlsplit`` that never raises: a malformed URL (``http://[x``) splits as empty."""
+    try:
+        return urlsplit(url)
+    except ValueError:
+        return urlsplit("")
+
+
 def _normalize_url(raw: str) -> str:
     raw = raw.strip()[:2048]
     return raw if "://" in raw else "http://" + raw
@@ -41,7 +49,7 @@ def _record(sh: Shell, url: str, tool: str, io: CmdIO) -> None:
 
 def _drop(sh: Shell, io: CmdIO, path: str, url: str) -> Payload:
     """Create the fake downloaded file. Its type and size depend on the URL."""
-    payload = payload_for(url)
+    payload = payload_for(sh.profile.payload_key, url)
     if not sh.fs.may_write(path, sh.user.name, sh.user.home):
         raise FSError("Permission denied")
     sh.fs.write(
@@ -74,7 +82,13 @@ def host_exists(host: str) -> bool:
 
 
 def _is_loopback(host: str) -> bool:
-    return host.lower() == "localhost" or host.startswith("127.")
+    """``localhost`` or a literal loopback address (127.0.0.0/8, ::1), never a name."""
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
 
 
 def _human(n: int) -> str:
@@ -90,7 +104,7 @@ def _human(n: int) -> str:
 
 
 def _local_name(sh: Shell, url: str, directory: str, default: str = "index.html") -> str:
-    name = posixpath.basename(urlsplit(url).path) or default
+    name = posixpath.basename(_split(url).path) or default
     name = re.sub(r"[^A-Za-z0-9._@+-]", "_", name)[:100] or default
     path = posixpath.join(directory, name)
     n = 0
@@ -128,7 +142,7 @@ def cmd_wget(sh: Shell, io: CmdIO) -> int:
     status = 0
     for url in urls:
         _record(sh, url, "wget", io)
-        parts = urlsplit(url)
+        parts = _split(url)
         try:
             host = parts.hostname or ""
             port = parts.port or (443 if parts.scheme == "https" else 80)
@@ -157,7 +171,7 @@ def cmd_wget(sh: Shell, io: CmdIO) -> int:
         dest_shown = out_name or posixpath.basename(parts.path) or "index.html"
         try:
             if out_name == "-":
-                payload = payload_for(url)
+                payload = payload_for(sh.profile.payload_key, url)
                 dest_shown = "STDOUT"
             else:
                 dest = sh.abspath(out_name) if out_name else _local_name(sh, url, directory)
@@ -195,8 +209,8 @@ def cmd_curl(sh: Shell, io: CmdIO) -> int:
     for url in urls:
         _record(sh, url, "curl", io)
         try:
-            host = urlsplit(url).hostname or ""
-            port = urlsplit(url).port or (443 if url.startswith("https") else 80)
+            host = _split(url).hostname or ""
+            port = _split(url).port or (443 if url.startswith("https") else 80)
         except ValueError:
             host, port = "", 80
         quiet = ("s" in flags or "silent" in flags) and "S" not in flags
