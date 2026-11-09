@@ -29,7 +29,7 @@ async def test_options_gets_200_with_allow(make_harness: HarnessFactory) -> None
         assert "Call-ID: abc123@198.51.100.7" in text and "CSeq: 1 OPTIONS" in text
         assert "tag=as" in header_value(reply, "To")
         assert "INVITE" in header_value(reply, "Allow")
-        assert header_value(reply, "Server").startswith("Asterisk PBX ")
+        assert header_value(reply, "Server").startswith(("Asterisk PBX ", "FPBX-"))
         for word in ("honeypot", "suckerpot", "python", "asyncio"):
             assert word not in text.lower()
 

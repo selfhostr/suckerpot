@@ -28,7 +28,9 @@ async def test_version_and_info(harness: Harness) -> None:
         assert headers["Content-Type"] == "application/json"
     status, _, body = await harness.http("GET", "/v1.47/info")
     info = json.loads(body)
-    assert info["OperatingSystem"] == "Ubuntu 24.04.1 LTS"
+    assert info["OperatingSystem"].startswith("Ubuntu 24.04.") and info["OperatingSystem"].endswith(
+        " LTS"
+    )
     assert info["ServerVersion"] == "27.3.1" and info["Name"] == "srv-app02"
     assert info["NCPU"] in (4, 8)
     assert info["Containers"] == len(json.loads((await harness.http("GET", "/containers/json"))[2]))

@@ -1,8 +1,9 @@
 """Per-deployment fake host identity.
 
-The daemon ID, kernel build, hardware, container and image IDs and creation dates come from a
-random secret generated once and stored in ``<data_dir>/profile.json`` (mode 0600). Nothing
-here is taken from public data and the secret is never shown to clients.
+The daemon ID, kernel build, hardware, the container set (count, names, images, tags, ports),
+image IDs and creation dates come from a random secret generated once and stored in
+``<data_dir>/profile.json`` (mode 0600). Nothing here is taken from public data, two installs
+never share a container list and the secret is never shown to clients.
 """
 
 from __future__ import annotations
@@ -18,9 +19,18 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from docker_sensor.catalog import APPS, BASE_IMAGES, EXTRA_BASE, PROJECTS
+
 log = logging.getLogger("docker_sensor.profile")
 
-_KERNELS = ["6.8.0-45-generic", "6.8.0-48-generic", "6.8.0-50-generic", "6.8.0-51-generic"]
+# (OS release string, kernels shipped with that point release): both agree on every install.
+_OS_RELEASES = [
+    ("Ubuntu 24.04.1 LTS", ("6.8.0-45-generic", "6.8.0-48-generic", "6.8.0-49-generic")),
+    ("Ubuntu 24.04.1 LTS", ("6.8.0-50-generic", "6.8.0-51-generic")),
+    ("Ubuntu 24.04.2 LTS", ("6.8.0-52-generic", "6.8.0-53-generic", "6.8.0-55-generic")),
+    ("Ubuntu 24.04.2 LTS", ("6.8.0-57-generic", "6.8.0-58-generic", "6.8.0-60-generic")),
+    ("Ubuntu 24.04.3 LTS", ("6.8.0-71-generic", "6.8.0-78-generic", "6.8.0-84-generic")),
+]
 _B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 
@@ -48,6 +58,7 @@ class Profile:
     net_prefix: str
     containers: tuple[FakeContainer, ...]
     images: tuple[tuple[str, str, int, int], ...]  # (repo:tag, id, size, created)
+    os_name: str = "Ubuntu 24.04.1 LTS"
 
     def derive(self, label: str, length: int = 64) -> str:
         digest = hmac.new(self.secret, label.encode(), hashlib.sha256).hexdigest()
@@ -58,36 +69,20 @@ class Profile:
         return random.Random(int.from_bytes(digest[:16], "big"))  # noqa: S311 - content only
 
 
-_IMAGES = [
-    ("nginx:1.27", 192_000_000, "nginx -g 'daemon off;'", [(80, 8080)]),
-    ("postgres:16", 432_000_000, "docker-entrypoint.sh postgres", [(5432, 0)]),
-    ("redis:7.4", 117_000_000, "docker-entrypoint.sh redis-server", [(6379, 0)]),
-    ("grafana/grafana:11.2.0", 466_000_000, "/run.sh", [(3000, 3000)]),
-]
-# Images a typical host already has (bots create from these without pulling), then a few
-# application images of which a per-deployment subset is present.
-_BASE_IMAGES = [
-    ("alpine:latest", 8_400_000),
-    ("ubuntu:latest", 78_100_000),
-    ("ubuntu:22.04", 77_900_000),
-    ("busybox:latest", 4_300_000),
-    ("debian:bookworm", 117_000_000),
-    ("nginx:latest", 192_000_000),
-]
-_APP_IMAGES = [
-    ("node:20-alpine", 135_000_000),
-    ("golang:1.23-alpine", 252_000_000),
-    ("mysql:8.0", 573_000_000),
-    ("traefik:v3.1", 183_000_000),
-    ("portainer/portainer-ce:2.21.0", 290_000_000),
-    ("mariadb:11", 405_000_000),
-]
-_NAMES = {
-    "nginx:1.27": "edge-proxy",
-    "postgres:16": "app-db",
-    "redis:7.4": "app-cache",
-    "grafana/grafana:11.2.0": "metrics",
-}
+def _service_name(rng: random.Random, style: int, project: str, svc: str, taken: set[str]) -> str:
+    """Plain service name, or one of the compose naming schemes, unique within the host."""
+    for n in range(1, 9):
+        if style == 0:
+            name = svc if n == 1 else f"{svc}{n}"
+        elif style == 1:
+            name = f"{project}-{svc}-{n}"
+        elif style == 2:
+            name = f"{project}_{svc}_{n}"
+        else:
+            name = f"{project}-{svc}" if n == 1 else f"{project}-{svc}{n}"
+        if name not in taken:
+            return name
+    return f"{svc}-{rng.randrange(10, 99)}"
 
 
 def build_profile(secret: bytes, created: float) -> Profile:
@@ -96,30 +91,49 @@ def build_profile(secret: bytes, created: float) -> Profile:
     daemon = ":".join("".join(rng.choice(_B32) for _ in range(4)) for _ in range(12))
     prefix = f"172.{rng.choice([17, 18])}.0"
     boot = created - rng.randrange(3, 60) * 86400 - rng.randrange(0, 86400)
-    images = []
-    containers = []
+    os_name, kernels = rng.choice(_OS_RELEASES)
+    images: list[tuple[str, str, int, int]] = []
+    containers: list[FakeContainer] = []
+    crng = base.rng("containers")
+    project = crng.choice(PROJECTS)
+    style = crng.randrange(4)
+    taken: set[str] = set()
     ip_last = 2
-    for i, (ref, size, cmd, ports) in enumerate(_IMAGES):
+    span = max(int(created - boot) - 7200, 3600)
+    for i, idx in enumerate(crng.sample(range(len(APPS)), crng.randint(2, 6))):
+        repo, tags, size, cmd, ports, svcs = APPS[idx]
+        ref = f"{repo}:{crng.choice(tags)}"
         image_id = "sha256:" + base.derive(f"image-{i}")
-        img_created = int(created - rng.randrange(20, 120) * 86400)
-        images.append((ref, image_id, size, img_created))
-        if i < 3 or rng.random() < 0.5:
-            containers.append(
-                FakeContainer(
-                    id=base.derive(f"container-{i}"),
-                    name=_NAMES[ref],
-                    image=ref,
-                    image_id=image_id,
-                    command=cmd,
-                    created=int(boot + rng.randrange(60, 7200)),
-                    ports=tuple(ports),
-                    ip=f"{prefix}.{ip_last}",
-                )
+        images.append(
+            (
+                ref,
+                image_id,
+                size + crng.randrange(0, 3_000_000),
+                int(created - crng.randrange(20, 160) * 86400),
             )
-            ip_last += 1
+        )
+        name = _service_name(crng, style, project, crng.choice(svcs), taken)
+        taken.add(name)
+        # Some containers came up with the host, others were (re)created weeks later.
+        started = crng.randrange(60, 7200) if crng.random() < 0.5 else crng.randrange(60, span)
+        containers.append(
+            FakeContainer(
+                id=base.derive(f"container-{i}"),
+                name=name,
+                image=ref,
+                image_id=image_id,
+                command=cmd,
+                created=int(boot + started),
+                ports=tuple((priv, crng.choice(pub)) for priv, pub in ports),
+                ip=f"{prefix}.{ip_last}",
+            )
+        )
+        ip_last += 1
     extra_rng = base.rng("extra-images")
-    extra = _BASE_IMAGES + extra_rng.sample(_APP_IMAGES, extra_rng.choice([1, 2, 3]))
+    extra = BASE_IMAGES + extra_rng.sample(EXTRA_BASE, extra_rng.choice([1, 2, 3]))
     for j, (ref, size) in enumerate(extra):
+        if any(img[0] == ref for img in images):
+            continue
         jitter = extra_rng.randrange(0, 2_000_000)
         images.append(
             (
@@ -133,13 +147,14 @@ def build_profile(secret: bytes, created: float) -> Profile:
         secret=secret,
         created=created,
         daemon_id=daemon,
-        kernel=rng.choice(_KERNELS),
+        kernel=rng.choice(kernels),
         cpus=rng.choice([4, 4, 8]),
         mem_bytes=rng.choice([8, 16, 16, 32]) * 1024**3 - rng.randrange(0, 600) * 1024**2,
         boot_ts=boot,
         net_prefix=prefix,
         containers=tuple(containers),
         images=tuple(images),
+        os_name=os_name,
     )
 
 

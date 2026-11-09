@@ -150,6 +150,12 @@ class ClientState:
         self.dbs[0] = dict(ctx.profile.keys)
         self.stored = sum(len(k) + len(v) for k, v in self.dbs[0].items())
         self.config: dict[str, str] = dict(_CONFIG_DEFAULTS)
+        self.config["dir"] = ctx.profile.workdir
+        self.config["pidfile"] = ctx.profile.pidfile
+        # Expiring keys of db 0: key -> (monotonic start, lifetime in seconds).
+        self.ttls: dict[bytes, tuple[float, int]] = {
+            k: (time.monotonic(), t) for k, t in ctx.profile.ttls
+        }
         self.master: tuple[str, int] | None = None
         self.dirty = 0
         self.last_save: int | None = None
@@ -183,12 +189,16 @@ class ClientState:
             return
         space[key] = value
         self.kinds.pop((self.db, key), None)
+        if self.db == 0:
+            self.ttls.pop(key, None)  # a plain SET clears the expiry, as in Redis
         self.stored += grow
         self.dirty += 1
 
     def drop(self, key: bytes) -> bool:
         old = self.keyspace().pop(key, None)
         self.kinds.pop((self.db, key), None)
+        if self.db == 0:
+            self.ttls.pop(key, None)
         if old is None:
             return False
         self.stored -= len(key) + len(old)
@@ -201,7 +211,18 @@ class ClientState:
             self.stored -= sum(len(k) + len(v) for k, v in self.dbs[i].items())
             self.dbs[i] = {}
         self.kinds = {k: v for k, v in self.kinds.items() if k[0] not in targets}
+        if 0 in targets:
+            self.ttls.clear()
         self.dirty += 1
+
+    def remaining_ttl(self, key: bytes) -> float | None:
+        """Seconds left on a profile key. The fake clock restarts the lifetime when it runs out,
+        as an application refreshing its cache would, so the value never reads as expired."""
+        entry = self.ttls.get(key) if self.db == 0 else None
+        if entry is None or key not in self.dbs[0]:
+            return None
+        start, life = entry
+        return life - (time.monotonic() - start) % life
 
     def kind(self, key: bytes) -> str | None:
         """Type of an existing key: ``string`` or a collection kind; None when missing."""
@@ -232,6 +253,8 @@ class ClientState:
             maxmem = int(self.config["maxmemory"])
         except ValueError:
             maxmem = 0
+        left = (self.remaining_ttl(k) for k in list(self.ttls))
+        live = [v for v in left if v is not None]
         return InfoView(
             client_id=self.client_id,
             keys=len(self.dbs[0]),
@@ -241,6 +264,8 @@ class ClientState:
             appendonly=self.config["appendonly"] == "yes",
             maxmemory=maxmem,
             requirepass=bool(self.config["requirepass"]),
+            expires=len(live),
+            avg_ttl_ms=int(sum(live) * 1000 / len(live)) if live else 0,
         )
 
 
@@ -425,7 +450,7 @@ def _config_set(state: ClientState, a: list[bytes]) -> Outcome:
                 flags,
             )
         if name == "dir" and not value.startswith("/"):
-            value = "/data/" + value  # a relative chdir from the working directory
+            value = state.ctx.profile.workdir + "/" + value  # relative chdir from the workdir
         pending[name] = value
     for name, value in pending.items():
         state.config[name] = value.lower() if name == "appendonly" else value
@@ -579,7 +604,13 @@ def _type(state: ClientState, a: list[bytes]) -> Outcome:
 
 
 def _ttl(state: ClientState, a: list[bytes]) -> Outcome:
-    return Outcome(resp.integer(-1 if a[1] in state.keyspace() else -2))
+    if a[1] not in state.keyspace():
+        return Outcome(resp.integer(-2))
+    left = state.remaining_ttl(a[1])
+    if left is None:
+        return Outcome(resp.integer(-1))
+    millis = a[0].upper() == b"PTTL"
+    return Outcome(resp.integer(int(left * 1000) if millis else max(1, round(left))))
 
 
 def _expire(state: ClientState, a: list[bytes]) -> Outcome:
