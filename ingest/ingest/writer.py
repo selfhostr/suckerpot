@@ -24,7 +24,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_common import Event
 from suckerpot_db.models import EventRow, IpReputationRow, SessionRow, TechniqueDailyRow
@@ -38,6 +38,8 @@ from ingest.indicator_store import store_indicators
 from ingest.scanners import event_is_benign_safe, stays_benign
 
 log = logging.getLogger(__name__)
+
+RETRACT_SLICE = 1000  # retract_benign refuses more sessions than this per call
 
 _UNION_TAGS: ColumnElement[Any] = literal_column(
     "ARRAY(SELECT DISTINCT unnest(sessions.tags || excluded.tags) ORDER BY 1)"
@@ -233,6 +235,26 @@ async def write_batch(
                 await store_indicators(session, events, enricher.indicators, enricher.link_cap)
 
 
+async def _retract_benign(session: AsyncSession, ids: list[str]) -> None:
+    """Clear the benign flag of earlier events, in a savepoint.
+
+    Ingest cannot UPDATE events: this SECURITY DEFINER function is its one way in. A missed
+    retraction only leaves a flag set on old rows, so a failure here (a timeout on a compressed
+    chunk, say) is logged and never fails the batch.
+    """
+    try:
+        async with session.begin_nested():
+            await session.execute(
+                text("SELECT retract_benign(:ids)").bindparams(bindparam("ids", type_=ARRAY(Text))),
+                {"ids": ids},
+            )
+    except DBAPIError as exc:
+        if exc.connection_invalidated:
+            raise
+        sqlstate = str(getattr(exc.orig, "sqlstate", None) or "unknown")
+        log.warning("retract_benign skipped for %d session(s): SQLSTATE %s", len(ids), sqlstate)
+
+
 async def _apply_session_rules(
     session: AsyncSession, enricher: Enricher, rows: Sequence[Any]
 ) -> None:
@@ -271,12 +293,8 @@ async def _apply_session_rules(
         # earlier events must not keep the flag.
         if r.scanner_name is not None and (not r.benign or r.session_id in demote):
             retract.append(r.session_id)
-    if retract:
-        # Ingest cannot UPDATE events: this SECURITY DEFINER function is its one way in.
-        await session.execute(
-            text("SELECT retract_benign(:ids)").bindparams(bindparam("ids", type_=ARRAY(Text))),
-            {"ids": retract[:1000]},
-        )
+    for i in range(0, len(retract), RETRACT_SLICE):
+        await _retract_benign(session, retract[i : i + RETRACT_SLICE])
     if demote:
         await session.execute(
             text("UPDATE sessions SET benign = false WHERE session_id = ANY(:ids)").bindparams(

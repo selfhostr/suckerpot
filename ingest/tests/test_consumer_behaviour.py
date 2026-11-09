@@ -1,3 +1,5 @@
+import contextlib
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -6,7 +8,13 @@ from redis.exceptions import ResponseError
 from sqlalchemy.exc import DBAPIError, StatementError
 
 from ingest.config import Settings
-from ingest.consumer import MAX_ATTEMPTS, Consumer
+from ingest.consumer import (
+    MAX_ATTEMPTS,
+    MAX_CONSECUTIVE_PARKS,
+    Consumer,
+    _db_message,
+    classify_failure,
+)
 
 from .helpers import make_event
 
@@ -18,6 +26,12 @@ class FakeRedis:
         self.batches = batches or []
         self.trim_error = trim_error
         self.reads = 0
+        self.parked: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        self.streams: list[list[Any]] = []
+
+    async def xadd(self, stream: str, fields: dict[str, Any], **kwargs: Any) -> str:
+        self.parked.append((stream, fields, kwargs))
+        return "1-0"
 
     async def xack(self, stream: str, group: str, *ids: Any) -> int:
         self.acked.extend(ids)
@@ -31,6 +45,8 @@ class FakeRedis:
 
     async def xreadgroup(self, *args: Any, **kwargs: Any) -> Any:
         self.reads += 1
+        if self.streams:
+            return self.streams.pop(0)
         if self.batches:
             return [[b"events:ssh", self.batches.pop(0)]]
         return []
@@ -84,7 +100,7 @@ async def test_dead_letter_after_max_attempts(
 
 
 @pytest.mark.parametrize("sqlstate", [None, "XX000", "40P01", "42501", "57014", "53300", "08006"])
-async def test_only_data_errors_count_as_attempts(
+async def test_only_data_errors_count_per_message(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sqlstate: str | None
 ) -> None:
     async def boom(_self: Any, _stream: Any, _messages: Any) -> list[Any]:
@@ -92,10 +108,230 @@ async def test_only_data_errors_count_as_attempts(
 
     monkeypatch.setattr(Consumer, "_process_live", boom)
     c = consumer(FakeRedis(), tmp_path)
+    c.s = Settings.from_env({"INGEST_MAX_BATCH_FAILURES": "100"})  # keep bisection out of it
     for _ in range(MAX_ATTEMPTS + 3):
         with pytest.raises(DBAPIError):
             await c.process("events:ssh", [(b"1-0", fields())])
     assert c.attempts == {}
+
+
+@pytest.mark.parametrize(
+    ("sqlstate", "kind"),
+    [
+        ("22P02", "data"),
+        ("23505", "data"),
+        ("57014", "other"),
+        ("40P01", "other"),
+        ("40001", "other"),
+        ("42501", "other"),
+        ("42P01", "other"),
+        ("53100", "other"),
+        ("XX000", "other"),
+        ("08006", "outage"),
+        ("57P01", "outage"),
+        ("57P03", "outage"),
+        ("53300", "outage"),
+        (None, "outage"),
+    ],
+)
+def test_classification(sqlstate: str | None, kind: str) -> None:
+    assert classify_failure(DBAPIError("stmt", {}, _Orig(sqlstate))) == kind
+
+
+def test_classification_of_non_database_errors() -> None:
+    assert classify_failure(OSError("reset")) == "outage"
+    assert classify_failure(ResponseError("LOADING")) == "outage"
+    assert classify_failure(StatementError("bind", "stmt", {}, ValueError("x"))) == "data"
+    invalidated = DBAPIError("stmt", {}, _Orig("57014"), connection_invalidated=True)
+    assert classify_failure(invalidated) == "outage"
+
+
+async def test_a_timeout_counts_against_the_stream_not_the_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def timeout(_f: Any, _e: Any) -> None:
+        raise DBAPIError("stmt", {}, _Orig("57014"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", timeout)
+    c = consumer(FakeRedis(), tmp_path)
+    for n in range(1, 4):
+        with pytest.raises(DBAPIError):
+            await c.process("events:ssh", [(b"1-0", fields())])
+        assert c.failures == {"events:ssh": n}
+    assert c.attempts == {}
+
+
+async def test_a_poisonous_event_is_parked_after_repeated_failures(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    poison = make_event("command", sid="poison")
+    written: list[list[str]] = []
+
+    async def write(_f: Any, events: list[Any], *_a: Any) -> None:
+        if any(e.session_id == "poison" for e in events):
+            raise DBAPIError("stmt", {}, _Orig("57014"))
+        written.append([e.session_id for e in events])
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    batch = [
+        (f"{i}-0".encode(), dict(make_event("connect", sid=f"s{i}").to_stream_fields()))
+        for i in range(1, 6)
+    ]
+    batch.insert(2, (b"3-5", dict(poison.to_stream_fields())))
+    for _ in range(c.s.max_batch_failures):
+        with pytest.raises(DBAPIError):
+            await c.process("events:ssh", batch)
+    assert r.acked == []
+    await c.process("events:ssh", batch)  # bisects
+    assert sorted(r.acked) == sorted(m[0] for m in batch)
+    assert sorted(x for w in written for x in w) == ["s1", "s2", "s3", "s4", "s5"]
+    assert len(r.parked) == 1
+    stream, parked_fields, kwargs = r.parked[0]
+    assert stream == "events:parked"
+    assert parked_fields["origin_stream"] == "events:ssh"
+    assert parked_fields["origin_id"] == "3-5"
+    assert parked_fields["error"] == "57014"
+    assert kwargs == {"maxlen": 10000, "approximate": True}
+    assert c.parked == 1
+    assert c.failures.get("events:ssh", 0) == 0
+
+
+async def test_a_whole_batch_that_fails_is_never_parked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Every write fails: a systemic fault (permissions, schema), not a bad event.
+    async def always(_f: Any, _e: Any, *_a: Any) -> None:
+        raise DBAPIError("stmt", {}, _Orig("42501"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", always)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    batch = [(b"1-0", fields()), (b"2-0", fields())]
+    for _ in range(c.s.max_batch_failures + 3):
+        with pytest.raises(DBAPIError):
+            await c.process("events:ssh", batch)
+    assert r.acked == [] and r.parked == []
+
+
+async def test_parking_single_events_stops_after_a_run_of_parks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def always(_f: Any, _e: Any, *_a: Any) -> None:
+        raise DBAPIError("stmt", {}, _Orig("42501"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", always)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    for i in range(1, 12):
+        for _ in range(c.s.max_batch_failures + 1):
+            with contextlib.suppress(DBAPIError):
+                await c.process("events:ssh", [(f"{i}-0".encode(), fields())])
+    assert len(r.parked) == MAX_CONSECUTIVE_PARKS
+
+
+async def test_an_outage_during_bisection_is_retried_not_parked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = {"n": 0}
+
+    async def write(_f: Any, _e: Any, *_a: Any) -> None:
+        calls["n"] += 1
+        raise DBAPIError("stmt", {}, _Orig("57014" if calls["n"] <= 5 else None))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    batch = [(b"1-0", fields()), (b"2-0", fields())]
+    for _ in range(5):
+        with pytest.raises(DBAPIError):
+            await c.process("events:ssh", batch)
+    with pytest.raises(DBAPIError):
+        await c.process("events:ssh", batch)
+    assert r.parked == [] and r.acked == []
+
+
+async def test_one_failing_stream_does_not_stop_the_others(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def write(_f: Any, events: list[Any], *_a: Any) -> None:
+        if events[0].sensor == "ssh":
+            raise DBAPIError("stmt", {}, _Orig("57014", "canceling statement due to timeout"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+    web = dict(make_event("connect", sensor="web").to_stream_fields())
+    ssh = dict(make_event("connect", sensor="ssh").to_stream_fields())
+    r = FakeRedis()
+    r.streams = [[("events:ssh", [(b"1-0", ssh)]), ("events:web", [(b"2-0", web)])]]
+    c = consumer(r, tmp_path)
+    c.ensure_groups = _noop  # type: ignore[method-assign]
+    c.reclaim_stale = _noop  # type: ignore[method-assign,assignment]
+    c._state = _noop  # type: ignore[method-assign]
+    orig_read = r.xreadgroup
+
+    async def read_then_stop(*a: Any, **k: Any) -> Any:
+        res = await orig_read(*a, **k)
+        if not res:
+            c.stop.set()
+        return res
+
+    r.xreadgroup = read_then_stop  # type: ignore[method-assign]
+    with caplog.at_level(logging.ERROR):
+        await c.run()
+    assert r.acked == [b"2-0"]  # web stored in the same loop iteration
+    assert "events:ssh" in c.unhealthy
+    assert "events:ssh" in c.draining
+    msg = next(rec.getMessage() for rec in caplog.records if "batch failed on" in rec.getMessage())
+    assert "events:ssh" in msg and "SQLSTATE 57014" in msg
+    assert "canceling statement due to timeout" in msg
+
+
+async def test_failure_message_is_capped_and_free_of_parameters() -> None:
+    exc = DBAPIError("INSERT ... [parameters: secret-payload]", {}, _Orig("57014", "x" * 500))
+    assert len(_db_message(exc)) == 200
+    assert "secret-payload" not in _db_message(exc)
+    bind = StatementError("bind secret", "stmt", {"a": "secret"}, ValueError("v"))
+    assert _db_message(bind) == "StatementError"
+
+
+async def test_pipeline_state_is_stamped_only_when_healthy(tmp_path: Path) -> None:
+    c = consumer(FakeRedis(), tmp_path)
+    updates: list[str] = []
+
+    async def spy(assignments: str, **_p: Any) -> None:
+        updates.append(assignments)
+
+    c._state = spy  # type: ignore[method-assign]
+    await c._state_ok()
+    await c._state_ok()  # within 30 s: not repeated
+    assert len(updates) == 1 and "last_ok_at = now()" in updates[0]
+    c._last_state = -1e9
+    c.unhealthy.add("events:ssh")
+    await c._state_ok()
+    assert len(updates) == 1
+
+
+async def test_a_failure_is_recorded_in_pipeline_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cause = type("QueryCanceledError", (Exception,), {})()
+
+    async def timeout(_f: Any, _e: Any) -> None:
+        raise DBAPIError("stmt", {}, _Orig("57014", cause=cause))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", timeout)
+    c = consumer(FakeRedis(), tmp_path)
+    seen: list[tuple[str, dict[str, Any]]] = []
+
+    async def spy(assignments: str, **p: Any) -> None:
+        seen.append((assignments, p))
+
+    c._state = spy  # type: ignore[method-assign]
+    with pytest.raises(DBAPIError):
+        await c.process("events:ssh", [(b"1-0", fields())])
+    assert "failing_since = coalesce(failing_since, now())" in seen[0][0]
+    assert seen[0][1] == {"e": "57014 QueryCanceledError on events:ssh"}
 
 
 async def test_outage_errors_do_not_count(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -164,7 +400,13 @@ async def test_heartbeat_only_after_successful_work(
     assert len(beats) >= 3  # startup, committed batch, then the empty read
 
 
+async def _noop(*_a: Any, **_k: Any) -> None: ...
+
+
 class _Orig(Exception):
-    def __init__(self, sqlstate: str | None) -> None:
-        super().__init__("db error")
+    def __init__(
+        self, sqlstate: str | None, message: str = "db error", cause: Exception | None = None
+    ) -> None:
+        super().__init__(message)
         self.sqlstate = sqlstate
+        self.__cause__ = cause

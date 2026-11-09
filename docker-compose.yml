@@ -231,6 +231,7 @@ services:
       REDIS_USER: ingest
       REDIS_PASSWORD: ${REDIS_INGEST_PASSWORD:?REDIS_INGEST_PASSWORD must be set in .env}
       INGEST_STREAMS: ${INGEST_STREAMS:-events:ssh,events:telnet,events:web,events:rdp,events:redis,events:docker,events:mysql,events:mssql,events:adb,events:smb,events:sip,events:synology}
+      INGEST_MAX_BATCH_FAILURES: ${INGEST_MAX_BATCH_FAILURES:-5}
       DB_MAX_SIZE_GB: ${DB_MAX_SIZE_GB:-10}
       GEOIP_PROVIDER: ${GEOIP_PROVIDER:-auto}
       GEOIP_REFRESH_DAYS: ${GEOIP_REFRESH_DAYS:-30}
@@ -449,6 +450,7 @@ services:
       LOGIN_RATE_USER: ${LOGIN_RATE_USER:-10}
       AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-}
       API_ALLOWED_HOSTS: ${API_ALLOWED_HOSTS:-}
+      PIPELINE_STALL_SECONDS: ${PIPELINE_STALL_SECONDS:-300}
       # Setup checklist and wizard (M28): which sensors are on and which ports the owner must forward.
       SENSOR_SSH: ${SENSOR_SSH:-1}
       SENSOR_TELNET: ${SENSOR_TELNET:-1}

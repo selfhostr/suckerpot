@@ -224,9 +224,9 @@ Redis runs with the `default` user disabled. Each named user has its own passwor
 | `sensor-sip` | `REDIS_SENSOR_SIP_PASSWORD` | `resetkeys ~events:sip -@all +xadd +hello +auth` | `sensor-sip` |
 | `sensor-synology` | `REDIS_SENSOR_SYNOLOGY_PASSWORD` | `resetkeys ~events:synology -@all +xadd +hello +auth` | `sensor-synology` |
 | `demo` | `REDIS_DEMO_PASSWORD` | `resetkeys ~events:* -@all +xadd +hello +auth` | The demo generator |
-| `ingest` | `REDIS_INGEST_PASSWORD` | `resetkeys ~events:* -@all +xreadgroup +xack +xgroup\|create +xautoclaim +xtrim +hello +auth` | `ingest` |
+| `ingest` | `REDIS_INGEST_PASSWORD` | `resetkeys ~events:* -@all +xreadgroup +xack +xgroup\|create +xautoclaim +xtrim +hello +auth (~events:parked +xadd)` | `ingest` |
 
-Every sensor user can only `XADD` to its own stream (`~events:<name>`). Ingest checks the `sensor` field of each event against the stream it came from, so a sensor cannot write as another sensor even if its user had wider rights.
+The one extra right of `ingest` is a selector: `XADD` on the single key `events:parked`, the capped dead-letter stream for an event the database keeps refusing (it cannot write to any sensor stream). Every sensor user can only `XADD` to its own stream (`~events:<name>`). Ingest checks the `sensor` field of each event against the stream it came from, so a sensor cannot write as another sensor even if its user had wider rights.
 
 A sensor user can only append to its own stream. It cannot read it, delete it or change its settings. The publisher turns off client info commands so the sensor users do not need `CLIENT SETINFO`. All Redis passwords must be at least 24 characters and pairwise different, or the container refuses to start.
 
