@@ -29,7 +29,7 @@ Row = tuple[str, str, str, str, str, str, str]
 
 
 def _long_row(sh: Shell, name: str, node: Node, human: bool) -> Row:
-    size = 4096 if node.kind == "d" else len(node.content)
+    size = 4096 if node.kind == "d" else node.length
     if node.kind == "l":
         size = len(node.target)
     shown = f"{name} -> {node.target}" if node.kind == "l" else name
@@ -142,7 +142,7 @@ def cmd_ls(sh: Shell, io: CmdIO) -> int:
                 if child is not None:
                     entries.append((n, child))
             for n, child in entries:
-                blocks += 4 * (-(-(len(child.content)) // 4096) if child.kind == "f" else 1)
+                blocks += 4 * (-(-(child.length) // 4096) if child.kind == "f" else 1)
                 rows.append(_long_row(sh, n, child, human))
             chunks.append(
                 header
@@ -455,7 +455,7 @@ def cmd_stat(sh: Shell, io: CmdIO) -> int:
             io.error(f"stat: cannot statx '{name}': No such file or directory\n")
             status = 1
             continue
-        size = 4096 if node.kind == "d" else len(node.content)
+        size = 4096 if node.kind == "d" else node.length
         kind = {"d": "directory", "l": "symbolic link"}.get(node.kind, "regular file")
         io.write(
             f"  File: {name}\n  Size: {size:<10}\tBlocks: {-(-size // 512):<10} IO Block: 4096   {kind}\n"

@@ -6,11 +6,17 @@ by all sessions. Nothing is read from the real host.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import struct
 import time
 from dataclasses import dataclass, field
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from ssh_sensor.shell.fs import BaseImage, Node
+from ssh_sensor.shell.payload import system_binary
 
 BASE_MTIME = 1_752_000_000
 MEM_TOTAL_KB = 4_015_860
@@ -24,7 +30,19 @@ DEFAULT_OS_VERSION = "24.04.4"
 DEFAULT_KERNEL = "6.8.0-100-generic"
 DEFAULT_KERNEL_BUILD = "#100-Ubuntu SMP PREEMPT_DYNAMIC Tue Sep  8 15:11:32 UTC 2026"
 
-ELF_STUB = b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 56
+_CRYPT_ALPHABET = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+_DAY = 86400
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_PACKAGE_EPOCH = 1_711_929_600  # 2024-04-01: Ubuntu 24.04 packages are built after this date
+_KEY_COMMENTS = (
+    "deploy@build01",
+    "admin@jump01",
+    "ci@gitlab-runner",
+    "ubuntu@bastion",
+    "sysadmin@ops-ws",
+    "backup@nas01",
+)
+_DB_WORDS = ("Wb4pp", "Intr4net", "Sunr1se", "Blu3fish", "Cl0udy", "Gr33nlnd", "Pa1nter", "Tr1dent")
 
 
 @dataclass(frozen=True)
@@ -78,11 +96,64 @@ class Profile:
         """Seconds since the fake previous login (1 to 6 days)."""
         return 86400 + int.from_bytes(self._digest("last-login-age")[:4], "big") % (5 * 86400)
 
+    def _num(self, label: str, modulo: int) -> int:
+        """A stable number in ``range(modulo)`` for this install and ``label``."""
+        return int.from_bytes(self._digest(label)[:8], "big") % modulo
+
+    @property
+    def install_epoch(self) -> int:
+        """When the fake host was installed: 40 to 400 days before the base image date."""
+        return BASE_MTIME - (40 + self._num("install", 360)) * _DAY - self._num("install-sec", _DAY)
+
+    @property
+    def user_hash(self) -> str:
+        """A yescrypt-shaped ``/etc/shadow`` hash: ``$y$j9T$<22 char salt>$<43 char hash>``."""
+        salt = _crypt64(self._digest("shadow-salt")[:16], 22)
+        digest = _crypt64(self._digest("shadow-hash"), 43)
+        return f"$y$j9T${salt}${digest}"
+
+    @property
+    def ssh_key_line(self) -> str:
+        """An ``authorized_keys`` line holding a well-formed ed25519 public key."""
+        comment = _KEY_COMMENTS[self._num("key-comment", len(_KEY_COMMENTS))]
+        return f"ssh-ed25519 {_authorized_key_blob(self)} {comment}\n"
+
+    @property
+    def ssh_key_fingerprint(self) -> str:
+        """``SHA256:...`` fingerprint of the key in :attr:`ssh_key_line`, as sshd logs it."""
+        blob = base64.b64decode(_authorized_key_blob(self))
+        return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+
+    @property
+    def db_password(self) -> str:
+        """The password left in the fake ``config.php``: a word, a year and a symbol."""
+        word = _DB_WORDS[self._num("db-word", len(_DB_WORDS))]
+        year = 2022 + self._num("db-year", 4)
+        sep = "-_.@"[self._num("db-sep", 4)]
+        tail = "!#$%"[self._num("db-tail", 4)]
+        return f"{word}{sep}{year}{tail}"
+
     def resolve(self, host: str) -> str:
         """Stable fake DNS: literal IPs resolve to themselves, names to a hashed address."""
         if host and host.replace(".", "").isascii() and host.replace(".", "").isdigit():
             return host
         return self._public_ip("dns:" + host.lower())
+
+
+def _crypt64(raw: bytes, chars: int) -> str:
+    """The first ``chars`` characters of crypt(3)'s base64 (little-endian 6-bit groups)."""
+    value = int.from_bytes(raw, "little")
+    return "".join(_CRYPT_ALPHABET[(value >> (6 * i)) & 63] for i in range(chars))
+
+
+def _authorized_key_blob(profile: Profile) -> str:
+    """Base64 body of a real ed25519 public key derived from the install secret."""
+    private = Ed25519PrivateKey.from_private_bytes(profile._digest("authorized-key"))
+    raw = private.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    blob = struct.pack(">I", 11) + b"ssh-ed25519" + struct.pack(">I", len(raw)) + raw
+    return base64.b64encode(blob).decode()
 
 
 def derive_profile(
@@ -174,14 +245,14 @@ ubuntu:x:1000:
 mysql:x:105:
 """
 
-_SHADOW = """root:*:19945:0:99999:7:::
-daemon:*:19945:0:99999:7:::
-bin:*:19945:0:99999:7:::
-sys:*:19945:0:99999:7:::
-www-data:*:19945:0:99999:7:::
-sshd:*:19945:0:99999:7:::
-mysql:!:19945::::::
-ubuntu:$y$j9T$Qk7vYx2mT1u0Wc8nHq5Ez.$Zt3pXb1sM7oLw9yVd4rKf6aJcNe2uGhIi8TqRoPzAy5:19945:0:99999:7:::
+_SHADOW = """root:*:{chg}:0:99999:7:::
+daemon:*:{chg}:0:99999:7:::
+bin:*:{chg}:0:99999:7:::
+sys:*:{chg}:0:99999:7:::
+www-data:*:{chg}:0:99999:7:::
+sshd:*:{chg}:0:99999:7:::
+mysql:!:{chg}::::::
+ubuntu:{hash}:{chg}:0:99999:7:::
 """
 
 _BASH_HISTORY_ROOT = """apt update
@@ -208,11 +279,11 @@ sudo tail /var/log/auth.log
 exit
 """
 
-_AUTH_LOG = """Oct 21 06:25:01 {h} CRON[1423]: pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)
-Oct 21 06:25:01 {h} CRON[1423]: pam_unix(cron:session): session closed for user root
-Oct 21 08:02:44 {h} sshd[1601]: Accepted publickey for ubuntu from {ip} port 51822 ssh2: ED25519 SHA256:xkQ1r0UoZ2m9sLwq8GcY1e6vJ7nT4bPzHfA3dKiM5Xo
-Oct 21 08:02:44 {h} sshd[1601]: pam_unix(sshd:session): session opened for user ubuntu(uid=1000) by (uid=0)
-Oct 21 08:41:09 {h} sudo: ubuntu : TTY=pts/0 ; PWD=/home/ubuntu ; USER=root ; COMMAND=/usr/bin/systemctl restart apache2
+_AUTH_LOG = """{d1} 06:25:01 {h} CRON[1423]: pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)
+{d1} 06:25:01 {h} CRON[1423]: pam_unix(cron:session): session closed for user root
+{d1} 08:02:44 {h} sshd[1601]: Accepted publickey for ubuntu from {ip} port {port} ssh2: ED25519 {fp}
+{d1} 08:02:44 {h} sshd[1601]: pam_unix(sshd:session): session opened for user ubuntu(uid=1000) by (uid=0)
+{d1} 08:41:09 {h} sudo: ubuntu : TTY=pts/0 ; PWD=/home/ubuntu ; USER=root ; COMMAND=/usr/bin/systemctl restart apache2
 """
 
 _INDEX_HTML = """<!DOCTYPE html>
@@ -236,7 +307,7 @@ define('SITE_NAME', 'Intranet');
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'webapp');
 define('DB_USER', 'webapp');
-define('DB_PASS', 'Wb4pp-2024!');
+define('DB_PASS', '{dbpass}');
 """
 
 _SSHD_CONFIG = """Include /etc/ssh/sshd_config.d/*.conf
@@ -320,20 +391,60 @@ def _meminfo() -> str:
 def build_base_image(profile: Profile) -> BaseImage:
     h = profile.hostname
     nodes: dict[str, Node] = {}
+    now = int(time.time())
+    install = profile.install_epoch
+    boot = profile.boot_epoch
+    last_login = now - profile.last_login_age
+
+    def mtime(path: str) -> int:
+        """Deterministic per-install modification time, by kind of file.
+
+        Packages predate the install (a ninth of them were upgraded since); configuration
+        dates from the install, a few files changed later; logs and temp files are recent."""
+        n = profile._num("mtime|" + path, 1 << 30)
+        span = max(1, boot - install)
+        if path.startswith(("/usr/bin/", "/usr/sbin/")):
+            if n % 9 == 0:
+                return install + n % span
+            return _PACKAGE_EPOCH + n % max(1, install - _PACKAGE_EPOCH)
+        if path.startswith(("/var/log", "/tmp", "/var/tmp", "/dev/shm", "/var/backups")):
+            return now - n % 7200
+        if path.startswith(("/proc", "/sys", "/dev", "/run")):
+            return boot + n % 90
+        if path.endswith(".bash_history"):
+            return last_login + n % 3600
+        if n % 7 == 0:
+            return install + n % span
+        return install + n % 21600
 
     def d(path: str, mode: int = 0o755, owner: str = "root") -> None:
-        nodes[path] = Node("d", mode=mode, owner=owner, group=owner, mtime=BASE_MTIME)
+        nodes[path] = Node("d", mode=mode, owner=owner, group=owner, mtime=mtime(path))
 
     def f(
-        path: str, content: str | bytes, mode: int = 0o644, owner: str = "root", group: str = ""
+        path: str,
+        content: str | bytes,
+        mode: int = 0o644,
+        owner: str = "root",
+        group: str = "",
+        size: int = 0,
     ) -> None:
         data = content.encode() if isinstance(content, str) else content
         nodes[path] = Node(
-            "f", mode=mode, owner=owner, group=group or owner, mtime=BASE_MTIME, content=data
+            "f",
+            mode=mode,
+            owner=owner,
+            group=group or owner,
+            mtime=mtime(path),
+            content=data,
+            size=size,
         )
 
     def link(path: str, target: str) -> None:
-        nodes[path] = Node("l", mode=0o777, mtime=BASE_MTIME, target=target)
+        nodes[path] = Node("l", mode=0o777, mtime=mtime(path), target=target)
+
+    def log_date(ts: int) -> str:
+        t = time.gmtime(ts)
+        return f"{_MONTHS[t.tm_mon - 1]} {t.tm_mday:2d}"
 
     d("/")
     for p in (
@@ -362,13 +473,21 @@ def build_base_image(profile: Profile) -> BaseImage:
     link("/var/run", "/run")
 
     for name in dict.fromkeys(_BIN_NAMES):
-        f(f"/usr/bin/{name}", ELF_STUB, 0o755)
+        head, size = system_binary(name)
+        f(f"/usr/bin/{name}", head, 0o755, size=size)
     for name in dict.fromkeys(_SBIN_NAMES):
-        f(f"/usr/sbin/{name}", ELF_STUB, 0o755)
+        head, size = system_binary(name)
+        f(f"/usr/sbin/{name}", head, 0o755, size=size)
 
     f("/etc/passwd", _PASSWD)
     f("/etc/group", _GROUP)
-    f("/etc/shadow", _SHADOW, 0o640, "root", "shadow")
+    f(
+        "/etc/shadow",
+        _SHADOW.format(chg=install // _DAY + profile._num("shadow-chg", 5), hash=profile.user_hash),
+        0o640,
+        "root",
+        "shadow",
+    )
     f("/etc/hostname", h + "\n")
     f("/etc/hosts", f"127.0.0.1 localhost\n127.0.1.1 {h}\n\n::1 ip6-localhost ip6-loopback\n")
     f(
@@ -408,14 +527,35 @@ def build_base_image(profile: Profile) -> BaseImage:
     f("/proc/uptime", "0.00 0.00\n")
     f("/proc/loadavg", "0.00 0.00 0.00 1/120 1\n")
     f("/dev/null", b"", 0o666)
-    f("/boot/vmlinuz-" + profile.kernel, ELF_STUB, 0o600)
-    f("/var/log/auth.log", _AUTH_LOG.format(h=h, ip=profile.last_login_ip), 0o640, "syslog", "adm")
-    f("/var/log/syslog", f"Oct 24 00:00:01 {h} systemd[1]: Starting logrotate.service...\n", 0o640)
+    f(
+        "/boot/vmlinuz-" + profile.kernel,
+        b"MZ\x00\x00",
+        0o600,
+        size=14_000_000 + profile._num("vmlinuz", 900_000),
+    )
+    f(
+        "/var/log/auth.log",
+        _AUTH_LOG.format(
+            h=h,
+            ip=profile.last_login_ip,
+            d1=log_date(last_login),
+            port=32768 + profile._num("login-port", 28000),
+            fp=profile.ssh_key_fingerprint,
+        ),
+        0o640,
+        "syslog",
+        "adm",
+    )
+    f(
+        "/var/log/syslog",
+        f"{log_date(now)} 00:00:01 {h} systemd[1]: Starting logrotate.service...\n",
+        0o640,
+    )
     f("/var/log/apache2/access.log", "", 0o640, "root", "adm")
     f("/var/log/apache2/error.log", "", 0o640, "root", "adm")
     f("/var/www/html/index.html", _INDEX_HTML.format(h=h), 0o644, "www-data")
     f("/var/www/html/index.php", _INDEX_PHP, 0o644, "www-data")
-    f("/var/www/html/config.php", _CONFIG_PHP, 0o640, "www-data")
+    f("/var/www/html/config.php", _CONFIG_PHP.format(dbpass=profile.db_password), 0o640, "www-data")
     f("/root/.bash_history", _BASH_HISTORY_ROOT, 0o600)
     f("/root/.bashrc", "# ~/.bashrc: executed by bash(1) for non-login shells.\n", 0o644)
     f("/root/.profile", "# ~/.profile\n", 0o644)
@@ -428,7 +568,7 @@ def build_base_image(profile: Profile) -> BaseImage:
     )
     f(
         "/home/ubuntu/.ssh/authorized_keys",
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPlaceholderPlaceholderPlaceholder00 deploy@ci\n",
+        profile.ssh_key_line,
         0o600,
         "ubuntu",
     )

@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
 from ssh_sensor.config import Config
+from ssh_sensor.shell.arith import ArithError, evaluate
 from ssh_sensor.shell.baseimage import Profile
 from ssh_sensor.shell.core import (
     MAX_IO_CHARS,
@@ -27,6 +28,8 @@ from ssh_sensor.shell.core import (
 )
 from ssh_sensor.shell.fs import BaseImage, FakeFS, FSError
 from ssh_sensor.shell.parser import Command, ParseError, Pipeline, Word, parse
+from ssh_sensor.shell.procfs import proc_nodes
+from ssh_sensor.shell.stubs import run_stub
 
 log = logging.getLogger("ssh_sensor.shell")
 MAX_BUDGET = 200
@@ -155,6 +158,7 @@ class Shell:
         self.user = self._setup_user(self.username)
         self.cwd = self.user.home
         self.pid = 1873 + (hash(self.client_ip) & 0x3FF)
+        self.fs.seed(proc_nodes(self))
         self.env = {
             "SHELL": "/bin/bash",
             "PWD": self.cwd,
@@ -304,7 +308,7 @@ class Shell:
         if name == "?":
             return str(self.last_status)
         if name == "$":
-            return str(self.pid + 100)
+            return str(self.pid + 1)  # the session's bash, as ps lists it
         if name in ("#", "@", "*", "!"):
             return "0" if name == "#" else ""
         if name == "0":
@@ -336,6 +340,13 @@ class Shell:
             if ch == "\x00" and i + 1 < len(text):
                 piece = text[i + 1]
                 i += 2
+            elif ch == "$" and text[i + 1 : i + 3] == "((":
+                end = self._match_paren(text, i)
+                if text[end - 2 : end] == "))" and end - i >= 5:
+                    piece = self._arith(text[i + 3 : end - 2])
+                else:  # "$( (cmd) )": a command substitution that starts with a subshell
+                    piece = self._substitute(text[i + 2 : end - 1])
+                i = end
             elif ch == "$" and text[i + 1 : i + 2] == "(":
                 end = self._match_paren(text, i)
                 piece = self._substitute(text[i + 2 : end - 1])
@@ -382,6 +393,13 @@ class Shell:
                 value = self.lookup(name)
                 return value if value else self._expand_vars(default, MAX_VALUE)
         return self.lookup(expr.split(":")[0].split("%")[0].split("#")[0])
+
+    def _arith(self, expr: str) -> str:
+        """Value of ``$(( expr ))``; an invalid expression expands to nothing (bash aborts)."""
+        try:
+            return str(evaluate(self._expand_vars(expr, 512), self.lookup))
+        except ArithError:
+            return ""
 
     def _substitute(self, inner: str) -> str:
         """Run an allow-listed, read-only pipeline and return its output, else empty."""
@@ -749,7 +767,7 @@ class Shell:
         if fn is not None:
             return fn(self, io)
         if name in self.base.binaries:
-            return 0
+            return run_stub(self, name, io)
         io.error(f"{self.error_prefix()}{name}: command not found\n")
         return 127
 

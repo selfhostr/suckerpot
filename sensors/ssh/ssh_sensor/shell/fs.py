@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import posixpath
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -10,6 +11,9 @@ ROOT = "/"
 MAX_PATH = 1024
 MAX_SYMLINKS = 8
 _WRITABLE_PREFIXES = ("/tmp", "/var/tmp", "/dev/shm", "/dev/null")
+# A file may declare a size larger than the bytes it stores (a binary: header + filler). The
+# filler is generated on read and never stored; a read never builds more than this many bytes.
+MAX_VIRTUAL_READ = 2 * 1024 * 1024
 
 
 class FSError(Exception):
@@ -26,6 +30,23 @@ class Node:
     content: bytes = b""
     target: str = ""
     tag: str = ""  # "" | "elf" | "dropped-script": marks files created by fake downloads
+    size: int = 0  # declared size when larger than ``content`` (0: the content is the file)
+
+    @property
+    def length(self) -> int:
+        """Size in bytes as ``ls`` and ``stat`` report it."""
+        return max(self.size, len(self.content))
+
+
+def pad_content(path: str, node: Node) -> bytes:
+    """The bytes of ``node``: its stored content, then deterministic filler up to its size."""
+    if node.size <= len(node.content):
+        return node.content
+    want = min(node.size, MAX_VIRTUAL_READ) - len(node.content)
+    if want <= 0:
+        return node.content
+    filler = hashlib.shake_128(path.encode() + node.content[:64]).digest(want)
+    return node.content + filler
 
 
 @dataclass(frozen=True)
@@ -63,6 +84,8 @@ class FakeFS:
     def __init__(self, base: BaseImage, *, max_bytes: int, max_nodes: int, now: int) -> None:
         self._base = base
         self._added: dict[str, Node] = {}
+        self._extra: dict[str, Node] = {}  # per-session read-only nodes (/proc/self...)
+        self._extra_kids: dict[str, set[str]] = {}
         self._deleted: set[str] = set()
         self._max_bytes = max_bytes
         self._max_nodes = max_nodes
@@ -118,7 +141,20 @@ class FakeFS:
         node = self._added.get(path)
         if node is not None:
             return node
+        node = self._extra.get(path)
+        if node is not None:
+            return node
         return self._base.nodes.get(path)
+
+    def seed(self, nodes: dict[str, Node]) -> None:
+        """Add per-session nodes that are not charged to the session's budget (``/proc/<pid>``).
+
+        Paths must be absolute; their parent directories must be in the base image or listed
+        here. A later write to the same path lands in the overlay as usual."""
+        for path, node in nodes.items():
+            self._extra[path] = node
+            parent, name = posixpath.split(path)
+            self._extra_kids.setdefault(parent or ROOT, set()).add(name)
 
     # ---- queries -------------------------------------------------------------------------
     def stat(self, path: str) -> Node | None:
@@ -140,6 +176,8 @@ class FakeFS:
         dyn = self._base.dynamic.get(path)
         if dyn is not None and path not in self._added:
             return dyn()
+        if node.size > len(node.content):
+            return pad_content(path, node)
         return node.content
 
     def listdir(self, path: str) -> list[str]:
@@ -148,7 +186,7 @@ class FakeFS:
             raise FSError("No such file or directory")
         if node.kind != "d":
             raise FSError("Not a directory")
-        names = set(self._base.children.get(path, ()))
+        names = set(self._base.children.get(path, ())) | self._extra_kids.get(path, set())
         prefix = "/" if path == ROOT else path + "/"
         for p in self._added:
             if p != path and p.startswith(prefix) and "/" not in p[len(prefix) :]:
@@ -184,7 +222,15 @@ class FakeFS:
         self._added[path] = node
 
     def write(
-        self, path: str, data: bytes, *, append: bool, owner: str, mode: int = 0o644, tag: str = ""
+        self,
+        path: str,
+        data: bytes,
+        *,
+        append: bool,
+        owner: str,
+        mode: int = 0o644,
+        tag: str = "",
+        size: int = 0,
     ) -> None:
         self._check_parent(path)
         old = self._raw(path)
@@ -208,6 +254,7 @@ class FakeFS:
             mtime=self._now,
             content=(base + data),
             tag=tag if old is None or tag else old.tag,
+            size=0 if appending else size,
         )
         self._put(path, node)
 
@@ -239,7 +286,7 @@ class FakeFS:
         if path in self._added:
             self._bytes -= len(self._added[path].content)
             del self._added[path]
-        if path in self._base.nodes:
+        if path in self._base.nodes or path in self._extra:
             self._deleted.add(path)
 
     def remove_tree(self, path: str, limit: int = 5000) -> None:
