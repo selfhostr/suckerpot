@@ -63,11 +63,11 @@ If you clone without a tag, or you want to build from source, run:
 
 The installer does not use `curl | bash`. Read the script first, then run it from the checkout.
 
-To install without questions, use `--yes`. It takes the default for every question. **That includes joining the SuckerPot network**: `--yes` counts as your agreement to the network screen, unless you also pass `--no-network`. The admin password is then generated and printed once, or you can pass your own on standard input:
+To install without questions, use `--yes`. It takes the default for every question. **It does not join the SuckerPot network**: that needs your explicit `--join-network`. The admin password is then generated and printed once, or you can pass your own on standard input:
 
 ```bash
 ./scripts/install.sh --yes --sensors recommended
-# add --no-network to stay out of the network
+# add --join-network to join the SuckerPot network (experimental preview)
 ```
 
 ```bash
@@ -92,7 +92,7 @@ Each question has a default. Press Enter to accept it. With `--yes`, every quest
 | Low-memory mode | `yes` below 6 GiB, `no` above | Only asked on machines with less than 6 GiB. See [low-memory hosts](#low-memory-hosts). |
 | Daily update check | `no` | One request a day through the VPN, off by default. See [updates](updates.md#the-optional-update-check). |
 | WireGuard `.conf` file | empty | Path to the file from your VPN provider. Empty means you upload it later in the dashboard. See [the VPN](#the-vpn-before-a-wireguard-file-is-uploaded). |
-| Join the SuckerPot network? | `yes` | Shows what would be shared, then asks `[Y/n]`. Yes writes a consent record and a random pseudonym; the join waits for a VPN. `--yes` is a yes, `--no-network` is a no. See [the network](network.md). |
+| Join the SuckerPot network? | `no` | An experimental preview. Shows what would be shared, then asks `[y/N]`. An empty answer is a no. A yes writes a consent record and a random pseudonym; the join waits for a VPN. `--yes` alone never joins: use `--join-network` to join without the question, or `--no-network` to skip it. See [the network](network.md). |
 | Your own public address | empty | Optional. The installer never looks it up. If you type it, it goes to `INDICATORS_IGNORE`, so it never shows up as attack infrastructure. |
 | Port in use | depends | Asked only when a port the chosen sensors need is already taken. See [port 22](#port-22-is-already-in-use). |
 | Admin SSH port | empty, or `22` when port 22 is busy | The port of this machine's own SSH daemon. It is protected so no sensor can take it. |
@@ -243,7 +243,7 @@ After the installer finishes, sign in as the admin user. The setup opens by itse
 | Your own address | Asks for your own public address, so it never goes into a report or alert. | Yes |
 | Abuse reports | The reply contact for reports. Reports are drafts you send yourself. | Yes |
 | Alerts | Link to the alert channels. | Yes |
-| The SuckerPot network | Reserved for a later release. It stays hidden until then. | Yes |
+| The SuckerPot network | Shows what joining means. The network is an experimental preview and is off by default. Joining needs `NETWORK_ENABLED=true` and a password. | Yes |
 | You are set | The checklist of what is left, the tour, and "Go to Today". | No |
 
 Controls:

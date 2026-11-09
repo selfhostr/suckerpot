@@ -38,7 +38,7 @@ cd suckerpot
 ./scripts/install.sh
 ```
 
-Replace `vX.Y.Z` with the release you want. The installer asks a few questions. It then writes `.env` with new secrets, starts the stack and prints the dashboard address. Every question and every flag is explained in [Install SuckerPot](install.md).
+Replace `vX.Y.Z` with the release you want. The installer asks a few questions. The six recommended sensors are on by default, and the SuckerPot network is off unless you answer yes to its question. It then writes `.env` with new secrets, starts the stack and prints the dashboard address. Every question and every flag is explained in [Install SuckerPot](install.md).
 
 When the installer is done, sign in. The first-run setup opens by itself. It walks you through the sensors, the ports to forward, the VPN and the rest. See [the first-run setup](install.md#first-run-setup-in-the-dashboard).
 
@@ -123,7 +123,7 @@ openssl rand -base64 32
 
 Also set the dashboard login: `SESSION_SECRET` (at least 32 bytes) and `ADMIN_PASSWORD_HASH` (make it with `docker compose run --rm api python -m api.hashpw`, and put it in `.env` in single quotes). See [Deployment](deployment.md#dashboard-login).
 
-Choose your sensors with the `SENSOR_<NAME>` switches. A value of `0` turns a sensor off. The template turns all twelve on. See [Choosing the sensors](install.md#choosing-the-sensors-later) and [Configuration](configuration.md#install-updates-and-sensor-switches-m28).
+Choose your sensors with the `SENSOR_<NAME>` switches. A value of `0` turns a sensor off. The template turns all twelve on (the installer turns on six by default, so a hand-made `.env` runs more sensors). `NETWORK_ENABLED` is off unless you set it. See [Choosing the sensors](install.md#choosing-the-sensors-later) and [Configuration](configuration.md#install-updates-and-sensor-switches-m28).
 
 The stack refuses to start with a short or repeated secret, and the error names the variable (never its value). Do not commit `.env` to git. The full list of variables is in [Configuration](configuration.md).
 

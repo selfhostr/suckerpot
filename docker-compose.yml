@@ -304,7 +304,7 @@ services:
       ABUSE_RESEND_DAYS: ${ABUSE_RESEND_DAYS:-14}
       # The SuckerPot network (M29, M33): unlocked by default, but nothing is sent until the
       # node joins (the installer question or the dashboard, both with consent). Every call goes through the VPN egress gate.
-      NETWORK_ENABLED: ${NETWORK_ENABLED:-true}
+      NETWORK_ENABLED: ${NETWORK_ENABLED:-false}
       NETWORK_HUB_URL: ${NETWORK_HUB_URL:-}
       NETWORK_HUB_KEY: ${NETWORK_HUB_KEY:-}
       NETWORK_INTERVAL_S: ${NETWORK_INTERVAL_S:-900}
@@ -491,7 +491,7 @@ services:
       TAKEDOWN_ENABLED: ${TAKEDOWN_ENABLED:-false}
       ABUSECH_SUBMIT_ENABLED: ${ABUSECH_SUBMIT_ENABLED:-false}
       # Network (M29): the API only needs to know whether it is on and whether a hub is set.
-      NETWORK_ENABLED: ${NETWORK_ENABLED:-true}
+      NETWORK_ENABLED: ${NETWORK_ENABLED:-false}
       NETWORK_HUB_URL: ${NETWORK_HUB_URL:-}
       NETWORK_HUB_KEY: ${NETWORK_HUB_KEY:-}
       # Feed (M30): the UI shows the public URLs to copy; the key stays in ingest.

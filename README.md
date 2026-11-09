@@ -14,6 +14,13 @@
 
 > **`suckerpot` is meant to be attacked.** Deploy it only on an isolated host or VM that you are ready to lose.
 
+## How it compares
+
+- [T-Pot](https://github.com/telekom-security/tpotce) bundles many honeypots with Kibana. It covers more protocols, and it is heavy: plan for 8 to 16 GB of RAM.
+- [Cowrie](https://github.com/cowrie/cowrie) is an excellent SSH and Telnet honeypot. It writes logs; it is not a dashboard.
+- [CrowdSec](https://www.crowdsec.net/) protects your own servers from a shared blocklist. That is a different job from watching attacks.
+- `suckerpot` has a different angle: six recommended sensors by default (up to twelve), a small footprint (2 GiB of memory is the minimum, see the [install guide](docs/install.md)), and one dashboard that tells each attack as a readable story, with a terminal replay for SSH and Telnet sessions.
+
 ## Quick start
 
 ```bash
@@ -24,7 +31,7 @@ cd suckerpot
 
 Needs Docker with the compose plugin. The installer creates the secrets, starts the stack and prints the dashboard address; the six recommended sensors are on by default (`--sensors all` turns on all twelve). Back up with `just backup`. Before you expose anything, follow the [go-live checklist](https://suckerpot.selfhostr.io/docs/deployment/).
 
-Only want to help the SuckerPot network? `./scripts/install.sh --participant` installs sensors without a dashboard (see [Join the network](https://suckerpot.selfhostr.io/docs/participate/)); a 1 GiB VPS works with `--lite` ([VPS guide](https://suckerpot.selfhostr.io/docs/vps/)).
+The optional SuckerPot network is an experimental preview, off unless you ask for it: very few nodes exist, its shared feed may be empty, and a participant gets nothing back yet ([details](docs/network.md)). Only want to try it? `./scripts/install.sh --participant` installs sensors without a dashboard (see [Join the network](https://suckerpot.selfhostr.io/docs/participate/)); a 1 GiB VPS works with `--lite` ([VPS guide](https://suckerpot.selfhostr.io/docs/vps/)).
 
 ## Features
 

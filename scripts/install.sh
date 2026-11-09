@@ -22,7 +22,8 @@
 #                      [--admin-ssh-port N] [--lowmem auto|on|off] [--wg-conf PATH] [--skip-verify]
 #                      [--allow-lan]  (publish the dashboard on a non-loopback address WITHOUT an
 #                                      https tunnel: plain http, cookies lose Secure; not for the internet)
-#                      [--no-network]  (do not join the SuckerPot network; the question defaults to yes)
+#                      [--join-network]  (join the experimental SuckerPot network; without it the answer is no)
+#                      [--no-network]  (do not ask about the SuckerPot network)
 #                      [--dry-run --env-out PATH]
 #
 #   Participant mode (docs/design/m32.md): sensors, database, ingest and the network node, no
@@ -36,8 +37,9 @@
 #   scripts/install.sh --repair       existing install: volumes, start and schedule steps again
 #
 # --yes takes the defaults; it reads the admin password from stdin with --admin-password-stdin
-# or generates one and prints it once. --yes is also the consent to join the SuckerPot network
-# (shown first, undone with --no-network); with --participant it is the consent to join.
+# or generates one and prints it once. --yes never joins the SuckerPot network in full mode: that
+# needs --join-network (or a typed y at the question). With --participant, running the mode is the
+# consent to join.
 # --dry-run --env-out writes the would-be .env to PATH with a placeholder admin hash and makes
 # no Docker call (used by the tests).
 set -euo pipefail
@@ -85,6 +87,7 @@ stack=""
 pseudonym_arg=""
 no_pseudonym=0
 no_network=0
+join_flag=0
 country=""
 show_country=0
 verifier=0
@@ -121,6 +124,7 @@ while [ $# -gt 0 ]; do
     --pseudonym) need_value "$@"; pseudonym_arg=$2; shift ;;
     --no-pseudonym) no_pseudonym=1 ;;
     --no-network) no_network=1 ;;
+    --join-network) join_flag=1 ;;
     --country) need_value "$@"; country=$2; shift ;;
     --show-country) show_country=1 ;;
     --verifier) verifier=1 ;;
@@ -222,6 +226,7 @@ if [ "$stack" = participant ]; then
   [ "$pw_stdin" = 0 ] || bad+=(--admin-password-stdin)
   [ "$allow_lan" = 0 ] || bad+=(--allow-lan)
   [ "$no_network" = 0 ] || bad+=(--no-network)
+  [ "$join_flag" = 0 ] || bad+=(--join-network)
   [ "${#bad[@]}" -eq 0 ] || die "these flags need --full: ${bad[*]}"
   noask=1
 else
@@ -247,6 +252,7 @@ if [ "$existing" = 1 ]; then
   [ -z "$sensors_arg" ] || bad+=(--sensors)
   [ -z "$wg_conf" ] || bad+=(--wg-conf)
   [ "$no_network" = 0 ] || bad+=(--no-network)
+  [ "$join_flag" = 0 ] || bad+=(--join-network)
   [ "$lowmem" = auto ] || bad+=(--lowmem)
   [ "$lite" = 0 ] || bad+=(--lite)
   [ "${#bad[@]}" -eq 0 ] || die "an existing install keeps its settings; these flags are only for a fresh install: ${bad[*]}. Change settings with: just set, just sensors, ./scripts/participant.sh"
@@ -536,27 +542,35 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
   fi
 fi
 
-# Full mode (M33): the network question, default yes. It sits after the other questions, so
-# nothing is asked after a "no". The answer is a consent record in .env; ingest joins from it once
-# a VPN is configured. --yes counts as the agreement, --no-network as the refusal.
+# Full mode: the network question, default NO. It sits after the other questions, so nothing is
+# asked after a "no". The answer is a consent record in .env; ingest joins from it once a VPN is
+# configured. Only an explicit --join-network or a typed y joins: --yes alone never does.
+[ "$join_flag" = 0 ] || [ "$no_network" = 0 ] || die "--join-network and --no-network exclude each other"
 join_network=0
 if [ "$stack" = full ] && [ "$fresh" = 1 ] && [ "$no_network" = 0 ]; then
-  # shellcheck source=scripts/lib/pseudonym.sh
-  . scripts/lib/pseudonym.sh
-  echo
-  pseudonym=$(pseudonym_random) || die "could not make a pseudonym"
-  consent_screen_full "$pseudonym"
-  if [ "$assume_yes" = 1 ]; then
-    echo "--yes was given: this counts as your agreement to join as described above (--no-network declines)."
+  if [ "$join_flag" = 1 ]; then
+    # shellcheck source=scripts/lib/pseudonym.sh
+    . scripts/lib/pseudonym.sh
+    echo
+    pseudonym=$(pseudonym_random) || die "could not make a pseudonym"
+    consent_screen_full "$pseudonym"
+    echo "--join-network was given: this counts as your agreement to join as described above."
     echo
     join_network=1
+  elif [ "$assume_yes" = 1 ]; then
+    note "the SuckerPot network is off: --yes does not join it (add --join-network to join)"
   else
-    printf 'Join the SuckerPot network? [Y/n] ' >&2
-    # End of input is not a yes: only an explicit Enter or y is.
-    IFS= read -r a <&3 || die "no answer to the network question; use --yes or --no-network"
+    # shellcheck source=scripts/lib/pseudonym.sh
+    . scripts/lib/pseudonym.sh
+    echo
+    pseudonym=$(pseudonym_random) || die "could not make a pseudonym"
+    consent_screen_full "$pseudonym"
+    printf 'Join the SuckerPot network? [y/N] ' >&2
+    # End of input is not a yes: only a typed y is.
+    IFS= read -r a <&3 || die "no answer to the network question; use --join-network or --no-network"
     case $a in
-      "" | y | Y | yes | YES | Yes) join_network=1 ;;
-      n | N | no | NO | No) pseudonym=""; log "network declined" ;;
+      y | Y | yes | YES | Yes) join_network=1 ;;
+      "" | n | N | no | NO | No) pseudonym=""; log "network declined" ;;
       *) die "please answer y or n" ;;
     esac
   fi
