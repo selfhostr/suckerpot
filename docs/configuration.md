@@ -259,7 +259,7 @@ The geolocation data has a licence that requires credit. See [Data sources and a
 | `ABUSEIPDB_API_KEY` | empty | AbuseIPDB key. Without it, no lookups. |
 | `ABUSEIPDB_DAILY_QUOTA` | `1000` | Maximum AbuseIPDB checks per day. Enforced, and persisted in the database. |
 | `GREYNOISE_API_KEY` | empty | GreyNoise Community key. Without it, no lookups. |
-| `GREYNOISE_DAILY_QUOTA` | `50` | Maximum GreyNoise checks per day. The free Community tier allows 50 searches per week, so set a lower value (7 or less) to stay inside it |
+| `GREYNOISE_DAILY_QUOTA` | `50` | Maximum GreyNoise checks per day |
 | `CVE_WATCH_ENABLED` | `true` | Daily job that mirrors CISA KEV, NVD CVEs from the last 60 days and GitHub advisories. The feeds are read in chunks. See [Architecture](ARCHITECTURE.md). |
 | `NVD_API_KEY` | empty | NVD key. Optional: raises the rate limit from 5 to 50 requests per 30 s |
 | `GITHUB_ADVISORY_TOKEN` | empty | Token for the public GitHub advisories API. Optional: raises the limit from 60 requests per hour. Use a fine-grained token for public repositories only, read-only, with no permissions. Never your push token |
