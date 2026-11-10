@@ -125,7 +125,8 @@ def test_no_giveaway_words_in_package() -> None:
 _H_MODULES = {
     "subprocess", "_posixsubprocess", "asyncio.subprocess", "pty", "ctypes", "_ctypes",
     "builtins", "importlib", "posix", "pickle", "_pickle", "marshal", "runpy", "timeit",
-    "pydoc", "code", "codeop",
+    "pydoc", "code", "codeop", "shelve", "multiprocessing", "webbrowser", "pdb", "cProfile",
+    "profile", "logging.config",
 }  # fmt: skip
 _H_OS_EXEC = {  # every exec / spawn flavour of os and posix
     "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
@@ -135,13 +136,18 @@ _H_OS_EXEC = {  # every exec / spawn flavour of os and posix
 _H_SPAWN_ATTRS = {
     "create_subprocess_exec", "create_subprocess_shell", "subprocess_exec", "subprocess_shell",
     "import_module", "__import__", "system", "popen", "fork", "forkpty", "startfile",
-    "resolve_name", "set_executable", *_H_OS_EXEC,
+    "resolve_name", "set_executable", "unsafe_load", "full_load", *_H_OS_EXEC,
 }  # fmt: skip
 _H_SPAWN_BASES = {"os", "posix", "subprocess", "asyncio"}
 # Modules whose attributes must not be reached through getattr / vars / __dict__.
 _H_GETATTR_MODS = {
     "os", "posix", "subprocess", "socket", "asyncio", "ssl", "sys", "builtins", "importlib",
 }  # fmt: skip
+# The only attribute a sensor reads off those modules by name (adb/server.py: a socket option
+# that older builds lack). Any other getattr on them fails, constant name or not.
+_H_GETATTR_OK = {"TCP_USER_TIMEOUT"}
+# Reflection hooks and the builtins namespace, in any position and context.
+_H_REFLECT = {"__builtins__", "__import__", "__getattribute__", "__globals__", "__subclasses__"}
 _H_OUT_MODULES = {
     "urllib.request", "urllib3", "http.client", "httpx", "requests", "aiohttp", "ftplib",
     "smtplib", "telnetlib", "poplib", "imaplib", "xmlrpc.client",
@@ -156,6 +162,26 @@ _H_OUT_ATTRS = {
 # literal loopback address only, and imported by no other module.
 _H_OUT_EXEMPT = {"healthcheck.py"}
 _H_LOOPBACK = ("127.0.0.1", "localhost")
+_H_CLIENT_TOPS = {  # client libraries: a call into one from the healthcheck is pinned as well
+    "urllib", "urllib3", "http", "httpx", "requests", "aiohttp", "ftplib", "smtplib",
+    "telnetlib", "poplib", "imaplib", "xmlrpc",
+}  # fmt: skip
+_H_CLIENT_CALLS = {"urlopen", "HTTPConnection", "HTTPSConnection", "FTP", "SMTP", "SMTP_SSL"}
+
+
+def _h_is_loopback(arg: ast.expr | None) -> bool:
+    """A literal loopback host, or a literal http(s) URL whose host is loopback."""
+    if isinstance(arg, ast.Tuple) and arg.elts:
+        arg = arg.elts[0]
+    if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+        return False
+    text = arg.value
+    for scheme in ("", "http://", "https://"):
+        for host in _H_LOOPBACK:
+            rest = text.removeprefix(scheme + host) if text.startswith(scheme + host) else None
+            if rest is not None and (rest == "" or rest[0] in ":/?"):
+                return True
+    return False
 
 
 def _h_mod_hit(name: str, banned: set[str]) -> bool:
@@ -200,10 +226,15 @@ def _h_eventtype_ok(tree: ast.Module) -> bool:
 
 
 def _h_health_violations(tree: ast.Module, name: str) -> list[str]:
-    """The healthcheck may connect, but only to a literal loopback address."""
+    """The healthcheck may connect, but only to a literal loopback host or URL."""
     found: list[str] = []
+    aliases: dict[str, str] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                aliases[a.asname or a.name.split(".")[0]] = a.name.split(".")[0]
     called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    net = _H_OUT_ATTRS | {"sendto"}
+    net = _H_OUT_ATTRS | _H_CLIENT_CALLS | {"sendto"}
     for n in ast.walk(tree):
         where = f"{name}:{getattr(n, 'lineno', 0)}"
         if isinstance(n, ast.Attribute) and n.attr in net and id(n) not in called:
@@ -211,13 +242,11 @@ def _h_health_violations(tree: ast.Module, name: str) -> list[str]:
         elif isinstance(n, ast.Call):
             fn = n.func
             attr = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
-            if attr not in net:
+            client = isinstance(fn, ast.Attribute) and _h_top(fn, aliases) in _H_CLIENT_TOPS
+            if attr not in net and not client:
                 continue
             at = 1 if attr == "sendto" else 0
-            arg = n.args[at] if len(n.args) > at else None
-            if isinstance(arg, ast.Tuple) and arg.elts:
-                arg = arg.elts[0]
-            if not (isinstance(arg, ast.Constant) and arg.value in _H_LOOPBACK):
+            if not _h_is_loopback(n.args[at] if len(n.args) > at else None):
                 found.append(f"{where} {attr}() target is not a literal loopback address")
     return found
 
@@ -226,7 +255,6 @@ def _hardening_violations(root: Path = PKG, outbound: bool = False) -> list[str]
     found: list[str] = []
     banned = _H_OUT_MODULES if outbound else _H_MODULES
     attrs = _H_OUT_ATTRS if outbound else _H_SPAWN_ATTRS
-    dunder = ("__builtins__", "__import__")
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root).as_posix()
         tree = ast.parse(path.read_text(), filename=str(path))
@@ -266,7 +294,10 @@ def _hardening_violations(root: Path = PKG, outbound: bool = False) -> list[str]
                     star = (
                         not outbound and a.name == "*" and mod in _H_SPAWN_BASES | _H_GETATTR_MODS
                     )
-                    sysmod = not outbound and mod == "sys" and a.name == "modules"
+                    sysmod = not outbound and (mod, a.name) in (
+                        ("sys", "modules"),
+                        ("yaml", "load"),
+                    )
                     health = outbound and "healthcheck" in (modname.split(".")[-1], a.name)
                     if (
                         _h_mod_hit(f"{modname}.{a.name}", banned)
@@ -280,6 +311,10 @@ def _hardening_violations(root: Path = PKG, outbound: bool = False) -> list[str]
                 fn = node.func
                 fname = getattr(fn, "attr", getattr(fn, "id", ""))
                 if outbound:
+                    addr = node.args[1] if fname == "sendto" and len(node.args) > 1 else None
+                    if isinstance(addr, ast.Tuple) and addr.elts:
+                        if isinstance(addr.elts[0], ast.Constant) and not _h_is_loopback(addr):
+                            found.append(f"{where} sendto() to a literal non-loopback address")
                     if fname == "create_datagram_endpoint" and any(
                         k.arg == "remote_addr" for k in node.keywords
                     ):
@@ -302,8 +337,11 @@ def _hardening_violations(root: Path = PKG, outbound: bool = False) -> list[str]
                     )
                     if const in _H_SPAWN_ATTRS | _H_OUT_ATTRS:
                         found.append(f"{where} getattr(..., {const!r})")
-                    elif (top in _H_GETATTR_MODS or direct) and const is None:
-                        found.append(f"{where} getattr({ast.unparse(first)}, <not a constant>)")
+                    elif (top in _H_GETATTR_MODS or direct) and const not in _H_GETATTR_OK:
+                        label = ast.unparse(name_arg) if name_arg else "?"
+                        found.append(f"{where} getattr({ast.unparse(first)}, {label})")
+                    elif isinstance(first, ast.Subscript) and const not in _H_GETATTR_OK:
+                        found.append(f"{where} getattr({ast.unparse(first)}, ...)")
                 imp = imported.get(fn.id) if isinstance(fn, ast.Name) else None
                 from_op = imp is not None and imp[0] == "operator"
                 via_attr = isinstance(fn, ast.Attribute) and _h_top(fn.value, aliases) == "operator"
@@ -325,15 +363,25 @@ def _hardening_violations(root: Path = PKG, outbound: bool = False) -> list[str]
                 elif not outbound:
                     if node.attr == "modules" and top == "sys":
                         found.append(f"{where} sys.modules")
+                    elif node.attr == "load" and top == "yaml":  # only safe_load is allowed
+                        found.append(f"{where} yaml.load")
                     elif node.attr == "__dict__" and (
                         top in _H_GETATTR_MODS | {m.split(".")[0] for m in _H_MODULES}
                     ):
                         found.append(f"{where} {base}.__dict__")
-                    elif node.attr in dunder or (top == "asyncio" and node.attr == "subprocess"):
+                    elif node.attr in _H_REFLECT or (
+                        top == "asyncio" and node.attr == "subprocess"
+                    ):
                         found.append(f"{where} {ast.unparse(node)}")
+            elif isinstance(node, ast.Subscript) and not outbound:
+                key = node.slice
+                if isinstance(key, ast.Constant) and key.value in (
+                    {"__builtins__"} | _H_GETATTR_MODS | {m.split(".")[0] for m in _H_MODULES}
+                ):
+                    found.append(f"{where} {ast.unparse(node)}")
             elif isinstance(node, ast.Name):
                 src = imported.get(node.id)
-                if not outbound and node.id in dunder:  # any context: load, store, delete
+                if not outbound and node.id in _H_REFLECT:  # any context: load, store, delete
                     found.append(f"{where} {node.id}")
                 elif isinstance(node.ctx, ast.Load) and node.id in attrs and id(node) not in called:
                     found.append(f"{where} {node.id}")
@@ -404,12 +452,33 @@ def test_hardening_guard_detects_spawn_and_import_bypasses(tmp_path: Path) -> No
         # the dunder names in every context
         ("__builtins__ = {}", "__builtins__"), ("del __import__", "__import__"),
         ("print(__builtins__)", "__builtins__"),
+        # getattr on a module: only the allow-list passes, constant name or not
+        ("import sys\nm = getattr(sys, 'modules')", "getattr(sys, 'modules')"),
+        ("import os\ngetattr(os, '__dict__')", "getattr(os, '__dict__')"),
+        ("import asyncio\ngetattr(asyncio, 'subprocess')", "getattr(asyncio, 'subprocess')"),
+        ("import socket\ngetattr(socket, 'AF_INET')", "getattr(socket, 'AF_INET')"),
+        ("m = {}\ngetattr(m['subprocess'], 'Pop' + 'en')(cmd)", "m['subprocess']"),
+        # reflection and the builtins namespace
+        ("x.__getattribute__('system')", "__getattribute__"),
+        ("f.__globals__['os']", "__globals__"), ("object.__subclasses__()", "__subclasses__"),
+        ("x = ns['__builtins__']", "ns['__builtins__']"),
+        # modules no sensor needs, unsafe yaml loaders
+        ("import shelve", "import shelve"), ("import multiprocessing", "multiprocessing"),
+        ("import webbrowser", "webbrowser"), ("import pdb", "import pdb"),
+        ("import cProfile", "cProfile"), ("import profile", "import profile"),
+        ("import logging.config", "logging.config"), ("from logging import config as c", "logging"),
+        ("import yaml\nyaml.load(x)", "yaml.load"), ("import yaml as y\ny.load(x)", "yaml.load"),
+        ("import yaml\nyaml.unsafe_load(x)", "unsafe_load"),
+        ("import yaml\nyaml.full_load(x)", "full_load"),
+        ("from yaml import load", "yaml import load"),
     ]  # fmt: skip
     for source, needle in bad:
         hits = _h_case(tmp_path, {"bad.py": source + "\n"})
         assert any(needle in v for v in hits), (source, hits)
     good = [
-        "import socket\nx = getattr(socket, 'AF_INET')",
+        "import socket\nx = getattr(socket, 'TCP_USER_TIMEOUT', 18)",
+        "import yaml\nx = yaml.safe_load(text)",
+        "x = {'k': 1}['k']",
         "import operator\nf = operator.attrgetter('a.b')",
         "import os\nx = os.environ",
         "from suckerpot_common.models import EventType\nx = EventType.disconnect",
@@ -438,6 +507,7 @@ def test_hardening_guard_detects_outbound_bypasses(tmp_path: Path) -> None:
         ("import asyncssh\nasyncssh.listen_reverse()", "listen_reverse"),
         ("import asyncssh\nasyncssh.scp('a', 'b')", "asyncssh.scp"),
         ("import asyncssh\nasyncssh.get_server_host_key('192.0.2.1')", "get_server_host_key"),
+        ("sock.sendto(b'x', ('192.0.2.1', 53))", "sendto() to a literal non-loopback"),
         # EventType is only exempt when it is the real enum, bound once
         ("from socket import socket as EventType\nEventType.connect(s, addr)", "EventType.connect"),
         ("from socket import socket\nEventType = socket\nEventType.connect(s)", "Type.connect"),
@@ -469,6 +539,22 @@ def test_hardening_guard_pins_the_healthcheck(tmp_path: Path) -> None:
     assert (
         _h_case(tmp_path, {"healthcheck.py": "sock.sendto(b'x', ('localhost', 9))\n"}, True) == []
     )
+    # Client libraries are pinned too: a literal loopback host or URL only.
+    clients = {
+        "import urllib.request\nurllib.request.urlopen('http://192.0.2.1/')\n": False,
+        "import urllib.request\nurllib.request.urlopen(url)\n": False,
+        "import http.client\nhttp.client.HTTPConnection(host, 80)\n": False,
+        "from urllib.request import urlopen\nurlopen('http://127.0.0.1.example.com/')\n": False,
+        "import requests\nrequests.get('https://198.51.100.1/')\n": False,
+        "import urllib.request\nurllib.request.urlopen('http://127.0.0.1:8080/x')\n": True,
+        "import http.client\nhttp.client.HTTPConnection('localhost', 80)\n": True,
+        "from urllib.request import urlopen\nurlopen('https://localhost/ping')\n": True,
+    }
+    for source, fine in clients.items():
+        hits = _h_case(tmp_path, {"healthcheck.py": source}, outbound=True)
+        assert (hits == []) is fine, (source, hits)
+    # An unrelated sendto in a sensor with a non-constant peer (a UDP reply) is not flagged.
+    assert _h_case(tmp_path, {"srv.py": "transport.sendto(reply, addr)\n"}, outbound=True) == []
     # No other module may import it.
     for imp in (
         "import healthcheck",
