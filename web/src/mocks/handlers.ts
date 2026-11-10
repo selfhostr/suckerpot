@@ -7,6 +7,7 @@ import { buildFixtures } from "./fixtures"
 import { buildReplayFixtures } from "./replay-fixture"
 import { liveHandlers, liveWindow, recentEvents } from "./live"
 import { settingsHandlers } from "./settings"
+import { pipelineHandlers } from "./pipeline"
 import { siteHandlers } from "./site"
 import { cveHandlers } from "./cves"
 import { m7Handlers } from "./m7"
@@ -120,6 +121,7 @@ export const handlers = [
   ...liveHandlers,
   ...siteHandlers,
   ...settingsHandlers,
+  ...pipelineHandlers,
   ...analyticsHandlers(fixtures),
   ...m7Handlers(fixtures.map((f) => f.session)),
   ...cveHandlers(),
