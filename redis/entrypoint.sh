@@ -153,10 +153,28 @@ has_persisted_data() {
   [ -e "$AOF_DIR" ] || [ -e "$RDB_FILE" ]
 }
 
-# Succeeds only when the server's output reports a load failure and the check tool
-# rejects the file set the server loads.
+# True when every file the server loads can be read by the current user: a good
+# file that is merely unreadable (restored as root, an I/O error) must never be
+# mistaken for a damaged one.
+persisted_data_is_readable() {
+  if [ -d "$AOF_DIR" ]; then
+    [ -r "$AOF_DIR" ] && [ -x "$AOF_DIR" ] || return 1
+    for file in "$AOF_DIR"/*; do
+      if [ -e "$file" ] && [ ! -r "$file" ]; then return 1; fi
+    done
+  elif [ -e "$RDB_FILE" ]; then
+    [ -r "$RDB_FILE" ] || return 1
+  fi
+  return 0
+}
+
+# Succeeds only when the server's output reports a load failure that is not a
+# permission or I/O problem, the files are readable, and the check tool rejects
+# the file set the server loads.
 persisted_data_is_unreadable() {
   grep -Eq "$LOAD_FAILURE" "$SERVER_LOG" || return 1
+  if grep -Eq 'Permission denied|Input/output error' "$SERVER_LOG"; then return 1; fi
+  persisted_data_is_readable || return 1
   if [ -d "$AOF_DIR" ]; then
     ! valkey-check-aof "$AOF_DIR/appendonly.aof.manifest" >/dev/null 2>&1
   else
@@ -165,12 +183,19 @@ persisted_data_is_unreadable() {
 }
 
 # Keeps only the newest KEEP_UNREADABLE copies of "$1.unreadable-*" (the UTC
-# timestamp suffix sorts alphabetically), so the volume cannot fill up.
+# timestamp suffix makes the glob come out oldest first), so the volume cannot
+# fill up. Only paths directly under the data directory are ever removed.
 prune_unreadable() {
-  n=0
-  for old in $(ls -1d "$1".unreadable-* 2>/dev/null | sort -r); do
-    n=$((n + 1))
-    if [ "$n" -gt "$KEEP_UNREADABLE" ]; then rm -rf "$old"; fi
+  total=0
+  for old in "$1".unreadable-*; do
+    if [ -e "$old" ]; then total=$((total + 1)); fi
+  done
+  excess=$((total - KEEP_UNREADABLE))
+  for old in "$1".unreadable-*; do
+    if [ "$excess" -le 0 ]; then break; fi
+    case $old in
+      "$DATA_DIR"/*.unreadable-*) rm -rf -- "$old"; excess=$((excess - 1)) ;;
+    esac
   done
 }
 
@@ -203,6 +228,6 @@ while :; do
     moved=1
     continue
   fi
-  log "server failed to start but this is not a data-load failure, leaving the persisted data untouched"
+  log "server failed to start and the persisted data was left untouched: either the failure is not a data-load error, or the data is unreadable by this user (check ownership and mode of the files in $DATA_DIR) or hit an I/O error"
   exit "$rc"
 done

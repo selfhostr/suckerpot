@@ -13,6 +13,7 @@
 #   other-failure    A healthy AOF and a server that exits 1 for another reason (invalid
 #                    directive): nothing is moved aside and the container keeps failing.
 #   stale-rdb        A healthy AOF next to a garbage dump.rdb: normal start, both kept.
+#   unreadable-aof   A good AOF the server cannot read (root, mode 000): the container fails, files stay.
 #   stop-time        A clean docker stop ends with exit 0 inside the grace period (no SIGKILL).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -228,7 +229,7 @@ scenario_other_failure() {
     sleep 1
   done
   check "other-failure: container exits with 1" eq "$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$C")" "exited 1"
-  check "other-failure: reported as not a data-load failure" bash -c "docker logs $C 2>&1 | grep -q 'not a data-load failure'"
+  check "other-failure: reports that the data was left untouched" bash -c "docker logs $C 2>&1 | grep -q 'persisted data was left untouched'"
   check "other-failure: nothing moved aside" eq "$(docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'ls -1d /data/*.unreadable-* 2>/dev/null | wc -l' | tr -d ' ')" 0
   start_broker "$v"
   check "other-failure: healthy afterwards" wait_healthy
@@ -268,8 +269,31 @@ scenario_stop_time() {
   docker rm -f "$C" >/dev/null
 }
 
+scenario_unreadable_aof() {
+  local v
+  v=$(new_volume unreadable)
+  start_broker "$v"
+  wait_healthy || bad "unreadable-aof: first start"
+  seed bcli
+  docker stop -t 30 "$C" >/dev/null
+  # A good AOF that the server's user cannot read (restored as root, mode 000).
+  # With appendonly yes a dump.rdb is never loaded, so the AOF is the file that matters.
+  docker run --rm --user 0:0 -v "$v:/data" --entrypoint sh "$IMG" -c \
+    'chown 0:0 /data/appendonlydir/*.incr.aof && chmod 000 /data/appendonlydir/*.incr.aof'
+  start_broker "$v"
+  for _ in $(seq 1 60); do
+    [ "$(docker inspect -f '{{.State.Status}}' "$C")" = exited ] && break
+    sleep 1
+  done
+  check "unreadable-aof: container fails" eq "$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$C")" "exited 1"
+  check "unreadable-aof: says what to check" bash -c "docker logs $C 2>&1 | grep -q 'unreadable by this user'"
+  check "unreadable-aof: files kept under their own name, no copy" \
+    eq "$(docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'ls -A /data')" "appendonlydir"
+  docker rm -f "$C" >/dev/null
+}
+
 selected=${1:-all}
-for s in upgrade_rdb upgrade_aof corrupt corrupt_keeps_2 truncated other_failure stale_rdb stop_time; do
+for s in upgrade_rdb upgrade_aof corrupt corrupt_keeps_2 truncated other_failure stale_rdb unreadable_aof stop_time; do
   if [ "$selected" = all ] || [ "$selected" = "${s//_/-}" ]; then
     echo "== ${s//_/-}"
     "scenario_$s"
@@ -277,6 +301,6 @@ for s in upgrade_rdb upgrade_aof corrupt corrupt_keeps_2 truncated other_failure
 done
 
 echo "$checks checks run"
-min=1; [ "$selected" = all ] && min=25
+min=1; [ "$selected" = all ] && min=30
 if [ "$checks" -lt "$min" ]; then echo "FAIL: expected at least $min checks (unknown scenario name?)"; fail=1; fi
 exit "$fail"
