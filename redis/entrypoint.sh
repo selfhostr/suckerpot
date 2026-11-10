@@ -93,13 +93,29 @@ set -- "$@" --maxmemory "${MAXMEMORY_MB}mb"
 #
 # Conservative on purpose, data the server can load is never touched. All of
 # these must hold: the server exited with status 1 within STARTUP_WINDOW seconds,
-# it did so twice in a row (rules out a transient fault), and the bundled
-# valkey-check-aof / valkey-check-rdb tools also reject the files.
+# it did so twice in a row (rules out a transient fault), its own output contains
+# a data-load failure message (a config or ACL error never matches), and the
+# bundled valkey-check-aof / valkey-check-rdb tool also rejects the files the
+# server actually loads: the AOF directory when there is one (appendonly yes),
+# dump.rdb only when there is no AOF directory at all.
 DATA_DIR=/data
 AOF_DIR=$DATA_DIR/appendonlydir
 RDB_FILE=$DATA_DIR/dump.rdb
+SERVER_LOG=/run/redis/server.log
+SERVER_FIFO=/run/redis/server.fifo
+LOG_LINES=300
 STARTUP_WINDOW=30
 KEEP_UNREADABLE=2
+
+# Messages the server prints when it gives up loading persisted data:
+#   Can't handle RDB format version N               RDB from a newer or different engine
+#   Error reading the RDB base file                 the AOF base file is an unreadable RDB
+#   Bad file format reading the append only file    garbage in the AOF
+#   Unexpected end of file reading the append only file / Unrecoverable error reading
+#   Wrong signature trying to load DB from file     dump.rdb is not an RDB
+#   Short read or OOM loading DB / Fatal error loading the DB / Error loading the RDB
+#   Invalid AOF manifest / Failed loading the AOF manifest   damaged manifest
+LOAD_FAILURE='Can.t handle RDB format version|Error reading the RDB base file|Bad file format reading the append only file|Unexpected end of file reading the append only file|Unrecoverable error reading the append only file|Wrong signature trying to load DB from file|Short read or OOM loading DB|Fatal error loading the DB|Error loading the RDB|Invalid AOF manifest|Failed loading the AOF manifest'
 
 log() { echo "suckerpot-redis: $*" >&2; }
 
@@ -108,33 +124,44 @@ stopping=
 trap 'stopping=1; if [ -n "$pid" ]; then kill -TERM "$pid" 2>/dev/null || true; fi' TERM INT
 
 # Runs the server in the background (so that a signal reaches it through the trap)
-# and sets rc to its exit status.
+# and sets rc to its exit status. Its output goes through a fifo to awk, which
+# prints it unchanged and keeps the first LOG_LINES lines in SERVER_LOG (on the
+# tmpfs, truncated at each start), so a long-running server cannot fill it.
 run_server() {
   rc=0
-  "$@" &
+  if [ -n "$stopping" ]; then return; fi
+  rm -f "$SERVER_FIFO"
+  mkfifo "$SERVER_FIFO"
+  : > "$SERVER_LOG"
+  awk -v f="$SERVER_LOG" -v max="$LOG_LINES" '{ print; fflush(); if (n < max) { n++; print > f; fflush(f) } }' < "$SERVER_FIFO" &
+  logger_pid=$!
+  "$@" > "$SERVER_FIFO" 2>&1 &
   pid=$!
+  # A TERM that arrived before the pid was known was not forwarded.
+  if [ -n "$stopping" ]; then kill -TERM "$pid" 2>/dev/null || true; fi
   wait "$pid" || rc=$?
   # A trapped signal interrupts wait before the server is gone: wait for the real status.
   while kill -0 "$pid" 2>/dev/null; do
     wait "$pid" || rc=$?
   done
   pid=
+  wait "$logger_pid" 2>/dev/null || true
+  rm -f "$SERVER_FIFO"
 }
 
 has_persisted_data() {
   [ -e "$AOF_DIR" ] || [ -e "$RDB_FILE" ]
 }
 
-# Succeeds only when a persisted file exists and the check tools reject it.
+# Succeeds only when the server's output reports a load failure and the check tool
+# rejects the file set the server loads.
 persisted_data_is_unreadable() {
-  bad=1
-  if [ -f "$AOF_DIR/appendonly.aof.manifest" ]; then
-    valkey-check-aof "$AOF_DIR/appendonly.aof.manifest" >/dev/null 2>&1 || bad=0
+  grep -Eq "$LOAD_FAILURE" "$SERVER_LOG" || return 1
+  if [ -d "$AOF_DIR" ]; then
+    ! valkey-check-aof "$AOF_DIR/appendonly.aof.manifest" >/dev/null 2>&1
+  else
+    ! valkey-check-rdb "$RDB_FILE" >/dev/null 2>&1
   fi
-  if [ -f "$RDB_FILE" ]; then
-    valkey-check-rdb "$RDB_FILE" >/dev/null 2>&1 || bad=0
-  fi
-  return "$bad"
 }
 
 # Keeps only the newest KEEP_UNREADABLE copies of "$1.unreadable-*" (the UTC
@@ -147,15 +174,13 @@ prune_unreadable() {
   done
 }
 
+# Moves aside the file set the server loads (the AOF directory, else dump.rdb).
 move_aside() {
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
-  for f in "$AOF_DIR" "$RDB_FILE"; do
-    if [ -e "$f" ]; then
-      mv "$f" "$f.unreadable-$stamp"
-      prune_unreadable "$f"
-    fi
-  done
-  log "persisted data could not be loaded: moved to *.unreadable-$stamp in $DATA_DIR, starting with an empty stream buffer"
+  if [ -d "$AOF_DIR" ]; then f=$AOF_DIR; else f=$RDB_FILE; fi
+  mv "$f" "$f.unreadable-$stamp"
+  prune_unreadable "$f"
+  log "persisted data could not be loaded: moved to $(basename "$f").unreadable-$stamp in $DATA_DIR, starting with an empty stream buffer"
 }
 
 attempt=0
@@ -178,6 +203,6 @@ while :; do
     moved=1
     continue
   fi
-  log "server failed to start but the persisted data passes the checks, leaving it untouched"
+  log "server failed to start but this is not a data-load failure, leaving the persisted data untouched"
   exit "$rc"
 done

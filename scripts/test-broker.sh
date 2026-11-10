@@ -10,10 +10,14 @@
 #   corrupt          Garbage in the AOF: healthy start, files moved aside.
 #   corrupt-keeps-2  Three corruptions in a row: at most 2 copies are kept.
 #   truncated        A torn last write is loadable: nothing is moved aside, nothing is lost.
+#   other-failure    A healthy AOF and a server that exits 1 for another reason (invalid
+#                    directive): nothing is moved aside and the container keeps failing.
+#   stale-rdb        A healthy AOF next to a garbage dump.rdb: normal start, both kept.
+#   stop-time        A clean docker stop ends with exit 0 inside the grace period (no SIGKILL).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REDIS8_IMAGE=${REDIS8_IMAGE:-redis:8.10.3-alpine3.23}
+REDIS8_IMAGE=${REDIS8_IMAGE:-redis:8.10.3-alpine3.23@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80}
 P=sp-brokertest-$$
 IMG=$P-image
 NET=$P-net
@@ -36,14 +40,14 @@ for v in $VARS; do env_args+=(-e "$v=$(pw "$v")"); done
 docker build -q -t "$IMG" redis >/dev/null
 docker network create --internal "$NET" >/dev/null
 
-# Starts the broker image on volume $1 with the same hardening as docker-compose.yml.
+# Starts the broker image on volume $1 (optional command in $2...) with the same hardening as docker-compose.yml.
 start_broker() {
   docker rm -f "$C" >/dev/null 2>&1 || true
   docker run -d --name "$C" --network "$NET" --read-only --cap-drop ALL \
     --security-opt no-new-privileges:true --user 999:999 \
     --memory 384m --memory-swap 384m --pids-limit 64 \
     --tmpfs /run/redis:rw,noexec,nosuid,nodev,size=1m,mode=0700,uid=999,gid=999 \
-    -v "$1:/data" "${env_args[@]}" "$IMG" >/dev/null
+    -v "$1:/data" "${env_args[@]}" "$IMG" "${@:2}" >/dev/null
 }
 
 wait_healthy() {
@@ -97,8 +101,9 @@ summary() {
 
 aside_count() { docker exec "$C" sh -c 'ls -1d /data/*.unreadable-* 2>/dev/null | wc -l' | tr -d ' '; }
 
-ok() { echo "ok   $1"; }
-bad() { echo "FAIL $1"; fail=1; }
+checks=0
+ok() { checks=$((checks + 1)); echo "ok   $1"; }
+bad() { checks=$((checks + 1)); echo "FAIL $1"; fail=1; }
 check() { # description command...
   local d=$1
   shift
@@ -210,12 +215,68 @@ scenario_truncated() {
   docker rm -f "$C" >/dev/null
 }
 
+scenario_other_failure() {
+  local v
+  v=$(new_volume other)
+  start_broker "$v"
+  wait_healthy || bad "other-failure: first start"
+  seed bcli
+  docker stop -t 30 "$C" >/dev/null
+  start_broker "$v" valkey-server /etc/redis/redis.conf --not-a-directive 1
+  for _ in $(seq 1 60); do
+    [ "$(docker inspect -f '{{.State.Status}}' "$C")" = exited ] && break
+    sleep 1
+  done
+  check "other-failure: container exits with 1" eq "$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$C")" "exited 1"
+  check "other-failure: reported as not a data-load failure" bash -c "docker logs $C 2>&1 | grep -q 'not a data-load failure'"
+  check "other-failure: nothing moved aside" eq "$(docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'ls -1d /data/*.unreadable-* 2>/dev/null | wc -l' | tr -d ' ')" 0
+  start_broker "$v"
+  check "other-failure: healthy afterwards" wait_healthy
+  check "other-failure: streams intact" eq "$(bcli XLEN events:ssh) $(bcli XLEN events:web) $(bcli XPENDING events:ssh ingest | head -1)" "600 600 200"
+  docker rm -f "$C" >/dev/null
+}
+
+scenario_stale_rdb() {
+  local v
+  v=$(new_volume stale)
+  start_broker "$v"
+  wait_healthy || bad "stale-rdb: first start"
+  seed bcli
+  docker stop -t 30 "$C" >/dev/null
+  docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'echo "not an rdb file" > /data/dump.rdb && chmod 644 /data/dump.rdb'
+  start_broker "$v"
+  check "stale-rdb: broker becomes healthy" wait_healthy
+  check "stale-rdb: nothing moved aside" eq "$(aside_count)" 0
+  check "stale-rdb: dump.rdb kept" docker exec "$C" test -f /data/dump.rdb
+  check "stale-rdb: streams intact" eq "$(bcli XLEN events:ssh) $(bcli XLEN events:web) $(bcli XPENDING events:ssh ingest | head -1)" "600 600 200"
+  docker rm -f "$C" >/dev/null
+}
+
+scenario_stop_time() {
+  local v t0 t
+  v=$(new_volume stop)
+  start_broker "$v"
+  wait_healthy || bad "stop-time: first start"
+  t0=$(date +%s)
+  docker stop -t 30 "$C" >/dev/null
+  t=$(($(date +%s) - t0))
+  echo "     docker stop took ${t}s"
+  # The elapsed time is informational (a busy Docker daemon adds seconds of its own): the check is
+  # that the stop was a clean shutdown, not a SIGKILL after the grace period (that exits 137).
+  check "stop-time: not killed after the grace period" test "$t" -lt 30
+  check "stop-time: exit status 0" eq "$(docker inspect -f '{{.State.ExitCode}}' "$C")" 0
+  docker rm -f "$C" >/dev/null
+}
+
 selected=${1:-all}
-for s in upgrade_rdb upgrade_aof corrupt corrupt_keeps_2 truncated; do
+for s in upgrade_rdb upgrade_aof corrupt corrupt_keeps_2 truncated other_failure stale_rdb stop_time; do
   if [ "$selected" = all ] || [ "$selected" = "${s//_/-}" ]; then
     echo "== ${s//_/-}"
     "scenario_$s"
   fi
 done
 
+echo "$checks checks run"
+min=1; [ "$selected" = all ] && min=25
+if [ "$checks" -lt "$min" ]; then echo "FAIL: expected at least $min checks (unknown scenario name?)"; fail=1; fi
 exit "$fail"

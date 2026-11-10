@@ -276,7 +276,7 @@ The Redis Stream (`redis-data`) is only a buffer between the sensors and the dat
   ```
 
   This is optional: without it the update still works, and only the events waiting in the buffer are lost.
-- The same safety net applies to any AOF or RDB the server cannot load. It only acts when the server fails twice at start-up and `valkey-check-aof` or `valkey-check-rdb` also rejects the files. A torn last write is loaded normally and nothing is moved.
+- The same safety net applies to any AOF or RDB the server cannot load. It only acts when the server exits with an error twice at start-up, its own output reports a data-load failure (a bad directive or ACL file never counts), and `valkey-check-aof` rejects the AOF directory (`valkey-check-rdb` rejects `dump.rdb` only when there is no AOF directory, the only case where it is loaded). A torn last write and a stale `dump.rdb` next to a healthy AOF are left alone.
 - A rollback never touches `redis-data`, whether or not it restores the database.
 - `scripts/test-broker.sh` runs these cases against throwaway containers (it is part of CI).
 
