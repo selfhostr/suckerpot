@@ -61,10 +61,14 @@ rules:
       all:
         - {field: type, equals: command}
         - any:
+            # A redirection counts only when the target comes AFTER the `>` (so `cat authorized_keys
+            # 2>/dev/null` does not), or the command is a writer aimed at the file.
+            - field: data.input
+              glob: ["*>*authorized_keys*", "*>*/etc/cron*", "*>*rc.local*", "*>*.bashrc*", "*>*/etc/init.d*", "*>*/etc/profile.d*"]
             - all:
                 - field: data.input
                   contains_any: [authorized_keys, /etc/cron, rc.local, .bashrc, /etc/init.d, /etc/profile.d]
                 - field: data.input
-                  contains_any: [">", "tee ", "cp ", "mv ", "ln -s", "sed -i", "chmod ", "install ", "echo ", "printf "]
+                  contains_any: ["tee ", "cp ", "mv ", "ln -s", "sed -i", "install "]
             - field: data.input
               contains_any: ["| crontab", "|crontab", "crontab /", "crontab -e", "systemctl enable", chattr]

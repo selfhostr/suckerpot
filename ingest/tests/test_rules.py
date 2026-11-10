@@ -174,7 +174,8 @@ POSITIVE: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
     "persistence": [
         cmd("echo key >> ~/.ssh/authorized_keys"), cmd("echo x >> /etc/rc.local"),
         cmd("chattr +i /root/.ssh"), cmd("(crontab -l; echo '* * * * * /tmp/x') | crontab -"),
-        cmd("systemctl enable evil.service"),
+        cmd("systemctl enable evil.service"), cmd("cat key.pub > /root/.ssh/authorized_keys"),
+        cmd("echo x >>/etc/cron.d/y 2>/dev/null"), cmd("cp k ~/.ssh/authorized_keys"),
     ],
     "php2shell": [
         http("POST", "/index.php", flags=["php2shell", "upload_progress"]),
@@ -212,7 +213,8 @@ NEGATIVE: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
                      ("download_attempt", "ssh", {"url": "http://example.org/readme.txt"})],
     "exec-attempt": [cmd("chmod 600 secret"), cmd("ls ./"), cmd("echo shell"), cmd("cat file | wc -l")],
     "persistence": [cmd("cat /etc/hostname"), cmd("echo cron"), cmd("crontab -l"),
-                    cmd("cat ~/.ssh/authorized_keys"), cmd("cat /etc/rc.local"), cmd("cat .bashrc")],
+                    cmd("cat ~/.ssh/authorized_keys"), cmd("cat /etc/rc.local"),
+                    cmd("cat ~/.ssh/authorized_keys 2>/dev/null"), cmd("cat /etc/rc.local 2> /dev/null"), cmd("cat .bashrc")],
     "php2shell": [http("GET", "/index.php"), http("POST", "/", flags=["other"]),
                   http("GET", "/", query="a=b"),
                   # touching upload-progress, or a bare session-file include, is only a probe

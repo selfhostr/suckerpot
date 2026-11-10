@@ -379,10 +379,12 @@ class Detector:
         if any(d["tool"] == "rfi" for d in out.downloads):
             flags.add("rfi")
         out.basic_auth = _basic_auth(req.header("authorization"))
-        # CVE-specific claim: the upload-progress field carrying PHP code, or the include of a
+        # CVE-specific claim: PHP code inside the value of the upload-progress field (not
+        # elsewhere in the request), or the include of a
         # session file this sensor saw created through that field. Touching the feature, or a
         # bare session-file include, stays a probe (`upload_progress` / `session_include`).
-        if ("upload_progress" in flags and "php_code" in flags) or "session_ref_match" in flags:
+        in_field = bool(out.php2shell and out.php2shell.get("code_in_field"))
+        if in_field or "session_ref_match" in flags:
             flags.add("php2shell")
             out.cve = list(CVES)
         out.flags = sorted(flags)
@@ -424,8 +426,14 @@ class Detector:
             info["field"] = self._cfg.upload_progress_name
             info["multipart"] = "multipart/form-data" in ctype
             info["where"] = "body" if pos != -1 else ("query" if in_query else "payload")
+            value = ""
             if pos != -1:
-                info["value_preview"] = _field_value(body, pos, multipart=in_body)
+                value = _field_value(body, pos, multipart=in_body)
+                info["value_preview"] = value
+            elif in_query:
+                value = _query_field_value(query_low, field_name)
+            info["code_in_field"] = _has_code(value)
+            if pos != -1:
                 fname = body_low.find(b"filename=")
                 info["progress_before_file"] = fname == -1 or fname > pos
             if req.content_length is not None:
@@ -462,6 +470,25 @@ class Detector:
                 info["session_ref"] = ref
         if info:
             out.php2shell = info
+
+
+_CODE_NEEDLES = tuple(n for n, f in _BODY_PATTERNS if f in ("php_code", "rce"))
+
+
+def _has_code(value: str) -> bool:
+    """PHP code or a command in the (already capped) value of the upload-progress field."""
+    low = value[:512].encode("latin-1", "replace").lower()
+    return any(n in low for n in _CODE_NEEDLES)
+
+
+def _query_field_value(query_low: bytes, field_name: bytes) -> str:
+    start = query_low.find(field_name + b"=")
+    if start == -1:
+        return ""
+    start += len(field_name) + 1
+    end = query_low.find(b"&", start, start + 1024)
+    raw = unquote_to_bytes(query_low[start : end if end != -1 else start + 1024])
+    return raw.decode("latin-1")[:512]
 
 
 def _field_value(body: bytes, pos: int, *, multipart: bool) -> str:
