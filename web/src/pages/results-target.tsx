@@ -38,8 +38,7 @@ const back = (
 )
 
 type Step =
-  | { kind: "report"; at: string; id: string }
-  | { kind: "check"; at: string; check: TargetCheck }
+  { kind: "report"; at: string; id: string } | { kind: "check"; at: string; check: TargetCheck }
 
 /** Newest first: every check, and the reports that started the tracking. */
 function steps(d: TargetDetail): Step[] {
