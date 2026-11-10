@@ -57,7 +57,7 @@ The template uses `change-me` as a placeholder. It is too short for the policy, 
 | `COMPOSE_PROJECT_NAME` | `suckerpot` | `.env` | Prefix for container, network and volume names |
 | `DASHBOARD_BIND` | `127.0.0.1` | `.env` | Host address the dashboard port binds to. Keep `127.0.0.1` unless a tunnel on another machine must reach it, and then [filter the port upstream](deployment.md#dashboard-bind-and-upstream-filtering). |
 | `DASHBOARD_PORT` | `8443` | `.env` | Host port for the dashboard. Never 22, 23, 80, 443, 3389 or the admin SSH port. |
-| `ADMIN_SSH_PORT` | empty | `.env` | Optional. The port of the host's own admin SSH daemon. Read only by `scripts/check-ports.sh`, to refuse a collision. |
+| `ADMIN_SSH_PORT` | empty | `.env` | Optional. The port of the host's own admin SSH daemon. Read by `scripts/check-ports.sh` and, when exported, by the compose guardrails (`just guardrails`), to refuse a collision. |
 | `SSH_HOST_PORT` | `22` | `.env` | Host port of the SSH sensor (IPv4 only) |
 | `TELNET_HOST_PORT` | `23` | `.env` | Host port of the Telnet sensor |
 | `HTTP_HOST_PORT` | `80` | `.env` | Host port of the web sensor (IPv4 only) |
