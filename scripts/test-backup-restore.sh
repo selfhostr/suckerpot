@@ -30,6 +30,10 @@ project=${COMPOSE_PROJECT_NAME:-}
 case $project in selfhostr*) die "refusing to run: '$project' looks like a live project name" ;; esac
 [ "${SUCKERPOT_VOLUME_PREFIX:-}" = "$project" ] || die "SUCKERPOT_VOLUME_PREFIX must equal COMPOSE_PROJECT_NAME ('$project')"
 echo "test-backup-restore: project $project"
+# A throwaway project starts empty. Containers already there mean a real stack (or a clash): the
+# cleanup below runs "down -v", so refuse before anything is created.
+existing=$(docker ps -aq --filter "label=com.docker.compose.project=$project")
+[ -z "$existing" ] || die "refusing to run: the compose project '$project' already has containers"
 
 command -v openssl > /dev/null || die "openssl is required to generate the throwaway secrets"
 
@@ -109,7 +113,8 @@ in_backups() {
   docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
     --user 70:70 -v "$backups_volume:/b" --entrypoint "$1" "$image" "${@:2}"
 }
-pass() { echo "ok: $*"; }
+checks=0
+pass() { checks=$((checks + 1)); echo "ok: $*"; }
 check_eq() { # description, expected, actual
   [ "$2" = "$3" ] || die "$1: expected '$2', got '$3'"
   pass "$1 ($3)"
@@ -237,4 +242,27 @@ leftover=$(dbq postgres -c "SELECT count(*) FROM pg_database WHERE datname LIKE 
 check_eq "no side database is left after the failure" 0 "$leftover"
 healthy ingest
 healthy api
-echo "test-backup-restore: all checks passed"
+
+echo "== a kept previous database is never dropped by the next restore"
+bash scripts/restore-db.sh --yes --keep-previous "volume:$dump"
+prev="${db}_before_restore"
+check_eq "--keep-previous leaves the previous database" 1 "$(dbq postgres -c "SELECT count(*) FROM pg_database WHERE datname = '$prev'")"
+prev_events=$(dbq "$prev" -c "SELECT count(*) FROM events")
+live_before=$(fingerprint)
+if bash scripts/restore-db.sh --yes "volume:$dump" > "$tmp/second.log" 2>&1; then
+  cat "$tmp/second.log" >&2
+  die "a second restore ran while $prev exists"
+fi
+cat "$tmp/second.log"
+grep -q "$prev" "$tmp/second.log" || die "the refusal does not name $prev"
+grep -q "Nothing was changed" "$tmp/second.log" || die "the refusal does not say that nothing was changed"
+pass "the second restore is refused"
+check_eq "the previous database is intact" "$prev_events" "$(dbq "$prev" -c "SELECT count(*) FROM events")"
+check_eq "the live database is intact" "$live_before" "$(fingerprint)"
+check_eq "no side database is left after the refusal" 0 "$(dbq postgres -c "SELECT count(*) FROM pg_database WHERE datname = '${db}_restore'")"
+healthy ingest
+healthy api
+
+# Guard against a silently shrinking test: every check above must have run.
+[ "$checks" -ge 21 ] || die "only $checks checks ran, expected at least 21"
+echo "test-backup-restore: all $checks checks passed"

@@ -17,7 +17,8 @@
 # stopped and the two databases swapped with ALTER DATABASE ... RENAME: the live one becomes
 # <db>_before_restore, the side one becomes the live one. Then the migrations run (they
 # re-apply the role grants) and the services start. When all of it worked, <db>_before_restore
-# is dropped, unless --keep-previous is given. When the restore fails before the swap, the side
+# is dropped, unless --keep-previous is given. A restore refuses to start while <db>_before_restore
+# exists (it may be the only copy of older data): drop it by hand first. When the restore fails before the swap, the side
 # database is dropped and nothing was changed. When the migration or the start fails after the
 # swap, both databases are kept and the exact commands to swap back are printed.
 #
@@ -95,9 +96,15 @@ psqlx() {
 
 db=$(docker compose exec -T db sh -c 'printf %s "$POSTGRES_DB"' | tr -d '\r')
 case $db in *[!A-Za-z0-9_]* | "") echo "restore: unexpected database name" >&2; exit 2 ;; esac
+# PostgreSQL cuts identifiers at 63 bytes: the longest suffix ("_before_restore") must still fit.
+if [ "${#db}" -gt 47 ]; then
+  echo "restore: the database name '$db' is longer than 47 characters, so '<db>_before_restore' would be cut and could collide with it. Nothing was changed." >&2
+  exit 2
+fi
 side="${db}_restore"
 prev="${db}_before_restore"
-failed="${db}_failed_restore"
+# Unique per run, so the swap-back commands never meet an existing name.
+failed="${db}_bad_$(date -u +%s)"
 
 echo "restore: checking that the dump is readable"
 # Read the whole stream inside the container: pg_restore -l stops after the table of contents,
@@ -114,6 +121,22 @@ side_failed() {
   echo "restore: nothing was changed: the live database and the running services are untouched" >&2
   exit 1
 }
+
+# <db>_before_restore is the only copy of the data that an earlier restore replaced (kept by
+# --keep-previous, or left after a failure): never drop it silently.
+if [ "$(psqlx postgres -At -c "SELECT count(*) FROM pg_database WHERE datname = '$prev'" | tr -d '\r')" != "0" ]; then
+  cat >&2 <<EOF
+restore: the database "$prev" exists. It is the copy of the data that an earlier restore replaced
+(kept by --keep-previous, or left after a failed restore), and it may be the only copy of it.
+Nothing was changed: the live database and the running services are untouched.
+Once you no longer need it, drop it and run the restore again:
+
+docker compose exec -T db sh -c 'PGPASSWORD="\$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "\$POSTGRES_USER" -d postgres -c "DROP DATABASE \"$prev\" WITH (FORCE)"'
+
+To go back to it instead, see "If the migration or the start fails after the swap" in docs/deployment.md.
+EOF
+  exit 1
+fi
 
 echo "restore: loading the dump into the side database $side (the live database is not touched)"
 psqlx postgres -c "DROP DATABASE IF EXISTS \"$side\" WITH (FORCE)" -c "CREATE DATABASE \"$side\"" ||
@@ -160,8 +183,8 @@ docker compose stop ingest api backup
 # Swap the databases. TimescaleDB keeps a background worker connected to every database with the
 # extension, and the collector or a psql session may be connected too: new connections are refused
 # and the existing ones are terminated before the rename, which is retried a few times. Both
-# renames are one transaction: either both happen or none. The "previous" copy is dropped first:
-# there is only ever one.
+# renames are one transaction: either both happen or none. "<db>_before_restore" cannot exist
+# here (checked above), so nothing is dropped.
 echo "restore: swapping the databases"
 swapped=0
 for attempt in 1 2 3 4 5; do
@@ -169,7 +192,6 @@ for attempt in 1 2 3 4 5; do
     -c "ALTER DATABASE \"$db\" ALLOW_CONNECTIONS false" \
     -c "ALTER DATABASE \"$side\" ALLOW_CONNECTIONS false" \
     -c "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname IN ('$db', '$side') AND pid <> pg_backend_pid()" \
-    -c "DROP DATABASE IF EXISTS \"$prev\" WITH (FORCE)" \
     -c "ALTER DATABASE \"$db\" RENAME TO \"$prev\"; ALTER DATABASE \"$side\" RENAME TO \"$db\"" > /dev/null; then
     swapped=1
     break
@@ -185,7 +207,11 @@ if [ "$swapped" -ne 1 ]; then
   echo "restore: could not swap the databases, the live database was not replaced" >&2
   exit 1
 fi
-psqlx postgres -c "ALTER DATABASE \"$db\" ALLOW_CONNECTIONS true" -c "ALTER DATABASE \"$prev\" ALLOW_CONNECTIONS true" > /dev/null
+if ! psqlx postgres -c "ALTER DATABASE \"$db\" ALLOW_CONNECTIONS true" -c "ALTER DATABASE \"$prev\" ALLOW_CONNECTIONS true" > /dev/null; then
+  echo "restore: could not reopen the databases for connections" >&2
+  swap_back_help
+  exit 1
+fi
 
 # A renamed database loses its TimescaleDB scheduler: start the workers again and make sure no
 # restore flag is left on, so continuous aggregate policies and retention run again.
@@ -211,8 +237,8 @@ if ! docker compose up -d --wait ingest api backup; then
 fi
 
 if [ "$keep_previous" -eq 1 ]; then
-  echo "restore: the previous database is kept as \"$prev\" (it uses disk space; drop it with DROP DATABASE \"$prev\" WITH (FORCE) once you no longer need it)"
+  echo "restore: the previous database is kept as \"$prev\". It uses disk space, and the next restore refuses to run while it exists: drop it by hand once you no longer need it (DROP DATABASE \"$prev\" WITH (FORCE), see docs/deployment.md)"
 else
-  psqlx postgres -c "DROP DATABASE IF EXISTS \"$prev\" WITH (FORCE)" > /dev/null
+  psqlx postgres -c "DROP DATABASE \"$prev\" WITH (FORCE)" > /dev/null
 fi
 echo "restore: done"
