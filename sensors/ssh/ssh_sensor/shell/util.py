@@ -61,7 +61,7 @@ def read_text(sh: Shell, path: str, limit: int = MAX_TEXT_INPUT) -> str:
         raise FSError("Is a directory")
     if not can_access(sh, node, "r"):
         raise FSError("Permission denied")
-    data = sh.fs.read(path)
+    data = sh.fs.read(path, max(0, limit))
     return (data if len(data) <= limit else data[: max(0, limit)]).decode("utf-8", "replace")
 
 

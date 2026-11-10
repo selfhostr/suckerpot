@@ -8,8 +8,8 @@ container port 2222 (compose maps the host port 22).
 - Presents itself as OpenSSH 9.6p1 on Ubuntu (`SSH_BANNER`). Key exchange, cipher, MAC,
   compression and host key algorithm lists are those of OpenSSH 9.6 on Ubuntu 24.04, in the
   same order. Not matchable with asyncssh: `sntrup761x25519-sha512@openssh.com` (post-quantum
-  KEX) is missing, the "Authentications that can continue" list is
-  `publickey,keyboard-interactive,password` (Ubuntu's default is `publickey,password`), and
+  KEX) is missing (so the HASSHServer value differs), compression is `none` only (a real
+  server also offers `zlib@openssh.com`; offering it would allow decompression bombs), and
   the RSA host key is not offered as `ssh-rsa` (as in a real 9.6 server, but nmap's
   `ssh-hostkey` script then lists only ECDSA and ED25519).
 - Host keys (ed25519, RSA 3072, ECDSA P-256) are generated on first start into
@@ -18,7 +18,7 @@ container port 2222 (compose maps the host port 22).
   to the host keys (`profile_secret`, 0600). It is deliberately NOT derived from the public host
   key fingerprint, otherwise anyone could predict the fake `ip a` output and recognise the
   sensor. Keep `/data` on a persistent volume (a warning is logged whenever keys are generated).
-- Password and keyboard-interactive logins succeed for `SSH_ACCEPT_CREDENTIALS` (or randomly
+- Password logins succeed for `SSH_ACCEPT_CREDENTIALS` (or randomly
   with `SSH_ACCEPT_RANDOM_PROB`). Public keys are recorded (type + SHA256 fingerprint) and
   rejected. `SSH_MAX_AUTH_ATTEMPTS` failures end the connection with OpenSSH's
   "Too many authentication failures".
