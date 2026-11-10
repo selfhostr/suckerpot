@@ -30,6 +30,7 @@ from sqlalchemy import Integer, case, cast, func, or_, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.sqltypes import Text
+from suckerpot_db.event_bounds import SLACK
 from suckerpot_db.models import AttackTechniqueRow, CampaignRow, EventRow, SessionRow
 
 from api.benign import IncludeBenign, visible_sessions
@@ -1034,7 +1035,8 @@ async def _events(
     e = EventRow
     ids = [r.session_id for r in picked]
     first = min(r.started_at for r in picked) - timedelta(minutes=1)
-    window = (e.session_id.in_(ids), e.ts >= first, e.ts <= now)
+    last = min(now, max(r.last_event_at for r in picked) + SLACK)
+    window = (e.session_id.in_(ids), e.ts >= first, e.ts <= last)
     ok = e.data["success"].astext
     failed_login = (e.type == "login_attempt") & (ok.is_distinct_from("true"))
     rn = (
