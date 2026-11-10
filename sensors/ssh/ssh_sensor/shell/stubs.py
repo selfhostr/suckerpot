@@ -138,16 +138,17 @@ _GIT_USAGE = (
 _GIT_REPO = frozenset("status log diff pull push add commit checkout branch fetch show".split())
 
 
-def _git_clone(io: CmdIO) -> int:
+def _git_clone(sh: Shell, io: CmdIO) -> int:
     from urllib.parse import urlsplit
 
-    from ssh_sensor.shell.cmd_net import host_exists
+    from ssh_sensor.shell.cmd_net import _record, host_exists
 
     ops = [a for a in io.args[1:] if not a.startswith("-")]
     if not ops:
         io.error("fatal: You must specify a repository to clone.\n")
         return 129
     url = ops[0][:2048]
+    _record(sh, url, "git", io)  # recorded like wget and curl, never fetched
     name = ops[1] if len(ops) > 1 else url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
     io.error(f"Cloning into '{name or 'repo'}'...\n")
     try:
@@ -182,7 +183,7 @@ def _git(sh: Shell, io: CmdIO) -> int:
         io.error("fatal: not a git repository (or any of the parent directories): .git\n")
         return 128
     if sub == "clone":
-        return _git_clone(io)
+        return _git_clone(sh, io)
     if sub.startswith("-"):
         return 0
     io.error(f"git: '{sub}' is not a git command. See 'git --help'.\n")

