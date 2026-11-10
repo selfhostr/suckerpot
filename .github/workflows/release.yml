@@ -12,7 +12,10 @@ name: Release
 # After the images are signed and the smoke test passed, a signed release manifest
 # (release-manifest.json + its Sigstore bundle: version, commit, image digests, network defaults
 # hash, release time) is attached to the GitHub release. The automatic updater trusts only that.
-# A release is REFUSED while config/network-defaults.env still holds a <PLACEHOLDER> key.
+# A release is REFUSED while config/network-defaults.env still holds a <PLACEHOLDER> key, and
+# while the tagged commit is not on main (scripts/check-release-ref.sh, the first job).
+# Every job that can write to the registry, sign or publish runs in the GitHub environment
+# "release": configure required reviewers and a tag deployment rule there (docs/updates.md).
 #
 # Verify a release on your own machine with `just verify-images` and scripts/verify-release.sh.
 
@@ -42,7 +45,26 @@ env:
   COSIGN_AMD64_SHA256: "424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa"
 
 jobs:
+  check:
+    # First gate, before anything is built, logged in to, signed or published: a release must come
+    # from reviewed code. The tagged commit has to be part of main and the tag has to be a plain
+    # vMAJOR.MINOR.PATCH. A manual dry run is not a release and only checks the tag shape (in prepare).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the whole history and every branch, so origin/main is there to compare with
+          persist-credentials: false
+      - name: Refuse a tag that is not on main
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: scripts/check-release-ref.sh "$TAG" "$COMMIT" origin/main
+
   prepare:
+    needs: check
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -108,6 +130,7 @@ jobs:
   build:
     needs: prepare
     runs-on: ${{ matrix.platform.runner }}
+    environment: release
     timeout-minutes: 60
     permissions:
       contents: read
@@ -216,6 +239,7 @@ jobs:
     if: needs.prepare.outputs.publish == 'true'
     needs: [prepare, build]
     runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 20
     permissions:
       contents: read
@@ -375,6 +399,7 @@ jobs:
     if: needs.prepare.outputs.publish == 'true'
     needs: [prepare, merge]
     runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 10
     permissions:
       contents: read
@@ -437,6 +462,7 @@ jobs:
     if: needs.prepare.outputs.publish == 'true'
     needs: [prepare, manifest, smoke]
     runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 10
     permissions:
       contents: write # create the release if needed and upload two assets, nothing else

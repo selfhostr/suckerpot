@@ -125,6 +125,12 @@ SuckerPot checks 18 images for each release:
 
 The check uses this rule. The image must be signed by the release workflow of the repository named in `SUCKERPOT_IMAGE_PREFIX`, for the tag you asked for. A fork therefore verifies its own releases.
 
+### What a release proves
+
+A release is a version tag (`vMAJOR.MINOR.PATCH`) on a commit that is part of `main`, so it went through review and the required checks. The release workflow refuses any other tag before it builds anything (`scripts/check-release-ref.sh`). It then builds and signs the images in the `release` GitHub environment, and the updater verifies those signatures and the signed manifest before it installs anything. A tag on an unmerged commit cannot produce a release that passes this chain.
+
+For maintainers: the workflow cannot configure its own environment. In the repository settings, create the `release` environment, add required reviewers and limit deployments to the tag pattern `v*.*.*`. Without that, anyone who can push a tag can still start the signing jobs for a commit that is on `main`.
+
 ### Moving from the old repository (v0.7.1 and earlier)
 
 The project moved from `Theroxat/suckerpot` to `selfhostr/suckerpot`. Releases after the move are signed by the release workflow of the new repository and published under `ghcr.io/selfhostr/suckerpot-*`. An install made before the move keeps `SUCKERPOT_IMAGE_PREFIX=ghcr.io/theroxat/suckerpot` in `.env`, and its scripts accept only a signature from that repository, so the first update refuses the new release (the automatic updater records `signature_invalid` and changes nothing). This is deliberate: the check is not relaxed. Make the move yourself once, by editing `.env` (set `SUCKERPOT_IMAGE_PREFIX=ghcr.io/selfhostr/suckerpot` and `UPDATE_CHECK_REPO=selfhostr/suckerpot`) and pointing the checkout at the new address:
