@@ -19,17 +19,19 @@ from ingest.network.config import NetworkSettings
 from .helpers import HUB_KEY, HUB_URL, NOW, FakeGate, FakeHub, hub_client, settings
 
 
-def test_defaults_are_unlocked_but_nothing_joins() -> None:
+def test_defaults_are_off_and_nothing_joins() -> None:
     s = NetworkSettings.from_env({})
-    assert s.enabled and s.interval_s == 900 and s.max_sources == 5000
+    assert not s.enabled and s.interval_s == 900 and s.max_sources == 5000
     # The committed release defaults name the project hub; joining still needs an explicit opt-in.
     assert s.hub_configured and s.hub_url == "https://suckerpot-hub.selfhostr.io"
 
 
-def test_an_explicit_false_switches_the_network_off() -> None:
+def test_the_network_is_off_unless_explicitly_enabled() -> None:
     assert not NetworkSettings.from_env({"NETWORK_ENABLED": "false"}).enabled
     assert not FeatureSettings.from_env({"NETWORK_ENABLED": "false"}).network_enabled
-    assert FeatureSettings.from_env({}).network_enabled
+    assert not FeatureSettings.from_env({}).network_enabled
+    assert NetworkSettings.from_env({"NETWORK_ENABLED": "true"}).enabled
+    assert FeatureSettings.from_env({"NETWORK_ENABLED": "true"}).network_enabled
 
 
 def test_settings_validation() -> None:

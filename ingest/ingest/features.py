@@ -90,7 +90,7 @@ class FeatureSettings:
             alerts_enabled=_flag(e, "ALERTS_ENABLED"),
             reports_enabled=_flag(e, "REPORTS_ENABLED"),
             abuse_enabled=_flag(e, "ABUSE_REPORTS_ENABLED"),
-            network_enabled=e.get("NETWORK_ENABLED", "true").strip().lower() in TRUE_VALUES,
+            network_enabled=e.get("NETWORK_ENABLED", "false").strip().lower() in TRUE_VALUES,
             network_feed_enabled=_flag(e, "NETWORK_FEED_ENABLED"),
             replies_enabled=_flag(e, "ABUSE_REPLIES_ENABLED"),
             takedown_enabled=_flag(e, "TAKEDOWN_ENABLED"),

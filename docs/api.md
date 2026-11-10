@@ -54,9 +54,9 @@ A `401` means "sign in". A `403` means "bad or missing CSRF token", or a login f
 
 ### Rate limits and costs
 
-Login attempts are counted per client address and for the whole server, over a sliding 60 seconds: `LOGIN_RATE` (default 5) per address and `LOGIN_RATE_GLOBAL` (default 30) overall. IPv6 addresses are counted per `/64`, because one subscriber owns a whole `/64`. Beyond the limit the answer is `429` with a `Retry-After` header. A wrong password also costs a short fixed delay.
+Login attempts are counted per client address over a sliding 60 seconds (`LOGIN_RATE`, default 5). IPv6 addresses are counted per `/64`, because one subscriber owns a whole `/64`. Beyond the limit the answer is `429` with a `Retry-After` header. A wrong password also costs a short fixed delay. Wrong passwords are also counted for the whole server (`LOGIN_RATE_GLOBAL`, default 30 a minute); over that budget wrong answers are delayed one more second, but no sign-in is ever refused because of it, so other people's attempts cannot lock the owner out.
 
-The password hash is always checked, whether or not the user name exists, so timing does not reveal the account name. Argon2 is expensive on purpose, so the API checks **one hash at a time**. When more than two checks are already waiting, further logins get `429` with `Retry-After` at once. A flood of login attempts can therefore slow down sign-in, but not the rest of the API.
+The password hash is always checked, whether or not the user name exists, so timing does not reveal the account name. Argon2 is expensive on purpose, so the API runs at most `LOGIN_VERIFY_CONCURRENCY` checks at once (default 2). Further attempts queue in order for up to `LOGIN_VERIFY_WAIT` seconds (default 5), then get `429` with `Retry-After`. A flood of login attempts can therefore slow down sign-in, but not the rest of the API, and a correct password only waits its turn.
 
 Failed and successful logins are logged with the client address only. A submitted user name, password, hash or cookie is never logged.
 

@@ -192,18 +192,21 @@ async def test_unknown_user_and_bad_password_take_similar_time() -> None:
     assert 0.5 < known / unknown < 2.0
 
 
-def test_rate_limit_per_ip_and_global() -> None:
+def test_rate_limit_per_ip_and_sign_in_has_no_global_refusal() -> None:
     clock = Clock()
     svc = AuthService(settings(rate_per_ip=3, rate_global=5), clock)
     assert [svc.rate_limited("192.0.2.1") for _ in range(3)] == [None] * 3
     retry = svc.rate_limited("192.0.2.1")
     assert retry is not None and 1 <= retry <= 61
     assert svc.rate_limited("192.0.2.2") is None  # other IP unaffected
-    # The global window counts wrong passwords only: attempts alone never fill it.
+    assert not svc.under_pressure()
     for _ in range(5):
         svc.record_failure("192.0.2.2")
-    assert svc.rate_limited("192.0.2.3") is not None  # the global budget (5 failures) is used
+    # The global budget is spent: it only slows wrong answers down, nobody is refused for it.
+    assert svc.under_pressure()
+    assert svc.rate_limited("192.0.2.3") is None
     clock.now += 61
+    assert not svc.under_pressure()
     assert svc.rate_limited("192.0.2.1") is None  # window slid
 
 
@@ -329,12 +332,10 @@ def test_allowed_hosts() -> None:
     assert explicit[0] == "a.example.com" and "x.example" not in explicit
 
 
-async def test_password_checks_are_serialised_and_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_password_checks_are_capped_and_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     import threading
 
-    from api.auth import LoginBusy
-
-    svc = AuthService(settings())
+    svc = AuthService(settings(verify_concurrency=2))
     gate = threading.Event()
     running = 0
     peak = 0
@@ -351,14 +352,36 @@ async def test_password_checks_are_serialised_and_bounded(monkeypatch: pytest.Mo
         return False
 
     monkeypatch.setattr(svc, "_verify", slow)
-    tasks = [asyncio.create_task(svc.check_credentials("admin", "x")) for _ in range(3)]
+    tasks = [asyncio.create_task(svc.check_credentials("admin", "x")) for _ in range(6)]
+    await asyncio.sleep(0.05)
+    assert running == 2  # the rest are queued, not refused
+    gate.set()
+    assert await asyncio.gather(*tasks) == [False] * 6
+    assert peak == 2
+
+
+async def test_a_check_that_waits_too_long_gets_busy(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    from api.auth import LoginBusy
+
+    svc = AuthService(settings(verify_concurrency=1, verify_wait_s=0.5))
+    gate = threading.Event()
+    monkeypatch.setattr(svc, "_verify", lambda _: gate.wait(2) and False)
+    first = asyncio.create_task(svc.check_credentials("admin", "x"))
     await asyncio.sleep(0.05)
     with pytest.raises(LoginBusy):
-        await svc.check_credentials("admin", "x")  # a fourth would exceed running + 2 queued
+        await svc.check_credentials("admin", "x")
     gate.set()
-    await asyncio.gather(*tasks)
-    assert peak == 1
-    assert svc._pending == 0
+    await first
+    assert await svc.check_hash(PW_HASH, PASSWORD)  # the slot is free again
+
+
+def test_verify_limits_from_env() -> None:
+    d = AuthSettings.from_env(env())
+    assert (d.verify_concurrency, d.verify_wait_s) == (2, 5.0)
+    s = AuthSettings.from_env(env(LOGIN_VERIFY_CONCURRENCY="3", LOGIN_VERIFY_WAIT="1.5"))
+    assert (s.verify_concurrency, s.verify_wait_s) == (3, 1.5)
 
 
 def test_tokens_carry_the_subject_and_the_session_version() -> None:
@@ -467,3 +490,87 @@ async def test_check_hash_with_no_hash_costs_a_verification_and_fails() -> None:
     assert await svc.check_hash(PW_HASH, PASSWORD)
     assert not await svc.check_hash(PW_HASH, "wrong password")
     assert svc.is_owner_name("admin") and not svc.is_owner_name("Admin")
+
+
+def _spend_global_budget(svc: AuthService) -> None:
+    for _ in range(svc.settings.rate_global):
+        svc.record_failure("192.0.2.9")
+    assert svc.under_pressure()
+
+
+async def test_under_pressure_a_wrong_attempt_holds_its_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import api.auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "PRESSURE_DELAY_S", 0.4)
+    svc = AuthService(settings(verify_concurrency=1, rate_global=2))
+    _spend_global_budget(svc)
+    task = asyncio.create_task(svc.check_hash(None, "wrong"))
+    await asyncio.sleep(0.2)  # the check is done, the slot is still held
+    assert svc._verify_sem.locked() and not task.done()
+    await task
+    assert not svc._verify_sem.locked() and svc._pending == 0
+
+
+async def test_the_hold_survives_a_cancelled_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    import api.auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "PRESSURE_DELAY_S", 0.4)
+    svc = AuthService(settings(verify_concurrency=1, rate_global=2))
+    _spend_global_budget(svc)
+    task = asyncio.create_task(svc.check_hash(None, "wrong"))
+    await asyncio.sleep(0.2)
+    task.cancel()  # the client went away
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert svc._verify_sem.locked()  # the slot is not freed early
+    await asyncio.sleep(0.5)
+    assert not svc._verify_sem.locked() and svc._pending == 0
+
+
+async def test_a_right_password_is_never_held_under_pressure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import api.auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "PRESSURE_DELAY_S", 5.0)
+    svc = AuthService(settings(verify_concurrency=1, rate_global=2))
+    _spend_global_budget(svc)
+    start = time.monotonic()
+    assert await svc.check_credentials("admin", PASSWORD)
+    assert time.monotonic() - start < 2.0
+    assert not svc._verify_sem.locked()
+    assert svc.rate_limited("192.0.2.77") is None  # nothing refuses the owner outright
+
+
+async def test_the_pending_cap_answers_busy_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    import api.auth as auth_mod
+    from api.auth import LoginBusy
+
+    monkeypatch.setattr(auth_mod, "MAX_VERIFY_PENDING", 4)
+    svc = AuthService(settings(verify_concurrency=1, verify_wait_s=30))
+    gate = threading.Event()
+    monkeypatch.setattr(svc, "_verify", lambda _: gate.wait(5) and False)
+    tasks = [asyncio.create_task(svc.check_credentials("admin", "x")) for _ in range(4)]
+    await asyncio.sleep(0.05)
+    start = time.monotonic()
+    with pytest.raises(LoginBusy):
+        await svc.check_credentials("admin", "x")
+    assert time.monotonic() - start < 1.0  # no waiting on the semaphore
+    gate.set()
+    await asyncio.gather(*tasks)
+    assert svc._pending == 0
+
+
+def test_verify_concurrency_is_clamped_with_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING"):
+        assert AuthSettings.from_env(env(LOGIN_VERIFY_CONCURRENCY="50")).verify_concurrency == 4
+        assert AuthSettings.from_env(env(LOGIN_VERIFY_CONCURRENCY="0")).verify_concurrency == 1
+    assert caplog.text.count("LOGIN_VERIFY_CONCURRENCY") == 2
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        assert AuthSettings.from_env(env(LOGIN_VERIFY_CONCURRENCY="3")).verify_concurrency == 3
+    assert "LOGIN_VERIFY_CONCURRENCY" not in caplog.text
