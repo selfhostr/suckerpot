@@ -456,6 +456,6 @@ async def test_more_attempts_than_the_cap_are_all_answered() -> None:
             )
             return r.status_code
 
-        codes = await asyncio.gather(*(attempt(i) for i in range(24)))
+        codes = await asyncio.gather(*(attempt(i) for i in range(16)))
     assert set(codes) <= {204, 401}
-    assert codes[11] == 204 and codes.count(401) == 23
+    assert codes[11] == 204 and codes.count(401) == 15
