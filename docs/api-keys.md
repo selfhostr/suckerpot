@@ -15,7 +15,7 @@ There are two ways. A key set in Settings overrides the same key in `.env`.
 1. **Settings > API keys.** Choose **Set key** for a provider, paste the key and confirm with the admin password. The key is stored encrypted, is write-only (only its last four characters are shown back), and **Test key** makes one real call to check it. This needs `SETTINGS_ENCRYPTION_KEY` in `.env` (see [Enrichment keys in Settings](configuration.md#enrichment-keys-in-settings)).
 2. **`.env`.** Put the key in the variable listed for the provider, then run `docker compose up -d`.
 
-The Settings page lists seven providers: AbuseIPDB, GreyNoise Community, MaxMind GeoLite2, NVD, GitHub advisories, abuse.ch and VirusTotal. A key must be 16 to 128 printable characters with no spaces. Daily quotas are enforced by SuckerPot, so a key cannot be used up by mistake.
+The Settings page lists seven providers: AbuseIPDB, GreyNoise Community, MaxMind GeoLite2, NVD, GitHub advisories, abuse.ch and VirusTotal. The optional script explainer, and its Anthropic key, were removed in v0.11.0: a key still stored for it is deleted when the API starts. A key must be 16 to 128 printable characters with no spaces. Daily quotas are enforced by SuckerPot, so a key cannot be used up by mistake.
 
 | Provider | Adds | `.env` variable | Cost |
 | --- | --- | --- | --- |

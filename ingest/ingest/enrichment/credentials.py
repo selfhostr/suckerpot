@@ -41,8 +41,7 @@ class ProviderInfo:
     error: str | None = None  # "cannot_decrypt" | "no_encryption_key"
 
 
-# Providers with a single key ("anthropic" stays in the stored-key list for the table constraint
-# but has no consumer any more), and the EnrichmentSettings field that holds it.
+# Providers with a single key, and the EnrichmentSettings field that holds it.
 KEY_FIELDS = {
     "abuseipdb": "abuseipdb_api_key",
     "greynoise": "greynoise_api_key",

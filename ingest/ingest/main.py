@@ -244,8 +244,8 @@ async def run() -> None:
             await publish_status(factory, name, value)
 
     async def run_test(provider: str) -> None:
-        if provider in ("smtp", "anthropic"):
-            return  # alert channels have their own test button; "anthropic" is a retired key slot
+        if provider == "smtp":
+            return  # alert channels have their own test button
         elif provider in ("abusech", "virustotal"):
             await intel.run_key_test(provider)
         elif provider == "maxmind":

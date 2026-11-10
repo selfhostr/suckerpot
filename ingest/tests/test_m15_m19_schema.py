@@ -37,7 +37,7 @@ GRANTS: dict[str, tuple[set[str], set[str]]] = {
     "scripts": ({S, INS, U}, {S}),
     "script_sessions": ({S, INS, U}, {S}),
     "script_explanations": ({S, INS, U}, {S}),
-    "llm_requests": ({S, U}, {S, INS}),
+    "llm_requests": (set(), set()),  # retired table: nothing is granted
     "alert_channels": ({S}, {S, INS, U, D}),
     "alert_rules": ({S}, {S, U}),
     "watched_cves": ({S}, {S, INS, U, D}),

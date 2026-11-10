@@ -45,6 +45,7 @@ from api.live_window import router as live_window_router
 from api.malware import router as malware_router
 from api.network import router as network_router
 from api.provider_keys import install as install_provider_keys
+from api.provider_keys import remove_retired_keys
 from api.provider_keys import router as provider_keys_router
 from api.reports import router as reports_router
 from api.routes import health_router, router
@@ -85,6 +86,7 @@ def create_app(
             engine = create_engine()
             factory = create_session_factory(engine)
         app.state.session_factory = factory
+        await remove_retired_keys(factory)
         hub: LiveHub = app.state.hub
         poller_task = None
         if enable_live:
