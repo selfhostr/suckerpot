@@ -303,8 +303,9 @@ BEGIN
             pg_get_serial_sequence('public.abuse_replies', 'id'), r);
     END IF;
     IF to_regclass('public.takedown_targets') IS NOT NULL THEN
-        -- M27: ingest syncs targets, decides their state and runs the abuse.ch submissions. The
-        -- collector columns (HTTP re-check progress) and the API columns stay out of its reach.
+        -- M27: ingest syncs targets and decides their state. The abuse.ch grants stay although
+        -- submission was removed in v0.11.0. The collector columns (HTTP re-check progress) and the
+        -- API columns stay out of its reach.
         -- http_eligible is shared: ingest turns it off for a host that attacks or runs C2.
         EXECUTE format('GRANT SELECT, INSERT, DELETE ON takedown_targets TO %I', r);
         EXECUTE format(

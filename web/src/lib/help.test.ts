@@ -81,7 +81,6 @@ describe("page help texts", () => {
       "/cves": "cves",
       "/defend/alerts": "alerts",
       "/defend/abuse": "abuse",
-      "/defend/submissions": "abuse-submissions",
       "/defend/results": "abuse-results",
       "/network": "network",
       "/network/members": "network-members",

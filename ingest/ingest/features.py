@@ -68,7 +68,6 @@ class FeatureSettings:
     network_feed_enabled: bool = False  # M30: fetch the public blocklist feed
     replies_enabled: bool = False
     takedown_enabled: bool = False  # M27: target tracking and re-check scheduling
-    abusech_submit_enabled: bool = False  # M27: server-side switch for abuse.ch submissions
     site_timezone: str = "UTC"
 
     @classmethod
@@ -94,7 +93,6 @@ class FeatureSettings:
             network_feed_enabled=_flag(e, "NETWORK_FEED_ENABLED"),
             replies_enabled=_flag(e, "ABUSE_REPLIES_ENABLED"),
             takedown_enabled=_flag(e, "TAKEDOWN_ENABLED"),
-            abusech_submit_enabled=_flag(e, "ABUSECH_SUBMIT_ENABLED"),
             site_timezone=(e.get("SITE_TIMEZONE", "").strip() or "UTC"),
         )
 

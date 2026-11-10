@@ -417,7 +417,6 @@ function detail(t: Target): TargetDetail {
     children: kids,
     links: {
       reports: ["3c4d5e6f-7a8b-4c9d-8e0f-6f7a8b9c0d06"],
-      submissions: t.channels.includes("urlhaus") ? [900 + t.id] : [],
     },
     checks: checksFor(t),
     ttd: { seconds: t.ttd_s, down_after: t.last_up_at, down_before: t.first_down_at },

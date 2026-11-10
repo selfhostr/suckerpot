@@ -3,7 +3,6 @@ const SECTIONS = [
   { id: "reporting-never", label: "Never in a report" },
   { id: "reporting-sending", label: "Sending" },
   { id: "reporting-replies", label: "Replies" },
-  { id: "reporting-abusech", label: "abuse.ch" },
 ] as const
 
 /** Jump links to the sections of Settings, Reporting. Scrolls on small screens, sticks on wide ones. */

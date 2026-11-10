@@ -16,8 +16,6 @@ from suckerpot_db.trusted_exits import self_networks_provider, trusted_exit_prov
 
 from ingest.abuse import AbuseWorker, selfterms
 from ingest.abuse.selfterms import TermsCache
-from ingest.abusech import AbusechSubmitWorker
-from ingest.abusech.body import load_malpedia
 from ingest.alerts import AlertWorker
 from ingest.alerts.config import AlertSettings
 from ingest.attack import AttackCatalogWorker, load_attack
@@ -206,7 +204,6 @@ async def run() -> None:
     except ValueError as exc:
         log.error("alert e-mail settings are invalid (%s): e-mail alerts are off", exc)
         alert_settings = AlertSettings()
-    malpedia = load_malpedia(enrich.rules_dir)  # fail fast on a broken mapping
     feature_workers: list[FeatureWorker] = [
         AttackCatalogWorker(features, factory, attack),
         CampaignWorker(features, factory, attack),
@@ -225,18 +222,9 @@ async def run() -> None:
         ReplyWorker(
             features, factory, box=load_secret_box(), rules_dir=enrich.rules_dir / "replies"
         ),
-        # M27: both off until their *_ENABLED flags; the abuse.ch worker also needs the owner's
-        # mode in Settings. Lookups reuse the intel and reputation clients (same gate, same quotas).
+        # M27: off until TAKEDOWN_ENABLED. Lookups reuse the intel and reputation clients (same
+        # gate, same quotas).
         TakedownWorker(features, factory, intel=intel, reputation=reputation, asn_lookup=exit_asn),
-        AbusechSubmitWorker(
-            features,
-            factory,
-            TermsCache(factory),
-            get_gate(),
-            load_secret_box(),
-            intel=intel,
-            malpedia=malpedia,
-        ),
         build_network_worker(features, factory),
         build_feed_worker(features, factory),
     ]
