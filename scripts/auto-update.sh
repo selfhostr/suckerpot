@@ -14,7 +14,13 @@
 #     major version is tried, at most 3 per run; it never goes below the installed version;
 #   - its images verify (scripts/verify-images.sh).
 # Then it runs scripts/update.sh --yes --auto (backup first). If the update fails after the code
-# changed, it runs scripts/rollback.sh --yes, remembers the version as bad and never retries it.
+# changed, it runs scripts/rollback.sh --yes (which restores the database only if the schema
+# moved). The version is remembered as bad and never retried only when the release itself is at
+# fault (update.sh exit 10: a service that was healthy turned unhealthy, a migration failed,
+# the wrong version runs). Any other failure is logged and retried on the next run, and a node that
+# was already degraded before the update never blacklists a release. After
+# AUTO_UPDATE_MAX_ATTEMPTS (default 3) failed attempts in a row for the same target it is
+# blacklisted anyway (update_failed_repeatedly); counts are in .suckerpot-state/update-attempts.
 #
 # One run at a time (flock on .suckerpot-state/update.lock). A random wait of up to 30 minutes
 # keeps a fleet from updating at the same second (AUTO_UPDATE_JITTER_S overrides the maximum).
@@ -35,6 +41,7 @@ RESULT=$STATE_DIR/auto-update.json
 LOG=$STATE_DIR/auto-update.log
 BAD=$STATE_DIR/bad-versions
 LOCK=$STATE_DIR/update.lock
+ATTEMPTS=$STATE_DIR/update-attempts
 
 umask 077
 mkdir -p "$STATE_DIR"
@@ -151,9 +158,31 @@ esac
 head_before=$(git rev-parse HEAD)
 up_rc=0
 bash scripts/update.sh --yes --auto "$target" || up_rc=$?
-if [ "$up_rc" -eq 0 ]; then record updated ""; fi
+if [ "$up_rc" -eq 0 ]; then rm -f "$ATTEMPTS"; record updated ""; fi
 
 log "the update failed (exit $up_rc)"
+# Only a failure caused by the release itself blacklists it (update.sh exit 10).
+release_fault=0
+[ "$up_rc" -ne 10 ] || release_fault=1
+if [ "$release_fault" = 0 ]; then
+  log "not held against $target: the failure is not a regression introduced by that release (exit $up_rc)"
+  # ...but it must not loop for ever: count the failed attempts per target.
+  max_attempts=${AUTO_UPDATE_MAX_ATTEMPTS:-$(env_get AUTO_UPDATE_MAX_ATTEMPTS 3)}
+  [[ $max_attempts =~ ^[0-9]{1,2}$ ]] && [ "$max_attempts" -ge 1 ] || max_attempts=3
+  attempts=0
+  if [ -f "$ATTEMPTS" ] && [ "$(awk 'NR == 1 { print $1 }' "$ATTEMPTS")" = "$target" ]; then
+    attempts=$(awk 'NR == 1 { print $2 }' "$ATTEMPTS")
+    [[ $attempts =~ ^[0-9]{1,3}$ ]] || attempts=0
+  fi
+  attempts=$((attempts + 1))
+  printf '%s %s\n' "$target" "$attempts" > "$ATTEMPTS"
+  log "failed attempt $attempts of $max_attempts for $target"
+  if [ "$attempts" -ge "$max_attempts" ]; then
+    log "$target failed $attempts times in a row: it is not tried again"
+    mark_bad "$target" update_failed_repeatedly
+    rm -f "$ATTEMPTS"
+  fi
+fi
 mark_completed() {
   local tmp
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX")
@@ -169,8 +198,8 @@ fi
 
 log "rolling back to $from_version"
 if bash scripts/rollback.sh --yes; then
-  printf '%s\n' "$target" >> "$BAD"
+  if [ "$release_fault" = 1 ]; then mark_bad "$target" update_regression; fi
   record failed update_failed_rolled_back
 fi
-printf '%s\n' "$target" >> "$BAD"
+if [ "$release_fault" = 1 ]; then mark_bad "$target" update_regression; fi
 record failed rollback_failed

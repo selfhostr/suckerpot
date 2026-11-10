@@ -199,7 +199,9 @@ def calls_of(sb: Sandbox) -> list[str]:
     return sb.calls()
 
 
-def write_state(sb: Sandbox, dump: str = "suckerpot-preupdate-20261101T020000Z.dump") -> None:
+def write_state(
+    sb: Sandbox, dump: str = "suckerpot-preupdate-20261101T020000Z.dump", alembic: str | None = None
+) -> None:
     state = sb.root / ".suckerpot-state"
     state.mkdir(exist_ok=True)
     (state / "last-update.json").write_text(
@@ -209,7 +211,8 @@ def write_state(sb: Sandbox, dump: str = "suckerpot-preupdate-20261101T020000Z.d
         '  "from_branch": "",\n'
         '  "mode": "images",\n'
         f'  "dump": "{dump}",\n'
-        '  "target": "v0.9.0",\n'
+        + (f'  "alembic_before": "{alembic}",\n' if alembic else "")
+        + '  "target": "v0.9.0",\n'
         '  "at": "2026-11-01T02:00:00Z",\n'
         '  "images": {\n  }\n}\n'
     )
@@ -314,7 +317,13 @@ def test_rollback_checks_the_dump_before_changing_anything(sandbox: Sandbox) -> 
     assert proc.returncode != 0
     assert "no longer in the backups volume" in proc.stderr
     assert not any(c.startswith("git checkout") for c in sandbox.calls())
-    assert not any(c.startswith("docker compose") for c in sandbox.docker_calls())
+    # Only the read-only schema query may reach compose before the dump is checked.
+    changing = [
+        c
+        for c in sandbox.docker_calls()
+        if c.startswith("docker compose") and not c.startswith("docker compose exec -T db sh -c")
+    ]
+    assert not changing
     assert "SUCKERPOT_VERSION=v0.8.0" in (sandbox.root / ".env").read_text()
 
 
@@ -495,6 +504,8 @@ def test_participant_update_fails_when_the_network_client_does_not_answer(
     prepare(sandbox)
     participant(sandbox)
     sandbox.env["SHIM_NETWORK_CLI_RC"] = "1"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "ingest healthy\ndb healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "ingest healthy\ndb healthy"
     rc, out = run_update(sandbox, "--yes")
     assert rc != 0
     assert "network client of ingest does not answer" in out
@@ -537,3 +548,292 @@ def test_rollback_yes_skips_both_confirmations(sandbox: Sandbox) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "restore-db --yes volume:suckerpot-preupdate-20261101T020000Z.dump" in sandbox.calls()
     assert sandbox.run("scripts/rollback.sh", "--bogus").returncode == 2
+
+
+# ------------------------------------------------------------------ health judged against a baseline
+
+
+def test_a_service_already_unhealthy_does_not_fail_the_update(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ndb healthy\ningest unhealthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ndb healthy\ningest unhealthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "ingest was already unhealthy before the update" in out
+
+
+def test_up_failing_for_an_already_unhealthy_service_is_judged_per_service(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ningest unhealthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ningest unhealthy"
+    sandbox.env["SHIM_UP_RC"] = "1"
+    sandbox.env["SHIM_MIGRATE_STATE"] = "exited 0"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+
+
+def test_up_failing_with_a_failed_migration_is_a_release_fault(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_UP_RC"] = "1"
+    sandbox.env["SHIM_MIGRATE_STATE"] = "exited 1"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    assert "migrations did not finish cleanly" in out
+
+
+def test_a_service_that_was_healthy_and_is_not_anymore_fails_the_update(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ndb healthy\ningest healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ndb healthy\ningest unhealthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    assert "ingest(unhealthy)" in out
+
+
+def test_a_healthy_service_that_vanished_is_a_regression(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ndb healthy\ningest healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ndb healthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    assert "ingest(not running)" in out
+
+
+def test_a_service_without_a_healthcheck_counts_as_healthy_before(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\nworker "
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\nworker unhealthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_a_starting_service_gets_a_bounded_wait(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ningest healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ningest starting"
+    sandbox.env["UPDATE_HEALTH_WAIT_SECONDS"] = "20"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    polls = [c for c in sandbox.calls() if c.startswith("docker compose ps --format")]
+    # One snapshot before the update, then 20 / 5 + 1 polls after it.
+    assert len(polls) == 1 + 5
+
+
+def test_the_state_file_records_the_alembic_revision_before_the_update(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_ALEMBIC"] = "a1b2c3d4"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    state = (sandbox.root / ".suckerpot-state" / "last-update.json").read_text()
+    assert '"alembic_before": "a1b2c3d4"' in state
+
+
+# ------------------------------------------------------------------ rollback and the database
+
+
+def rollback_sandbox(sb: Sandbox, alembic_before: str | None, dump: str | None = None) -> None:
+    prepare(sb)
+    sb.write_env(ENV.replace("v0.8.0", "v0.9.0"))
+    if dump is None:
+        write_state(sb, alembic=alembic_before)
+    else:
+        write_state(sb, dump=dump, alembic=alembic_before)
+    (sb.root / "scripts" / "restore-db.sh").write_text('echo "restore-db $*" >> "$SHIM_LOG"\n')
+
+
+def restored(sb: Sandbox) -> bool:
+    return any(c.startswith("restore-db") for c in sb.calls())
+
+
+def test_rollback_keeps_the_database_when_the_schema_did_not_move(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, "a1b2c3d4")
+    sandbox.env["SHIM_ALEMBIC"] = "a1b2c3d4"
+    proc = sandbox.run("scripts/rollback.sh", "--yes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not restored(sandbox)
+    assert "no event is lost" in proc.stdout
+    assert f"git checkout --quiet --detach {OLD}" in sandbox.calls()
+    assert "docker compose pull --policy missing" in sandbox.calls()
+
+
+def test_rollback_restores_the_database_when_the_schema_moved(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, "a1b2c3d4")
+    sandbox.env["SHIM_ALEMBIC"] = "e5f6a7b8"
+    proc = sandbox.run("scripts/rollback.sh", "--yes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert restored(sandbox)
+    assert "the schema changed" in proc.stdout
+
+
+def test_rollback_restores_when_the_revision_is_unknown(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, None)  # a state file from before this field existed
+    sandbox.env["SHIM_ALEMBIC"] = "a1b2c3d4"
+    assert sandbox.run("scripts/rollback.sh", "--yes").returncode == 0
+    assert restored(sandbox)
+
+
+def test_rollback_restores_when_the_database_cannot_be_read(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, "a1b2c3d4")
+    sandbox.env["SHIM_ALEMBIC"] = ""
+    assert sandbox.run("scripts/rollback.sh", "--yes").returncode == 0
+    assert restored(sandbox)
+
+
+def test_rollback_restore_db_flag_forces_the_restore(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, "a1b2c3d4")
+    sandbox.env["SHIM_ALEMBIC"] = "a1b2c3d4"
+    proc = sandbox.run("scripts/rollback.sh", "--yes", "--restore-db")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert restored(sandbox)
+
+
+def test_rollback_keep_db_flag_never_restores(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, "a1b2c3d4")
+    sandbox.env["SHIM_ALEMBIC"] = "e5f6a7b8"
+    proc = sandbox.run("scripts/rollback.sh", "--yes", "--keep-db")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not restored(sandbox)
+
+
+def test_rollback_keep_db_works_without_a_dump(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, None, dump="")
+    assert sandbox.run("scripts/rollback.sh", "--yes").returncode != 0
+    assert sandbox.run("scripts/rollback.sh", "--yes", "--keep-db").returncode == 0
+
+
+def test_rollback_documents_and_validates_its_flags(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    assert sandbox.run("scripts/rollback.sh", "--restore-db=1").returncode == 2
+    text = (sandbox.root / "scripts" / "rollback.sh").read_text()
+    assert "--restore-db" in text and "--keep-db" in text
+
+
+def test_image_verification_failure_in_update_exits_1_not_a_release_fault(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    (sandbox.root / "scripts/verify-images.sh").write_text("#!/bin/sh\nexit 1\n")
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 1, out
+    assert "signatures could not be verified" in out
+
+
+def test_dashboard_not_answering_is_a_warning_when_api_was_unhealthy(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_CURL_RC"] = "22"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api unhealthy\ndb healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api unhealthy\ndb healthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "the dashboard does not answer" in out
+    assert "api was already unhealthy before the update" in out
+
+
+def test_dashboard_not_answering_is_a_release_fault_when_api_was_healthy(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_CURL_RC"] = "22"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_network_client_check_is_a_warning_when_ingest_was_unhealthy(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    participant(sandbox)
+    sandbox.env["SHIM_NETWORK_CLI_RC"] = "1"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "ingest unhealthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "ingest unhealthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "ingest was already unhealthy before the update" in out
+
+
+def test_network_client_check_is_a_release_fault_when_ingest_was_healthy(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    participant(sandbox)
+    sandbox.env["SHIM_NETWORK_CLI_RC"] = "1"
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "ingest healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "ingest healthy"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_the_running_version_check_stays_strict_on_a_degraded_node(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api unhealthy\ndb healthy"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api unhealthy\ndb healthy"
+    sandbox.env["SHIM_RUNNING_VERSION"] = "v0.8.0"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_a_service_still_starting_before_the_update_counts_as_good(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ningest starting"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ningest unhealthy"
+    sandbox.env["UPDATE_HEALTH_WAIT_SECONDS"] = "20"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    assert "ingest(unhealthy)" in out
+
+
+def test_the_pre_update_snapshot_waits_a_bounded_time_for_starting_services(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\ningest starting"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\ningest unhealthy"
+    sandbox.env["UPDATE_HEALTH_WAIT_SECONDS"] = "600"  # capped at 60 s for this pre-step
+    run_update(sandbox, "--yes")
+    calls = sandbox.calls()
+    first_up = next(i for i, c in enumerate(calls) if c.startswith("docker compose up"))
+    before = [c for c in calls[:first_up] if c.startswith("docker compose ps --format")]
+    assert len(before) == 60 // 5 + 1
+
+
+def test_a_crash_looping_service_without_a_healthcheck_is_a_regression(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\nworker "
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\nworker restarting"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+    assert "worker(restarting)" in out
+
+
+def test_an_exited_service_without_a_healthcheck_is_a_regression(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\nworker "
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\nworker exited"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 10, out
+
+
+def test_a_service_already_crash_looping_before_is_only_a_warning(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.env["SHIM_HEALTH_BEFORE"] = "api healthy\nworker restarting"
+    sandbox.env["SHIM_HEALTH_AFTER"] = "api healthy\nworker restarting"
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "worker was already unhealthy before the update" in out
+
+
+def test_rollback_ignores_an_invalid_recorded_revision(sandbox: Sandbox) -> None:
+    rollback_sandbox(sandbox, "x;rm -rf /")
+    sandbox.env["SHIM_ALEMBIC"] = "x"
+    proc = sandbox.run("scripts/rollback.sh", "--yes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert restored(sandbox)
+    assert "restored unless --keep-db is given" in proc.stdout
+    sandbox.log.write_text("")
+    proc = sandbox.run("scripts/rollback.sh", "--yes", "--keep-db")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not restored(sandbox)
