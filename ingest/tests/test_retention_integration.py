@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 from suckerpot_db import database_url_from_env
 from suckerpot_db.retention import AGGREGATES, RetentionError, backfill
 
-from .db_fixtures import _migrate, _role_url
+from .db_fixtures import _migrate, _role_url, refresh_aggregate
 
 pytestmark = [
     pytest.mark.integration,
@@ -38,11 +38,8 @@ async def auto(engine: AsyncEngine) -> AsyncIterator[AsyncConnection]:
 async def _reset_aggregates(conn: AsyncConnection) -> None:
     await conn.execute(text("TRUNCATE events, sessions, sessions_daily, ip_reputation"))
     for view in CAGG_NAMES:
-        await conn.execute(
-            text(
-                f"CALL refresh_continuous_aggregate('{view}', now() - INTERVAL '400 days', "
-                "now() + INTERVAL '2 days', force => true)"
-            )
+        await refresh_aggregate(
+            conn, view, "now() - INTERVAL '400 days'", "now() + INTERVAL '2 days'", force="true"
         )
 
 
