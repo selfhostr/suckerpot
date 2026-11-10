@@ -273,6 +273,22 @@ When the schema did not move, the database line reads `database: KEPT as it is, 
 - Only the database is restored. The other volumes, such as the sensor data, are not touched.
 - `.env` is not rolled back. Settings that the update added stay in it. Only `SUCKERPOT_VERSION` changes, in images mode.
 
+### The stream buffer on update and rollback
+
+The Redis Stream (`redis-data`) is only a buffer between the sensors and the database. Losing it costs at most the events not yet consumed, a few seconds in normal operation, and never touches the database.
+
+- The broker is Valkey, and its AOF base file holds plain commands (`aof-use-rdb-preamble no`) so that Redis and Valkey read each other's files. A volume written by Valkey therefore loads in Redis 8.10 again after a rollback of the image alone.
+- A volume written by Redis 8.10 with its old default (an RDB preamble in the AOF base file) cannot be read by Valkey 9.1: it stops with `Can't handle RDB format version 15`. The broker then moves `appendonlydir` and `dump.rdb` aside as `*.unreadable-<UTC time>` (two copies at most), logs one line saying so, and starts with an empty buffer. Events not yet consumed at that moment are lost. To keep them, rewrite the AOF on the running Redis before the update, and wait until `INFO persistence` shows `aof_rewrite_in_progress:0`:
+
+  ```bash
+  docker compose exec -T redis sh -c 'export REDISCLI_AUTH="$REDIS_PASSWORD"; redis-cli --user admin CONFIG SET aof-use-rdb-preamble no && redis-cli --user admin BGREWRITEAOF'
+  ```
+
+  This is optional: without it the update still works, and only the events waiting in the buffer are lost.
+- The same safety net applies to any AOF or RDB the server cannot load. It only acts when the server exits with an error twice at start-up, its own output reports a data-load failure (a bad directive or ACL file never counts), and `valkey-check-aof` rejects the AOF directory (`valkey-check-rdb` rejects `dump.rdb` only when there is no AOF directory, the only case where it is loaded). A torn last write and a stale `dump.rdb` next to a healthy AOF are left alone.
+- A rollback never touches `redis-data`, whether or not it restores the database.
+- `scripts/test-broker.sh` runs these cases against throwaway containers (it is part of CI).
+
 ### When a rollback happens
 
 SuckerPot never rolls back by itself. If an update fails after the code has changed, it prints the command to run:

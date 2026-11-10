@@ -67,7 +67,7 @@ Host (nftables table "suckerpot_host", see Deployment)
 
 | Service | Networks | Role | Status |
 | --- | --- | --- | --- |
-| `redis` | `sensors-ssh`, `sensors-rdp`, `sensors-telnet`, `sensors-web`, `sensors-redis`, `sensors-docker`, `sensors-mysql`, `sensors-mssql`, `sensors-adb`, `sensors-smb`, `sensors-sip`, `sensors-synology`, `tools`, `backend` | Redis Streams queue. Named ACL users (see below). AOF persistence on `redis-data`. | Built |
+| `redis` | `sensors-ssh`, `sensors-rdp`, `sensors-telnet`, `sensors-web`, `sensors-redis`, `sensors-docker`, `sensors-mysql`, `sensors-mssql`, `sensors-adb`, `sensors-smb`, `sensors-sip`, `sensors-synology`, `tools`, `backend` | Valkey (Redis protocol) Streams queue. Named ACL users (see below). AOF persistence on `redis-data`. | Built |
 | `db` | `backend`, `samples` | PostgreSQL 17 with TimescaleDB 2.31.0, on `db-data`. Runs only as the owner role. | Built |
 | `migrate` | `backend` | One-shot. Checks the secrets policy, runs `alembic upgrade head`, then re-applies the application roles and their passwords, and exits with code 0. | Built |
 | `ingest` | `backend`, `egress-proxy` | Reads all sensor streams, validates events, enriches and tags them, writes them to the database. Outbound calls go through the `vpn` proxy only. | Built. GeoIP files live on the `geoip-data` volume. |
@@ -234,7 +234,7 @@ A sensor user can only append to its own stream. It cannot read it, delete it or
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| Persistence | AOF, `everysec`. No RDB snapshots. | Keeps events across restarts |
+| Persistence | AOF, `everysec`, no RDB preamble. No RDB snapshots. | Keeps events across restarts; plain commands in the base file keep the AOF readable by Redis and Valkey alike |
 | `maxmemory` | 192 MB | Bounds memory use |
 | `maxmemory-policy` | `noeviction` | When memory is full, writes fail. Events are never silently evicted. |
 | `proto-max-bulk-len` | 1 MB | Limits one command's payload |
@@ -439,7 +439,7 @@ The WebSocket checks the `Origin` header. Requests with no `Origin` (non-browser
 | --- | --- |
 | Sensors | Python 3.15, asyncio, asyncssh (SSH), raw asyncio (Telnet, RDP, ADB, Redis, MySQL, MSSQL, SMB and SIP), hand-written HTTP servers (web, Docker API and Synology DSM, the last one over TLS too) |
 | Ingest and API | FastAPI, SQLAlchemy 2 with asyncpg, Alembic |
-| Queue | Redis 7.4 Streams |
+| Queue | Valkey 9.1 Streams (Redis protocol), AOF on a named volume |
 | Database | PostgreSQL 17 with TimescaleDB 2.31.0 |
 | Enrichment | MaxMind GeoLite2 or DB-IP Lite (local files), AbuseIPDB, GreyNoise Community, abuse.ch URLhaus and ThreatFox, VirusTotal (hashes only) |
 | Alerts and reports | Discord and Microsoft Teams webhooks, SMTP over TLS, the Anthropic API for the optional explainer |
