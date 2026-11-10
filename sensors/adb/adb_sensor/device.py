@@ -12,6 +12,7 @@ import hashlib
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 
 from ssh_sensor.shell.baseimage import Profile, derive_profile
 from ssh_sensor.shell.fs import BaseImage, Node
@@ -63,9 +64,8 @@ class Model:
     hardware: str
     android: str
     sdk: int
-    build_id: str
     kernel: str
-    kernel_build: str
+    kernel_released: date  # release date of that kernel: no build of the box can be older
     cpu_abi: str
     density: int
     features: str  # adbd features advertised in CNXN
@@ -89,12 +89,77 @@ class Model:
     def not_found(self) -> str:
         return "not found" if self.sdk <= 25 else "inaccessible or not found"
 
-    @property
-    def fingerprint(self) -> str:
-        return (
-            f"{self.brand}/{self.product_name}/{self.device}:{self.android}/{self.build_id}/"
-            "eng.root.20190320.164402:userdebug/test-keys"
-        )
+
+# AOSP build ids with the security patch level they shipped: (build id, patch level), oldest
+# first, per SDK level. A box carries one of these, never an id from a later patch than its date.
+_BUILDS: dict[int, tuple[tuple[str, date], ...]] = {
+    25: (
+        ("NHG47K", date(2017, 12, 5)),
+        ("N2G47H", date(2018, 1, 5)),
+        ("N2G47O", date(2018, 3, 5)),
+        ("N2G47T", date(2018, 5, 5)),
+        ("N2G48C", date(2018, 6, 5)),
+        ("N2G48H", date(2018, 9, 5)),
+    ),
+    28: (
+        ("PPR1.180610.011", date(2018, 8, 5)),
+        ("PPR2.180905.005", date(2018, 9, 5)),
+        ("PPR2.181005.003", date(2018, 10, 5)),
+        ("PQ1A.181105.017", date(2018, 11, 5)),
+        ("PQ1A.190105.004", date(2019, 1, 5)),
+        ("PQ2A.190305.002", date(2019, 3, 5)),
+        ("PQ3A.190505.002", date(2019, 5, 5)),
+        ("PQ3A.190705.003", date(2019, 7, 5)),
+    ),
+}
+_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_CST = timedelta(hours=8)  # these boxes are built by Shenzhen vendors
+
+
+@dataclass(frozen=True)
+class Build:
+    """Build facts that must agree with each other: id, patch level, dates, kernel build."""
+
+    build_id: str
+    security_patch: str  # YYYY-MM-DD
+    date_text: str  # "Wed Mar 20 16:44:02 CST 2019"
+    date_utc: int
+    incremental: str  # eng.root.YYYYMMDD.HHMMSS, the build timestamp
+    kernel_build: str  # "#12 SMP PREEMPT Wed Mar 20 15:58:30 CST 2019"
+    first_boot_ms: int
+
+
+def _stamp(local: datetime) -> str:
+    return (
+        f"{_DAYS[local.weekday()]} {_MONTHS[local.month - 1]} {local.day:2d}"
+        f" {local:%H:%M:%S} CST {local.year}"
+    )
+
+
+def derive_build(digest: bytes, m: Model) -> Build:
+    """Pick a coherent build for ``m``: date after its kernel's release, patch level just
+    before the date, kernel built shortly before the system image."""
+    start = m.kernel_released + timedelta(days=5 + digest[0] % 20)
+    day = start + timedelta(days=int.from_bytes(digest[1:3], "big") % 330)
+    local = datetime(
+        day.year, day.month, day.day, 9 + digest[3] % 11, digest[4] % 60, digest[5] % 60
+    )
+    eligible = [b for b in _BUILDS[m.sdk] if b[1] <= day - timedelta(days=15)] or [
+        _BUILDS[m.sdk][0]
+    ]
+    build_id, patch = eligible[-1 - digest[6] % min(3, len(eligible))]
+    kernel_local = local - timedelta(minutes=20 + int.from_bytes(digest[7:9], "big") % 600)
+    utc = int((local - _CST).replace(tzinfo=UTC).timestamp())
+    return Build(
+        build_id=build_id,
+        security_patch=patch.isoformat(),
+        date_text=_stamp(local),
+        date_utc=utc,
+        incremental=f"eng.root.{local:%Y%m%d.%H%M%S}",
+        kernel_build=f"#{1 + digest[9] % 60} SMP PREEMPT {_stamp(kernel_local)}",
+        first_boot_ms=(utc + 86400 * (2 + digest[10] % 60) + digest[11] * 97) * 1000,
+    )
 
 
 MODELS = (
@@ -109,9 +174,8 @@ MODELS = (
         hardware="rk30board",
         android="7.1.2",
         sdk=25,
-        build_id="NHG47K",
         kernel="4.9.113",
-        kernel_build="#32 SMP PREEMPT Wed Mar 20 16:50:41 CST 2019",
+        kernel_released=date(2018, 8, 22),
         cpu_abi="armeabi-v7a",
         density=240,
         features="shell_v2,cmd",
@@ -128,9 +192,8 @@ MODELS = (
         hardware="amlogic",
         android="7.1.2",
         sdk=25,
-        build_id="NHG47K",
         kernel="4.9.113",
-        kernel_build="#1 SMP PREEMPT Fri Jun 14 11:08:23 CST 2019",
+        kernel_released=date(2018, 8, 22),
         cpu_abi="armeabi-v7a",
         density=240,
         features="shell_v2,cmd",
@@ -147,9 +210,8 @@ MODELS = (
         hardware="amlogic",
         android="9",
         sdk=28,
-        build_id="PPR1.180610.011",
         kernel="4.9.148",
-        kernel_build="#1 SMP PREEMPT Tue Sep 24 17:02:58 CST 2019",
+        kernel_released=date(2019, 1, 9),
         cpu_abi="armeabi-v7a",
         density=213,
         features="shell_v2,cmd,stat_v2,fixed_push_mkdir",
@@ -178,6 +240,7 @@ class Device:
     """Everything that makes this deployment's box unique."""
 
     model: Model
+    build: Build
     profile: Profile
     serial: str
     mac: str
@@ -196,6 +259,18 @@ class Device:
         )
 
     @property
+    def kernel_build(self) -> str:
+        return self.build.kernel_build
+
+    @property
+    def fingerprint(self) -> str:
+        m, b = self.model, self.build
+        return (
+            f"{m.brand}/{m.product_name}/{m.device}:{m.android}/{b.build_id}/"
+            f"{b.incremental}:userdebug/test-keys"
+        )
+
+    @property
     def banner_props(self) -> str:
         m = self.model
         return (
@@ -206,7 +281,8 @@ class Device:
     def getprop(self) -> dict[str, str]:
         m = self.model
         p = self.profile
-        build_utc = "1553071481"
+        b = self.build
+        display = f"{m.product_name}-userdebug {m.android} {b.build_id} {b.incremental} test-keys"
         props = {
             "ro.product.name": m.product_name,
             "ro.product.model": m.model,
@@ -227,23 +303,23 @@ class Device:
             "ro.serialno": self.serial,
             "ro.boot.serialno": self.serial,
             "ro.boot.hardware": m.hardware,
-            "ro.build.id": m.build_id,
-            "ro.build.display.id": f"{m.product_name}-userdebug {m.android} {m.build_id} eng.root.20190320.164402 test-keys",
+            "ro.build.id": b.build_id,
+            "ro.build.display.id": display,
             "ro.build.version.release": m.android,
             "ro.build.version.sdk": str(m.sdk),
             "ro.build.version.codename": "REL",
-            "ro.build.version.incremental": "eng.root.20190320.164402",
-            "ro.build.version.security_patch": "2019-02-05" if m.sdk >= 28 else "2018-12-05",
-            "ro.build.date": "Wed Mar 20 16:44:02 CST 2019",
-            "ro.build.date.utc": build_utc,
+            "ro.build.version.incremental": b.incremental,
+            "ro.build.version.security_patch": b.security_patch,
+            "ro.build.date": b.date_text,
+            "ro.build.date.utc": str(b.date_utc),
             "ro.build.type": "userdebug",
             "ro.build.user": "root",
             "ro.build.host": "android-build",
             "ro.build.tags": "test-keys",
             "ro.build.flavor": f"{m.product_name}-userdebug",
             "ro.build.product": m.device,
-            "ro.build.description": f"{m.product_name}-userdebug {m.android} {m.build_id} eng.root.20190320.164402 test-keys",
-            "ro.build.fingerprint": m.fingerprint,
+            "ro.build.description": display,
+            "ro.build.fingerprint": self.fingerprint,
             "ro.build.characteristics": "tv,nosdcard" if m.sdk >= 28 else "mbx,nosdcard",
             "ro.secure": "0" if self.root else "1",
             "ro.debuggable": "1",
@@ -253,7 +329,7 @@ class Device:
             "ro.sf.lcd_density": str(m.density),
             "ro.opengles.version": "196609",
             "ro.zygote": "zygote32",
-            "ro.runtime.firstboot": "1553076912000",
+            "ro.runtime.firstboot": str(b.first_boot_ms),
             "persist.sys.usb.config": "adb",
             "persist.service.adb.enable": "1",
             "persist.sys.timezone": "Asia/Shanghai",
@@ -294,6 +370,7 @@ class Device:
 def derive_device(seed: str, cfg_hostname: str, busybox_mode: str, root: bool) -> Device:
     digest = hashlib.sha256(f"{seed}|adb-device".encode()).digest()
     model = MODELS[digest[0] % len(MODELS)]
+    build = derive_build(hashlib.sha256(f"{seed}|adb-build".encode()).digest(), model)
     serial = model.soc_serial_prefix + digest[1:8].hex()
     ip = f"192.168.{1 + digest[8] % 20}.{20 + digest[9] % 200}"
     profile = derive_profile(
@@ -301,12 +378,13 @@ def derive_device(seed: str, cfg_hostname: str, busybox_mode: str, root: bool) -
         cfg_hostname or "localhost",
         ip,
         kernel=model.kernel,
-        kernel_build=model.kernel_build,
+        kernel_build=build.kernel_build,
     )
     mac = ":".join(f"{b:02x}" for b in (0x00, 0x1E, 0x06, digest[10], digest[11], digest[12]))
     busybox = {"yes": True, "no": False}.get(busybox_mode, digest[13] % 2 == 0)
     return Device(
         model=model,
+        build=build,
         profile=profile,
         serial=serial,
         mac=mac,
@@ -429,7 +507,7 @@ def build_base_image(dev: Device) -> BaseImage:
     f(
         "/proc/version",
         f"Linux version {m.kernel} (root@android-build) (gcc version 4.9.x 20150123 (prerelease) (GCC) ) "
-        f"{m.kernel_build}\n",
+        f"{dev.kernel_build}\n",
         0o444,
     )
     f(

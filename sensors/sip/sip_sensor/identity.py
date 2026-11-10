@@ -20,7 +20,15 @@ log = logging.getLogger("sip_sensor.identity")
 
 SECRET_FILE = "profile_secret"  # noqa: S105 - a file name, not a secret
 # chan_sip era releases only: Asterisk 20 deprecated chan_sip and answers with PJSIP.
-VERSIONS = ("16.28.0", "16.30.0", "18.20.2", "18.21.1", "18.24.0")
+VERSIONS = (
+    "13.38.3", "16.19.0", "16.24.1", "16.26.1", "16.27.0", "16.28.0", "16.29.1", "16.30.0",
+    "16.30.1", "18.12.1", "18.15.1", "18.16.0", "18.17.1", "18.18.1", "18.19.0", "18.20.0",
+    "18.20.2", "18.21.0", "18.21.1", "18.22.0", "18.23.1", "18.24.0", "18.24.1", "18.24.2",
+    "18.25.0", "18.26.0",
+)  # fmt: skip
+# A FreePBX box announces itself as FPBX-<freepbx>(<asterisk>): major 15 ships Asterisk 16,
+# major 16 ships Asterisk 18, so the pair is always drawn from one generation.
+_FPBX = (("15.0", (17, 23), "16."), ("16.0", (33, 44), "18."))
 NONCE_BUCKET = 120  # seconds; a nonce is valid in its bucket and the next one
 
 
@@ -80,8 +88,16 @@ class Profile:
 
 def derive_profile(secret: str, user_agent: str = "", realm: str = "asterisk") -> Profile:
     if not user_agent:
-        idx = hashlib.sha256(secret.encode()).digest()[0] % len(VERSIONS)
-        user_agent = f"Asterisk PBX {VERSIONS[idx]}"
+        digest = hashlib.sha256(secret.encode()).digest()
+        if digest[1] % 10 < 3:
+            major, (low, high), series = _FPBX[digest[2] % len(_FPBX)]
+            asterisk = [v for v in VERSIONS if v.startswith(series)]
+            user_agent = (
+                f"FPBX-{major}.{low + digest[3] % (high - low + 1)}"
+                f"({asterisk[digest[4] % len(asterisk)]})"
+            )
+        else:
+            user_agent = f"Asterisk PBX {VERSIONS[digest[0] % len(VERSIONS)]}"
     return Profile(secret=secret, user_agent=user_agent, realm=realm)
 
 

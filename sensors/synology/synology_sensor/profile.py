@@ -16,13 +16,38 @@ import random
 import secrets
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 log = logging.getLogger("synology_sensor.profile")
 
-# (model shown by DSM, host name pool). Host names are what an owner would plausibly pick.
-_MODELS = ["DS220+", "DS418", "DS918+", "DS920+", "DS923+", "DS720+", "DS1621+", "RS820+"]
-_NAMES = ["DiskStation", "NAS01", "nas", "SynologyNAS", "Storage", "FileServer", "Diskstation1"]
+# model -> (DSM platform, first sale year). Every model here runs DSM 7.2.1, the build this
+# sensor claims, and its serial can only carry a year from its launch on.
+MODELS: dict[str, tuple[str, int]] = {
+    "DS118": ("rtd1296", 2017), "DS218+": ("apollolake", 2018), "DS220+": ("geminilake", 2020),
+    "DS220j": ("rtd1296", 2020), "DS418": ("rtd1296", 2018), "DS418play": ("apollolake", 2018),
+    "DS423+": ("geminilake", 2022), "DS620slim": ("apollolake", 2018),
+    "DS718+": ("apollolake", 2017), "DS720+": ("geminilake", 2020),
+    "DS723+": ("r1000", 2022), "DS918+": ("apollolake", 2018), "DS920+": ("geminilake", 2020),
+    "DS923+": ("r1000", 2023), "DS1019+": ("apollolake", 2019), "DS1520+": ("geminilake", 2020),
+    "DS1522+": ("r1000", 2022), "DS1618+": ("denverton", 2018), "DS1621+": ("v1000", 2021),
+    "DS1819+": ("denverton", 2019), "DS1821+": ("v1000", 2021), "DS2419+": ("denverton", 2019),
+    "DS2422+": ("v1000", 2022), "DS3018xs": ("broadwellnk", 2018),
+    "DS3622xs+": ("broadwellnk", 2022), "RS422+": ("r1000", 2022), "RS820+": ("apollolake", 2019),
+    "RS1221+": ("v1000", 2021), "RS2421+": ("v1000", 2021),
+}  # fmt: skip
+_MODELS = list(MODELS)
+# Host names an owner would plausibly pick.
+_NAMES = [
+    "DiskStation", "NAS01", "nas", "SynologyNAS", "Storage", "FileServer", "Diskstation1",
+    "NAS", "nas01", "BackupNAS", "HomeNAS", "OfficeNAS", "Archive", "MediaServer", "syno",
+    "Vault", "DataStore", "FamilyNAS", "Fileshare", "NASMain", "Cube", "Silo", "Depot",
+    "PhotoNAS", "TimeMachine", "SharedDrive", "Server01", "Library",
+]  # fmt: skip
+
+
+def _model_host(model: str) -> str:
+    return model.replace("+", "plus").lower()
 
 
 @dataclass(frozen=True)
@@ -32,12 +57,13 @@ class Profile:
     hostname: str
     model: str
     serial: str
+    arch: str = ""
 
     def self_identity(self) -> dict[str, list[str]]:
         """Per-install names only. Host names come from a shared pool (or the model name), so
         they are generic words and are not declared: ingest would treat them as deny terms."""
         base = self.hostname.rstrip("0123456789").lower()
-        generic = {n.lower() for n in _NAMES} | {m.replace("+", "plus").lower() for m in _MODELS}
+        generic = {n.lower() for n in _NAMES} | {_model_host(m) for m in _MODELS}
         if not self.hostname or base in generic or self.hostname.lower() in generic:
             return {"names": []}
         return {"names": [self.hostname[:64]]}
@@ -57,13 +83,17 @@ def build_profile(secret: bytes, created: float) -> Profile:
         if rng.random() < 0.4
         else rng.choice(_NAMES) + (str(rng.randrange(2, 9)) if rng.random() < 0.2 else "")
     )
+    arch, launched = MODELS[model]
+    first = max(launched, 2018)
+    now_year = datetime.fromtimestamp(created, UTC).year
+    year = first + rng.randrange(0, max(1, now_year - first + 1))
     serial = "{}{}{}{:06d}".format(
-        rng.choice(["19", "20", "21", "22"]),
+        f"{year % 100:02d}",
         rng.choice(["0", "1", "2"]) + rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ"),
         rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ") + rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ"),
         rng.randrange(0, 999999),
     )
-    return Profile(secret, created, hostname, model, serial)
+    return Profile(secret, created, hostname, model, serial, arch)
 
 
 def load_or_create_profile(data_dir: str) -> Profile:

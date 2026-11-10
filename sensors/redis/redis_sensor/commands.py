@@ -24,6 +24,7 @@ from redis_sensor.info import InfoView, ServerContext, parse_sections, render_in
 from redis_sensor.resp import Reply
 
 MAX_KEYS = 64
+MAX_TTL_KEYS = 32  # EXPIRE / PERSIST overrides tracked per connection
 MAX_KEY_BYTES = 256
 MAX_VALUE_STORED = 16 * 1024
 MAX_STORE_BYTES = 64 * 1024
@@ -150,6 +151,13 @@ class ClientState:
         self.dbs[0] = dict(ctx.profile.keys)
         self.stored = sum(len(k) + len(v) for k, v in self.dbs[0].items())
         self.config: dict[str, str] = dict(_CONFIG_DEFAULTS)
+        self.config["dir"] = ctx.profile.workdir
+        self.config["pidfile"] = ctx.profile.pidfile
+        # Expiring keys of db 0: key -> (lifetime, phase offset) in seconds, read against the
+        # process-wide clock so every connection sees the same, steadily decreasing value.
+        self.ttls: dict[bytes, tuple[int, int]] = {k: (t, o) for k, t, o in ctx.profile.ttls}
+        # This connection's EXPIRE / PERSIST: key -> deadline on that clock, None = persistent.
+        self.ttl_over: dict[bytes, float | None] = {}
         self.master: tuple[str, int] | None = None
         self.dirty = 0
         self.last_save: int | None = None
@@ -183,12 +191,18 @@ class ClientState:
             return
         space[key] = value
         self.kinds.pop((self.db, key), None)
+        if self.db == 0:
+            self.ttls.pop(key, None)  # a plain SET clears the expiry, as in Redis
+            self.ttl_over.pop(key, None)
         self.stored += grow
         self.dirty += 1
 
     def drop(self, key: bytes) -> bool:
         old = self.keyspace().pop(key, None)
         self.kinds.pop((self.db, key), None)
+        if self.db == 0:
+            self.ttls.pop(key, None)
+            self.ttl_over.pop(key, None)
         if old is None:
             return False
         self.stored -= len(key) + len(old)
@@ -201,7 +215,47 @@ class ClientState:
             self.stored -= sum(len(k) + len(v) for k, v in self.dbs[i].items())
             self.dbs[i] = {}
         self.kinds = {k: v for k, v in self.kinds.items() if k[0] not in targets}
+        if 0 in targets:
+            self.ttls.clear()
+            self.ttl_over.clear()
         self.dirty += 1
+
+    def remaining_ttl(self, key: bytes) -> float | None:
+        """Seconds left on a key of db 0, None when it has no expiry.
+
+        Profile keys follow ``life - (elapsed + offset) % life`` on the shared clock: they run
+        down together and are renewed when they run out, as an application re-setting them
+        would, so the value is never zero or negative."""
+        if self.db != 0 or key not in self.dbs[0]:
+            return None
+        if key in self.ttl_over:
+            deadline = self.ttl_over[key]
+            return None if deadline is None else max(0.001, deadline - self.ctx.elapsed())
+        entry = self.ttls.get(key)
+        if entry is None:
+            return None
+        life, offset = entry
+        return life - (self.ctx.elapsed() + offset) % life
+
+    def reap(self, key: bytes) -> None:
+        """Delete a key whose EXPIRE deadline passed on this connection's view."""
+        deadline = self.ttl_over.get(key) if self.db == 0 else None
+        if deadline is not None and deadline <= self.ctx.elapsed():
+            self.drop(key)
+
+    def set_expiry(self, key: bytes, seconds: float | None) -> bool:
+        """EXPIRE / PERSIST bookkeeping (bounded). False when the key has nothing to change."""
+        if self.db != 0 or key not in self.dbs[0]:
+            return False
+        if seconds is None:
+            if self.remaining_ttl(key) is None:
+                return False
+            self.ttl_over[key] = None
+        else:
+            if key not in self.ttl_over and len(self.ttl_over) >= MAX_TTL_KEYS:
+                return True  # accepted, but not tracked past the cap
+            self.ttl_over[key] = self.ctx.elapsed() + seconds
+        return True
 
     def kind(self, key: bytes) -> str | None:
         """Type of an existing key: ``string`` or a collection kind; None when missing."""
@@ -232,6 +286,8 @@ class ClientState:
             maxmem = int(self.config["maxmemory"])
         except ValueError:
             maxmem = 0
+        left = (self.remaining_ttl(k) for k in {*self.ttls, *self.ttl_over})
+        live = [v for v in left if v is not None]
         return InfoView(
             client_id=self.client_id,
             keys=len(self.dbs[0]),
@@ -241,6 +297,8 @@ class ClientState:
             appendonly=self.config["appendonly"] == "yes",
             maxmemory=maxmem,
             requirepass=bool(self.config["requirepass"]),
+            expires=len(live),
+            avg_ttl_ms=int(sum(live) * 1000 / len(live)) if live else 0,
         )
 
 
@@ -425,7 +483,7 @@ def _config_set(state: ClientState, a: list[bytes]) -> Outcome:
                 flags,
             )
         if name == "dir" and not value.startswith("/"):
-            value = "/data/" + value  # a relative chdir from the working directory
+            value = state.ctx.profile.workdir + "/" + value  # relative chdir from the workdir
         pending[name] = value
     for name, value in pending.items():
         state.config[name] = value.lower() if name == "appendonly" else value
@@ -579,13 +637,30 @@ def _type(state: ClientState, a: list[bytes]) -> Outcome:
 
 
 def _ttl(state: ClientState, a: list[bytes]) -> Outcome:
-    return Outcome(resp.integer(-1 if a[1] in state.keyspace() else -2))
+    state.reap(a[1])
+    if a[1] not in state.keyspace():
+        return Outcome(resp.integer(-2))
+    left = state.remaining_ttl(a[1])
+    if left is None:
+        return Outcome(resp.integer(-1))
+    millis = a[0].upper() == b"PTTL"
+    return Outcome(resp.integer(int(left * 1000) if millis else max(1, round(left))))
 
 
 def _expire(state: ClientState, a: list[bytes]) -> Outcome:
-    if _parse_int(a[2]) is None:
+    n = _parse_int(a[2])
+    if n is None:
         return Outcome(_not_int())
-    return Outcome(resp.integer(1 if a[1] in state.keyspace() else 0))
+    state.reap(a[1])
+    if n <= 0:  # a non-positive lifetime deletes the key at once
+        return Outcome(resp.integer(1 if state.drop(a[1]) else 0))
+    seconds = n / 1000 if a[0].upper() == b"PEXPIRE" else float(n)
+    return Outcome(resp.integer(1 if state.set_expiry(a[1], seconds) else 0))
+
+
+def _persist(state: ClientState, a: list[bytes]) -> Outcome:
+    state.reap(a[1])
+    return Outcome(resp.integer(1 if state.set_expiry(a[1], None) else 0))
 
 
 def _keys(state: ClientState, a: list[bytes]) -> Outcome:
@@ -1001,6 +1076,7 @@ TABLE: dict[str, tuple[int, Handler]] = {
     "PTTL": (2, _ttl),
     "EXPIRE": (-3, _expire),
     "PEXPIRE": (-3, _expire),
+    "PERSIST": (2, _persist),
     "KEYS": (2, _keys),
     "SCAN": (-2, _scan),
     "RANDOMKEY": (1, _randomkey),

@@ -117,6 +117,11 @@ def err(status: int, message: str) -> Resp:
     return Resp(status, jdump({"message": message}))
 
 
+def _mac(ip: str) -> str:
+    """Docker derives a bridge endpoint MAC from its IPv4 address (02:42 + the four octets)."""
+    return "02:42:" + ":".join(f"{int(o):02x}" for o in ip.split("."))
+
+
 def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "000Z"
 
@@ -456,7 +461,7 @@ class DockerApi:
             "CgroupVersion": "2",
             "NEventsListener": 0,
             "KernelVersion": p.kernel,
-            "OperatingSystem": "Ubuntu 24.04.1 LTS",
+            "OperatingSystem": p.os_name,
             "OSVersion": "24.04",
             "OSType": "linux",
             "Architecture": "x86_64",
@@ -537,7 +542,7 @@ class DockerApi:
                 else {"PrivatePort": priv, "Type": "tcp"}
                 for priv, pub in c.ports
             ],
-            "Labels": {},
+            "Labels": dict(c.labels),
             "State": "running",
             "Status": "Up " + _ago(now - c.created),
             "HostConfig": {"NetworkMode": "bridge"},
@@ -547,7 +552,7 @@ class DockerApi:
                         "IPAMConfig": None,
                         "Links": None,
                         "Aliases": None,
-                        "MacAddress": "02:42:ac:11:00:" + c.id[:2],
+                        "MacAddress": _mac(c.ip),
                         "NetworkID": self.p.derive("net-bridge"),
                         "EndpointID": self.p.derive("ep-" + c.id),
                         "Gateway": self.p.net_prefix + ".1",
@@ -592,6 +597,8 @@ class DockerApi:
             priv = False
             env = ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"]
             ip = c.ip
+            image_id = c.image_id
+            labels = dict(c.labels)
         else:
             s = c.spec
             cmd = s.entrypoint + s.cmd
@@ -601,6 +608,8 @@ class DockerApi:
             priv = s.privileged
             env = s.env[:16]
             ip = self.p.net_prefix + ".9"
+            image_id = "sha256:" + hashlib.sha256(image.encode()).hexdigest()
+            labels = {}
         running = state == "running"
         return {
             "Id": cid,
@@ -622,7 +631,7 @@ class DockerApi:
                 if running or state == "created"
                 else _iso(started + 2),
             },
-            "Image": "sha256:" + hashlib.sha256(image.encode()).hexdigest(),
+            "Image": image_id,
             "ResolvConfPath": f"/var/lib/docker/containers/{cid}/resolv.conf",
             "HostnamePath": f"/var/lib/docker/containers/{cid}/hostname",
             "HostsPath": f"/var/lib/docker/containers/{cid}/hosts",
@@ -653,14 +662,14 @@ class DockerApi:
                 "Image": image,
                 "WorkingDir": "",
                 "Entrypoint": None,
-                "Labels": {},
+                "Labels": labels,
             },
             "NetworkSettings": {
                 "Bridge": "",
                 "Gateway": self.p.net_prefix + ".1",
                 "IPAddress": ip,
                 "IPPrefixLen": 16,
-                "MacAddress": "02:42:ac:11:00:" + cid[:2],
+                "MacAddress": _mac(ip),
                 "Networks": {"bridge": {"IPAddress": ip, "Gateway": self.p.net_prefix + ".1"}},
             },
         }
