@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import ARRAY, Integer, Text, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_db.event_bounds import bounded_slices, events_ts_range
 
 from ingest.attack.mapping import AttackMap
 from ingest.campaigns.keys import (
@@ -166,8 +167,17 @@ async def _content_keys(
         else:
             missing.append(c)
     by_id = {c.session_id: c for c in missing}
-    for chunk in _chunks(missing, CHUNK):
+    # Old and new sessions are queried in separate slices so each statement carries a narrow
+    # ``ts`` range and compressed chunks outside it are never opened.
+    for chunk in bounded_slices(
+        missing, lambda c: (c.started_at, c.last_event_at), max_items=CHUNK
+    ):
         ids = [c.session_id for c in chunk]
+        lo, hi = events_ts_range((c.started_at, c.last_event_at) for c in chunk) or (
+            chunk[0].started_at,
+            chunk[0].last_event_at,
+        )
+        bounds = {"lo": lo, "hi": hi}
         fresh = {sid: Content() for sid in ids}
         commands: dict[str, list[str]] = {}
         for r in await s.execute(
@@ -175,10 +185,11 @@ async def _content_keys(
                 "SELECT session_id, input FROM ("
                 " SELECT session_id, left(data->>'input', 1024) AS input,"
                 "  row_number() OVER (PARTITION BY session_id ORDER BY ts, id) AS rn"
-                " FROM events WHERE session_id = ANY(:ids) AND type = 'command') x "
+                " FROM events WHERE session_id = ANY(:ids) AND ts >= :lo AND ts <= :hi"
+                " AND type = 'command') x "
                 "WHERE rn <= :cap AND input IS NOT NULL ORDER BY session_id, rn"
             ).bindparams(bindparam("ids", type_=TEXT_ARRAY)),
-            {"ids": ids, "cap": MAX_COMMANDS},
+            {"ids": ids, "cap": MAX_COMMANDS, **bounds},
         ):
             commands.setdefault(r.session_id, []).append(r.input)
         for sid, lines in commands.items():
@@ -192,12 +203,13 @@ async def _content_keys(
                 "left(coalesce(data->>'path', data->>'url', ''), 512) AS path, "
                 "left(coalesce(data->>'query', ''), 256) AS query, "
                 "left(coalesce(data->>'body_preview', data->>'input', ''), 512) AS body "
-                "FROM events WHERE session_id = ANY(:ids) AND type IN ('http_request', 'command') "
+                "FROM events WHERE session_id = ANY(:ids) AND ts >= :lo AND ts <= :hi "
+                "AND type IN ('http_request', 'command') "
                 "AND tags && :payload ORDER BY ts LIMIT 2000"
             ).bindparams(
                 bindparam("ids", type_=TEXT_ARRAY), bindparam("payload", type_=TEXT_ARRAY)
             ),
-            {"ids": ids, "payload": list(PAYLOAD_TAGS)},
+            {"ids": ids, "payload": list(PAYLOAD_TAGS), **bounds},
         ):
             if exploits.get(r.session_id, 0) >= 3:
                 continue
@@ -211,10 +223,11 @@ async def _content_keys(
                 text(
                     "SELECT session_id, left(coalesce(data->>'username', ''), 64) AS u, "
                     "left(coalesce(data->>'password', ''), 64) AS p FROM events "
-                    "WHERE session_id = ANY(:ids) AND type = 'login_attempt' "
+                    "WHERE session_id = ANY(:ids) AND ts >= :lo AND ts <= :hi "
+                    "AND type = 'login_attempt' "
                     "ORDER BY session_id, ts LIMIT :cap"
                 ).bindparams(bindparam("ids", type_=TEXT_ARRAY)),
-                {"ids": heavy, "cap": MAX_LOGINS * len(heavy)},
+                {"ids": heavy, "cap": MAX_LOGINS * len(heavy), **bounds},
             ):
                 bucket = pairs.setdefault(r.session_id, [])
                 if len(bucket) < MAX_LOGINS:
@@ -226,9 +239,10 @@ async def _content_keys(
         for r in await s.execute(
             text(
                 "SELECT DISTINCT ON (session_id) session_id, (data->>'demo') = 'true' AS demo "
-                "FROM events WHERE session_id = ANY(:ids) ORDER BY session_id, ts"
+                "FROM events WHERE session_id = ANY(:ids) AND ts >= :lo AND ts <= :hi "
+                "ORDER BY session_id, ts"
             ).bindparams(bindparam("ids", type_=TEXT_ARRAY)),
-            {"ids": ids},
+            {"ids": ids, **bounds},
         ):
             fresh[r.session_id].demo = bool(r.demo)
         for sid, content in fresh.items():
