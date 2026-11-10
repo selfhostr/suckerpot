@@ -637,11 +637,11 @@ The abuse.ch lookup key (used to check whether a value is already listed) is the
 
 ## SuckerPot network (M29)
 
-The network is off unless `NETWORK_ENABLED=true`, and nobody is joined by default. Details are in [The SuckerPot network](network.md) and [Network protocol](network-protocol.md). A system sends nothing until it has joined, through the installer question (the default answer is yes) or in Settings, Network. Unset or `false` keeps the whole feature off.
+The network is an experimental preview and is off by default. Details are in [The SuckerPot network](network.md) and [Network protocol](network-protocol.md). To use it, set `NETWORK_ENABLED=true` and join: through the installer question (the default answer is no, and `--join-network` answers yes) or in Settings, Network. A system sends nothing until it has joined.
 
 | Variable | Default | Service | Description |
 | --- | --- | --- | --- |
-| `NETWORK_ENABLED` | `false` | `ingest`, `api` | Master switch. It only unlocks joining. Unset or `false`, the worker never contacts the hub, and the Network pages explain how to allow it |
+| `NETWORK_ENABLED` | `false` | `ingest`, `api` | Master switch. It only unlocks joining. With `false` (the default in Compose) the worker never contacts the hub, and the Network pages explain how to allow it. An install that already has `NETWORK_ENABLED=true` in its `.env` keeps it |
 | `NETWORK_HUB_URL` | empty | `ingest`, `api` | Address of the hub, for example `https://hub.example.org`. Must be HTTPS, with no path and no credentials. Set it together with `NETWORK_HUB_KEY` |
 | `NETWORK_HUB_KEY` | empty | `ingest`, `api` | The hub's public key (base64url, 32 bytes). The node refuses any answer that this key did not sign |
 | `NETWORK_INTERVAL_S` | `900` | `ingest` | Seconds between worker cycles, from 30 to 86400. While a join or a leave is pending, the worker checks every 60 seconds |

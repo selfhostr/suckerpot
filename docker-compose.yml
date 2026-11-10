@@ -302,8 +302,9 @@ services:
       ABUSE_LOOKBACK_DAYS: ${ABUSE_LOOKBACK_DAYS:-7}
       ABUSE_SETTLE_MIN: ${ABUSE_SETTLE_MIN:-30}
       ABUSE_RESEND_DAYS: ${ABUSE_RESEND_DAYS:-14}
-      # The SuckerPot network (M29, M33): unlocked by default, but nothing is sent until the
-      # node joins (the installer question or the dashboard, both with consent). Every call goes through the VPN egress gate.
+      # The SuckerPot network (M29, M33): an experimental preview, off by default. When it is on,
+      # nothing is sent until the node joins (the installer question or the dashboard, both with
+      # consent). Every call goes through the VPN egress gate.
       NETWORK_ENABLED: ${NETWORK_ENABLED:-false}
       NETWORK_HUB_URL: ${NETWORK_HUB_URL:-}
       NETWORK_HUB_KEY: ${NETWORK_HUB_KEY:-}
