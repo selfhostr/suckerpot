@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
-
-- Ingest could stop storing events about a week after install, silently. Once the oldest chunk of `events` was compressed, the `retract_benign` call that clears a research scanner's earlier events decompressed it, hit the 30 second statement timeout and made ingest retry the same batch forever, on every stream, while the sensors' capped streams dropped events. Migration `0031` rewrites the function so it only touches the chunks of the session. Ingest now also runs it in a savepoint (a failure no longer fails the batch), isolates streams from each other, counts timeouts and permission errors as failed attempts, bisects a stuck batch and parks the event the database refuses in the small, capped `events:parked` stream (500 entries, 2 KB of data each), and logs the stream, SQLSTATE and database message. A new `pipeline_state` row and `GET /api/v1/settings/pipeline` report a stalled pipeline (`PIPELINE_STALL_SECONDS`, `INGEST_MAX_BATCH_FAILURES`). The `ingest` Redis user gets `XADD` on `events:parked` only.
-
 ### Added
 
 - Hub: public network observatory (design M34). With `HUB_OBSERVATORY_ENABLED=true` (off by default) the worker publishes `network.json` (schema `selfhostr-network-stats/1`, CC0) on the feed site once a day, independent of `HUB_FEED_MODE`: node counts, the bootstrap state against `HUB_MIN_NODES`, confirmations, reports and takedowns, attack traffic per day and the most targeted services, tags and malware families. Every figure is a network total from consensus-eligible nodes only, at day level, published with a delay, rounded, and coarse (weekly, one significant figure, small figures left out) while fewer than three eligible nodes contribute; outcomes are exact only with production consensus thresholds, and bootstrap figures are counted once a week. No per-node value appears. Caddy allows one browser origin to read it (`HUB_OBSERVATORY_ORIGIN`, default `https://suckerpot.selfhostr.io`, `GET` only).
