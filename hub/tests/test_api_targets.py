@@ -214,15 +214,15 @@ async def test_recheck_listing_and_votes(env: Env) -> None:
 
 
 async def _assign(env: Env, node: NodeClient, target: str, day: str) -> None:
-    async with env.worker() as s:
-        await s.execute(
+    # The worker role may not insert assignments, so the owner connection seeds them.
+    async with env.owner.begin() as conn:
+        await conn.execute(
             text(
                 "INSERT INTO recheck_assignments (target_id, node_id, day) "
                 "VALUES (:t, CAST(:n AS uuid), :d)"
             ),
             {"t": target, "d": _d(day), "n": node.node_id},
         )
-        await s.commit()
 
 
 async def test_recheck_day_rules(env: Env) -> None:
@@ -406,3 +406,55 @@ async def test_assignments_are_capped_per_node_per_day(env: Env) -> None:
     async with env.worker() as s:
         n = (await s.execute(text("SELECT count(*) FROM recheck_assignments"))).scalar_one()
     assert n == MAX_ASSIGNED_PER_DAY
+
+
+async def test_concurrent_pulls_respect_the_daily_cap(env: Env) -> None:
+    import asyncio
+
+    from hub.routes.targets import MAX_ASSIGNED_PER_DAY
+
+    a = await _node(env)
+    async with env.worker() as s:
+        for i in range(MAX_ASSIGNED_PER_DAY + 60):
+            await s.execute(
+                text(
+                    "INSERT INTO targets (id, kind, value, state, node_count, country_count, "
+                    "first_day, last_day) VALUES (:i, 'ip', :v, 'confirmed', 7, 4, :d, :d)"
+                ),
+                {
+                    "i": f"t_{i:012d}",
+                    "v": f"198.51.{i // 250}.{i % 250 + 1}",
+                    "d": _d("2026-10-30"),
+                },
+            )
+        await s.commit()
+    for _ in range(MAX_ASSIGNED_PER_DAY // 50 + 2):
+        # Each round, several pulls race; a pull that wins hands out new targets only while room
+        # remains, and answering frees the next 50 to be asked.
+        replies = await asyncio.gather(*(a.call("GET", "/v1/targets") for _ in range(6)))
+        ids = {x["id"] for r in replies if r.status == 200 for x in r.json["recheck"]}
+        if ids:
+            await a.call("POST", "/v1/rechecks", _vote("2026-11-01", *ids))
+        async with env.worker() as s:
+            n = (await s.execute(text("SELECT count(*) FROM recheck_assignments"))).scalar_one()
+        assert n <= MAX_ASSIGNED_PER_DAY
+
+
+async def test_worker_role_may_only_read_and_prune_assignments(env: Env) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    a = await _node(env)
+    t = await seed(env, value="192.0.2.4")
+    await _assign(env, a, t, "2026-11-01")
+    async with env.worker() as s:
+        for sql in (
+            "UPDATE recheck_assignments SET answered = true",
+            "INSERT INTO recheck_assignments (target_id, node_id, day) "
+            "SELECT target_id, node_id, day + 1 FROM recheck_assignments",
+        ):
+            with pytest.raises(DBAPIError):
+                await s.execute(text(sql))
+            await s.rollback()
+        assert (await s.execute(text("SELECT count(*) FROM recheck_assignments"))).scalar_one() == 1
+        await s.execute(text("DELETE FROM recheck_assignments"))
+        await s.commit()

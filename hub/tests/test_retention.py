@@ -70,16 +70,18 @@ async def test_nonces_challenges_votes_stats_expire(env: Env) -> None:
             {"n": n, "d": TODAY - timedelta(days=31)},
         )
         await s.execute(
-            text(
-                "INSERT INTO recheck_assignments (target_id, node_id, day) VALUES ('t_000000000001', :n, :d)"
-            ),
-            {"n": n, "d": TODAY - timedelta(days=4)},
-        )
-        await s.execute(
             text("INSERT INTO node_stats_weekly VALUES (:n, :w, 3, 2)"),
             {"n": n, "w": TODAY - timedelta(days=120)},
         )
         await s.commit()
+    async with env.owner.begin() as conn:  # the worker role may only prune assignments
+        await conn.execute(
+            text(
+                "INSERT INTO recheck_assignments (target_id, node_id, day) "
+                "VALUES ('t_000000000001', :n, :d)"
+            ),
+            {"n": n, "d": TODAY - timedelta(days=4)},
+        )
     async with env.worker() as s:
         await retention.run_retention(s, env.settings, now, TODAY)
     assert await count(env, "nonces") == 1

@@ -11,7 +11,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from fastapi import APIRouter, Request
-from sqlalchemy import CursorResult, and_, exists, func, select, update
+from sqlalchemy import CursorResult, and_, exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from starlette.responses import Response
 from suckerpot_netproto import ProtoError, blind, buckets, models
@@ -28,6 +28,7 @@ PUBLISHED = ("confirmed", "reported", "taken_down", "disputed", "expired")
 OPEN_STATES = ("confirmed", "reported")
 BLINDED = ("url", "domain", "c2_domain")
 MAX_RECHECK_PER_PULL = 50
+RECHECK_LOCK_NS = 0x5EC4  # advisory lock namespace for recheck assignments
 MAX_ASSIGNED_PER_DAY = 200  # per node: a few pulls a day, never the whole open list
 MAX_REVEAL_PER_PULL = 1000
 _CURSOR = re.compile(r"^c_(\d{1,18})$")
@@ -147,7 +148,13 @@ async def targets(request: Request) -> Response:
             .scalars()
             .all()
         )
-        # Only a target recorded here for this node and day can later be voted on.
+        # Only a target recorded here for this node and day can later be voted on. The lock (held
+        # to the commit) serialises concurrent pulls of one node so the daily cap is exact. The
+        # two-int form cannot collide with the single-int advisory locks used elsewhere.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:ns, hashtext(:n))"),
+            {"ns": RECHECK_LOCK_NS, "n": str(caller.node_id)},
+        )
         held = set(
             (
                 await session.execute(
@@ -162,17 +169,18 @@ async def targets(request: Request) -> Response:
         )
         room = MAX_ASSIGNED_PER_DAY - len(held)
         asked = []
+        fresh = []
         for r in recheck_rows:
             if r.id in held:
                 asked.append(r)
             elif room > 0:
                 room -= 1
                 asked.append(r)
-                await session.execute(
-                    pg_insert(RecheckAssignment)
-                    .values(target_id=r.id, node_id=caller.node_id, day=today)
-                    .on_conflict_do_nothing()
-                )
+                fresh.append({"target_id": r.id, "node_id": caller.node_id, "day": today})
+        if fresh:
+            await session.execute(
+                pg_insert(RecheckAssignment).values(fresh).on_conflict_do_nothing()
+            )
         await session.commit()
         recheck = [
             models.RecheckRef(id=r.id, kind=r.kind, value=r.value or "")  # type: ignore[arg-type]
