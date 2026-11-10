@@ -37,6 +37,8 @@ export interface SystemSettings {
   retention: {
     raw_days: number | null
     compression_after_days: number | null
+    /** Oldest raw event still stored, or null when empty or unavailable. */
+    oldest_event_at: string | null
     aggregates: string[]
   }
   disk_guard: DiskGuard | null
@@ -236,11 +238,34 @@ export function enrichmentFinding(e: EnrichmentSettings): string {
   return `${geo}; no reputation provider is configured.`
 }
 
-export function retentionFinding(r: SystemSettings["retention"]): string {
-  const raw = r.raw_days
-    ? `Raw events are kept for ${plural(r.raw_days, "day")}`
-    : "Raw events are kept until the disk guard trims them"
-  return `${raw}; aggregates are kept forever.`
+/** A gap of more than this many days between the window and the oldest event is worth saying. */
+const RETENTION_GAP_DAYS = 2
+
+/** True when the size ceiling is the likely cause: data was dropped or the database is near it. */
+function ceilingIsLimiting(g: DiskGuard | null): boolean {
+  if (!g) return false
+  return g.state !== "ok" || Boolean(g.last_trim_at) || g.percent >= 80
+}
+
+export function retentionFinding(
+  r: SystemSettings["retention"],
+  guard: DiskGuard | null = null,
+  now = Date.now(),
+): string {
+  if (!r.raw_days)
+    return "Raw events are kept until the disk guard trims them; aggregates are kept forever."
+  const days = plural(r.raw_days, "day")
+  const agree = `Raw events are kept for ${days}; aggregates are kept forever.`
+  const oldest = r.oldest_event_at ? Date.parse(r.oldest_event_at) : Number.NaN
+  if (!Number.isFinite(oldest)) return agree
+  const age = Math.max(0, Math.floor((now - oldest) / 86_400_000))
+  if (r.raw_days - age <= RETENTION_GAP_DAYS) return agree
+  const set = `Raw events are set to be kept for ${days}`
+  const stored = `the oldest stored event is ${plural(age, "day")} old`
+  if (guard && ceilingIsLimiting(guard)) {
+    return `${set}, but ${stored}: the ${formatBytes(guard.max_bytes)} size limit removes older data first.`
+  }
+  return `${set}; ${stored}, so the store has not filled that window yet.`
 }
 
 export function storageFinding(s: SystemSettings): string {

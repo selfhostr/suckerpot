@@ -38,6 +38,9 @@ class SensorStatus(BaseModel):
 class Retention(BaseModel):
     raw_days: int | None
     compression_after_days: int | None
+    # Timestamp of the oldest raw event still stored: shorter than ``raw_days`` when the disk
+    # guard dropped old chunks or the store is young. ``None`` when empty or unavailable.
+    oldest_event_at: datetime | None
     aggregates: list[str]
 
 
@@ -86,6 +89,38 @@ async def _job_days(db: AsyncSession, proc: str, key: str) -> int | None:
     return round(float(seconds) / 86400) if seconds is not None else None
 
 
+async def oldest_event_at(db: AsyncSession) -> datetime | None:
+    """Oldest stored raw event without scanning ``events``.
+
+    The chunk catalogue gives the oldest chunk's time range; the exact minimum is then read
+    inside that one chunk only (chunk exclusion). Falls back to the chunk start, and to ``None``
+    when the catalogue is unreadable or the table is empty.
+    """
+    try:
+        async with db.begin_nested():
+            chunk = (
+                await db.execute(
+                    text(
+                        "SELECT range_start, range_end FROM timescaledb_information.chunks "
+                        "WHERE hypertable_name = 'events' ORDER BY range_start LIMIT 1"
+                    )
+                )
+            ).first()
+    except DBAPIError:
+        return None
+    if chunk is None:
+        return None
+    start, end = chunk
+    exact = await _scalar(
+        db,
+        "SELECT ts FROM events WHERE ts >= :s AND ts < :e ORDER BY ts LIMIT 1",
+        s=start,
+        e=end,
+    )
+    found = exact if isinstance(exact, datetime) else start
+    return found if isinstance(found, datetime) else None
+
+
 async def _status(db: AsyncSession, key: str) -> dict[str, Any] | None:
     value = await _scalar(db, "SELECT value FROM system_status WHERE key = :k", k=key)
     return value if isinstance(value, dict) else None
@@ -125,6 +160,7 @@ async def system_settings(db: DbSession) -> SystemSettings:
         retention=Retention(
             raw_days=await _job_days(db, "policy_retention", "drop_after"),
             compression_after_days=await _job_days(db, "policy_compression", "compress_after"),
+            oldest_event_at=await oldest_event_at(db),
             aggregates=AGGREGATES,
         ),
         disk_guard=guard,

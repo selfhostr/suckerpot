@@ -421,7 +421,7 @@ Read-only data for the Settings page. Every block becomes `null` or empty when i
 | Field | Content |
 | --- | --- |
 | `sensors` | One entry per sensor: `sensor`, `last_event_at`, `events_last_hour` and `status`: `active` (an event in the last 15 minutes), `quiet` (in the last 24 hours) or `silent` |
-| `retention` | `raw_days` (when raw events are dropped), `compression_after_days`, and the names of the `aggregates` that are kept forever |
+| `retention` | `raw_days` (when raw events are dropped), `compression_after_days`, `oldest_event_at` (oldest raw event still stored, or `null`), and the names of the `aggregates` that are kept forever |
 | `disk_guard` | The state written by the disk guard job (see [Data retention](retention.md#disk-guard)), or `null` |
 | `ingest_disk` | The state ingest reports for its own payload trimming, or `null` |
 | `database` | `size_bytes` and `max_bytes` (from `DB_MAX_SIZE_GB`) |

@@ -467,7 +467,7 @@ See [Demo data](demo-data.md) for the command-line options that override these.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `RETENTION_DAYS` | `90` | Days to keep raw events (7 to 3650). Aggregates are kept forever. Read by the `migrate` service, which re-applies the policies on every run. See [Data retention](retention.md). |
-| `DB_MAX_SIZE_GB` | `10` | Size ceiling of the database (at least 1). Above 90% the disk guard drops the oldest raw chunks down to 80%. Above 95% ingest keeps only payload previews. Read by `migrate` and `ingest`. |
+| `DB_MAX_SIZE_GB` | `10` | Size ceiling of the database (at least 1). Above 90% the disk guard drops the oldest raw chunks down to 80%. Above 95% ingest keeps only payload previews. Read by `migrate` and `ingest`. The ceiling can shorten the effective retention below `RETENTION_DAYS`: Settings shows the oldest stored raw event next to the configured window. |
 
 ## Blocklists and feeds (M16)
 
