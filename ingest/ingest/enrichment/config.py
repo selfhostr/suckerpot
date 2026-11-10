@@ -31,7 +31,6 @@ class EnrichmentSettings:
     cve_github_daily_quota: int = 100
     abusech_auth_key: str = field(default="", repr=False)
     virustotal_api_key: str = field(default="", repr=False)
-    anthropic_api_key: str = field(default="", repr=False)
     smtp_password: str = field(default="", repr=False)
     abuseipdb_daily_quota: int = 1000
     greynoise_daily_quota: int = 7
@@ -80,7 +79,6 @@ class EnrichmentSettings:
             cve_github_daily_quota=max(0, int(e.get("CVE_GITHUB_DAILY_QUOTA", "100"))),
             abusech_auth_key=e.get("ABUSECH_AUTH_KEY", "").strip(),
             virustotal_api_key=e.get("VIRUSTOTAL_API_KEY", "").strip(),
-            anthropic_api_key=e.get("ANTHROPIC_API_KEY", "").strip(),
             smtp_password=e.get("SMTP_PASSWORD", "").strip(),
             abuseipdb_daily_quota=max(0, int(e.get("ABUSEIPDB_DAILY_QUOTA", "1000"))),
             greynoise_daily_quota=max(0, int(e.get("GREYNOISE_DAILY_QUOTA", "7"))),

@@ -211,10 +211,9 @@ A campaign is told as up to six **stages**, always in story order: Looking aroun
 
 The library answers "what do attackers run here, and what does it do?" in one read. A row is the plain-English summary first, then the first three commands (mono, muted, cut at 90 characters), then one meta row: severity, "New this week", sensors, steps, campaign. Counts sit in fixed right-hand columns on desktop and on one line under the row on phones.
 
-Script detail, top to bottom: the sentence (what it does, how often, which campaign), the badges, **Line by line**, the AI second opinion, techniques, facts, sessions.
+Script detail, top to bottom: the sentence (what it does, how often, which campaign), the badges, **Line by line**, techniques, facts, sessions.
 
 - **Line by line** (`ExplainedLines`): a line-number gutter (mono, subtle, not selectable), the command on a `bg-surface-hover` code band, the explanation in prose (at most `max-w-3xl`), then a meta row with the severity first and the ATT&CK technique link. Long commands wrap inside their band, so a wrapped line never reads as the next command. Only notice, warning and severe get a badge: "info" on every line is noise. A line with no rule is italic and subtle. Rows fade in one after another (40 ms apart).
-- **AI second opinion** (`AiExplanationCard`): a dashed `border-strong` card with no shadow, the "AI-generated, may be wrong" label (`AiLabel`) always in its header, muted text only and the same gutter as the rule lines. It must never read louder than the rule-based explanation, which is the source of truth. "Explain now" is admin-only; others read "Only an administrator can ask for this."
 - Prose on these pages uses `normal-nums` ("4-step", "built-in"), as on CVE watch. Counts, line numbers and facts keep tabular figures.
 
 ## Loading

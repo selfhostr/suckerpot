@@ -2,23 +2,11 @@ import { describe, expect, it } from "vitest"
 import {
   describeScript,
   describeScripts,
-  llmRequestMessage,
-  llmUnavailable,
   nextStep,
   type ExplainedLine,
-  type LlmState,
   type ScriptItem,
   type ScriptsSummary,
 } from "./scripts"
-
-const llm: LlmState = {
-  available: true,
-  reason: null,
-  model: null,
-  request_state: null,
-  request_detail: null,
-  requested_at: null,
-}
 
 const summary: ScriptsSummary = {
   total: 1234,
@@ -28,7 +16,6 @@ const summary: ScriptsSummary = {
   top_id: 1,
   top_summary: "A 4-step script that downloads a file and runs it.",
   top_sessions: 212,
-  llm,
 }
 
 const item: ScriptItem = {
@@ -100,22 +87,5 @@ describe("nextStep", () => {
     expect(nextStep([line({ risk: "severe", technique: "T1098.004" })])).toMatch(/authorized_keys/)
     expect(nextStep([line({}), line({ risk: null })])).toMatch(/only looks around/)
     expect(nextStep([line({ risk: "warning" })])).toMatch(/Review whether/)
-  })
-})
-
-describe("the AI explainer messages", () => {
-  it("explains why it is unavailable", () => {
-    expect(llmUnavailable({ ...llm, available: false, reason: "no_key" })).toMatch(
-      /Add an Anthropic key/,
-    )
-    expect(llmUnavailable({ ...llm, available: false, reason: "disabled" })).toMatch(/switched off/)
-  })
-  it("tells what happened to a request", () => {
-    expect(llmRequestMessage({ ...llm, request_state: "queued" })).toMatch(/Waiting/)
-    expect(
-      llmRequestMessage({ ...llm, request_state: "refused", request_detail: "token_cap" }),
-    ).toMatch(/limit/)
-    expect(llmRequestMessage({ ...llm, request_state: "failed" })).toMatch(/try again/)
-    expect(llmRequestMessage({ ...llm, request_state: "done" })).toBeNull()
   })
 })

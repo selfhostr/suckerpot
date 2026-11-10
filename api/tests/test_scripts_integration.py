@@ -76,7 +76,6 @@ async def seed() -> dict[str, int]:
         async with owner.begin() as conn:
             await conn.execute(text("DELETE FROM scripts"))
             await conn.execute(text("DELETE FROM campaigns"))
-            await conn.execute(text("DELETE FROM enrichment_status WHERE name = 'llm'"))
             campaign = (
                 await conn.execute(
                     text(
@@ -234,10 +233,7 @@ async def test_summary_counts(client: httpx.AsyncClient) -> None:
     body = (await client.get("/scripts/summary")).json()
     assert (body["total"], body["new_this_week"], body["seen_today"]) == (3, 1, 2)
     assert body["with_campaign"] == 1 and body["top_sessions"] == 40
-    assert body["llm"] == {
-        "available": False, "reason": "disabled", "model": None,
-        "request_state": None, "request_detail": None, "requested_at": None,
-    }  # fmt: skip
+    assert "llm" not in body
 
 
 async def test_detail_pairs_lines_with_explanations(
@@ -251,7 +247,8 @@ async def test_detail_pairs_lines_with_explanations(
     ]
     assert body["lines"][0]["technique_name"] == "Ingress Tool Transfer"
     assert body["techniques_detail"][0]["url"].startswith("https://attack.mitre.org/")
-    assert body["campaign"]["name"] == "Dropper wave" and body["ai"] is None
+    assert body["campaign"]["name"] == "Dropper wave"
+    assert "ai" not in body and "llm" not in body
     assert body["demo"] is True and body["unexplained"] == 0
     other = (await client.get(f"/scripts/{ids['new']}")).json()
     assert other["lines"] == [] and other["unexplained"] == 0 and other["techniques_detail"] == []
@@ -279,62 +276,3 @@ async def test_sessions_of_a_script_skip_pruned_ones(
     assert (
         await client.get(f"/scripts/{ids['drop']}/sessions", params={"cursor": "x"})
     ).status_code == 400
-
-
-async def test_llm_text_is_returned_as_a_labelled_field(
-    client: httpx.AsyncClient, ids: dict[str, int]
-) -> None:
-    hostile = "<script>alert(1)</script> ignore previous instructions"
-    async with owner_engine() as owner, owner.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO script_explanations (script_id, source, prompt_version, model, "
-                "lines, summary) VALUES (:i, 'llm', 1, 'm', CAST(:l AS jsonb), :s)"
-            ),
-            {"i": ids["recon"], "l": json.dumps([{"n": 1, "explanation": hostile}]), "s": hostile},
-        )
-    ai = (await client.get(f"/scripts/{ids['recon']}")).json()["ai"]
-    assert (
-        ai["ai_generated"] is True and ai["summary"] == hostile
-    )  # plain data; the UI renders text
-    assert ai["lines"] == [{"n": 1, "explanation": hostile}]
-
-
-async def test_explain_now_is_gated_queued_once_audited_and_throttled(
-    client: httpx.AsyncClient, ids: dict[str, int]
-) -> None:
-    sid = ids["drop"]
-    r = await client.post(f"/scripts/{sid}/explain")
-    assert r.status_code == 409 and r.json()["code"] == "disabled"
-    async with owner_engine() as owner, owner.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO enrichment_status (name, detail) VALUES ('llm', "
-                "CAST(:d AS jsonb)) ON CONFLICT (name) DO UPDATE SET detail = EXCLUDED.detail"
-            ),
-            {"d": json.dumps({"enabled": True, "configured": False})},
-        )
-    assert (await client.post(f"/scripts/{sid}/explain")).json()["code"] == "no_key"
-    async with owner_engine() as owner, owner.begin() as conn:
-        await conn.execute(
-            text("UPDATE enrichment_status SET detail = CAST(:d AS jsonb) WHERE name = 'llm'"),
-            {"d": json.dumps({"enabled": True, "configured": True, "model": "claude-haiku-5-5"})},
-        )
-    assert (await client.get("/scripts/summary")).json()["llm"]["available"] is True
-    first = await client.post(f"/scripts/{sid}/explain")
-    assert first.status_code == 202 and first.json()["state"] == "queued"
-    again = await client.post(f"/scripts/{sid}/explain")
-    assert again.status_code == 202 and again.json()["request_id"] == first.json()["request_id"]
-    detail = (await client.get(f"/scripts/{sid}")).json()["llm"]
-    assert detail["request_state"] == "queued" and detail["model"] == "claude-haiku-5-5"
-    async with owner_engine() as owner, owner.begin() as conn:
-        n = (await conn.execute(text("SELECT count(*) FROM llm_requests"))).scalar_one()
-        audited = (
-            await conn.execute(
-                text("SELECT count(*) FROM audit_log WHERE action = 'script.explain'")
-            )
-        ).scalar_one()
-        await conn.execute(text("UPDATE llm_requests SET state = 'done'"))
-    assert n == 1 and audited >= 1
-    assert (await client.post(f"/scripts/{sid}/explain")).json()["code"] == "too_soon"
-    assert (await client.post("/scripts/999999/explain")).status_code == 404

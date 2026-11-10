@@ -3,7 +3,7 @@
  * plain-English sentences of the two pages, and the calls. The sentences are pure and tested.
  */
 
-import { getJson, sendJson, type Param, type Session } from "./api"
+import { getJson, type Param, type Session } from "./api"
 import { formatNumber, plural } from "./format"
 import type { Severity } from "./severity"
 
@@ -33,15 +33,6 @@ export interface ScriptPage {
   next_cursor: string | null
 }
 
-export interface LlmState {
-  available: boolean
-  reason: "disabled" | "no_key" | null
-  model: string | null
-  request_state: "queued" | "done" | "refused" | "failed" | null
-  request_detail: string | null
-  requested_at: string | null
-}
-
 export interface ScriptsSummary {
   total: number
   new_this_week: number
@@ -50,7 +41,6 @@ export interface ScriptsSummary {
   top_id: number | null
   top_summary: string | null
   top_sessions: number | null
-  llm: LlmState
 }
 
 export interface ExplainedLine {
@@ -62,14 +52,6 @@ export interface ExplainedLine {
   technique: string | null
   technique_name: string | null
   rule: string | null
-}
-
-export interface AiExplanation {
-  ai_generated: true
-  model: string | null
-  summary: string
-  lines: { n: number; explanation: string }[]
-  created_at: string
 }
 
 export interface TechniqueRef {
@@ -85,8 +67,6 @@ export interface ScriptDetail {
   unexplained: number
   techniques_detail: TechniqueRef[]
   campaign: { id: number; name: string; status: string } | null
-  ai: AiExplanation | null
-  llm: LlmState
   demo: boolean
 }
 
@@ -114,8 +94,6 @@ export const scriptsApi = {
       cursor: cursor ?? undefined,
       limit,
     }),
-  explain: (id: number) =>
-    sendJson<{ request_id: number; state: string }>("POST", `/scripts/${id}/explain`),
 }
 
 export const scriptKeys = {
@@ -179,26 +157,4 @@ export function nextStep(lines: readonly ExplainedLine[]): string {
   if (lines.every((l) => l.risk === "info" || l.risk === null))
     return "This only looks around. Nothing to fix by itself, but it shows what attackers check first."
   return "Review whether the commands above could run on your exposed systems, and restrict shell access."
-}
-
-/** Why "Explain now" is not offered, in plain words. */
-export function llmUnavailable(llm: LlmState): string {
-  return llm.reason === "no_key"
-    ? "Add an Anthropic key in Settings to enable AI explanations."
-    : "AI explanations are switched off. The built-in explanations above need no setup."
-}
-
-export function llmRequestMessage(llm: LlmState): string | null {
-  switch (llm.request_state) {
-    case "queued":
-      return "Waiting for the explainer. This usually takes a few seconds."
-    case "refused":
-      return llm.request_detail === "daily_quota" || llm.request_detail === "token_cap"
-        ? "The daily or monthly limit for AI explanations is used up."
-        : "The request was refused."
-    case "failed":
-      return "The explainer could not answer this time. You can try again in a minute."
-    default:
-      return null
-  }
 }

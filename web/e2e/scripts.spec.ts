@@ -23,23 +23,8 @@ test("script detail", async ({ page }, info) => {
   await page.goto("/scripts/1")
   await expect(h1(page, "Script 1")).toBeVisible()
   await expect(page.getByRole("list", { name: "Commands with explanations" })).toBeVisible()
-  await expect(page.getByText("AI-generated, may be wrong").first()).toBeVisible()
   await settle(page)
   await shootTall(page, "script-detail", info.project.name)
-
-  // A script without an AI explanation: ask for one.
-  await page.goto("/scripts/2")
-  await expect(h1(page, "Script 2")).toBeVisible()
-  const ask = page.getByRole("button", { name: "Explain now" })
-  await expect(ask).toBeVisible()
-  await settle(page)
-  await shoot(page, "script-detail-explain", info.project.name, true)
-  await ask.click()
-  await expect(page.getByRole("button", { name: "Explaining…" })).toBeVisible()
-  await expect(page.getByText("AI-generated, may be wrong").first()).toBeVisible({
-    timeout: 15_000,
-  })
-  await shoot(page, "script-detail-ai", info.project.name, true)
 
   // A long command line (an SSH key) wraps inside its code band.
   await page.goto("/scripts/4")
