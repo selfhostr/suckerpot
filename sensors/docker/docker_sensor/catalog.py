@@ -38,7 +38,7 @@ APPS: list[_App] = [
      ("traefik", "proxy", "router", "ingress")),
     ("caddy", ("2.8.4", "2.8", "2.7.6-alpine"), 49_000_000,
      "caddy run --config /etc/caddy/Caddyfile --adapter caddyfile",
-     ((80, (80, 8080)), (443, (443, 8443))), ("caddy", "proxy", "web")),
+     ((80, (80, 8080)), (443, (443, 4443))), ("caddy", "proxy", "web")),
     ("rabbitmq", ("3.13.7-management", "3.12-management", "3.13-alpine"), 253_000_000,
      "docker-entrypoint.sh rabbitmq-server", ((5672, (0, 5672)),),
      ("rabbit", "queue", "mq", "broker")),

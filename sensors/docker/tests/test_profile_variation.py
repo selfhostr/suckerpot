@@ -48,3 +48,35 @@ def test_list_inspect_and_info_agree() -> None:
         mac = doc["NetworkSettings"]["MacAddress"]
         assert mac == listed[c.id]["NetworkSettings"]["Networks"]["bridge"]["MacAddress"]
         assert mac.endswith(f"{int(c.ip.split('.')[-1]):02x}")
+
+
+def test_images_predate_their_containers() -> None:
+    for p in _fleet():
+        created = {img[0]: img[3] for img in p.images}
+        for c in p.containers:
+            assert created[c.image] < c.created
+
+
+def test_compose_labels_follow_the_name_in_list_and_inspect() -> None:
+    seen_compose = seen_plain = False
+    for p in _fleet():
+        api = DockerApi(Config(), p)
+        for c in p.containers:
+            listed = api._list_entry(c)["Labels"]
+            inspected = api._inspect(c)["Config"]["Labels"]
+            assert listed == inspected == dict(c.labels)
+            if not c.labels:
+                seen_plain = True
+                continue
+            seen_compose = True
+            lab = dict(c.labels)
+            proj = lab["com.docker.compose.project"]
+            svc = lab["com.docker.compose.service"]
+            num = lab["com.docker.compose.container-number"]
+            assert c.name in (f"{proj}-{svc}-{num}", f"{proj}_{svc}_{num}")
+            assert lab["com.docker.compose.oneoff"] == "False"
+            assert lab["com.docker.compose.project.working_dir"] == f"/srv/{proj}"
+            assert lab["com.docker.compose.project.config_files"].startswith(f"/srv/{proj}/")
+            assert len(lab["com.docker.compose.config-hash"]) == 64
+            assert lab["com.docker.compose.version"]
+    assert seen_compose and seen_plain

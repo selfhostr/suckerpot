@@ -105,7 +105,7 @@ class Profile:
     local_ip: str
     saved_ago: int  # seconds since the last "RDB save" at process start
     keys: tuple[tuple[bytes, bytes], ...]
-    ttls: tuple[tuple[bytes, int], ...]  # lifetime in seconds of the keys that expire
+    ttls: tuple[tuple[bytes, int, int], ...]  # (key, lifetime s, phase offset s) of expiring keys
     process_id: int
     executable: str
     config_file: str
@@ -154,7 +154,9 @@ def _page(secret: str, label: str) -> str:
     )
 
 
-def _keyspace(secret: str) -> tuple[tuple[tuple[bytes, bytes], ...], tuple[tuple[bytes, int], ...]]:
+def _keyspace(
+    secret: str,
+) -> tuple[tuple[tuple[bytes, bytes], ...], tuple[tuple[bytes, int, int], ...]]:
     """An application-shaped keyspace: one primary style plus a couple of side styles.
 
     Styles are a session store, a page cache, a job queue and a rate limiter; key names, id
@@ -167,14 +169,14 @@ def _keyspace(secret: str) -> tuple[tuple[tuple[bytes, bytes], ...], tuple[tuple
         if _num(secret, f"side{i}", 0, 2):
             plan.append((extra, _num(secret, f"n-side{i}", 1, 4)))
     keys: list[tuple[bytes, bytes]] = []
-    ttls: list[tuple[bytes, int]] = []
+    ttls: list[tuple[bytes, int, int]] = []
 
     def add(key: str, value: str, ttl: int = 0) -> None:
         raw = key.encode()
         if all(raw != k for k, _ in keys):
             keys.append((raw, value[:2048].encode()))
             if ttl:
-                ttls.append((raw, ttl))
+                ttls.append((raw, ttl, _num(secret, "ttl-off/" + key, 0, ttl - 1)))
 
     for style, count in plan:
         tag = f"{style}"
@@ -248,8 +250,13 @@ def derive_profile(secret: str, version: str = "") -> Profile:
         workdir=workdir,
         pidfile=pidfile,
         supervised=supervised,
-        # Release tarballs and distro packages report 00000000; a git checkout shows a sha.
-        git_sha1=_hex(secret, "sha", 8) if _num(secret, "sha-kind", 0, 9) < 3 else "00000000",
+        # Distro packages (/usr/bin) and release tarballs report 00000000; only a source
+        # layout built from a git checkout shows a sha.
+        git_sha1=(
+            _hex(secret, "sha", 8)
+            if not executable.startswith("/usr/bin/") and _num(secret, "sha-kind", 0, 9) < 3
+            else "00000000"
+        ),
         gcc_version=_GCC_BY_KERNEL[kernel],
     )
 

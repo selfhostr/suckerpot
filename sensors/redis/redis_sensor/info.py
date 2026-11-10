@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from redis_sensor.identity import Profile
@@ -38,6 +39,11 @@ class ServerContext:
     net_in: int = 0
     net_out: int = 0
     rejected: int = 0
+    clock: Callable[[], float] = time.monotonic
+
+    def elapsed(self) -> float:
+        """Seconds since the process anchor: the one clock every TTL is read from."""
+        return self.clock() - self.started
 
     def uptime(self) -> int:
         return self.profile.uptime_offset + int(time.monotonic() - self.started)

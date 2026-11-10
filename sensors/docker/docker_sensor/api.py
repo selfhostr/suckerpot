@@ -542,7 +542,7 @@ class DockerApi:
                 else {"PrivatePort": priv, "Type": "tcp"}
                 for priv, pub in c.ports
             ],
-            "Labels": {},
+            "Labels": dict(c.labels),
             "State": "running",
             "Status": "Up " + _ago(now - c.created),
             "HostConfig": {"NetworkMode": "bridge"},
@@ -598,6 +598,7 @@ class DockerApi:
             env = ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"]
             ip = c.ip
             image_id = c.image_id
+            labels = dict(c.labels)
         else:
             s = c.spec
             cmd = s.entrypoint + s.cmd
@@ -608,6 +609,7 @@ class DockerApi:
             env = s.env[:16]
             ip = self.p.net_prefix + ".9"
             image_id = "sha256:" + hashlib.sha256(image.encode()).hexdigest()
+            labels = {}
         running = state == "running"
         return {
             "Id": cid,
@@ -660,7 +662,7 @@ class DockerApi:
                 "Image": image,
                 "WorkingDir": "",
                 "Entrypoint": None,
-                "Labels": {},
+                "Labels": labels,
             },
             "NetworkSettings": {
                 "Bridge": "",

@@ -44,6 +44,7 @@ class FakeContainer:
     created: int
     ports: tuple[tuple[int, int], ...]  # (private, public) TCP ports; public 0 = not published
     ip: str
+    labels: tuple[tuple[str, str], ...] = ()  # Compose labels; plain containers have none
 
 
 @dataclass(frozen=True)
@@ -69,8 +70,10 @@ class Profile:
         return random.Random(int.from_bytes(digest[:16], "big"))  # noqa: S311 - content only
 
 
-def _service_name(rng: random.Random, style: int, project: str, svc: str, taken: set[str]) -> str:
-    """Plain service name, or one of the compose naming schemes, unique within the host."""
+def _service_name(
+    rng: random.Random, style: int, project: str, svc: str, taken: set[str]
+) -> tuple[str, int]:
+    """(name, container number): plain or one of the naming schemes, unique within the host."""
     for n in range(1, 9):
         if style == 0:
             name = svc if n == 1 else f"{svc}{n}"
@@ -81,8 +84,8 @@ def _service_name(rng: random.Random, style: int, project: str, svc: str, taken:
         else:
             name = f"{project}-{svc}" if n == 1 else f"{project}-{svc}{n}"
         if name not in taken:
-            return name
-    return f"{svc}-{rng.randrange(10, 99)}"
+            return name, n
+    return f"{svc}-{rng.randrange(10, 99)}", 1
 
 
 def build_profile(secret: bytes, created: float) -> Profile:
@@ -104,18 +107,31 @@ def build_profile(secret: bytes, created: float) -> Profile:
         repo, tags, size, cmd, ports, svcs = APPS[idx]
         ref = f"{repo}:{crng.choice(tags)}"
         image_id = "sha256:" + base.derive(f"image-{i}")
-        images.append(
-            (
-                ref,
-                image_id,
-                size + crng.randrange(0, 3_000_000),
-                int(created - crng.randrange(20, 160) * 86400),
-            )
-        )
-        name = _service_name(crng, style, project, crng.choice(svcs), taken)
+        svc = crng.choice(svcs)
+        name, number = _service_name(crng, style, project, svc, taken)
         taken.add(name)
         # Some containers came up with the host, others were (re)created weeks later.
         started = crng.randrange(60, 7200) if crng.random() < 0.5 else crng.randrange(60, span)
+        container_created = int(boot + started)
+        # An image is always older than the container made from it.
+        image_created = min(
+            int(created - crng.randrange(20, 160) * 86400),
+            container_created - crng.randrange(3600, 30 * 86400),
+        )
+        images.append((ref, image_id, size + crng.randrange(0, 3_000_000), image_created))
+        labels: tuple[tuple[str, str], ...] = ()
+        if style in (1, 2):  # the two Compose naming schemes (v2 uses "-", v1 uses "_")
+            wd = f"/srv/{project}"
+            labels = (
+                ("com.docker.compose.config-hash", base.derive(f"cfg-{i}")),
+                ("com.docker.compose.container-number", str(number)),
+                ("com.docker.compose.oneoff", "False"),
+                ("com.docker.compose.project", project),
+                ("com.docker.compose.project.config_files", f"{wd}/docker-compose.yml"),
+                ("com.docker.compose.project.working_dir", wd),
+                ("com.docker.compose.service", svc),
+                ("com.docker.compose.version", "2.29.7" if style == 1 else "1.29.2"),
+            )
         containers.append(
             FakeContainer(
                 id=base.derive(f"container-{i}"),
@@ -123,9 +139,10 @@ def build_profile(secret: bytes, created: float) -> Profile:
                 image=ref,
                 image_id=image_id,
                 command=cmd,
-                created=int(boot + started),
+                created=container_created,
                 ports=tuple((priv, crng.choice(pub)) for priv, pub in ports),
                 ip=f"{prefix}.{ip_last}",
+                labels=labels,
             )
         )
         ip_last += 1
