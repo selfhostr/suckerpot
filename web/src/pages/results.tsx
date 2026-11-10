@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query"
 import { ChartNoAxesCombined } from "lucide-react"
 import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router"
-import { AbusechSummaryCard } from "@/components/results/abusech-summary-card"
 import { AnswersCard, DelayCard } from "@/components/results/answers-cards"
 import { CurveCard } from "@/components/results/curve-card"
 import { OverTimeCard } from "@/components/results/over-time-card"
@@ -225,7 +224,6 @@ export function ResultsPage() {
             takedown={providers.data?.items}
           />
           {tracking ? <TargetsCard filters={filters} /> : null}
-          <AbusechSummaryCard />
         </div>
       )}
     </>

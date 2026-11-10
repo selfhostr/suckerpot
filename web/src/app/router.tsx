@@ -71,9 +71,6 @@ const ResultsPage = lazy(() => import("@/pages/results").then((m) => ({ default:
 const ResultsTargetPage = lazy(() =>
   import("@/pages/results-target").then((m) => ({ default: m.ResultsTargetPage })),
 )
-const SubmissionsPage = lazy(() =>
-  import("@/pages/submissions").then((m) => ({ default: m.SubmissionsPage })),
-)
 const AbuseDetailPage = lazy(() =>
   import("@/pages/abuse-detail").then((m) => ({ default: m.AbuseDetailPage })),
 )
@@ -330,14 +327,6 @@ function appRoutes(): RouteObject {
         element: (
           <Lazy>
             <ResultsTargetPage />
-          </Lazy>
-        ),
-      },
-      {
-        path: "defend/submissions",
-        element: (
-          <Lazy>
-            <SubmissionsPage />
           </Lazy>
         ),
       },

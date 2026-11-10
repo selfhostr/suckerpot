@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { ReportOutcome } from "./replies"
 import {
   defang,
-  describeAbusech,
   describeAnswers,
   describeBounds,
   describeCurve,
@@ -224,7 +223,7 @@ describe("takedown sentences", () => {
       reports: { sent: 0, answered: null, first_reply_p50_s: null },
     })
     expect(describeTakedownHeader(empty, null)).toBe(
-      "Nothing reported yet. Takedowns appear here after your first report or submission.",
+      "Nothing reported yet. Takedowns appear here after your first report.",
     )
   })
   it("describes the curve with censoring", () => {
@@ -258,11 +257,6 @@ describe("takedown sentences", () => {
     }
     expect(describeTakedownProviders([row])).toBe(
       "EXAMPLE-NET (AS64500) took down 5 of 6 targets, the fastest median in your reports (7 h).",
-    )
-  })
-  it("sums up abuse.ch", () => {
-    expect(describeAbusech({ submitted: 18, known: 6 })).toBe(
-      "18 URLs were submitted to URLhaus this month; 6 were already known.",
     )
   })
   it("never promises a C2 takedown", () => {

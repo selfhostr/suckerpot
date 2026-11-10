@@ -263,7 +263,7 @@ export const DOWN_RESULTS: readonly string[] = [
 export interface TargetDetail {
   target: Target
   children: Target[]
-  links: { reports: string[]; submissions: number[] }
+  links: { reports: string[] }
   /** Newest first, at most 200. */
   checks: TargetCheck[]
   ttd: {

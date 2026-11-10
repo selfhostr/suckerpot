@@ -9,9 +9,8 @@ This page covers:
 - what is re-checked, and what is never contacted;
 - the states a target can have;
 - the statistics, including the 48-hour rule;
-- the abuse.ch submissions (off by default).
 
-Related pages: [Replies to reports](replies.md) (the answers from providers), [Configuration](configuration.md#takedown-tracking-and-abusech-submission-m27), and the design in [docs/design/m27.md](design/m27.md).
+Related pages: [Replies to reports](replies.md) (the answers from providers), [Configuration](configuration.md#takedown-tracking-m27), and the design in [docs/design/m27.md](design/m27.md).
 
 ## What is never contacted
 
@@ -84,7 +83,6 @@ A target is one thing you reported. SuckerPot creates targets from:
 | The subject of a payload-host report | IP address or domain | Payload host |
 | A URL that served a sample from that host | URL | Payload URL (a child of its host) |
 | The subject of a C2 report | IP address or domain | C2 |
-| A URL or C2 you submitted to abuse.ch | URL or IP:port | Payload URL or C2 |
 
 A target reported in several places keeps the earliest report date. Demo reports never create tracked targets unless `ABUSE_REPORTS_INCLUDE_DEMO=true` (for screenshots).
 
@@ -162,108 +160,18 @@ The Results page can group by provider, mailbox, country or report kind. Filters
 
 A monthly roll-up keeps the counts per provider, kind and channel. It holds numbers only: no values, no URLs, no addresses. It is kept after the reports are deleted by retention, so the history stays on the Results page.
 
-## abuse.ch submissions
-
-SuckerPot can send captured malware URLs to URLhaus, and command-and-control addresses to ThreatFox. abuse.ch then shares them with other defenders.
-
-Submission is **off by default, twice**:
-
-1. The server switch `ABUSECH_SUBMIT_ENABLED=false`. With it off, the card says "Disabled on this server" and nothing is computed or sent.
-2. The mode in **Settings > Reporting > abuse.ch**, which starts at **Off**.
-
-Both must be on before anything is sent.
-
-### Set it up
-
-1. Create a free abuse.ch account, or use one that you already have. Choose an account whose public name does not identify you. Submissions show that name unless you ask for anonymity.
-2. Copy its Auth-Key from the abuse.ch account page.
-3. Open **Settings > Reporting > abuse.ch**. Paste the key in the **Auth-Key** field and save. Saving asks for your dashboard password again. The key is encrypted and never shown again. Only its last four characters are shown.
-4. Choose a mode:
-
-| Mode | What happens |
-| --- | --- |
-| **Off** | Candidates are not even computed. |
-| **Review each** | Candidates appear on the **Submissions** tab. You select one or more (up to 20), confirm, and they are sent. |
-| **Automatic** | Each new candidate is scheduled. It is sent after the hold time (60 minutes by default, 10 to 1440). Each one shows "Submitting at hh:mm" with a **Cancel** button. |
-
-Automatic mode needs the key and `ABUSECH_SUBMIT_ENABLED=true`. The card explains if either is missing.
-
-Other switches on the card:
-
-- **Also submit command server addresses to ThreatFox.** Off by default.
-- **Anonymous.** On by default. It asks abuse.ch to hide your name.
-- **Daily cap.** At most 20 submissions per UTC day by default (1 to 200).
-
-The Auth-Key for submissions is separate from the Auth-Key for lookups. The lookup key is `ABUSECH_AUTH_KEY` in `.env`, or the abuse.ch key on **Settings > Enrichment**. It is used to ask whether a value is already known. Without it, no lookups run.
-
-### What is submitted
-
-URLhaus: a URL is a candidate only when all of these are true:
-
-- the collector stored a sample from it in the last 48 hours, and the sample is a binary or a script (not a web page);
-- it is an `http` or `https` URL of at most 1,024 characters;
-- its host is not on the never-share list (large public services, resolvers and your own addresses);
-- it was not already submitted.
-
-ThreatFox: only with the ThreatFox switch on. A candidate is a command-and-control `ip:port` read with high confidence from a sample seen in the last 7 days, whose family has a Malpedia name in `ingest/rules/abusech/malpedia.yaml`. Domains are not submitted.
-
-Demo data is never submitted.
-
-The body is built from a fixed list of fields:
-
-| Field | Content |
-| --- | --- |
-| The value | The URL, or the `ip:port`. |
-| Threat | `malware_download` for URLhaus, `botnet_cc` for ThreatFox. |
-| Tags | Up to five, from a fixed list: the family, the architecture (for example `arm`, `mips`, `x86-64`), and `sh` for shell scripts. |
-| Anonymous | `1` or `0`, from the switch. |
-
-The body has no free text, no comment, no reference link, no date and no session data. Before it leaves, it goes through the same identity check as the abuse reports. If the check fails, nothing is sent. A URL that contains your monitored address is blocked and never submitted.
-
-### Lookup before submit
-
-Before a candidate can be submitted, SuckerPot asks abuse.ch whether it already knows the value:
-
-| Lookup result | Status shown |
-| --- | --- |
-| Already listed | Already on URLhaus (skipped, and never sent again) |
-| Not listed | Can be submitted |
-| Lookup could not run (no key, or the quota is used up) | Waits. You cannot submit it until the lookup has finished. |
-
-### Delivery happens at most once
-
-A submission is sent at most once. SuckerPot records "Sending" in the database before it makes the request. If the outcome is unknown, for example after a crash, the row becomes **Failed** and is never retried. A tunnel that is down before the request returns the row to the queue, unsent.
-
-### Statuses
-
-| Tab | Statuses | Words in the dashboard |
-| --- | --- | --- |
-| To review | `candidate` | To review |
-| Scheduled | `pending`, `submitting` | Scheduled, Sending |
-| Submitted | `submitted`, `duplicate` | Submitted, Already listed |
-| Skipped | `skipped_known`, `skipped_never_list`, `cancelled` | Already on URLhaus, Not shared (safe list), Cancelled |
-| Failed | `failed`, `rejected`, `guard_failed` | Failed, Rejected by abuse.ch, Blocked by the identity check |
-
-Demo rows stay in **To review** and cannot be submitted.
-
-Each submitted row links to the abuse.ch page for the value. The link is built by the server from a fixed prefix.
-
-### Check the first submission
-
-The abuse.ch documentation describes the submission request, but it does not describe every answer. SuckerPot maps answers to short codes, such as `inserted`, `already_known` or `auth_failed`. Unknown answers become `unknown_outcome` or a generic code. Check the first result on the Submissions tab after you turn on automatic mode, before you rely on it.
-
 ## Retention
 
 | Data | Kept for |
 | --- | --- |
 | Individual checks | `TAKEDOWN_CHECK_RETENTION_DAYS` (400 by default). |
 | Targets | 400 days after tracking stops. |
-| abuse.ch submissions | 730 days. |
+| Old abuse.ch submission rows (from before v0.11.0) | 730 days. |
 | Monthly roll-up | Forever. |
 
 ## Related
 
 - [Replies to reports](replies.md): what the providers answered.
-- [Configuration](configuration.md#takedown-tracking-and-abusech-submission-m27): every variable.
-- [Dashboard](ui.md#results-and-submissions-m26-m27): the Results, Target and Submissions pages.
+- [Configuration](configuration.md#takedown-tracking-m27): every variable.
+- [Dashboard](ui.md#results-m26-m27): the Results and Target pages.
 - [Design M27](design/m27.md): the full design, with the invariants and the tests.

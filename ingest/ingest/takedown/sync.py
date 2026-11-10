@@ -27,7 +27,6 @@ from ingest.takedown.schedule import first_listing_at
 log = logging.getLogger(__name__)
 
 MAX_REPORTS = 200
-MAX_SUBMISSIONS = 100
 MAX_CHILDREN_PER_HOST = 20
 HOSTILE_DAYS = 30  # a host that attacked us this recently is an attacker, whatever else it serves
 DEMOTE_BATCH = 2000
@@ -91,16 +90,6 @@ WHERE t.role = 'payload_host' AND t.tracking AND NOT t.demo AND t.track_until > 
   AND NOT EXISTS (SELECT 1 FROM takedown_targets c
                   WHERE c.kind = 'url' AND c.role = 'payload_url' AND c.value = f.url)
 ORDER BY t.id, f.last_attempt_at DESC NULLS LAST
-"""
-
-PENDING_SUBMISSIONS = """
-SELECT s.id, s.platform, s.value, s.fetch_target_id, s.submitted_at,
-       f.status AS fetch_status, f.last_sha256
-FROM abusech_submissions s LEFT JOIN fetch_targets f ON f.id = s.fetch_target_id
-WHERE s.status = 'submitted' AND NOT s.demo AND s.submitted_at IS NOT NULL
-  AND s.submitted_at > :since
-  AND NOT EXISTS (SELECT 1 FROM takedown_target_links l WHERE l.submission_id = s.id)
-ORDER BY s.submitted_at LIMIT :n
 """
 
 
@@ -189,7 +178,6 @@ class TargetSync:
         made = {
             "reports": await self._from_reports(now, since),
             "children": await self._children(now),
-            "submissions": await self._from_submissions(now, since),
             "demoted": await self.demote_hostile(now),
         }
         return made
@@ -340,77 +328,9 @@ class TargetSync:
                 count += 1
         return count
 
-    # ---- abuse.ch submissions ----------------------------------------------------------------
-    async def _from_submissions(self, now: datetime, since: datetime) -> int:
-        async with self.factory() as session:
-            rows = (
-                await session.execute(
-                    text(PENDING_SUBMISSIONS), {"since": since, "n": MAX_SUBMISSIONS}
-                )
-            ).all()
-        count = 0
-        async with self.factory() as session, session.begin():
-            for r in rows:
-                if r.platform == "threatfox":
-                    host = _host_of_ioc(r.value)
-                    if host is None:
-                        continue
-                    tid = await self._upsert(
-                        session,
-                        kind=host_kind(host),
-                        role="c2",
-                        value=host,
-                        provider=self._provider_for_host(host),
-                        reported_at=r.submitted_at,
-                        channels=["threatfox"],
-                    )
-                    await self._link(session, tid, sub=r.id)
-                    count += 1
-                    continue
-                host = (urlsplit(r.value).hostname or "").lower()
-                if not host:
-                    continue
-                provider = self._provider_for_host(host)
-                parent = await self._upsert(
-                    session,
-                    kind=host_kind(host),
-                    role="payload_host",
-                    value=host,
-                    provider=provider,
-                    reported_at=r.submitted_at,
-                    channels=["urlhaus"],
-                )
-                eligible = r.fetch_status == "fetched" and r.last_sha256 is not None
-                tid = await self._upsert(
-                    session,
-                    kind="url",
-                    role="payload_url",
-                    value=r.value,
-                    provider=provider,
-                    reported_at=r.submitted_at,
-                    channels=["urlhaus"],
-                    parent=parent,
-                    fetch_id=r.fetch_target_id,
-                    eligible=eligible,
-                    baseline=r.last_sha256 if eligible else None,
-                )
-                await self._link(session, parent, sub=r.id)
-                await self._link(session, tid, sub=r.id)
-                count += 1
-        return count
-
     def _provider_for_host(self, host: str) -> Provider:
         if host_kind(host) == "ip" and self._asn_lookup is not None:
             asn, org = self._asn_lookup(host)
             if asn is not None:
                 return Provider(f"as{asn}", org, asn)
         return Provider("unknown")
-
-
-def _host_of_ioc(value: str) -> str | None:
-    """The address of a ThreatFox ``ip:port`` value."""
-    host = value.rsplit(":", 1)[0].strip("[]") if ":" in value else value
-    try:
-        return str(ipaddress.ip_address(host))
-    except ValueError:
-        return None

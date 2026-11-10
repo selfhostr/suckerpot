@@ -181,7 +181,7 @@ export function describeTakedownHeader(
   if (s.enabled === false) return "Takedown tracking is off (TAKEDOWN_ENABLED)."
   const c = s.urls
   if (c.tracked === 0 && s.hosts.tracked === 0 && s.reports.sent === 0)
-    return "Nothing reported yet. Takedowns appear here after your first report or submission."
+    return "Nothing reported yet. Takedowns appear here after your first report."
   if (c.tracked === 0)
     return `Since ${formatDayMonth(since ?? s.since)} you sent ${plural(s.reports.sent, "report")}; no payload URL is tracked yet.`
   return `Since ${formatDayMonth(since ?? s.since)} you reported ${plural(c.tracked, "malware URL")}; ${c.down_48h} of the ${c.eligible_48h} followed for 48 hours went down within that time, and ${c.down_30d} within 30 days.`
@@ -212,12 +212,6 @@ export function describeTakedownProviders(rows: readonly ProviderRow[]): string 
   const name = best.asn != null ? `${best.name} (AS${best.asn})` : best.name
   const down = Math.round((best.percent_30d ?? 0) * best.targets)
   return `${name} took down ${down} of ${plural(best.targets, "target")}, the fastest median in your reports (${shortDelay(best.ttd_p50_s)}).`
-}
-
-/** The abuse.ch card on the Results page. */
-export function describeAbusech(c: { submitted: number; known: number }): string {
-  if (c.submitted === 0 && c.known === 0) return "No URL was submitted to URLhaus this month."
-  return `${plural(c.submitted, "URL")} ${c.submitted === 1 ? "was" : "were"} submitted to URLhaus this month; ${c.known} ${c.known === 1 ? "was" : "were"} already known.`
 }
 
 /** The sentence of a target page. */

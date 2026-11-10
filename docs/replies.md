@@ -242,5 +242,5 @@ Counters on the card: `fetched`, `relevant`, `matched`, `ignored`, `oversize` an
 
 - [Takedowns](takedowns.md): what happens to the reported targets after you send.
 - [Configuration](configuration.md#replies-to-reports-m26): every variable and its range.
-- [Dashboard](ui.md#results-and-submissions-m26-m27): the Results page, where the outcomes are counted.
+- [Dashboard](ui.md#results-m26-m27): the Results page, where the outcomes are counted.
 - [Design M26](design/m26.md): the full design, with the invariants and the tests.
