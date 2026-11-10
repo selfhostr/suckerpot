@@ -1,6 +1,11 @@
 # Rules for the database, container, mobile, file-sharing, VoIP and NAS sensors. They key on the
 # ``data.flags`` list set by the sensor (see the sensor READMEs), never on raw attacker text
 # alone, so an attacker cannot forge a tag from another sensor.
+#
+# Evidence rule: a tag that names a specific CVE, malware family or fraud needs evidence specific to
+# that claim; generic activity gets a generic tag (recon, scanner, probe tags). On a list field,
+# ``has`` means ANY of the values and ``has_all`` means EVERY value: use ``has_all`` when one
+# signal alone is not enough.
 rules:
   - id: redis-persistence
     tag: persistence
@@ -56,11 +61,11 @@ rules:
 
   - id: db-ransom
     tag: db-ransom
-    description: Database dropped or a ransom note left behind.
+    description: A ransom note left in the data. A bare DROP DATABASE is not a ransom.
     when:
       all:
         - {field: sensor, in: [mysql, mssql, redis]}
-        - {field: data.flags, has: [ransom_note, drop_database]}
+        - {field: data.flags, has: ransom_note}
 
   - id: service-download-drop
     tag: malware-drop
@@ -80,7 +85,9 @@ rules:
 
   - id: adb-mirai
     tag: mirai
-    description: Shell on the Android Debug Bridge using BusyBox loader tokens.
+    description: >-
+      Shell on the Android Debug Bridge running a Mirai-family applet probe (the BusyBox echo-check
+      with a known variant token). Plain BusyBox use is not Mirai.
     when:
       all:
         - {field: sensor, equals: adb}
@@ -88,40 +95,65 @@ rules:
             - {field: data.flags, has: adb_shell}
             - {field: type, equals: download_attempt}
         - field: data.input
-          contains_any: [busybox, ecchi, mirai, /dev/watchdog]
+          contains_any: &mirai_words [busybox ecchi, busybox mirai, busybox zorro, busybox komashi, busybox josho, busybox sora, busybox owari, busybox komodo, mirai.arm, mirai.mips, mirai.mpsl, mirai.x86]
 
   - id: adb-mirai-download
     tag: mirai
-    description: Download recorded from an Android Debug Bridge shell command using BusyBox.
+    description: Download recorded from an Android Debug Bridge command carrying a Mirai-family indicator.
     when:
       all:
         - {field: sensor, equals: adb}
         - {field: type, equals: download_attempt}
-        - {field: data.command, contains_any: [busybox, ecchi, mirai]}
+        - {field: data.command, contains_any: *mirai_words}
 
   - id: smb-eternalblue
     tag: eternalblue
     description: >-
-      EternalBlue (MS17-010) style traffic. The SMB sensor never asserts this itself; the rule keys
-      on the SMB1 transaction commands (Trans, Trans2, NT Transact) the exploit chain sends as the
-      first SMB1 message. A plain SMBv1 negotiate (or session setup) is not tagged.
+      EternalBlue (MS17-010). Only an explicit sensor flag counts. The SMB sensor answers no SMB1
+      traffic and keeps the rest of an SMB1 message opaque, so it cannot see the malformed
+      transaction that makes the exploit; it never sets these flags today. A bare Trans, Trans2 or
+      NT Transact is tagged smb-v1-probe, not eternalblue.
     when:
       all:
         - {field: sensor, equals: smb}
+        - {field: data.flags, has: [eternalblue, ms17_010]}
+
+  - id: smb-v1-probe
+    tag: smb-v1-probe
+    description: >-
+      A client that speaks only SMBv1 (a negotiate with no SMB2 dialect, which the sensor resets)
+      or sends an SMB1 command after the negotiate. Scanners and old exploit kits do this; it says
+      nothing about which exploit, if any, was intended. A multi-protocol negotiate from a modern
+      client, which the sensor steers to SMB2, is ordinary and not tagged.
+    when:
+      all:
+        - {field: sensor, equals: smb}
+        - {field: type, equals: scan}
+        - {field: data.flags, has: smbv1}
         - any:
-            - {field: data.flags, has: [eternalblue, ms17_010]}
+            - {field: data.kind, equals: smb1_command}
             - all:
-                - {field: type, equals: scan}
-                - {field: data.kind, equals: smb1_command}
-                - {field: data.smb1_command_name, in: [trans, trans2, nt_transact]}
+                - {field: data.kind, equals: smb1_negotiate}
+                - {field: data.smb1_outcome, equals: reset}
 
   - id: sip-fraud
     tag: sip-fraud
-    description: SIP REGISTER or INVITE aimed at placing calls (toll fraud).
+    description: >-
+      A SIP INVITE to an international or premium-looking number (the sensor sets toll_fraud from
+      the dialled number: a + prefix, 00 or 011). A plain REGISTER or INVITE is not fraud.
     when:
       all:
         - {field: sensor, equals: sip}
-        - {field: data.flags, has: [invite, register, toll_fraud]}
+        - {field: data.flags, has_all: [invite, toll_fraud]}
+
+  - id: sip-probe
+    tag: recon
+    description: A SIP REGISTER or INVITE without a toll-fraud destination (registration floods, call probes).
+    when:
+      all:
+        - {field: sensor, equals: sip}
+        - {field: data.flags, has: [register, invite]}
+        - not: {field: data.flags, has: toll_fraud}
 
   - id: sip-options-scan
     tag: scanner
@@ -174,11 +206,14 @@ rules:
   - id: synology-exploit
     tag: synology-exploit
     description: >-
-      A forged DSM session id or an SCGI header injection (CVE-2026-13639, CVE-2026-13684). The
-      sensor sets the flag from the request shape and never executes anything.
+      A session id presented to a DSM web API call, or an SCGI header injection on a DSM web API
+      call (CVE-2026-13639, CVE-2026-13684). A password-less login or a session cookie on an
+      ordinary page is not enough. The sensor sets the flags from the request shape and never
+      executes anything.
     when:
       all:
         - {field: sensor, equals: synology}
+        - {field: data.flags, has: dsm_api}
         - {field: data.flags, has: [sid_forge, scgi_injection]}
 
   - id: synology-c3rb3r

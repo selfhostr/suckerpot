@@ -1,13 +1,32 @@
 # Rules for the fake web stack. Matching is on method, path, query and user-agent only.
+#
+# Evidence rule: a tag that names a specific CVE needs evidence specific to it. php2shell needs the
+# exploit shape that the web sensor sets from the request itself (the upload-progress field plus
+# PHP code, or a follow-up include of a session file the sensor saw created); merely touching
+# upload-progress is the generic php-upload-progress-probe.
 rules:
   - id: php2shell
     tag: php2shell
-    description: PHP upload-progress exploitation (CVE-2026-109618 / CVE-2026-109619).
+    description: >-
+      PHP upload-progress exploitation (CVE-2026-109618 / CVE-2026-109619). Keyed on the sensor
+      flag only: the upload-progress field carrying PHP code, or the include of a session file
+      created through it. Never on raw attacker text.
     when:
       all:
         - {field: type, equals: http_request}
+        - {field: sensor, equals: web}
+        - {field: data.flags, has: php2shell}
+
+  - id: php-upload-progress-probe
+    tag: php-upload-progress-probe
+    description: A request that touches the PHP upload-progress feature without the exploit shape.
+    when:
+      all:
+        - {field: type, equals: http_request}
+        - {field: sensor, equals: web}
+        - not: {field: data.flags, has: php2shell}
         - any:
-            - {field: data.flags, has: [php2shell, upload_progress]}
+            - {field: data.flags, has: upload_progress}
             - {field: data.query, contains: php_session_upload_progress}
             - {field: data.path, contains: upload_progress}
 

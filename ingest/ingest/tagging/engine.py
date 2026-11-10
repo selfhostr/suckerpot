@@ -18,8 +18,13 @@ Rule file format (``ingest/rules/*.yaml``)::
             - {field: data.input, command_any: [uname, nproc]}
 
 Leaf operators (one per leaf, next to ``field``): equals, in, contains, contains_any,
-startswith, endswith (string or list), glob (string or list), command_any, has, gte, gt, lte,
-lt, exists. String comparisons are case-insensitive unless ``ci: false``.
+startswith, endswith (string or list), glob (string or list), command_any, has, has_all, gte,
+gt, lte, lt, exists. String comparisons are case-insensitive unless ``ci: false``. On a list
+field (``data.flags``), ``has`` is true when ANY of the listed values is present and ``has_all``
+is true only when EVERY listed value is present.
+
+A tag that names a specific malware family, CVE or fraud must rest on evidence specific to that
+claim (``has_all`` or a combination of conditions); generic activity gets a generic tag.
 
 Event rules see ``type``, ``sensor`` and a whitelist of ``data.*`` fields. Session rules see
 ``session.*`` counters and the session's accumulated tags, evaluated after each upsert.
@@ -45,7 +50,7 @@ EVENT_FIELDS = {"type", "sensor"}
 DATA_FIELDS = {
     "input", "path", "query", "user_agent", "method", "url", "username", "password",
     "body_preview", "tool", "command", "kind", "host", "port", "status", "flags", "reason",
-    "smb1_command_name", "success",
+    "smb1_command_name", "smb1_outcome", "success",
 }  # fmt: skip
 SESSION_FIELDS = {
     "session.sensor", "session.event_count", "session.login_attempts", "session.login_success",
@@ -54,7 +59,7 @@ SESSION_FIELDS = {
 }  # fmt: skip
 OPERATORS = {
     "equals", "in", "contains", "contains_any", "startswith", "endswith", "glob",
-    "command_any", "has", "gte", "gt", "lte", "lt", "exists",
+    "command_any", "has", "has_all", "gte", "gt", "lte", "lt", "exists",
 }  # fmt: skip
 _SEPARATORS = str.maketrans({c: " " for c in ";|&()`$<>=\"'{}[]\t\n\r,"})
 
@@ -168,6 +173,11 @@ def _eval_leaf(leaf: Leaf, value: Any) -> bool:
             return False
         have = {_norm(v, ci) for v in value if isinstance(v, str | int | float | bool)}
         return any(_norm(a, ci) in have for a in _as_list(arg))
+    if op == "has_all":  # every listed element is present in a list field
+        if not isinstance(value, list):
+            return False
+        have = {_norm(v, ci) for v in value if isinstance(v, str | int | float | bool)}
+        return all(_norm(a, ci) in have for a in _as_list(arg))
     if op == "equals":
         if isinstance(arg, bool) or isinstance(value, bool):
             return value is arg
@@ -245,7 +255,7 @@ def _parse_cond(raw: Any, depth: int, where: str, fields: frozenset[str] | None 
     elif op == "exists":
         if not isinstance(arg, bool):
             raise RuleError(f"{where}: exists needs a boolean")
-    elif op in ("in", "contains_any", "command_any"):
+    elif op in ("in", "contains_any", "command_any", "has_all"):
         if not isinstance(arg, list) or not arg:
             raise RuleError(f"{where}: {op} needs a non-empty list")
         if op != "in" and not all(isinstance(i, str) and i for i in arg):

@@ -36,7 +36,8 @@ Rules live in `ingest/rules/services.yaml`.
 
 | Tag | Set when the sensor flags |
 | --- | --- |
-| `sip-fraud` | `invite`, `register` or `toll_fraud` (the dialled number starts with `+`, `00` or `011` and is long enough for a real number). |
+| `sip-fraud` | `invite` and `toll_fraud` together: an INVITE to a number that starts with `+`, `00` or `011` and is long enough for a real number. |
+| `recon` | `register` or `invite` without `toll_fraud`: registration floods and call probes. |
 | `scanner` | `options_scan` or `scanner_ua` (the User-Agent of a known SIP scanner, such as SIPVicious, `sipcli` or `iWar`). |
 
 `injection_attempt` (a JNDI string, PHP code or shell metacharacters in a URI or header) and `unknown_method` are shown on the session.
