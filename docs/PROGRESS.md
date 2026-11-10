@@ -258,3 +258,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Final days are aggregated once from consensus-eligible nodes into `observatory_daily` (migration `h0010`, 400 days, no UPDATE grant). Figures are rounded, published with a delay, coarse (complete ISO weeks, one significant figure, small figures left out) below three eligible nodes, and outcomes are exact only with production consensus thresholds. Bootstrap figures are counted once a week, from Thursday on.
 - Security review: first pass FAIL (Sybils could unlock precision, exact outcomes with relaxed thresholds, a daily-moving bootstrap, movable small figures, CVE tags, partial weeks, an UPDATE grant); all fixed. Second pass PASS; its two low findings (sliding rounded totals, a weekly count taken before late batches) fixed as well.
 - Lint, full typecheck, hub unit tests and hub integration tests green.
+
+## 2026-11-10: v0.11.0 (audit fixes)
+
+- A review of the whole project produced 17 fixes, released together. The most serious: ingest could silently stop storing events about a week after install (migration `0031`, a savepoint around the retraction, isolated streams, a parked-event stream, and a dashboard banner plus `GET /api/v1/settings/pipeline` that say when the pipeline is stalled).
+- Updates and restores no longer destroy a degraded node: health is judged against the node before the update, a rollback restores the database only when the schema moved, `just restore` loads a side database and swaps it, and the Valkey broker starts on a volume written by Redis 8.10.
+- Safe defaults: the collaborative network is off unless asked for (installer default no, `NETWORK_ENABLED` unset means off), the GreyNoise quota follows the free tier (7 a day), sign-in can no longer be locked out by anonymous failures, and Settings reports the oldest stored event.
+- Honesty and fingerprints: tags that name a family, a CVE or a fraud need specific evidence, and the SSH shell and the service sensors derive their identity per install. The hub counts a takedown vote only against a recheck it handed out (migration `h0011`), and releases only come from commits on main.
+- Two optional features were removed: node-side abuse.ch submission and the LLM script explainer. Lookups of a session's events are bounded in time.
+- Unit tests, integration tests, guardrails and the new backup-restore and broker jobs green on each pull request.

@@ -456,3 +456,13 @@ The network has one node. The frictions are a spare machine, port forwards on a 
 - [x] Lite participant footprint: `install.sh --participant --lite` (1 GiB, four sensors, lower database, Redis and ingest limits), kept in `COMPOSE_FILE`, with guardrail tests; no security setting loosened.
 - [x] VPS and Raspberry Pi guide (`docs/vps.md`), linked from the participant page and the README.
 - [ ] Site join page.
+
+## Audit fixes (v0.11.0)
+
+- [x] Ingest no longer stalls on a compressed chunk (migration `0031`), bad events are parked, and the dashboard says when the pipeline is stalled.
+- [x] Updates, rollbacks and restores are safe on a degraded node; the broker starts on a Redis 8 volume; releases only come from main.
+- [x] Safe defaults: network off unless asked, honest consent, GreyNoise free-tier quota, sign-in cannot be locked out by anonymous traffic, effective retention shown.
+- [x] Tags need specific evidence; the SSH shell and the service sensors have a per-install identity; stricter static safety tests.
+- [x] Hub rechecks count only against an assignment (migration `h0011`); bounded session lookups.
+- [x] Node-side abuse.ch submission and the LLM script explainer removed.
+- [x] Release (v0.11.0).

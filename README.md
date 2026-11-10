@@ -17,7 +17,7 @@
 ## Quick start
 
 ```bash
-git clone --depth 1 --branch v0.10.0 https://github.com/selfhostr/suckerpot.git
+git clone --depth 1 --branch v0.11.0 https://github.com/selfhostr/suckerpot.git
 cd suckerpot
 ./scripts/install.sh
 ```
