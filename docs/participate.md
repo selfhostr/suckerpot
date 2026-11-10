@@ -5,6 +5,10 @@ This page is for people who want to help the SuckerPot network and nothing else.
 If you want the full product (the dashboard, reports, blocklists), read [Install SuckerPot](install.md) instead. You can switch to it later and keep your data.
 
 ```{warning}
+**Experimental preview.** The SuckerPot network has very few nodes today. Its shared feed may be empty, and a participant gets nothing back yet. Thresholds and the protocol may change without notice. Known limits: identity is free, so the consensus does not yet resist a determined attacker who creates several nodes, and the hub run by the project maintainers is the single root of trust. See [The SuckerPot network](network.md).
+```
+
+```{warning}
 SuckerPot is built to be attacked. Use a dedicated machine that holds nothing else you care about. Choosing participant mode is your consent to join the network, as described below.
 ```
 
@@ -87,7 +91,7 @@ It never shares passwords, commands, your ports, your own address or any name of
 
 ## Privacy without a VPN
 
-Without a VPN, the hub sees your home address when your machine connects. A tunnel provider in front of the hub sees it too. The hub does not store it and does not log it, but the address is not hidden.
+The hub is reached through a Cloudflare tunnel. Without a VPN, Cloudflare and the hub's reverse proxy see your own public address when your machine connects. The hub application does not store it, but the address is not hidden. With a VPN, they see the VPN's exit address instead.
 
 In this mode the stack has no VPN to keep it from using your home connection, so the only thing that holds the services back is the network layout and the host firewall. `hubproxy` is the one service meant to have a route out. It forwards connections to the hub host and nothing else. The ingest service, which parses attacker data, is not meant to have one, and your sensors never download anything. This is only enforced if the host firewall is loaded; without it, a compromised container on a host with Docker older than 28 could reach the internet on its own. Load the host firewall.
 
