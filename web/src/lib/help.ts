@@ -61,7 +61,7 @@ export const HELP = {
   },
   scripts: {
     title: "Scripts",
-    body: "The library of command scripts that attackers typed, with copies merged into one entry. Each script has an explanation, written by fixed rules or, only if you switched the optional explainer on, by a language model. Open a script to read it and see which sessions used it.",
+    body: "The library of command scripts that attackers typed, with copies merged into one entry. Each script has an explanation written by fixed rules. Open a script to read it and see which sessions used it.",
   },
   script: {
     title: "Script",

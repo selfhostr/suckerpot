@@ -15,7 +15,7 @@ There are two ways. A key set in Settings overrides the same key in `.env`.
 1. **Settings > API keys.** Choose **Set key** for a provider, paste the key and confirm with the admin password. The key is stored encrypted, is write-only (only its last four characters are shown back), and **Test key** makes one real call to check it. This needs `SETTINGS_ENCRYPTION_KEY` in `.env` (see [Enrichment keys in Settings](configuration.md#enrichment-keys-in-settings)).
 2. **`.env`.** Put the key in the variable listed for the provider, then run `docker compose up -d`.
 
-The Settings page lists seven providers: AbuseIPDB, GreyNoise Community, MaxMind GeoLite2, NVD, GitHub advisories, abuse.ch and VirusTotal. The Anthropic key is set in `.env`. A key must be 16 to 128 printable characters with no spaces. Daily quotas are enforced by SuckerPot, so a key cannot be used up by mistake.
+The Settings page lists seven providers: AbuseIPDB, GreyNoise Community, MaxMind GeoLite2, NVD, GitHub advisories, abuse.ch and VirusTotal. A key must be 16 to 128 printable characters with no spaces. Daily quotas are enforced by SuckerPot, so a key cannot be used up by mistake.
 
 | Provider | Adds | `.env` variable | Cost |
 | --- | --- | --- | --- |
@@ -26,7 +26,6 @@ The Settings page lists seven providers: AbuseIPDB, GreyNoise Community, MaxMind
 | GitHub advisories | Faster CVE watch | `GITHUB_ADVISORY_TOKEN` | Free |
 | abuse.ch | URLhaus and ThreatFox answers | `ABUSECH_AUTH_KEY` | Free |
 | VirusTotal | Verdicts for file hashes | `VIRUSTOTAL_API_KEY` | Free tier, low quota |
-| Anthropic | Optional script explainer | `ANTHROPIC_API_KEY` | Paid, per use |
 
 ## AbuseIPDB
 
@@ -108,16 +107,6 @@ Adds verdicts and links for file hashes. Only hashes are sent, never files.
 3. Set it in Settings, or as `VIRUSTOTAL_API_KEY`.
 
 The free tier is small (about 500 requests per day and 4 per minute). SuckerPot spaces requests 16 seconds apart and stops at `VIRUSTOTAL_DAILY_QUOTA` (default 400).
-
-## Anthropic (optional script explainer)
-
-Only needed if you turn on `LLM_ENABLED=true`. The explainer sends the normalised text of one script (addresses, host names and URLs replaced by placeholders) to the Anthropic API, and only when an administrator asks for it.
-
-1. Create an account in the Anthropic Console at <https://console.anthropic.com/>.
-2. Create an API key under **API keys**. Use a dedicated key, and set a spending limit on it.
-3. Set it as `ANTHROPIC_API_KEY`.
-
-`LLM_DAILY_QUOTA` and `LLM_MONTHLY_TOKEN_CAP` cap the use. See [Script library and LLM explainer](configuration.md#script-library-and-llm-explainer-m17).
 
 ## Rotating a key
 
