@@ -1,6 +1,6 @@
 """The takedown worker (design M27). Off until ``TAKEDOWN_ENABLED=true``.
 
-One cycle (every ``TAKEDOWN_INTERVAL_S``, 600 s): sync targets from sent reports and submissions,
+One cycle (every ``TAKEDOWN_INTERVAL_S``, 600 s): sync targets from sent reports,
 run the due listing checks, evaluate the passive signals, decide the state of every target whose
 checks changed and, once a day, rebuild the monthly roll-up. The HTTP re-checks are not here: the
 collector (the only service allowed to contact a payload host) does them.

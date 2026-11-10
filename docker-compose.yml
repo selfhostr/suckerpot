@@ -332,15 +332,13 @@ services:
       ABUSE_REPLY_POLL_DEADLINE_S: ${ABUSE_REPLY_POLL_DEADLINE_S:-120}
       ABUSE_REPLY_EXCERPT_CHARS: ${ABUSE_REPLY_EXCERPT_CHARS:-2000}
       ABUSE_REPLY_MATCH_DAYS: ${ABUSE_REPLY_MATCH_DAYS:-120}
-      # Takedown tracking and abuse.ch submission (M27): both off by default. Submission also
-      # needs the owner's mode in Settings (off by default).
+      # Takedown tracking (M27): off by default.
       TAKEDOWN_ENABLED: ${TAKEDOWN_ENABLED:-false}
       TAKEDOWN_TRACK_DAYS: ${TAKEDOWN_TRACK_DAYS:-30}
       TAKEDOWN_INTEL_DAILY_QUOTA: ${TAKEDOWN_INTEL_DAILY_QUOTA:-100}
       TAKEDOWN_ABUSEIPDB_DAILY_QUOTA: ${TAKEDOWN_ABUSEIPDB_DAILY_QUOTA:-50}
       TAKEDOWN_QUIET_DAYS: ${TAKEDOWN_QUIET_DAYS:-7}
       TAKEDOWN_INTERVAL_S: ${TAKEDOWN_INTERVAL_S:-600}
-      ABUSECH_SUBMIT_ENABLED: ${ABUSECH_SUBMIT_ENABLED:-false}
       # Published sensor ports: reports name the port the source connected to (read-only use).
       SSH_HOST_PORT: ${SSH_HOST_PORT:-22}
       TELNET_HOST_PORT: ${TELNET_HOST_PORT:-23}
@@ -489,7 +487,6 @@ services:
       ABUSE_REPLIES_ENABLED: ${ABUSE_REPLIES_ENABLED:-false}
       ABUSE_NO_ANSWER_DAYS: ${ABUSE_NO_ANSWER_DAYS:-14}
       TAKEDOWN_ENABLED: ${TAKEDOWN_ENABLED:-false}
-      ABUSECH_SUBMIT_ENABLED: ${ABUSECH_SUBMIT_ENABLED:-false}
       # Network (M29): the API only needs to know whether it is on and whether a hub is set.
       NETWORK_ENABLED: ${NETWORK_ENABLED:-true}
       NETWORK_HUB_URL: ${NETWORK_HUB_URL:-}

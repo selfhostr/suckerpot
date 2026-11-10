@@ -1,8 +1,0 @@
-# Sample family (as named by the analysis rules) -> Malpedia name, for ThreatFox submissions.
-# ThreatFox requires a Malpedia family: a sample whose family is not listed here is never a
-# ThreatFox candidate. Add an entry only for a family you have checked on malpedia.com.
-mirai: elf.mirai
-gafgyt: elf.bashlite
-bashlite: elf.bashlite
-mozi: elf.mozi
-xorddos: elf.xorddos

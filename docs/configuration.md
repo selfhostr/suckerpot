@@ -613,11 +613,9 @@ Details in [Replies to reports](replies.md). The worker is off by default. Mail 
 
 The check interval of the mailbox is set in Settings (5 to 1440 minutes, 15 by default), not here.
 
-## Takedown tracking and abuse.ch submission (M27)
+## Takedown tracking (M27)
 
-Details in [Takedowns](takedowns.md). Everything is off by default. The collector re-checks a payload URL only with `TAKEDOWN_ENABLED=true` **and** `COLLECTOR_ENABLED=true`, through the VPN. Re-checks are one bounded GET of a URL that already served a sample. C2 servers and attacking addresses are never contacted.
-
-abuse.ch submission needs three things: `ABUSECH_SUBMIT_ENABLED=true`, a mode other than **Off** in Settings > Reporting > abuse.ch, and an Auth-Key saved there. The key is never an environment variable.
+Details in [Takedowns](takedowns.md). Off by default. The collector re-checks a payload URL only with `TAKEDOWN_ENABLED=true` **and** `COLLECTOR_ENABLED=true`, through the VPN. Re-checks are one bounded GET of a URL that already served a sample. C2 servers and attacking addresses are never contacted.
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -629,9 +627,8 @@ abuse.ch submission needs three things: `ABUSECH_SUBMIT_ENABLED=true`, a mode ot
 | `TAKEDOWN_QUIET_DAYS` | `7` | Days without a sighting before an attacking address counts as quiet (1 to 90). |
 | `TAKEDOWN_CHECK_RETENTION_DAYS` | `400` | Days to keep individual checks (30 to 3,650). Read by `migrate`. The monthly roll-up is kept forever. |
 | `TAKEDOWN_INTERVAL_S` | `600` | Seconds between two takedown cycles in `ingest` (30 to 86,400). Read by the worker. |
-| `ABUSECH_SUBMIT_ENABLED` | `false` | Server switch for submitting captured malware URLs to URLhaus, and C2 addresses to ThreatFox. Read by `ingest` and `api`. When it is `false`, the Settings card shows the switch as disabled. |
 
-The abuse.ch lookup key (used to check whether a value is already listed) is the same as before: `ABUSECH_AUTH_KEY`, or the key on the Settings page. The submission Auth-Key is separate and is entered only in Settings > Reporting > abuse.ch.
+The abuse.ch lookup key (used to check whether a value is already listed) is `ABUSECH_AUTH_KEY`, or the key on the Settings page. SuckerPot no longer submits anything to abuse.ch from a node.
 
 ## SuckerPot network (M29)
 

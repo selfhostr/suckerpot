@@ -11,7 +11,6 @@ import { useEffect, useRef } from "react"
 import { Link } from "react-router"
 import { ReportingCard } from "@/components/abuse/reporting-card"
 import { ReportingNav } from "@/components/abuse/reporting-nav"
-import { AbusechCard } from "@/components/abuse/abusech-card"
 import { ImapCard } from "@/components/abuse/imap-card"
 import { SendingCard } from "@/components/abuse/sending-card"
 import { ChannelsCard } from "@/components/alerts/channels-card"
@@ -479,9 +478,6 @@ export function SettingsPage() {
             </section>
             <section id="reporting-replies" className="scroll-mt-16">
               <ImapCard />
-            </section>
-            <section id="reporting-abusech" className="scroll-mt-16">
-              <AbusechCard />
             </section>
           </TabsContent>
         ) : null}

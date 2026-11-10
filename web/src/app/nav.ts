@@ -133,7 +133,6 @@ export const NAV_ITEMS: NavItem[] = [
     icon: MailWarning,
     tabs: [
       { to: "/defend/abuse", label: "Reports" },
-      { to: "/defend/submissions", label: "Submissions" },
       { to: "/defend/results", label: "Results" },
     ],
   },

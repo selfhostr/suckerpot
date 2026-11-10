@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, CircleCheck, CircleDot, FileSearch, Mail, Send } from "lucide-react"
+import { ArrowLeft, CircleCheck, CircleDot, FileSearch, Mail } from "lucide-react"
 import { Fragment, useState } from "react"
 import { Link, useParams } from "react-router"
 import { useAuth } from "@/app/auth"
@@ -38,23 +38,16 @@ const back = (
 )
 
 type Step =
-  | { kind: "report"; at: string; id: string; submission: boolean }
+  | { kind: "report"; at: string; id: string }
   | { kind: "check"; at: string; check: TargetCheck }
 
-/** Newest first: every check, and the reports and submissions that started the tracking. */
+/** Newest first: every check, and the reports that started the tracking. */
 function steps(d: TargetDetail): Step[] {
   const out: Step[] = [
     ...d.links.reports.map((id): Step => ({
       kind: "report",
       at: d.target.reported_at,
       id,
-      submission: false,
-    })),
-    ...d.links.submissions.map((id): Step => ({
-      kind: "report",
-      at: d.target.reported_at,
-      id: String(id),
-      submission: true,
     })),
     ...d.checks.map((c): Step => ({ kind: "check", at: c.checked_at, check: c })),
   ]
@@ -64,7 +57,7 @@ function steps(d: TargetDetail): Step[] {
 function StepRow({ s, last }: { s: Step; last: boolean }) {
   const down = s.kind === "check" && DOWN_RESULTS.includes(s.check.outcome)
   const changed = s.kind === "check" && s.check.outcome === "changed"
-  const Icon = s.kind === "report" ? (s.submission ? Send : Mail) : down ? CircleCheck : CircleDot
+  const Icon = s.kind === "report" ? Mail : down ? CircleCheck : CircleDot
   return (
     <li className="relative grid grid-cols-[2rem_minmax(0,1fr)] gap-x-3">
       {!last ? (
@@ -82,19 +75,13 @@ function StepRow({ s, last }: { s: Step; last: boolean }) {
       <div className="min-w-0 space-y-0.5 pt-1">
         {s.kind === "report" ? (
           <p className="text-sm text-fg">
-            {s.submission ? (
-              "Submitted to abuse.ch"
-            ) : (
-              <>
-                Report sent:{" "}
-                <Link
-                  to={`/defend/abuse/${s.id}`}
-                  className="font-mono text-xs underline underline-offset-4"
-                >
-                  {s.id.slice(0, 8)}
-                </Link>
-              </>
-            )}
+            Report sent:{" "}
+            <Link
+              to={`/defend/abuse/${s.id}`}
+              className="font-mono text-xs underline underline-offset-4"
+            >
+              {s.id.slice(0, 8)}
+            </Link>
           </p>
         ) : (
           <>
