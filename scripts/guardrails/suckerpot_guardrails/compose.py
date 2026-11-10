@@ -38,7 +38,18 @@ EXTERNAL_NETWORKS: dict[str, dict[str, str]] = {
         "com.docker.network.bridge.enable_icc": "false",
     },
 }
-ADMIN_SSH_PORT = "22222"
+# The host's own admin SSH port is private to each operator, so it is configuration, never a
+# constant: ADMIN_SSH_PORT in the environment (the variable scripts/check-ports.sh reads from
+# .env). When it is unset, PUBLISHABLE_PORTS below still refuses any port that is not a sensor
+# port or the dashboard port.
+ADMIN_SSH_PORT_VAR = "ADMIN_SSH_PORT"
+# Explicit allow-list of the host ports a service may publish by default: one per sensor listener
+# (SSH, Telnet, HTTP, HTTPS, RDP, Redis, Docker, MySQL, MSSQL, ADB, SMB, SIP, Synology HTTP and
+# HTTPS) and the dashboard. A new sensor port must be added here on purpose.
+PUBLISHABLE_PORTS = frozenset(
+    {"22", "23", "80", "443", "3389", "6379", "2375", "3306", "1433", "5555", "445", "5060"}
+    | {"5000", "5001", "8443"}
+)
 PROXY_ENV = {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -464,8 +475,13 @@ def _default_port(host: str) -> str:
 
 
 def _check_ports(services: Mapping[str, Any]) -> list[str]:
-    """M32: nobody publishes the admin SSH port; the dashboard never uses a sensor port."""
+    """M32: nobody publishes the admin SSH port; the dashboard never uses a sensor port.
+
+    Without ADMIN_SSH_PORT in the environment, the allow-list check (PUBLISHABLE_PORTS) is what
+    keeps an unknown port, the admin one included, from being published.
+    """
     problems: list[str] = []
+    admin = os.environ.get(ADMIN_SSH_PORT_VAR, "").strip()
     sensor_ports = {
         _default_port(_host_port(p))
         for n, s in services.items()
@@ -475,8 +491,13 @@ def _check_ports(services: Mapping[str, Any]) -> list[str]:
     for name, svc in services.items():
         for entry in svc.get("ports") or []:
             host = _host_port(entry)
-            if _default_port(host) == ADMIN_SSH_PORT:
-                problems.append(f"service '{name}' must not publish port {ADMIN_SSH_PORT}")
+            port = _default_port(host)
+            if admin and port == admin:
+                problems.append(f"service '{name}' must not publish the admin SSH port")
+            if port not in PUBLISHABLE_PORTS:
+                problems.append(
+                    f"service '{name}' publishes host port {port}: not a sensor or dashboard port"
+                )
             if name == "api" and (_default_port(host) in sensor_ports or "_HOST_PORT" in host):
                 problems.append("service 'api' must not publish a sensor port")
     return problems
