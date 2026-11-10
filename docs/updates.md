@@ -255,7 +255,7 @@ After you confirm, it runs four steps:
 | --- | --- |
 | `[1/4]` | Checks out the previous code, on its branch when it had one. |
 | `[2/4]` | Restores the previous version in `.env`. In images mode it verifies the old images and pulls them by digest. In source mode it rebuilds. |
-| `[3/4]` | Restores the database from the dump. `scripts/restore-db.sh` asks its own confirmation. |
+| `[3/4]` | Restores the database from the dump. `scripts/restore-db.sh` asks its own confirmation. It restores into a side database first and swaps it in only when that worked, so a failed restore leaves the current database as it was. It needs room for a second copy of the database. See [Deployment](deployment.md#data-volumes-and-backups). |
 | `[4/4]` | Starts the stack and waits until every service is healthy. |
 
 ### What a rollback costs
