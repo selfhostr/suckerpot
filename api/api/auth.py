@@ -78,7 +78,7 @@ VERIFY_CONCURRENCY = 2  # argon2 checks at once; each holds ~64 MiB, so keep thi
 VERIFY_WAIT_S = 5.0  # how long a check may queue for a slot before login answers 429
 MAX_VERIFY_CONCURRENCY = 4  # upper bound of LOGIN_VERIFY_CONCURRENCY (~64 MiB per check)
 MAX_VERIFY_PENDING = 20  # running + queued checks; beyond this login answers 429 at once
-PRESSURE_DELAY_S = 1.0  # a wrong password keeps its check slot this long while under pressure
+PRESSURE_DELAY_S = 1.0  # extra wait before a refused login is answered, under pressure
 OWNER = "o"  # token subject of the owner account; database users are "u<id>"
 TOKEN_VERSION = "v2"  # noqa: S105 - the token format tag, not a password
 MAX_TRACKED_SOURCES = 10_000
@@ -286,7 +286,9 @@ class AuthService:
         self._reauth_failures: dict[str, int] = {}
         self._verify_sem = asyncio.Semaphore(settings.verify_concurrency)
         self._pending = 0
-        self._holds: set[asyncio.Task[None]] = set()
+        # Client addresses with a sign-in attempt in flight (one each). An entry exists only
+        # while a request runs, so the set is bounded by the running requests.
+        self._inflight: set[str] = set()
 
     # -- session tokens -------------------------------------------------------------------------
 
@@ -406,53 +408,45 @@ class AuthService:
 
     # -- credentials and rate limit -------------------------------------------------------------
 
-    async def _limited[T](self, fn: Callable[[], T], *, check: bool = False) -> T:
+    async def _limited[T](self, fn: Callable[[], T]) -> T:
         """Run one slow argon2 call in a thread, a few at a time.
 
         This bounds the CPU and memory cost. Extra attempts queue for a slot (first come, first
         served) up to ``verify_wait_s``, then raise ``LoginBusy``; with ``MAX_VERIFY_PENDING``
         already running or queued, ``LoginBusy`` is raised at once. Nothing is refused for a
-        whole window, so a correct password only waits its turn.
-
-        With ``check`` set, a wrong answer (the call returned False) keeps its slot for
-        ``PRESSURE_DELAY_S`` while ``under_pressure()`` holds. That caps server-wide guessing
-        at about concurrency / (verify time + delay) without refusing anybody, and a correct
-        password is never held. The hold survives a dropped connection.
+        whole window, so a correct password only waits its turn. The slot is freed as soon as
+        the check returns, whatever the result.
         """
         if self._pending >= MAX_VERIFY_PENDING:
             raise LoginBusy
         self._pending += 1
         try:
-            await asyncio.wait_for(self._verify_sem.acquire(), self.settings.verify_wait_s)
-        except TimeoutError:
-            self._pending -= 1
-            raise LoginBusy from None
-        except BaseException:
-            self._pending -= 1
-            raise
-        hold: asyncio.Task[None] | None = None
-        try:
-            result = await asyncio.to_thread(fn)
-            if check and result is False and self.under_pressure():
-                hold = asyncio.ensure_future(asyncio.sleep(PRESSURE_DELAY_S))
-                self._holds.add(hold)
-                await asyncio.shield(hold)
-            return result
+            try:
+                await asyncio.wait_for(self._verify_sem.acquire(), self.settings.verify_wait_s)
+            except TimeoutError:
+                raise LoginBusy from None
+            try:
+                # On cancellation (shutdown only) the slot is freed while the thread still runs.
+                return await asyncio.to_thread(fn)
+            finally:
+                self._verify_sem.release()
         finally:
-            if hold is not None and not hold.done():
-                hold.add_done_callback(lambda _t: self._release())  # cancelled: release later
-            else:
-                self._release()
-            if hold is not None:
-                hold.add_done_callback(self._holds.discard)
+            self._pending -= 1
 
-    def _release(self) -> None:
-        self._pending -= 1
-        self._verify_sem.release()
+    def begin_attempt(self, ip: str) -> bool:
+        """Claim the one sign-in attempt per client address; False when it already has one."""
+        key = rate_key(ip)
+        if key in self._inflight:
+            return False
+        self._inflight.add(key)
+        return True
+
+    def end_attempt(self, ip: str) -> None:
+        self._inflight.discard(rate_key(ip))
 
     async def check_credentials(self, username: str, password: str) -> bool:
         """The owner's credentials. Constant work whether the name matches or not."""
-        password_ok = await self._limited(lambda: self._verify(password), check=True)
+        password_ok = await self._limited(lambda: self._verify(password))
         user_ok = hmac.compare_digest(username.encode(), self.settings.username.encode())
         return password_ok and user_ok and self._login_possible
 
@@ -469,7 +463,7 @@ class AuthService:
         """Verify against ``hashed``; with None a dummy hash is checked, so the cost is equal."""
         real = hashed is not None
         target = hashed if hashed is not None else self._dummy_hash
-        ok = await self._limited(lambda: self.verify_hash(target, password), check=True)
+        ok = await self._limited(lambda: self.verify_hash(target, password))
         return ok and real
 
     async def hash_password(self, password: str) -> str:
@@ -953,6 +947,10 @@ async def _authenticate(
         return None
 
 
+async def _pause(seconds: float) -> None:
+    await asyncio.sleep(seconds)
+
+
 @router.post("/login", status_code=204)
 @allow_any_role
 async def login(body: LoginBody, request: Request) -> Response:
@@ -968,21 +966,27 @@ async def login(body: LoginBody, request: Request) -> Response:
         return JSONResponse(
             {"detail": "Too many attempts"}, status_code=429, headers={"Retry-After": str(retry)}
         )
+    busy = JSONResponse(
+        {"detail": "Too many attempts"}, status_code=429, headers={"Retry-After": "2"}
+    )
+    if not service.begin_attempt(ip):  # one check at a time per address
+        return busy
     try:
         result = await _authenticate(request, service, body, ip)
     except LoginBusy:
-        return JSONResponse(
-            {"detail": "Too many attempts"}, status_code=429, headers={"Retry-After": "2"}
-        )
+        return busy
     except SQLAlchemyError, OSError:
         log.warning("dashboard login failed: database unavailable")
         return JSONResponse({"detail": "Sign-in is temporarily unavailable"}, status_code=503)
+    finally:
+        service.end_attempt(ip)  # before any delay: waiting holds no slot and no place
     if result is None:
         service.record_failure(ip, username=by_name)
         log.warning("dashboard login failed ip=%s", ip[:64])  # never the submitted values
-        # The same delay for every wrong answer, known account or not. While the server-wide
-        # budget is spent the check also held its slot (see ``_limited``).
-        await asyncio.sleep(FAILURE_DELAY_S)
+        # The same delay for every refused login (wrong password, unknown, locked or disabled
+        # user), decided on the outcome and spent after the check slot was freed. Under
+        # pressure it is longer. A successful login never waits.
+        await _pause(FAILURE_DELAY_S + (PRESSURE_DELAY_S if service.under_pressure() else 0.0))
         return JSONResponse({"detail": "Invalid credentials"}, status_code=401)
     previous = service.validate(service.session_token(request.scope))
     if previous is not None:

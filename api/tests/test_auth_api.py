@@ -8,7 +8,8 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import api.auth as auth_mod
-from api.auth import AuthSettings
+from api import accounts
+from api.auth import AuthService, AuthSettings
 from api.main import create_app
 
 COOKIE_SESSION = "__Host-sp_session"
@@ -452,10 +453,172 @@ async def test_more_attempts_than_the_cap_are_all_answered() -> None:
             r = await c.post(
                 "/api/v1/auth/login",
                 json={"username": "admin", "password": PASSWORD if right else "nope"},
-                headers={**ORIGIN, "Origin": "https://testserver", "X-Test-Ip": "192.0.2.50"},
+                headers={
+                    **ORIGIN,
+                    "Origin": "https://testserver",
+                    "X-Test-Ip": f"192.0.2.{i + 10}",
+                },
             )
             return r.status_code
 
         codes = await asyncio.gather(*(attempt(i) for i in range(16)))
     assert set(codes) <= {204, 401}
     assert codes[11] == 204 and codes.count(401) == 15
+
+
+# ---- the response delay under pressure ----------------------------------------------------------
+
+
+def _user_row(**kw: Any) -> Any:
+    from types import SimpleNamespace
+
+    base = {
+        "id": 7, "username": "bob", "password_hash": HASH, "session_version": 0,
+        "disabled": False, "locked_until": None, "known_sources": [],
+    }  # fmt: skip
+    return SimpleNamespace(**{**base, **kw})
+
+
+def _pressured_app(monkeypatch: pytest.MonkeyPatch, row: Any | None, **kw: Any) -> FastAPI:
+    """An app with the global wrong-password budget spent and one (or no) database user."""
+    app = make_app(rate_per_ip=1000, rate_global=2, **kw)
+
+    async def find(db: object, username: str) -> Any:
+        return row if row is not None and username == "bob" else None
+
+    async def failed(db: object, user_id: int) -> bool:
+        return False
+
+    async def dummy(db: object) -> None:
+        return None
+
+    monkeypatch.setattr(accounts, "find_by_username", find)
+    monkeypatch.setattr(accounts, "dummy_write", dummy)
+    monkeypatch.setattr(accounts, "register_failure", failed)
+    service: AuthService = app.state.auth
+    service.record_failure("192.0.2.9")
+    service.record_failure("192.0.2.9")
+    assert service.under_pressure()
+    return app
+
+
+@pytest.fixture
+def delays(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    seen: list[float] = []
+
+    async def fake_pause(seconds: float) -> None:
+        seen.append(seconds)
+
+    monkeypatch.setattr(auth_mod, "_pause", fake_pause)
+    monkeypatch.setattr(auth_mod, "FAILURE_DELAY_S", 0.3)
+    monkeypatch.setattr(auth_mod, "PRESSURE_DELAY_S", 1.0)
+    return seen
+
+
+def test_under_pressure_every_refused_login_waits_the_same(
+    monkeypatch: pytest.MonkeyPatch, delays: list[float]
+) -> None:
+    app = _pressured_app(monkeypatch, _user_row())
+    with TestClient(app, base_url="https://testserver") as c:
+        outcomes: list[tuple[str, int]] = []
+        outcomes.append(("owner wrong", login(c, "wrong").status_code))
+        outcomes.append(("unknown user", login(c, PASSWORD, "nobody").status_code))
+        outcomes.append(("user wrong", login(c, "wrong", "bob").status_code))
+        # The right password for a disabled user, then for a source-locked one.
+        app.state.auth.record_failure("192.0.2.9")
+        disabled = _user_row(disabled=True)
+        monkeypatch.setattr(accounts, "find_by_username", _finder(disabled))
+        outcomes.append(("disabled, right password", login(c, PASSWORD, "bob").status_code))
+        monkeypatch.setattr(accounts, "find_by_username", _finder(_user_row()))
+        monkeypatch.setattr(accounts, "is_locked_for", lambda row, source: True)
+        outcomes.append(("locked, right password", login(c, PASSWORD, "bob").status_code))
+    assert [code for _, code in outcomes] == [401] * 5
+    assert delays == [1.3] * 5  # the outcome, not the argon2 result, decides
+
+
+def _finder(row: Any) -> Any:
+    async def find(db: object, username: str) -> Any:
+        return row if username == "bob" else None
+
+    return find
+
+
+def test_a_successful_login_is_not_delayed_under_pressure(
+    monkeypatch: pytest.MonkeyPatch, delays: list[float]
+) -> None:
+    app = _pressured_app(monkeypatch, None)
+    with TestClient(app, base_url="https://testserver") as c:
+        assert login(c).status_code == 204
+    assert delays == []
+
+
+async def test_the_slot_is_free_while_a_refusal_is_delayed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    import httpx
+
+    app = _pressured_app(monkeypatch, None, verify_concurrency=1)
+    app.state.auth.client_ip = lambda conn: conn.headers.get("x-test-ip", "192.0.2.1")
+    gate = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def slow_pause(seconds: float) -> None:
+        entered.set()
+        await gate.wait()
+
+    monkeypatch.setattr(auth_mod, "_pause", slow_pause)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as c:
+
+        async def attempt(password: str, addr: str) -> int:
+            r = await c.post(
+                "/api/v1/auth/login",
+                json={"username": "admin", "password": password},
+                headers={"Origin": "https://testserver", "X-Test-Ip": addr},
+            )
+            return r.status_code
+
+        first = asyncio.create_task(attempt("wrong", "198.51.100.1"))
+        await asyncio.wait_for(entered.wait(), 5)  # the first response is being delayed
+        service: AuthService = app.state.auth
+        assert not service._verify_sem.locked() and service._pending == 0
+        assert not service._inflight  # no verify slot, no pending place, no address held
+        assert await attempt(PASSWORD, "203.0.113.2") == 204  # another source verifies meanwhile
+        gate.set()
+        assert await first == 401
+
+
+async def test_one_attempt_in_flight_per_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import threading
+
+    import httpx
+
+    app = make_app(rate_per_ip=1000)
+    app.state.auth.client_ip = lambda conn: conn.headers.get("x-test-ip", "192.0.2.1")
+    gate = threading.Event()
+    real = app.state.auth._verify
+    monkeypatch.setattr(app.state.auth, "_verify", lambda pw: gate.wait(5) and real(pw))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as c:
+
+        async def attempt(addr: str) -> int:
+            r = await c.post(
+                "/api/v1/auth/login",
+                json={"username": "admin", "password": PASSWORD},
+                headers={"Origin": "https://testserver", "X-Test-Ip": addr},
+            )
+            return r.status_code
+
+        first = asyncio.create_task(attempt("192.0.2.40"))
+        await asyncio.sleep(0.1)
+        second = await attempt("192.0.2.40")  # same address: refused at once
+        assert second == 429
+        other = asyncio.create_task(attempt("192.0.2.41"))  # another address: queued, not refused
+        await asyncio.sleep(0.1)
+        gate.set()
+        assert await first == 204 and await other == 204
+        assert app.state.auth._inflight == set()
+        assert await attempt("192.0.2.40") == 204  # the address is free again

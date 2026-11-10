@@ -492,58 +492,6 @@ async def test_check_hash_with_no_hash_costs_a_verification_and_fails() -> None:
     assert svc.is_owner_name("admin") and not svc.is_owner_name("Admin")
 
 
-def _spend_global_budget(svc: AuthService) -> None:
-    for _ in range(svc.settings.rate_global):
-        svc.record_failure("192.0.2.9")
-    assert svc.under_pressure()
-
-
-async def test_under_pressure_a_wrong_attempt_holds_its_slot(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import api.auth as auth_mod
-
-    monkeypatch.setattr(auth_mod, "PRESSURE_DELAY_S", 0.4)
-    svc = AuthService(settings(verify_concurrency=1, rate_global=2))
-    _spend_global_budget(svc)
-    task = asyncio.create_task(svc.check_hash(None, "wrong"))
-    await asyncio.sleep(0.2)  # the check is done, the slot is still held
-    assert svc._verify_sem.locked() and not task.done()
-    await task
-    assert not svc._verify_sem.locked() and svc._pending == 0
-
-
-async def test_the_hold_survives_a_cancelled_request(monkeypatch: pytest.MonkeyPatch) -> None:
-    import api.auth as auth_mod
-
-    monkeypatch.setattr(auth_mod, "PRESSURE_DELAY_S", 0.4)
-    svc = AuthService(settings(verify_concurrency=1, rate_global=2))
-    _spend_global_budget(svc)
-    task = asyncio.create_task(svc.check_hash(None, "wrong"))
-    await asyncio.sleep(0.2)
-    task.cancel()  # the client went away
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert svc._verify_sem.locked()  # the slot is not freed early
-    await asyncio.sleep(0.5)
-    assert not svc._verify_sem.locked() and svc._pending == 0
-
-
-async def test_a_right_password_is_never_held_under_pressure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import api.auth as auth_mod
-
-    monkeypatch.setattr(auth_mod, "PRESSURE_DELAY_S", 5.0)
-    svc = AuthService(settings(verify_concurrency=1, rate_global=2))
-    _spend_global_budget(svc)
-    start = time.monotonic()
-    assert await svc.check_credentials("admin", PASSWORD)
-    assert time.monotonic() - start < 2.0
-    assert not svc._verify_sem.locked()
-    assert svc.rate_limited("192.0.2.77") is None  # nothing refuses the owner outright
-
-
 async def test_the_pending_cap_answers_busy_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
     import threading
 
@@ -574,3 +522,17 @@ def test_verify_concurrency_is_clamped_with_a_warning(caplog: pytest.LogCaptureF
     with caplog.at_level("WARNING"):
         assert AuthSettings.from_env(env(LOGIN_VERIFY_CONCURRENCY="3")).verify_concurrency == 3
     assert "LOGIN_VERIFY_CONCURRENCY" not in caplog.text
+
+
+def test_one_attempt_in_flight_per_address() -> None:
+    svc = AuthService(settings())
+    assert svc.begin_attempt("192.0.2.1")
+    assert not svc.begin_attempt("192.0.2.1")
+    assert svc.begin_attempt("192.0.2.2")
+    assert svc.begin_attempt("2001:db8:1:2:3::1")
+    assert not svc.begin_attempt("2001:db8:1:2:9::9")  # IPv6 is keyed by /64 like the rate limit
+    svc.end_attempt("192.0.2.1")
+    assert svc.begin_attempt("192.0.2.1")
+    for ip in ("192.0.2.1", "192.0.2.2", "2001:db8:1:2:3::1"):
+        svc.end_attempt(ip)
+    assert not svc._inflight
