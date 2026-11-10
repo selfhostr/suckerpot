@@ -56,6 +56,8 @@ API_GRANTS = (
     "SELECT ON targets",
     "UPDATE (value, updated_at) ON targets",
     "SELECT, INSERT, UPDATE ON takedown_votes",
+    "SELECT, INSERT ON recheck_assignments",
+    "UPDATE (answered) ON recheck_assignments",
     "SELECT ON network_summary, network_daily, node_stats_weekly, never_list",
     # Feeds: the API records which URLs a payload host served and answers lookups and delisting
     # requests; it never writes feed entries and cannot read the allow-list.
@@ -74,7 +76,8 @@ API_GRANTS = (
 )
 WORKER_TABLES = (
     "nodes, enrol_challenges, nonces, batches, observations, targets, target_contributors, "
-    "takedown_votes, reports, recipient_log, node_stats_weekly, network_daily, network_summary, "
+    "takedown_votes, recheck_assignments, reports, recipient_log, node_stats_weekly, "
+    "network_daily, network_summary, "
     "never_list, hub_audit, worker_state, payload_links, target_hosts, feed_entries, feed_runs, "
     "feed_daily, feed_allow, feed_auto_ranges, delist_challenges, delist_requests, "
     "abusech_submissions, node_roles, verify_tasks, verify_attestations, verify_daily"

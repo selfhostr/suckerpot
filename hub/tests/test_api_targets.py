@@ -195,6 +195,7 @@ async def test_recheck_listing_and_votes(env: Env) -> None:
     assert [r["id"] for r in pull["recheck"]] == [t_ip]
     assert pull["recheck"][0]["value"] == "192.0.2.4"
 
+    await b.call("GET", "/v1/targets")  # b is asked too
     vote = {
         "protocol": "spn/1",
         "day": "2026-11-01",
@@ -204,17 +205,30 @@ async def test_recheck_listing_and_votes(env: Env) -> None:
     assert r.status == 200 and r.json == {"accepted": 1}
     assert (await a.call("GET", "/v1/targets")).json["recheck"] == []  # voted today
     assert [x["id"] for x in (await b.call("GET", "/v1/targets")).json["recheck"]] == [t_ip]
-    # re-voting the same day updates the vote
+    # a replay, even with another state, is dropped: one answer per assignment
     vote["items"] = [{"id": t_ip, "state": "up"}]
-    assert (await a.call("POST", "/v1/rechecks", vote)).json == {"accepted": 1}
+    assert (await a.call("POST", "/v1/rechecks", vote)).json == {"accepted": 0}
     async with env.worker() as s:
         rows = (await s.execute(text("SELECT state FROM takedown_votes"))).scalars().all()
-    assert rows == ["up"]
+    assert rows == ["down"]
+
+
+async def _assign(env: Env, node: NodeClient, target: str, day: str) -> None:
+    async with env.worker() as s:
+        await s.execute(
+            text(
+                "INSERT INTO recheck_assignments (target_id, node_id, day) "
+                "VALUES (:t, CAST(:n AS uuid), :d)"
+            ),
+            {"t": target, "d": _d(day), "n": node.node_id},
+        )
+        await s.commit()
 
 
 async def test_recheck_day_rules(env: Env) -> None:
     a = await _node(env)
     t = await seed(env, value="192.0.2.4")
+    await _assign(env, a, t, "2026-10-30")
     for day, code in (("2026-11-02", "invalid_payload"), ("2026-10-29", "day_too_old")):
         r = await a.call(
             "POST",
@@ -240,6 +254,7 @@ async def test_recheck_day_rules(env: Env) -> None:
 async def test_suspended_votes_are_ignored(env: Env) -> None:
     a = await _node(env)
     t = await seed(env, value="192.0.2.4")
+    await a.call("GET", "/v1/targets")
     async with env.worker() as s:
         await s.execute(text("UPDATE nodes SET standing = 'soft_suspended'"))
         await s.commit()
@@ -298,3 +313,96 @@ async def test_network_summary(env: Env) -> None:
         )
         await s.commit()
     assert (await node.call("GET", "/v1/network")).json["members"] == []
+
+
+def _vote(day: str, *ids: str, state: str = "down") -> dict[str, Any]:
+    return {"protocol": "spn/1", "day": day, "items": [{"id": i, "state": state} for i in ids]}
+
+
+async def _votes(env: Env) -> int:
+    async with env.worker() as s:
+        return int((await s.execute(text("SELECT count(*) FROM takedown_votes"))).scalar_one())
+
+
+async def test_vote_without_assignment_is_ignored(env: Env) -> None:
+    a = await _node(env)
+    t = await seed(env, value="192.0.2.4", state="reported", reported_day=_d("2026-10-31"))
+    r = await a.call("POST", "/v1/rechecks", _vote("2026-11-01", t))
+    assert (r.status, r.json) == (200, {"accepted": 0})
+    assert await _votes(env) == 0
+
+
+async def test_assigned_vote_counts_once_and_replay_is_dropped(env: Env) -> None:
+    a = await _node(env)
+    t = await seed(env, value="192.0.2.4", state="reported", reported_day=_d("2026-10-31"))
+    await a.call("GET", "/v1/targets")
+    await a.call("GET", "/v1/targets")  # a second pull does not reopen anything
+    assert (await a.call("POST", "/v1/rechecks", _vote("2026-11-01", t))).json == {"accepted": 1}
+    assert (await a.call("POST", "/v1/rechecks", _vote("2026-11-01", t))).json == {"accepted": 0}
+    assert (await a.call("GET", "/v1/targets")).json["recheck"] == []
+    assert await _votes(env) == 1
+
+
+async def test_vote_for_another_day_is_ignored(env: Env) -> None:
+    a = await _node(env)
+    t = await seed(env, value="192.0.2.4", state="reported", reported_day=_d("2026-10-31"))
+    await a.call("GET", "/v1/targets")  # assigned for 2026-11-01 only
+    for day in ("2026-10-31", "2026-10-30"):
+        assert (await a.call("POST", "/v1/rechecks", _vote(day, t))).json == {"accepted": 0}
+    assert await _votes(env) == 0
+    assert (await a.call("POST", "/v1/rechecks", _vote("2026-11-01", t))).json == {"accepted": 1}
+
+
+async def test_assignment_belongs_to_one_node(env: Env) -> None:
+    a = await _node(env)
+    (b,) = await env.enrolled()
+    t = await seed(env, value="192.0.2.4", state="reported", reported_day=_d("2026-10-31"))
+    await a.call("GET", "/v1/targets")
+    assert (await b.call("POST", "/v1/rechecks", _vote("2026-11-01", t))).json == {"accepted": 0}
+    assert await _votes(env) == 0
+
+
+async def test_unassigned_sybil_nodes_cannot_take_a_target_down(env: Env) -> None:
+    from hub import consensus
+
+    sybils = await env.enrolled(2)
+    t = await seed(env, value="192.0.2.4", state="reported", reported_day=_d("2026-10-25"))
+    for _ in range(3):
+        for n in sybils:
+            for back in (0, 1, 2):
+                day = _d("2026-11-01").fromordinal(_d("2026-11-01").toordinal() - back)
+                await n.call("POST", "/v1/rechecks", _vote(day.isoformat(), t))
+    assert await _votes(env) == 0
+    async with env.worker() as s:
+        eligible = await consensus.eligible_nodes(s, env.settings, _d("2026-11-01"))
+        assert await consensus.update_takedowns(s, env.settings, _d("2026-11-01"), eligible) == (
+            0,
+            0,
+        )
+
+
+async def test_assignments_are_capped_per_node_per_day(env: Env) -> None:
+    from hub.routes.targets import MAX_ASSIGNED_PER_DAY
+
+    a = await _node(env)
+    async with env.worker() as s:
+        for i in range(MAX_ASSIGNED_PER_DAY + 10):
+            await s.execute(
+                text(
+                    "INSERT INTO targets (id, kind, value, state, node_count, country_count, "
+                    "first_day, last_day) VALUES (:i, 'ip', :v, 'confirmed', 7, 4, :d, :d)"
+                ),
+                {
+                    "i": f"t_{i:012d}",
+                    "v": f"198.51.{i // 250}.{i % 250 + 1}",
+                    "d": _d("2026-10-30"),
+                },
+            )
+        await s.commit()
+    for _ in range(MAX_ASSIGNED_PER_DAY // 50 + 3):
+        asked = (await a.call("GET", "/v1/targets")).json["recheck"]
+        if asked:
+            await a.call("POST", "/v1/rechecks", _vote("2026-11-01", *(x["id"] for x in asked)))
+    async with env.worker() as s:
+        n = (await s.execute(text("SELECT count(*) FROM recheck_assignments"))).scalar_one()
+    assert n == MAX_ASSIGNED_PER_DAY

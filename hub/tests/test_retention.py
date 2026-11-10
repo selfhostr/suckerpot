@@ -70,6 +70,12 @@ async def test_nonces_challenges_votes_stats_expire(env: Env) -> None:
             {"n": n, "d": TODAY - timedelta(days=31)},
         )
         await s.execute(
+            text(
+                "INSERT INTO recheck_assignments (target_id, node_id, day) VALUES ('t_000000000001', :n, :d)"
+            ),
+            {"n": n, "d": TODAY - timedelta(days=4)},
+        )
+        await s.execute(
             text("INSERT INTO node_stats_weekly VALUES (:n, :w, 3, 2)"),
             {"n": n, "w": TODAY - timedelta(days=120)},
         )
@@ -79,6 +85,7 @@ async def test_nonces_challenges_votes_stats_expire(env: Env) -> None:
     assert await count(env, "nonces") == 1
     assert await count(env, "enrol_challenges") == 0
     assert await count(env, "takedown_votes") == 0
+    assert await count(env, "recheck_assignments") == 0
 
 
 async def test_contributor_links_go_when_resolved_or_after_thirty_days(env: Env) -> None:

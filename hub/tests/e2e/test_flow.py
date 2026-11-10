@@ -184,6 +184,8 @@ async def test_full_flow(env_factory: Any) -> None:
             env.clock.advance(days=1)
             day = env.clock().date().isoformat()
             for n in nodes[:2]:
+                asked = (await n.call("GET", "/v1/targets")).json["recheck"]
+                assert rid in {x["id"] for x in asked}
                 r = await n.call(
                     "POST",
                     "/v1/rechecks",
@@ -207,6 +209,7 @@ async def test_full_flow(env_factory: Any) -> None:
                 "nonces",
                 "target_contributors",
                 "takedown_votes",
+                "recheck_assignments",
                 "node_stats_weekly",
             ):
                 col = "id" if table == "nodes" else "node_id"
