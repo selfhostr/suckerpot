@@ -255,7 +255,7 @@ After you confirm, it runs four steps:
 | --- | --- |
 | `[1/4]` | Checks out the previous code, on its branch when it had one. |
 | `[2/4]` | Restores the previous version in `.env`. In images mode it verifies the old images and pulls them by digest. In source mode it rebuilds. |
-| `[3/4]` | Restores the database from the dump. `scripts/restore-db.sh` asks its own confirmation. It restores into a side database first and swaps it in only when that worked, so a failed restore leaves the current database as it was. It needs room for a second copy of the database. See [Deployment](deployment.md#data-volumes-and-backups). |
+| `[3/4]` | Restores the database from the dump. `scripts/restore-db.sh` asks its own confirmation. |
 | `[4/4]` | Starts the stack and waits until every service is healthy. |
 
 ### What a rollback costs
@@ -263,6 +263,7 @@ After you confirm, it runs four steps:
 - Every row written to the database after the dump is gone. That includes events, sessions, indicators, reports, alerts, accounts and settings changed after the dump.
 - Only the database is restored. The other volumes, such as the sensor data, are not touched.
 - `.env` is not rolled back. Settings that the update added stay in it. Only `SUCKERPOT_VERSION` changes, in images mode.
+- The dump is restored into a side database first and swapped in only when that worked, so a failed restore leaves the current database as it was. It needs room for a second copy of the database. See [Deployment](deployment.md#data-volumes-and-backups).
 
 ### When a rollback happens
 
