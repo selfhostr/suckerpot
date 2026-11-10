@@ -74,11 +74,20 @@ async def test_nonces_challenges_votes_stats_expire(env: Env) -> None:
             {"n": n, "w": TODAY - timedelta(days=120)},
         )
         await s.commit()
+    async with env.owner.begin() as conn:  # the worker role may only prune assignments
+        await conn.execute(
+            text(
+                "INSERT INTO recheck_assignments (target_id, node_id, day) "
+                "VALUES ('t_000000000001', :n, :d)"
+            ),
+            {"n": n, "d": TODAY - timedelta(days=4)},
+        )
     async with env.worker() as s:
         await retention.run_retention(s, env.settings, now, TODAY)
     assert await count(env, "nonces") == 1
     assert await count(env, "enrol_challenges") == 0
     assert await count(env, "takedown_votes") == 0
+    assert await count(env, "recheck_assignments") == 0
 
 
 async def test_contributor_links_go_when_resolved_or_after_thirty_days(env: Env) -> None:

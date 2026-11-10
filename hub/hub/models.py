@@ -168,6 +168,21 @@ class TakedownVote(Base):
     state: Mapped[str] = mapped_column(Text)
 
 
+class RecheckAssignment(Base):
+    """A target the hub asked a node to recheck on a day (migration h0011). One answer each."""
+
+    __tablename__ = "recheck_assignments"
+
+    target_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("targets.id", ondelete="CASCADE"), primary_key=True
+    )
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True
+    )
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    answered: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
 class Report(Base):
     __tablename__ = "reports"
 

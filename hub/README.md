@@ -619,7 +619,7 @@ Each cycle runs these steps. A failing step is logged by type and does not stop 
 10. Queues, approves and sends abuse.ch submissions, if a mode and an Auth-Key are set.
 11. Writes a heartbeat. The container health check fails when the heartbeat is older than three cycles.
 
-Takedown votes come from members' local re-checks. Members do not send those yet in this release, so no target moves to `taken_down` for now. See [Takedown checks](../docs/network.md#takedown-checks).
+Takedown votes come from members' local re-checks. A vote counts only for a target the hub asked that node to re-check that day, once (the `recheck_assignments` table, pruned after 3 days). Members do not send those yet in this release, so no target moves to `taken_down` for now. See [Takedown checks](../docs/network.md#takedown-checks).
 
 ## Retention
 
