@@ -172,10 +172,25 @@ class ClientState:
         return Reply(self.proto)
 
     def keyspace(self) -> dict[bytes, bytes]:
+        self._reap_due()
         return self.dbs[self.db]
 
     def total_keys(self) -> int:
+        self._reap_due()
         return sum(len(d) for d in self.dbs)
+
+    def _reap_due(self) -> None:
+        """Remove keys whose EXPIRE deadline passed. Every read path goes through here, so GET,
+        EXISTS, TYPE, KEYS, SCAN, DBSIZE and TTL all agree that a lapsed key is gone."""
+        if not self.ttl_over:
+            return
+        now = self.ctx.elapsed()
+        for key in [k for k, d in self.ttl_over.items() if d is not None and d <= now]:
+            del self.ttl_over[key]
+            old = self.dbs[0].pop(key, None)
+            self.kinds.pop((0, key), None)
+            if old is not None:
+                self.stored -= len(key) + len(old)
 
     def store(self, key: bytes, value: bytes) -> None:
         """Bounded write: keys and bytes are capped, anything beyond is silently not kept."""
@@ -226,6 +241,7 @@ class ClientState:
         Profile keys follow ``life - (elapsed + offset) % life`` on the shared clock: they run
         down together and are renewed when they run out, as an application re-setting them
         would, so the value is never zero or negative."""
+        self._reap_due()
         if self.db != 0 or key not in self.dbs[0]:
             return None
         if key in self.ttl_over:
@@ -238,13 +254,12 @@ class ClientState:
         return life - (self.ctx.elapsed() + offset) % life
 
     def reap(self, key: bytes) -> None:
-        """Delete a key whose EXPIRE deadline passed on this connection's view."""
-        deadline = self.ttl_over.get(key) if self.db == 0 else None
-        if deadline is not None and deadline <= self.ctx.elapsed():
-            self.drop(key)
+        """Kept for callers that name the key; every keyspace read reaps already."""
+        self._reap_due()
 
     def set_expiry(self, key: bytes, seconds: float | None) -> bool:
         """EXPIRE / PERSIST bookkeeping (bounded). False when the key has nothing to change."""
+        self._reap_due()
         if self.db != 0 or key not in self.dbs[0]:
             return False
         if seconds is None:
@@ -252,8 +267,9 @@ class ClientState:
                 return False
             self.ttl_over[key] = None
         else:
-            if key not in self.ttl_over and len(self.ttl_over) >= MAX_TTL_KEYS:
-                return True  # accepted, but not tracked past the cap
+            self.ttl_over.pop(key, None)  # re-inserted last: the dict order is the age order
+            while len(self.ttl_over) >= MAX_TTL_KEYS:
+                del self.ttl_over[next(iter(self.ttl_over))]  # forget the oldest override
             self.ttl_over[key] = self.ctx.elapsed() + seconds
         return True
 
@@ -282,6 +298,7 @@ class ClientState:
         return size
 
     def info_view(self) -> InfoView:
+        self._reap_due()
         try:
             maxmem = int(self.config["maxmemory"])
         except ValueError:

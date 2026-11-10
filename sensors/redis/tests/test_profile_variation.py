@@ -103,3 +103,29 @@ def test_expire_and_persist_change_what_ttl_answers() -> None:
     assert execute(st, [b"EXPIRE", key, b"5"])[1].reply == b":1\r\n"
     now[0] += 6
     assert _ttl(st, key) == -2  # lapsed on this connection's view
+
+
+def test_a_lapsed_key_is_gone_for_every_command() -> None:
+    ctx, ttls, now = _ctx_with_ttls()
+    key = ttls[0][0]
+    st = ClientState(ctx, 1, "198.51.100.1:1")
+    assert execute(st, [b"EXPIRE", key, b"5"])[1].reply == b":1\r\n"
+    assert execute(st, [b"EXISTS", key])[1].reply == b":1\r\n"
+    now[0] += 6
+    assert execute(st, [b"EXISTS", key])[1].reply == b":0\r\n"
+    assert execute(st, [b"GET", key])[1].reply == b"$-1\r\n"
+    assert execute(st, [b"TYPE", key])[1].reply == b"+none\r\n"
+    assert key not in execute(st, [b"KEYS", b"*"])[1].reply
+    assert _ttl(st, key) == -2
+
+
+def test_expire_beyond_the_cap_evicts_the_oldest_override() -> None:
+    ctx, _, _ = _ctx_with_ttls()
+    st = ClientState(ctx, 1, "198.51.100.1:1")
+    execute(st, [b"FLUSHALL"])
+    for i in range(40):
+        key = b"k%d" % i
+        execute(st, [b"SET", key, b"v"])
+        assert execute(st, [b"EXPIRE", key, b"100"])[1].reply == b":1\r\n"
+        assert 98 <= _ttl(st, key) <= 100  # answered 1, so TTL reports it as well
+    assert len(st.ttl_over) <= 32
