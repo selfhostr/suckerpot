@@ -32,7 +32,7 @@ ENV: dict[str, str] = {
     "POSTGRES_ANALYZER_PASSWORD": "analyzer-test-password",
 }
 PRODUCTION = "0028"
-HEAD = "0030"
+HEAD = "0031"
 FEED_TABLES = ("network_feed_state", "network_feed_entries")
 SNAPSHOT = (
     ("events", "SELECT count(*) FROM events WHERE session_id LIKE 'prod-0028-%'"),

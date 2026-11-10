@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0030() -> None:
+def test_the_chain_is_linear_up_to_0031() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0030"}
+    assert heads == {"0031"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -95,6 +95,8 @@ def test_the_chain_is_linear_up_to_0030() -> None:
     assert revs["0029"][0] == "0028"
     # M32 (participant mode) follows 0029.
     assert revs["0030"][0] == "0029"
+    # The ingest stall fix (pipeline heartbeat, chunk-pruning retract_benign) follows 0030.
+    assert revs["0031"][0] == "0030"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -548,3 +550,20 @@ def test_the_participant_migration_is_additive_and_leaves_the_hypertables_alone(
     assert "network_verify_tasks" in set(models.Base.metadata.tables)
     assert "origin" in models.Base.metadata.tables["fetch_targets"].columns
     assert "left_day" in models.Base.metadata.tables["network_membership"].columns
+
+
+def test_pipeline_state_is_modelled_and_least_privilege() -> None:
+    assert "pipeline_state" in set(models.Base.metadata.tables)
+    assert _grants(_GRANTS_INGEST)["pipeline_state"] == {"SELECT", "UPDATE"}
+    assert _grants(_GRANTS_API)["pipeline_state"] == {"SELECT"}
+    assert "pipeline_state" not in _grants(_GRANTS_COLLECTOR)
+    assert "pipeline_state" not in _grants(_GRANTS_ANALYZER)
+
+
+def test_retract_benign_migration_prunes_chunks() -> None:
+    script = (VERSIONS / "0031_pipeline_state.py").read_text()
+    assert "FOR r IN SELECT s.session_id" in script
+    assert "USING r.sensor, r.session_id, r.started_at" in script
+    assert "SET search_path = pg_catalog, public, pg_temp" in script
+    assert "public.events" in script and "public.sessions" in script
+    assert "REVOKE ALL ON FUNCTION retract_benign(text[]) FROM PUBLIC" in script

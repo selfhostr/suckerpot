@@ -58,6 +58,7 @@ class Settings:
     claim_idle_ms: int
     reclaim_interval_s: float
     heartbeat_path: Path
+    max_batch_failures: int = 5
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -65,6 +66,9 @@ class Settings:
         batch = int(e.get("INGEST_BATCH_SIZE", "100"))
         if not 1 <= batch <= 500:
             raise ValueError("INGEST_BATCH_SIZE must be between 1 and 500")
+        failures = int(e.get("INGEST_MAX_BATCH_FAILURES", "5"))
+        if not 1 <= failures <= 100:
+            raise ValueError("INGEST_MAX_BATCH_FAILURES must be between 1 and 100")
         return cls(
             redis_host=e.get("REDIS_HOST", "redis"),
             redis_port=int(e.get("REDIS_PORT", "6379")),
@@ -78,4 +82,5 @@ class Settings:
             claim_idle_ms=int(e.get("INGEST_CLAIM_IDLE_MS", "60000")),
             reclaim_interval_s=float(e.get("INGEST_RECLAIM_INTERVAL_S", "60")),
             heartbeat_path=Path(e.get("INGEST_HEARTBEAT_PATH", "/tmp/ingest-heartbeat")),  # noqa: S108
+            max_batch_failures=failures,
         )
