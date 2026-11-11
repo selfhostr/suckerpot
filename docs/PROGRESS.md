@@ -267,3 +267,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Honesty and fingerprints: tags that name a family, a CVE or a fraud need specific evidence, and the SSH shell and the service sensors derive their identity per install. The hub counts a takedown vote only against a recheck it handed out (migration `h0011`), and releases only come from commits on main.
 - Two optional features were removed: node-side abuse.ch submission and the LLM script explainer. Lookups of a session's events are bounded in time.
 - Unit tests, integration tests, guardrails and the new backup-restore and broker jobs green on each pull request.
+
+## 2026-11-11: v0.11.1 (admin SSH helper)
+
+- New host helper `scripts/move-admin-ssh.sh`: one command moves the machine's own SSH daemon off port 22 on Debian and Ubuntu, so the SSH sensor can use port 22 on a VPS. It opens the new port next to the current one, waits for an authenticated login on it and only then closes the old port. A timeout, an interruption or a failure goes back to the port SSH was on.
+- The same two-phase move serves a later change of port and `--undo`. Unusual setups are refused before any change. The installer still never edits the SSH configuration.
+- `docs/vps.md` leads with the script and keeps the manual steps under "By hand".
+- Two security review passes. Tests with stateful shims for both init paths, and a run against a real OpenSSH daemon in a container. A real systemd with socket activation is not covered by an automated test.

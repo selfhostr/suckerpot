@@ -91,9 +91,11 @@ It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below
 
 **Before you start:** if your provider has a firewall panel, allow TCP `22222` (or your own port) there first. The script opens `ufw` or `firewalld` when one is active, but it cannot reach a provider panel. If the port is not allowed there, your login cannot arrive: the script simply times out and keeps port 22, and you can try again.
 
-1. **Run it** from your SuckerPot folder, in your current SSH session:
+1. **Get SuckerPot and run the script**, in your current SSH session:
 
    ```bash
+   git clone --depth 1 --branch v0.11.1 https://github.com/selfhostr/suckerpot.git
+   cd suckerpot
    sudo ./scripts/move-admin-ssh.sh
    ```
 
@@ -211,13 +213,13 @@ If a provider rule limited port 22 to your own address, remove it, and remove th
 
 ## Install
 
+In the SuckerPot folder you cloned for the script above (if you moved your SSH by hand, clone it first with the same `git clone` line):
+
 ```bash
-git clone --depth 1 --branch v0.11.0 https://github.com/selfhostr/suckerpot.git
-cd suckerpot
 ./scripts/install.sh --participant --lite
 ```
 
-The installer finds your admin SSH port from what `sshd` listens on (here 52022) and records it as `ADMIN_SSH_PORT`, so the host firewall protects it. You can check it with `grep ADMIN_SSH_PORT .env`. It never edits your `sshd` configuration. Say yes to the host firewall when it asks. More about the installer: [Join the network](participate.md).
+The installer finds your admin SSH port from what `sshd` listens on (22222 with the script's default) and records it as `ADMIN_SSH_PORT`, so the host firewall protects it. You can check it with `grep ADMIN_SSH_PORT .env`. It never edits your `sshd` configuration. Say yes to the host firewall when it asks. More about the installer: [Join the network](participate.md).
 
 ## Open the ports in the provider panel
 
@@ -231,7 +233,7 @@ If your provider has a firewall in front of the machine, allow these inbound TCP
 | 443 | web |
 | 6379 | redis |
 
-Keep your admin SSH port (52022 in the example) limited to your own address if the panel allows it. There is no router and no port mapping on a VPS: the port in the panel is the port on the machine.
+Keep your admin SSH port (22222 with the script's default, 52022 in the manual example) limited to your own address if the panel allows it. There is no router and no port mapping on a VPS: the port in the panel is the port on the machine.
 
 Then check that the internet reaches the sensors:
 
