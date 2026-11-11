@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 import pytest
+from suckerpot_netproto import defaults, sign
 from suckerpot_netproto.feeds import (
     FeedEntry,
     RenderContext,
@@ -20,7 +21,7 @@ from suckerpot_netproto.feeds import (
     render_list,
 )
 
-from ingest.egress import EgressClosed
+from ingest.egress import EgressClosed, egress_settings
 from ingest.features import FeatureSettings
 from ingest.network.feed import FeedState, FeedWorker
 from ingest.network.feed_client import FeedClient, FeedSettings
@@ -427,7 +428,7 @@ async def test_client_checks_the_gate_before_any_byte() -> None:
 
 def test_settings_defaults_and_validation() -> None:
     s = FeedSettings.from_env({})
-    assert not s.configured and s.interval_s == 3600
+    assert s.interval_s == 3600
     assert s.lists == ("inbound", "outbound", "outbound-domains")
     ok = {"NETWORK_FEED_URL": BASE + "/", "NETWORK_FEED_KEY": PUBLIC.encoded}
     assert FeedSettings.from_env(ok).url == BASE
@@ -450,3 +451,69 @@ def test_settings_defaults_and_validation() -> None:
 def test_the_flag_is_off_by_default() -> None:
     assert FeatureSettings.from_env({}).network_feed_enabled is False
     assert FeatureSettings.from_env({"NETWORK_FEED_ENABLED": "true"}).network_feed_enabled
+
+
+def _defaults_text(**over: str) -> str:
+    values = {
+        "NETWORK_DEFAULTS_VERSION": "1",
+        "NETWORK_HUB_URL": "https://hub.example.org",
+        "NETWORK_HUB_KEY": sign.node_key(sign.public_key_of(sign.generate_private_key())),
+        "NETWORK_FEED_URL": BASE,
+        "NETWORK_FEED_KEY": PUBLIC.encoded,
+    }
+    values.update(over)
+    return "".join(f"{k}={v}\n" for k, v in values.items())
+
+
+def _use_defaults(monkeypatch: pytest.MonkeyPatch, text: str) -> None:
+    monkeypatch.setattr(defaults, "load", lambda: defaults.from_text(text))
+
+
+def test_the_shipped_defaults_apply_when_nothing_is_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    s = FeedSettings.from_env({})
+    assert s.configured and s.url == BASE and s.key == PUBLIC.encoded
+    assert s.host == "feeds.example.org"
+
+
+def test_an_explicit_pair_wins_over_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    other = minisign.generate_keypair().public.encoded
+    env = {"NETWORK_FEED_URL": "https://other.example.net/v1", "NETWORK_FEED_KEY": other}
+    s = FeedSettings.from_env(env)
+    assert (s.url, s.key, s.host) == ("https://other.example.net/v1", other, "other.example.net")
+
+
+def test_a_half_set_pair_still_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    with pytest.raises(ValueError):
+        FeedSettings.from_env({"NETWORK_FEED_URL": "https://other.example.net/v1"})
+    with pytest.raises(ValueError):
+        FeedSettings.from_env({"NETWORK_FEED_KEY": PUBLIC.encoded})
+
+
+def test_placeholder_defaults_leave_the_feed_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_defaults(
+        monkeypatch, _defaults_text(NETWORK_FEED_URL="<FEED_URL>", NETWORK_FEED_KEY="<FEED_KEY>")
+    )
+    assert not FeedSettings.from_env({}).configured
+    _use_defaults(monkeypatch, _defaults_text(NETWORK_FEED_KEY="<FEED_KEY>"))
+    assert not FeedSettings.from_env({}).configured
+
+
+def test_a_malformed_defaults_file_is_a_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    # build_feed_worker catches ValueError, so ingest starts with the feed unconfigured.
+    _use_defaults(monkeypatch, "not a defaults file\n")
+    with pytest.raises(ValueError):
+        FeedSettings.from_env({})
+
+
+def test_the_feed_host_is_the_host_of_the_gate_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    other = minisign.generate_keypair().public.encoded
+    for env in (
+        {},
+        {"NETWORK_FEED_URL": "https://other.example.net/v1", "NETWORK_FEED_KEY": other},
+    ):
+        scope = egress_settings({**env, "EGRESS_MODE": "direct"}).scope_hosts
+        assert FeedSettings.from_env(env).host in scope

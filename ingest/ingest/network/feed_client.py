@@ -18,6 +18,7 @@ from typing import Final
 from urllib.parse import urlsplit
 
 import httpx
+from suckerpot_netproto import defaults
 from suckerpot_netproto.feeds import LIST_IDS, minisign
 
 from ingest.egress import EgressClosed, EgressGate, gate_open, make_client
@@ -67,8 +68,8 @@ class FeedSettings:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> FeedSettings:
         e = os.environ if env is None else env
-        url = e.get("NETWORK_FEED_URL", "").strip().rstrip("/")
-        key = e.get("NETWORK_FEED_KEY", "").strip()
+        # Committed defaults apply only when the operator set neither value (same rule as the hub).
+        url, key = defaults.effective_pair(e, "NETWORK_FEED_URL", "NETWORK_FEED_KEY")
         raw_interval = e.get("NETWORK_FEED_INTERVAL_S", "").strip() or "3600"
         try:
             interval = int(raw_interval)
