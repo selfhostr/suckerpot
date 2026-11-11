@@ -270,7 +270,7 @@ services:
       API_ALLOWED_HOSTS: ${API_ALLOWED_HOSTS:-}
       API_ALLOWED_ORIGINS: ${API_ALLOWED_ORIGINS:-}
       INDICATORS_LINK_CAP: ${INDICATORS_LINK_CAP:-500}
-      # Campaigns, ATT&CK, blocklists, scripts, LLM explanations, alerts and reports (M15 to M19).
+      # Campaigns, ATT&CK, blocklists, scripts, alerts and reports (M15 to M19).
       # Everything is off by default; the keys are optional and can also be set in Settings.
       ATTACK_ENABLED: ${ATTACK_ENABLED:-false}
       CAMPAIGNS_ENABLED: ${CAMPAIGNS_ENABLED:-false}
@@ -280,11 +280,6 @@ services:
       BLOCKLIST_WINDOW_DAYS: ${BLOCKLIST_WINDOW_DAYS:-30}
       BLOCKLIST_MAX_ROWS: ${BLOCKLIST_MAX_ROWS:-20000}
       SCRIPTS_ENABLED: ${SCRIPTS_ENABLED:-false}
-      LLM_ENABLED: ${LLM_ENABLED:-false}
-      LLM_DAILY_QUOTA: ${LLM_DAILY_QUOTA:-50}
-      LLM_MONTHLY_TOKEN_CAP: ${LLM_MONTHLY_TOKEN_CAP:-2000000}
-      LLM_MODEL: ${LLM_MODEL:-claude-haiku-5-5}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ALERTS_ENABLED: ${ALERTS_ENABLED:-false}
       REPORTS_ENABLED: ${REPORTS_ENABLED:-false}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}

@@ -40,13 +40,6 @@ def _int(env: Mapping[str, str], name: str, default: int, low: int, high: int) -
     return value
 
 
-def _model(env: Mapping[str, str]) -> str:
-    raw = env.get("LLM_MODEL", "").strip() or "claude-haiku-5-5"
-    if len(raw) > 64 or not set(raw) <= set("abcdefghijklmnopqrstuvwxyz0123456789-._"):
-        raise ValueError("LLM_MODEL must be a model name such as claude-haiku-5-5")
-    return raw
-
-
 @dataclass(frozen=True, slots=True)
 class FeatureSettings:
     attack_enabled: bool = False
@@ -57,10 +50,6 @@ class FeatureSettings:
     blocklist_window_days: int = 30
     blocklist_max_rows: int = 20_000
     scripts_enabled: bool = False
-    llm_enabled: bool = False
-    llm_daily_quota: int = 50
-    llm_monthly_token_cap: int = 2_000_000
-    llm_model: str = "claude-haiku-5-5"
     alerts_enabled: bool = False
     reports_enabled: bool = False
     abuse_enabled: bool = False
@@ -82,10 +71,6 @@ class FeatureSettings:
             blocklist_window_days=_int(e, "BLOCKLIST_WINDOW_DAYS", 30, 1, 365),
             blocklist_max_rows=_int(e, "BLOCKLIST_MAX_ROWS", 20_000, 100, 1_000_000),
             scripts_enabled=_flag(e, "SCRIPTS_ENABLED"),
-            llm_enabled=_flag(e, "LLM_ENABLED"),
-            llm_daily_quota=_int(e, "LLM_DAILY_QUOTA", 50, 0, 10_000),
-            llm_monthly_token_cap=_int(e, "LLM_MONTHLY_TOKEN_CAP", 2_000_000, 0, 1_000_000_000),
-            llm_model=_model(e),
             alerts_enabled=_flag(e, "ALERTS_ENABLED"),
             reports_enabled=_flag(e, "REPORTS_ENABLED"),
             abuse_enabled=_flag(e, "ABUSE_REPORTS_ENABLED"),

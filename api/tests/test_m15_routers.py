@@ -69,6 +69,6 @@ def test_the_provider_path_accepts_the_new_providers() -> None:
     pattern = ProviderName.__metadata__[0].metadata[0].pattern  # type: ignore[attr-defined]
     import re
 
-    for provider in ("anthropic", "smtp", "virustotal"):
+    for provider in ("smtp", "virustotal"):
         assert re.match(pattern, provider)
-    assert not re.match(pattern, "anthropic2")
+    assert not re.match(pattern, "anthropic")  # the retired LLM provider is an unknown name now

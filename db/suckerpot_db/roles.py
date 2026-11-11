@@ -211,11 +211,10 @@ BEGIN
         EXECUTE format('GRANT SELECT ON blocklist_overrides, inventory_services TO %I', r);
     END IF;
     IF to_regclass('public.scripts') IS NOT NULL THEN
-        -- M17: the script library is written by ingest; LLM requests are inserted by the API.
+        -- M17: the script library is written by ingest.
         EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE ON scripts, script_sessions, script_explanations '
             'TO %I', r);
-        EXECUTE format('GRANT SELECT, UPDATE ON llm_requests TO %I', r);
     END IF;
     IF to_regclass('public.alert_channels') IS NOT NULL THEN
         -- M18: the API manages channels, rules and watched CVEs; ingest sends and records.
@@ -478,7 +477,6 @@ BEGIN
     IF to_regclass('public.scripts') IS NOT NULL THEN
         EXECUTE format(
             'GRANT SELECT ON scripts, script_sessions, script_explanations TO %I', r);
-        EXECUTE format('GRANT SELECT, INSERT ON llm_requests TO %I', r);
     END IF;
     IF to_regclass('public.alert_channels') IS NOT NULL THEN
         EXECUTE format(

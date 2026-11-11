@@ -238,7 +238,7 @@ Without the table, a compromised sensor can reach the host's admin SSH port. Do 
 
 ## Anonymous egress (VPN)
 
-The stack's own outbound traffic (GeoIP downloads, reputation and intel lookups, CVE feeds, alerts, the LLM and the payload collector) leaves through a WireGuard tunnel in the `vpn` service, never from your own address. Sensors and the dashboard keep their current paths, and the host itself is unchanged. Without the `egress` profile these features stay idle. Settings shows "no egress".
+The stack's own outbound traffic (GeoIP downloads, reputation and intel lookups, CVE feeds, alerts and the payload collector) leaves through a WireGuard tunnel in the `vpn` service, never from your own address. Sensors and the dashboard keep their current paths, and the host itself is unchanged. Without the `egress` profile these features stay idle. Settings shows "no egress".
 
 You need a WireGuard configuration from any provider that gives you one: an interface private key, interface addresses, the server's public key, and the server address and UDP port.
 

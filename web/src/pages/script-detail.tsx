@@ -5,7 +5,6 @@ import { EmptyState } from "@/components/empty-state"
 import { FindingCard } from "@/components/finding-card"
 import { PageHeader } from "@/components/page-header"
 import { RelativeTime } from "@/components/relative-time"
-import { AiExplanationCard } from "@/components/scripts/ai-explanation"
 import { ExplainedLines } from "@/components/scripts/explained-lines"
 import { SensorBadge } from "@/components/sensor-badge"
 import { SessionRow } from "@/components/session-row"
@@ -80,8 +79,6 @@ export function ScriptDetailPage() {
     queryKey: scriptKeys.detail(id),
     queryFn: () => scriptsApi.detail(id),
     enabled: valid,
-    // While the explainer works on a request, look again every few seconds.
-    refetchInterval: (q) => (q.state.data?.llm.request_state === "queued" ? 3000 : false),
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   })
   const back = (
@@ -197,8 +194,6 @@ export function ScriptDetailPage() {
             </>
           ) : null}
         </FindingCard>
-
-        <AiExplanationCard ai={d.ai} llm={d.llm} scriptId={item.id} />
 
         {d.techniques_detail.length > 0 ? (
           <FindingCard

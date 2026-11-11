@@ -648,7 +648,10 @@ class ScriptSessionRow(Base):
 
 
 class ScriptExplanationRow(Base):
-    """Per-line explanation of a script, from the annotations or from the LLM."""
+    """Per-line explanation of a script, from the annotations.
+
+    Rows with source ``llm`` come from the retired LLM explainer: nothing writes or reads them.
+    """
 
     __tablename__ = "script_explanations"
 
@@ -666,7 +669,10 @@ class ScriptExplanationRow(Base):
 
 
 class LlmRequestRow(Base):
-    """A request to explain a script with the LLM (the API inserts, ingest answers)."""
+    """Retired: the LLM explainer was removed, nothing writes or reads this table any more.
+
+    Kept so the model still matches the schema (a later release can drop it).
+    """
 
     __tablename__ = "llm_requests"
 

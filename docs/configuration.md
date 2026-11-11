@@ -498,19 +498,16 @@ Details in [Architecture](ARCHITECTURE.md#analysis-workers-m15-to-m19). Both swi
 | `CAMPAIGN_LINK_CAP` | `500` | Most sessions linked to one campaign (10 to 10,000) |
 | `CAMPAIGNS_MAX_ROWS` | `50000` | Row ceiling of the campaign tables. The oldest, least seen rows go first (1,000 to 50 million) |
 
-## Script library and LLM explainer (M17)
+## Script library (M17)
 
-Details in [Architecture](ARCHITECTURE.md#analysis-workers-m15-to-m19). The explainer is off by default. When it is on, it sends the **normalised** command text of one script (addresses, host names and URLs are replaced by placeholders) to the Anthropic API, and nothing else. Set the key with `ANTHROPIC_API_KEY`. The API also accepts it as provider `anthropic` (`PUT /api/v1/settings/providers/anthropic`), which overrides the variable, but the Settings page does not show a card for it yet.
+Details in [Architecture](ARCHITECTURE.md#analysis-workers-m15-to-m19). Each script is explained line by line from the rules base in `ingest/rules/annotations/`. Nothing is sent outside.
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SCRIPTS_ENABLED` | `false` | Fingerprint sessions with two or more commands into the script library, every 5 minutes |
 | `SCRIPTS_MAX_ROWS` | `100000` | Row ceiling of the script tables (1,000 to 50 million) |
-| `LLM_ENABLED` | `false` | Allow the optional LLM explanation. An administrator still has to ask for each one ("Explain now"). |
-| `LLM_DAILY_QUOTA` | `50` | Calls to the model per UTC day, 0 to 10,000. Kept in the database, so a restart does not reset it. |
-| `LLM_MONTHLY_TOKEN_CAP` | `2000000` | Tokens per UTC month, 0 to 1 billion. Kept in the database. |
-| `LLM_MODEL` | `claude-haiku-5-5` | Model name: lower-case letters, digits, `-`, `.` and `_`, at most 64 characters |
-| `ANTHROPIC_API_KEY` | empty | API key for the explainer. Needed only when `LLM_ENABLED=true`. |
+
+The optional LLM explainer was removed in v0.11.0. If your `.env` still has `LLM_ENABLED`, `LLM_DAILY_QUOTA`, `LLM_MONTHLY_TOKEN_CAP`, `LLM_MODEL` or `ANTHROPIC_API_KEY`, they are ignored and you can delete them.
 
 ## Alerts and weekly report (M18)
 
