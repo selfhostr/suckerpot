@@ -52,7 +52,7 @@ The flags are in `data.flags` of `http_request`.
 | `dsm_api` | The path starts with `/webapi/`. |
 | `dsm_login` | `SYNO.API.Auth` `login`, or `/webman/login.cgi` with credentials. |
 | `dsm_version_probe` | A request for the version: `SYNO.API.Info`, `SYNO.DSM.Info`, `SYNO.Core.System`, or `/webman/info.cgi`. |
-| `sid_forge` | A session ID in a parameter, a header or a cookie, which the sensor never issued. Or a login with an account and no password. |
+| `sid_forge` | A session ID in a parameter, a header or a cookie of a `/webapi/` call that is not the login, which the sensor never issued. A login (with or without a password) and a session cookie on an ordinary page do not set it. |
 | `scgi_injection` | A control byte (CR, LF, NUL) in the path, a parameter or a header. A double-encoded `%0d`, `%0a` or `%00`. SCGI variable names. Header-like text such as `Set-Cookie:`. |
 | `file_write` | A FileStation write (upload, rename, delete, copy, compress, extract or create folder), a scheduled task change, or a package install or removal. |
 | `ransom_indicator` | `.L0CK3D` or `read-me3.txt` anywhere in the request. |
@@ -70,7 +70,7 @@ Rules live in `ingest/rules/services.yaml`.
 | Tag | Set when | Severity |
 | --- | --- | --- |
 | `synology-dsm` | `dsm_api`: any request to the DSM Web API. | Neutral |
-| `synology-exploit` | `sid_forge` or `scgi_injection`: a forged session or an SCGI injection shape (CVE-2026-13639 and CVE-2026-13684). | Severe |
+| `synology-exploit` | `dsm_api` together with `sid_forge` or `scgi_injection`: a session id or an SCGI injection shape on a DSM Web API call (CVE-2026-13639 and CVE-2026-13684). | Severe |
 | `c3rb3r` | `ransom_indicator`: a request that carries a C3RB3R ransomware name. | Severe |
 | `malware-drop` | Any `download_attempt`. | Severe |
 

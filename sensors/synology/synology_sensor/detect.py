@@ -216,6 +216,15 @@ def _api_flags(a: Analysis, flags: set[str]) -> None:
 
 
 def _sid_forge(req: Request, a: Analysis) -> bool:
+    """A session id presented to a DSM web API call that is not itself the login.
+
+    The id is ours to judge because the sensor never issues one. A session cookie or id on an
+    ordinary page, and a login (with or without a password), are everyday traffic: not flagged.
+    """
+    if not req.path.lower().startswith("/webapi/"):
+        return False
+    if a.api.lower() == "syno.api.auth" and a.api_method.lower() == "login":
+        return False
     if any(k.lower() in _SID_PARAMS for k, _ in a.params):
         return True
     if any(h.lower() in _SID_HEADERS for h, _ in req.headers):
@@ -247,13 +256,6 @@ def analyse(req: Request, a: Analysis, *, is_login_path: bool = False) -> set[st
         flags.add("oversized_body")
 
     if _sid_forge(req, a):
-        flags.add("sid_forge")
-    elif (
-        "dsm_login" in flags
-        and a.get("account", "username", "user")
-        and not a.get("passwd", "password", "pass", "pwd", "__ciphertext")
-    ):
-        # A login without any secret: how a guessed or predicted session would be presented.
         flags.add("sid_forge")
 
     decoded_path = unquote(path[:MAX_VALUE])

@@ -33,7 +33,16 @@ MAX_TEXT = 512  # an attacker-sized user-agent or organisation is cut before it 
 # Tags a scanner session may carry. Every tag of ingest/rules/*.yaml is classified in exactly one
 # of the two sets (a test fails when a new tag is not): add new tags to ATTACK_TAGS unless they
 # only describe looking around.
-BENIGN_TAGS = frozenset({"scanner", "recon", "env-file-probe", "synology-dsm"})
+BENIGN_TAGS = frozenset(
+    {
+        "scanner",
+        "recon",
+        "env-file-probe",
+        "synology-dsm",
+        "smb-v1-probe",
+        "php-upload-progress-probe",
+    }
+)
 ATTACK_TAGS = frozenset(
     {
         "bluekeep", "c3rb3r", "container-escape", "credential-stuffing", "crypto-miner",

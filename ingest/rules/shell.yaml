@@ -1,4 +1,8 @@
 # Rules for interactive sessions (SSH and Telnet commands).
+#
+# Evidence rule: a malware family name (mirai, crypto-miner) needs an indicator specific to that
+# family. Generic download-and-run one-liners are exec-attempt / malware-drop, not a family. On a
+# list field, ``has`` means ANY value and ``has_all`` means EVERY value.
 rules:
   - id: recon-commands
     tag: recon
@@ -14,22 +18,15 @@ rules:
 
   - id: mirai-busybox
     tag: mirai
-    description: BusyBox applet probes typical of Mirai-family loaders.
+    description: >-
+      The Mirai-family BusyBox applet probe: the echo-check with a known variant token
+      (/bin/busybox ECCHI and friends), or a Mirai binary name. Plain busybox use, wget through
+      busybox and /dev/watchdog access are generic and not tagged.
     when:
       all:
         - {field: type, equals: command}
         - field: data.input
-          contains_any: [busybox, ecchi, mirai, /dev/watchdog, /dev/misc/watchdog]
-
-  - id: mirai-telnet-loader
-    tag: mirai
-    description: Telnet loader shell-escape words sent after a successful login.
-    when:
-      all:
-        - {field: type, equals: command}
-        - {field: sensor, equals: telnet}
-        - field: data.input
-          in: [enable, system, shell, linuxshell, sh]
+          contains_any: [busybox ecchi, busybox mirai, busybox zorro, busybox komashi, busybox josho, busybox sora, busybox owari, busybox komodo, mirai.arm, mirai.mips, mirai.mpsl, mirai.x86]
 
   - id: crypto-miner
     tag: crypto-miner
@@ -56,9 +53,22 @@ rules:
 
   - id: persistence
     tag: persistence
-    description: Attempts to survive a reboot or keep access.
+    description: >-
+      Attempts to survive a reboot or keep access: a write to a startup or key file, a crontab
+      piped or loaded from a file, enabling a service. Reading those files (cat, crontab -l) is
+      recon, not persistence.
     when:
       all:
         - {field: type, equals: command}
-        - field: data.input
-          contains_any: [authorized_keys, crontab, /etc/cron, rc.local, "systemctl enable", .bashrc, /etc/init.d, chattr, /etc/profile.d]
+        - any:
+            # A redirection counts only when the target comes AFTER the `>` (so `cat authorized_keys
+            # 2>/dev/null` does not), or the command is a writer aimed at the file.
+            - field: data.input
+              glob: ["*>*authorized_keys*", "*>*/etc/cron*", "*>*rc.local*", "*>*.bashrc*", "*>*/etc/init.d*", "*>*/etc/profile.d*"]
+            - all:
+                - field: data.input
+                  contains_any: [authorized_keys, /etc/cron, rc.local, .bashrc, /etc/init.d, /etc/profile.d]
+                - field: data.input
+                  contains_any: ["tee ", "cp ", "mv ", "ln -s", "sed -i", "install "]
+            - field: data.input
+              contains_any: ["| crontab", "|crontab", "crontab /", "crontab -e", "systemctl enable", chattr]
