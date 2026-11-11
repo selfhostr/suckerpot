@@ -2,6 +2,7 @@ import { Menu } from "lucide-react"
 import { useState } from "react"
 import { Link, Outlet, ScrollRestoration, useLocation } from "react-router"
 import { LiveIndicator } from "@/components/live-indicator"
+import { PipelineBanner } from "@/components/pipeline-banner"
 import { MaskToggle } from "@/components/mask-toggle"
 import { ReadOnlyBadge } from "@/components/read-only-badge"
 import { ScannerToggle } from "@/components/scanner-toggle"
@@ -232,6 +233,7 @@ export function AppShell() {
               )}
             >
               {/* A new route fades in softly (off under reduced motion and for screenshots). */}
+              <PipelineBanner />
               {hub ? <HubTabs hub={hub} pathname={pathname} /> : null}
               <div key={pathname} className="animate-page-in">
                 <Outlet />
