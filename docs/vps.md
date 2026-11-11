@@ -85,9 +85,11 @@ Some providers ship images without swap and some already have it. If `swapon` fa
 
 ## Move your admin SSH off port 22 first
 
-The SSH sensor listens on port 22, because that is where attackers look. Your own SSH daemon uses port 22 by default. On a VPS there is no router to translate ports, so **you must move your admin SSH to another port before you install**. One script does it, and it cannot lock you out: it opens the new port next to port 22, waits until you have logged in on the new port, and only then closes port 22.
+The SSH sensor listens on port 22, because that is where attackers look. Your own SSH daemon uses port 22 by default. On a VPS there is no router to translate ports, so **you must move your admin SSH to another port before you install**. One script does it, and it cannot lock you out: it opens the new port next to port 22, waits until you are logged in on the new port, and only then closes port 22.
 
 It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below.
+
+**Before you start:** if your provider has a firewall panel, allow TCP `22222` (or your own port) there first. The script opens `ufw` or `firewalld` when one is active, but it cannot reach a provider panel. If the port is not allowed there, your login cannot arrive: the script simply times out and keeps port 22, and you can try again.
 
 1. **Run it** from your SuckerPot folder, in your current SSH session:
 
@@ -102,8 +104,8 @@ It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below
    ssh -p 22222 your-user@203.0.113.10
    ```
 
-   (Use your own port and your VPS address.) The script sees the login and closes port 22 by itself. If the login does not come within 5 minutes, or you press Ctrl-C, it puts everything back and port 22 stays as it was.
-3. **Done.** Port 22 is free for the SSH sensor. Your admin SSH uses the new port from now on. If your provider has a firewall panel, allow TCP `22222` there before step 2: the script opens `ufw` or `firewalld` when one is active, but it cannot reach a provider panel.
+   (Use your own port and your VPS address.) The script sees that you are logged in (a bare connection is not enough) and closes port 22 by itself. If the login does not come within 5 minutes, or you press Ctrl-C, it puts everything back and port 22 stays as it was.
+3. **Done.** Port 22 is free for the SSH sensor. Your admin SSH uses the new port from now on.
 
 To go back to port 22 at any time: `sudo ./scripts/move-admin-ssh.sh --undo`.
 

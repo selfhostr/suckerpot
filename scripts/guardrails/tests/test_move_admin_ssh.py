@@ -18,6 +18,7 @@ from conftest import ROOT
 
 SCRIPT = ROOT / "scripts/move-admin-ssh.sh"
 MARK = "# move-admin-ssh.sh: managed file."
+MARK_FULL = MARK + " Undo with: ./scripts/move-admin-ssh.sh --undo"
 
 ID_SHIM = '#!/bin/sh\necho "id $*" >> "$SHIM_LOG"\necho "${SHIM_UID:-0}"\n'
 
@@ -56,6 +57,7 @@ SYSTEMCTL_SHIM = (
     + PORTS_FUNC
     + r"""
 restart() {
+  if [ -n "${SHIM_ALL_FAIL:-}" ]; then : > "$SHIM_DIR/listen"; return 1; fi
   : > "$SHIM_DIR/listen"
   if [ -n "${SHIM_SOCKET:-}" ]; then
     ov="$MOVE_SSH_ROOT/etc/systemd/system/ssh.socket.d/override.conf"
@@ -73,7 +75,18 @@ case "$1 $2" in
   "cat ssh.service") [ -z "${SHIM_NO_UNIT:-}" ] || rc=1 ;;
   "is-enabled --quiet" | "is-active --quiet")
     { [ "$3" = ssh.socket ] && [ -n "${SHIM_SOCKET:-}" ]; } || rc=1 ;;
-  "restart ssh" | "restart ssh.socket" | "try-restart ssh.service") restart ;;
+  "restart ssh.socket")
+    n=$(cat "$SHIM_DIR/sockfails" 2>/dev/null || echo 0)
+    if [ "$n" -lt "${SHIM_SOCKET_RESTART_FAILS:-0}" ]; then
+      echo $((n + 1)) > "$SHIM_DIR/sockfails"
+      rc=1
+    else
+      restart || rc=1
+    fi ;;
+  "restart ssh" | "try-restart ssh.service" | "start ssh.socket") restart || rc=1 ;;
+  "stop ssh.service") [ -z "${SHIM_ALL_FAIL:-}" ] || rc=1 ;;
+  "show ssh.socket")
+    while read -r p proc; do [ -n "$p" ] && [ -n "${SHIM_SOCKET:-}" ] && echo "0.0.0.0:$p (Stream)"; done < "$SHIM_DIR/listen" ;;
 esac
 exit $rc
 """
@@ -84,10 +97,11 @@ echo "ss $*" >> "$SHIM_LOG"
 case "$1" in
   -Hltnp)
     while read -r p proc; do
+      [ -n "${SHIM_SOCKET:-}" ] && [ "$proc" = sshd ] && proc=systemd
       [ -n "$p" ] && echo "LISTEN 0 128 0.0.0.0:$p 0.0.0.0:* users:((\"$proc\",pid=7,fd=3))"
     done < "$SHIM_DIR/listen"
     cat "$SHIM_DIR/foreign" 2>/dev/null || true ;;
-  -Htn) cat "$SHIM_DIR/established" 2>/dev/null || true ;;
+  -Htnp) cat "$SHIM_DIR/established" 2>/dev/null || true ;;
 esac
 exit 0
 """
@@ -98,8 +112,16 @@ n=$((n + 1))
 echo "$n" > "$SHIM_DIR/sleeps"
 echo "sleep $*" >> "$SHIM_LOG"
 if [ -n "${SHIM_LOGIN_AFTER:-}" ] && [ "$n" -eq "$SHIM_LOGIN_AFTER" ]; then
-  echo "ESTAB 0 0 192.0.2.10:$SHIM_LOGIN_PORT ${SHIM_LOGIN_PEER:-198.51.100.7}:50000" > "$SHIM_DIR/established"
+  echo "ESTAB 0 0 192.0.2.10:$SHIM_LOGIN_PORT 198.51.100.7:50000 users:((\"sshd\",pid=4242,fd=4))" > "$SHIM_DIR/established"
+  echo "${SHIM_TITLE:-sshd: alice@pts/0}" > "$SHIM_DIR/title"
 fi
+exit 0
+"""
+
+# Process titles: only pid 4242, the owner of the login connection, is known.
+PS_SHIM = r"""#!/bin/sh
+echo "ps $*" >> "$SHIM_LOG"
+[ "$4" = 4242 ] && cat "$SHIM_DIR/title" 2>/dev/null
 exit 0
 """
 
@@ -144,10 +166,6 @@ class Box:
     def listening(self) -> list[str]:
         return sorted((self.shim / "listen").read_text().split()[::2], key=int)
 
-    def forget_login(self) -> None:
-        for name in ("established", "sleeps"):
-            (self.shim / name).unlink(missing_ok=True)
-
     def run(self, *args: str, stdin: str = "y\n", **env: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # noqa: S603
             ["bash", str(SCRIPT), *args],  # noqa: S607
@@ -179,6 +197,7 @@ def box(tmp_path: Path) -> Box:
         "systemctl": SYSTEMCTL_SHIM,
         "ss": SS_SHIM,
         "sleep": SLEEP_SHIM,
+        "ps": PS_SHIM,
         "ufw": UFW_SHIM,
         **dict.fromkeys(NETWORK_TOOLS, RECORD_SHIM),
     }
@@ -287,7 +306,7 @@ def test_sshd_config_path_moves_the_port(box: Box) -> None:
     check = f"sshd -t -f {box.cfg}"
     assert check in calls
     assert calls.index(check) < calls.index("systemctl restart ssh")
-    assert "ssh -p 22222 alice@<this server>" in text
+    assert "ssh -p 22222 alice@YOUR-SERVER" in text
     assert "Keep this window open" in text
     assert "./scripts/install.sh --participant" in text
     assert "--undo" in text
@@ -303,7 +322,9 @@ def test_both_ports_are_open_while_waiting(box: Box) -> None:
     snap = box.shim / "snap"
     hook = box.shim / "ss"
     hook.write_text(
-        hook.read_text().replace("-Htn)", f'-Htn) cp "{box.dropin}" "{snap}" 2>/dev/null || true;')
+        hook.read_text().replace(
+            "-Htnp)", f'-Htnp) cp "{box.dropin}" "{snap}" 2>/dev/null || true;'
+        )
     )
     proc = box.run()
     assert proc.returncode == 0, out(proc)
@@ -335,7 +356,7 @@ def test_socket_override_has_both_ports_in_phase_one(box: Box) -> None:
     hook = box.shim / "ss"
     hook.write_text(
         hook.read_text().replace(
-            "-Htn)", f'-Htn) cp "{box.override}" "{snap}" 2>/dev/null || true;'
+            "-Htnp)", f'-Htnp) cp "{box.override}" "{snap}" 2>/dev/null || true;'
         )
     )
     proc = box.run(SHIM_SOCKET="1")
@@ -354,7 +375,7 @@ def test_custom_port_and_yes(box: Box) -> None:
     proc = box.run("48022", "--yes", stdin="", SHIM_LOGIN_PORT="48022")
     assert proc.returncode == 0, out(proc)
     assert box.dropin.read_text().splitlines()[1:] == ["Port 48022"]
-    assert "ssh -p 48022 alice@<this server>" in out(proc)
+    assert "ssh -p 48022 alice@YOUR-SERVER" in out(proc)
 
 
 def test_ufw_is_opened_when_active(box: Box) -> None:
@@ -394,13 +415,35 @@ def test_timeout_with_socket_activation(box: Box) -> None:
     assert box.listening() == ["22"]
 
 
-def test_a_bot_on_the_new_port_is_not_the_user(box: Box) -> None:
-    # The session that started the script came from 203.0.113.5: only that peer counts.
-    proc = box.run(SSH_CLIENT="203.0.113.5 50001 22", SHIM_LOGIN_PEER="198.51.100.99")
+@pytest.mark.parametrize(
+    "title",
+    [
+        "sshd: [accepted]",
+        "sshd: alice [priv]",
+        "sshd: alice [net]",
+        "sshd-session: alice [priv]",
+        "sshd-session: [accepted]",
+    ],
+)
+def test_a_pre_login_connection_never_closes_port_22(box: Box, title: str) -> None:
+    proc = box.run(SHIM_TITLE=title)
     assert proc.returncode == 1
+    assert "no login on port 22222 was seen" in out(proc)
     assert box.listening() == ["22"]
-    box.forget_login()
-    proc = box.run(SSH_CLIENT="203.0.113.5 50001 22", SHIM_LOGIN_PEER="203.0.113.5")
+    assert not box.dropin.exists()
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "sshd: alice@pts/0",
+        "sshd: alice@notty",
+        "sshd-session: alice@pts/3",
+        "sshd-session: alice@notty",
+    ],
+)
+def test_an_authenticated_session_counts(box: Box, title: str) -> None:
+    proc = box.run(SHIM_TITLE=title)
     assert proc.returncode == 0, out(proc)
     assert box.listening() == ["22222"]
 
@@ -521,3 +564,73 @@ def test_script_is_executable_and_has_a_shebang() -> None:
     assert os.access(SCRIPT, os.X_OK)
     assert SCRIPT.read_text().startswith("#!/usr/bin/env bash\n")
     assert stat.S_IMODE(SCRIPT.stat().st_mode) & stat.S_IXUSR
+
+
+def test_already_off_port_22_changes_nothing(box: Box) -> None:
+    box.cfg.write_text("Include /etc/ssh/sshd_config.d/*.conf\nPort 2200\n")
+    (box.shim / "listen").write_text("2200 sshd\n")
+    proc = box.run()
+    assert proc.returncode == 0, out(proc)
+    assert "already off port 22" in proc.stdout
+    assert "2200" in proc.stdout
+    assert "free for the SSH sensor" in proc.stdout
+    assert not box.dropin.exists()
+    assert box.cfg.read_text().endswith("Port 2200\n")
+    assert not any(c.startswith("systemctl restart") for c in box.calls())
+
+
+def test_port_22_plus_foreign_ports_is_refused(box: Box) -> None:
+    box.cfg.write_text("Include /etc/ssh/sshd_config.d/*.conf\nPort 22\nPort 2200\n")
+    (box.shim / "listen").write_text("22 sshd\n2200 sshd\n")
+    proc = box.run()
+    assert proc.returncode == 1
+    assert "unusual" in proc.stderr
+    assert "By hand" in proc.stderr
+    assert not box.dropin.exists()
+    assert not any(c.startswith("systemctl restart") for c in box.calls())
+
+
+def test_files_of_an_interrupted_run_are_reverted_first(box: Box) -> None:
+    box.dropin.write_text(f"{MARK_FULL}\nPort 22\nPort 22222\n")
+    (box.shim / "listen").write_text("22 sshd\n22222 sshd\n")
+    proc = box.run()
+    text = out(proc)
+    assert proc.returncode == 0, text
+    assert "earlier run" in text
+    assert box.dropin.read_text().splitlines()[1:] == ["Port 22222"]
+    assert box.listening() == ["22222"]
+
+
+def test_a_systemd_socket_of_another_unit_is_not_ssh(box: Box) -> None:
+    # Held by systemd, but ssh.socket does not list 48022: some other unit owns it.
+    (box.shim / "foreign").write_text(
+        'LISTEN 0 4096 0.0.0.0:48022 0.0.0.0:* users:(("systemd",pid=1,fd=40))\n'
+    )
+    proc = box.run("48022", SHIM_SOCKET="1")
+    assert proc.returncode == 1
+    assert "already used by another program" in proc.stderr
+    # Without socket activation a systemd owner is never SSH either.
+    proc = box.run("48022")
+    assert proc.returncode == 1
+
+
+def test_socket_restart_failure_falls_back_to_stop_and_start(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_SOCKET_RESTART_FAILS="1")
+    assert proc.returncode == 0, out(proc)
+    calls = box.calls()
+    assert "systemctl stop ssh.service" in calls
+    assert "systemctl start ssh.socket" in calls
+    assert box.listening() == ["22222"]
+
+
+def test_when_nothing_can_be_restarted_the_user_is_told_what_to_do(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_ALL_FAIL="1")
+    assert proc.returncode == 1
+    err = proc.stderr
+    assert "Do NOT close this session" in err
+    assert "sudo systemctl restart ssh\n" in err
+    assert "sudo ss -ltnp | grep -E 'sshd|systemd'" in err
+    assert not box.dropin.exists()
+    assert not box.override.exists()
+    # The last attempt went straight at the socket.
+    assert box.calls().count("systemctl restart ssh.socket") >= 3

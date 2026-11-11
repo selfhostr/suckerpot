@@ -9,8 +9,8 @@
 #   -h, --help   show this help
 #
 # You are never locked out: the new port is opened NEXT TO port 22 first. The script then waits
-# until you log in on the new port from a second terminal, and only then closes port 22. If the
-# login does not come in 5 minutes, or the script is interrupted or fails, port 22 stays as it
+# until you are logged in on the new port from a second terminal, and only then closes port 22.
+# If the login does not come in 5 minutes, or the script is interrupted or fails, port 22 stays as it
 # was. Your open session stays connected all along.
 #
 # It writes /etc/ssh/sshd_config.d/10-admin-port.conf and, when SSH is started by systemd socket
@@ -80,16 +80,38 @@ listeners() {
   ss -Hltnp 2> /dev/null | awk -v p="$1" '{n = split($4, a, ":"); if (a[n] == p) print}' || true
 }
 
-# True when sshd (or systemd, which holds the socket under socket activation) listens on port $1.
-ssh_listens() { listeners "$1" | grep -Eq '"(sshd|systemd)"'; }
-
-# True when a program that is not the SSH daemon listens on port $1.
-foreign_listens() { listeners "$1" | grep -Ev '"(sshd|systemd)"' | grep -q .; }
-
 in_list() { [[ " $2 " == *" $1 "* ]]; }
 
 socket_activated() {
   systemctl is-enabled --quiet ssh.socket 2> /dev/null || systemctl is-active --quiet ssh.socket 2> /dev/null
+}
+
+# Ports that ssh.socket listens on, as a list.
+socket_ports() {
+  systemctl show ssh.socket -p Listen --value 2> /dev/null | awk 'NF {n = split($1, a, ":"); print a[n]}' | sort -un | tr '\n' ' ' | sed 's/ $//'
+}
+
+# True when the SSH daemon listens on port $1: sshd itself, or systemd holding a port that
+# ssh.socket lists. A socket of any other unit on that port does not count.
+ssh_listens() {
+  local l
+  l=$(listeners "$1")
+  case $l in *'"sshd"'*) return 0 ;; esac
+  case $l in
+    *'"systemd"'*) socket_activated && in_list "$1" "$(socket_ports)" ;;
+    *) return 1 ;;
+  esac
+}
+
+# True when a program that is not the SSH daemon listens on port $1.
+foreign_listens() { [ -n "$(listeners "$1")" ] && ! ssh_listens "$1"; }
+
+# Every port the SSH daemon listens on now, as a sorted list.
+ssh_ports() {
+  {
+    ss -Hltnp 2> /dev/null | { grep '"sshd"' || true; } | awk '{n = split($4, a, ":"); print a[n]}'
+    if socket_activated; then socket_ports | tr ' ' '\n'; fi
+  } | sed '/^$/d' | sort -un | tr '\n' ' ' | sed 's/ $//'
 }
 
 # Writes stdin to file $1 through a temporary file, so a reader never sees half a file.
@@ -185,7 +207,11 @@ apply() {
   sshd -t -f "$CFG" || return 1
   systemctl daemon-reload || return 1
   if socket_activated; then
-    systemctl restart ssh.socket || return 1
+    # If systemd refuses to restart the socket while the service runs, stop the service (open
+    # sessions survive) and start the socket: sshd then starts on the next connection.
+    if ! systemctl restart ssh.socket; then
+      systemctl stop ssh.service && systemctl start ssh.socket || return 1
+    fi
     systemctl try-restart ssh.service || return 1
   else
     systemctl restart ssh || return 1
@@ -195,7 +221,7 @@ apply() {
 # Checks the result: the configuration, then the listeners. $1 = ports sshd must listen on,
 # $2 = ports it must not listen on any more. Waits a few seconds for the daemon to come up.
 verify() {
-  local p
+  local p bad
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     if [ "$(effective_ports)" = "$1" ]; then
       bad=0
@@ -222,21 +248,20 @@ open_firewall() {
   note "If your provider has a firewall panel, allow TCP $1 there too. This script cannot do that."
 }
 
-# Is there a connection to the new port that does not come from the world at large? With
-# SSH_CLIENT set (your current session), only a peer with that address counts, so a bot that
-# happens to knock on the new port cannot stand in for you. Needs two polls in a row.
+# Is somebody logged in on port $1? A connection alone proves nothing: a scanner can sit in the
+# pre-login phase. The owner of the connection must be an authenticated session, whose process
+# title reads "sshd: USER@pts/0" or "sshd: USER@notty" ("sshd-session: ..." on newer OpenSSH).
+# "[accepted]", "USER [priv]" and "USER [net]" are the pre-login phase and do not count.
 login_seen() {
-  local client=${SSH_CLIENT:-}
-  client=${client%% *}
-  client=${client#::ffff:}
-  ss -Htn 2> /dev/null | awk -v p="$1" -v c="$client" '
-    $1 == "ESTAB" {
-      n = split($4, a, ":")
-      if (a[n] != p) next
-      peer = $5; sub(/:[0-9]+$/, "", peer); gsub(/[][]/, "", peer); sub(/^::ffff:/, "", peer)
-      if (c == "" || peer == c) found = 1
-    }
-    END { exit !found }'
+  local pid title
+  for pid in $(ss -Htnp 2> /dev/null | awk -v p="$1" '$1 == "ESTAB" {n = split($4, a, ":"); if (a[n] == p) print}' | { grep -Eo 'pid=[0-9]+' || true; } | cut -d= -f2 | sort -u); do
+    title=$(ps -o args= -p "$pid" 2> /dev/null) || continue
+    case $title in
+      *'[accepted]'* | *'[priv]'* | *'[net]'*) ;;
+      'sshd: '*@pts/* | 'sshd: '*@notty* | 'sshd-session: '*@pts/* | 'sshd-session: '*@notty*) return 0 ;;
+    esac
+  done
+  return 1
 }
 
 # ---------------------------------------------------------------- cleanup on any exit
@@ -253,7 +278,18 @@ on_exit() {
     if apply && verify "22" "$port"; then
       echo "Done: SSH listens on port 22 again. Nothing else was changed."
     else
-      echo "move-admin-ssh: could not confirm port 22. Check by hand: ss -ltnp | grep sshd" >&2
+      # One last attempt, straight at the service.
+      if socket_activated; then systemctl restart ssh.socket || true; else systemctl restart ssh || true; fi
+      if verify "22" "$port"; then
+        echo "Done: SSH listens on port 22 again. Nothing else was changed."
+      else
+        {
+          echo "move-admin-ssh: could not confirm that SSH listens on port 22."
+          echo "Do NOT close this session. Run these two commands here:"
+          echo "    sudo systemctl restart ssh"
+          echo "    sudo ss -ltnp | grep -E 'sshd|systemd'"
+        } >&2
+      fi
     fi
     [ "$rc" -ne 0 ] || rc=1
   fi
@@ -315,11 +351,28 @@ if [ "$(effective_ports)" = "$port" ] && ssh_listens "$port" && ! ssh_listens 22
   exit 0
 fi
 
+# ---------------------------------------------------------------- starting state
+# A run that was killed (kill -9, power loss) leaves its files behind: put them back first.
+if is_ours "$OVERRIDE" || is_ours "$DROPIN" || { [ -e "$CFG$BAK" ] && grep -q 'move-admin-ssh.sh' "$CFG" 2> /dev/null; }; then
+  note "Changes from an earlier run of this script are still in place. Putting them back first."
+  revert_files
+  apply || die "the configuration was refused after putting the earlier changes back. Check it with: sshd -t"
+  verify "$(effective_ports)" "" || die "SSH does not listen on the ports it is configured for. Check by hand: ss -ltnp | grep -E 'sshd|systemd'"
+fi
+current=$(ssh_ports)
+[ -n "$current" ] || die "sshd does not seem to listen anywhere. Start it first, then run this again."
+if ! in_list 22 "$current"; then
+  echo "Your admin SSH is already off port 22 (it listens on: $current)."
+  echo "Port 22 is free for the SSH sensor. Nothing to do."
+  exit 0
+fi
+[ "$current" = 22 ] || die "sshd listens on port 22 and on other ports ($current) that this script did not set up. That setup is unusual: follow \"By hand\" in docs/vps.md."
+
 # ---------------------------------------------------------------- confirmation
 user=${SUDO_USER:-your-user}
 echo "This moves your admin SSH from port 22 to port $port, in two steps."
 echo "  1. It opens port $port next to port 22. Nothing is closed yet."
-echo "  2. You log in on port $port from a second terminal. Only then does it close port 22."
+echo "  2. It waits until you are logged in on port $port from a second terminal. Only then does it close port 22."
 echo "If the login does not happen, port 22 stays as it is. Your open session stays connected."
 if [ "$assume_yes" = 0 ]; then
   printf 'Continue? [y/N] '
@@ -344,9 +397,9 @@ echo
 echo "Keep this window open."
 echo "Open a second terminal on your computer and connect:"
 echo
-echo "    ssh -p $port $user@<this server>"
+echo "    ssh -p $port $user@YOUR-SERVER"
 echo
-echo "Log in fully and leave that session open. Waiting up to $((WAIT_SECONDS / 60)) minutes ..."
+echo "Log in fully and leave that session open. Waiting up to $((WAIT_SECONDS / 60)) minutes until you are logged in on port $port ..."
 waited=0
 seen=0
 while [ "$waited" -lt "$WAIT_SECONDS" ]; do
@@ -372,7 +425,7 @@ phase=finished
 
 echo
 echo "Done. Your admin SSH listens on port $port only."
-note "Connect with: ssh -p $port $user@<this server>"
+note "Connect with: ssh -p $port $user@YOUR-SERVER"
 note "Port 22 is free for the SSH sensor."
 note "Next step: ./scripts/install.sh --participant"
 note "To go back to port 22: sudo ./scripts/move-admin-ssh.sh --undo"
