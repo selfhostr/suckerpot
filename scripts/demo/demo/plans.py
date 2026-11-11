@@ -401,6 +401,7 @@ class _Web:
         ua: str | None = None,
         gap: Gap = (0.05, 1.2),
         dl: tuple[str, str] | None = None,
+        flags: list[str] | None = None,
     ) -> None:
         agent = ua or self.ua
         hdrs = {"Host": self.host_hdr, "User-Agent": agent, "Accept": "*/*"}
@@ -420,6 +421,7 @@ class _Web:
                 "user_agent": agent,
                 "body_preview": body,
                 "status": status if status is not None else _http_status(self.rng, method, path),
+                **({"flags": flags} if flags else {}),
             },
             gap,
         )
@@ -479,6 +481,8 @@ def _php2shell(w: _Web) -> None:
             },
             gap=(0.02, 0.4),
             dl=dl,
+            # What the web sensor sets for the exploit shape: the field carrying PHP code.
+            flags=["upload_progress", "php_code", "php2shell"],
         )
     if rng.random() < 0.6:
         w.req(
@@ -488,6 +492,7 @@ def _php2shell(w: _Web) -> None:
             status=200,
             headers={"Cookie": f"PHPSESSID={sid}"},
             gap=(0.1, 0.8),
+            flags=["lfi", "session_include", "session_ref_match", "php2shell"],
         )
 
 

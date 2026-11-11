@@ -26,10 +26,12 @@ services:
     cpes: [phpmyadmin:phpmyadmin]
     keywords: [phpmyadmin]
   - id: openssh
-    label: OpenSSH on Ubuntu
+    label: OpenSSH
     sensors: [ssh]
-    cpes: [openbsd:openssh, canonical:ubuntu_linux]
-    keywords: [openssh, ubuntu]
+    # The sensor emulates the sshd banner and a fake shell, not the Ubuntu operating system:
+    # Ubuntu kernel or package CVEs must not look relevant to it.
+    cpes: [openbsd:openssh]
+    keywords: [openssh]
   - id: busybox-telnet
     label: BusyBox telnetd
     sensors: [telnet]

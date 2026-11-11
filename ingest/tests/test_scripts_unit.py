@@ -65,6 +65,21 @@ def test_specific_rules_win_over_general_ones() -> None:
     assert [line["rule"] for line in out["lines"]] == ["ssh-key-install", "echo"]
 
 
+def test_reading_a_startup_or_key_file_is_not_called_persistence() -> None:
+    def rule(line: str) -> str | None:
+        out = explain_pairs(extract_pairs([line]), BASE)
+        return out["lines"][0]["rule"]  # type: ignore[no-any-return]
+
+    # writes are persistence
+    assert rule("cat id.pub >> ~/.ssh/authorized_keys") == "ssh-key-install-cat"
+    assert rule("cat x >> /etc/rc.local") == "write-cron-or-rc-cat"
+    # reads and listings are not
+    assert rule("cat ~/.ssh/id_rsa") == "read-ssh-keys"
+    assert rule("cat ~/.ssh/authorized_keys") == "read-ssh-keys"
+    assert rule("cat /etc/rc.local") == "print-text"
+    assert rule("crontab -l") == "cron-list"
+
+
 def test_unknown_commands_are_said_to_be_unknown() -> None:
     out = explain_pairs(extract_pairs(["frobnicate --now", "uname"]), BASE)
     assert out["lines"][0]["rule"] is None and out["unknown"] == 1

