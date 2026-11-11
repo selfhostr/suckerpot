@@ -211,6 +211,21 @@ jobs:
             fi
           done
 
+  # A dump made by the backup service must restore with scripts/restore-db.sh, and a damaged dump
+  # must change nothing. Throwaway compose project (project-local volumes, nothing published).
+  backup-restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Backup and restore end to end
+        env:
+          COMPOSE_PROJECT_NAME: sp-br-ci
+          SUCKERPOT_VOLUME_PREFIX: sp-br-ci
+        run: scripts/test-backup-restore.sh
+
   # The hub is a separate deployable: its API, worker, privacy and end-to-end tests run against a
   # throwaway PostgreSQL (the schema is rebuilt at the start of the run).
   hub-integration:

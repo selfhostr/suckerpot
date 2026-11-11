@@ -45,7 +45,8 @@ All commands are `just` recipes. Run `just` with no arguments to list them.
 | --- | --- |
 | `just backup` | Dump the database now into the `suckerpot_backups` volume (the `backup` service also does it daily, 7 kept). See [Deployment](deployment.md#data-volumes-and-backups). |
 | `just backups` / `just backup-host` | List the dumps in the volume / dump into the host folder `./backups` (`BACKUP_DIR`, `BACKUP_KEEP`). |
-| `just restore latest\|FILE\|volume:NAME` | Replace the whole database with a dump. Asks for confirmation. |
+| `just restore latest\|FILE\|volume:NAME` | Replace the whole database with a dump, after restoring it into a side database first. Asks for confirmation. Flags: `--yes`, `--keep-previous`. |
+| `just test-backup-restore` | End-to-end check in a throwaway Compose project that a dump of the `backup` service restores and a truncated dump is refused. Also a CI job. |
 | `just up --force-empty` | Start even though the database volume is missing and dumps exist. Only to start from scratch on purpose. |
 
 ### Data and end-to-end checks

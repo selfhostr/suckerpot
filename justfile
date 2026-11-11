@@ -182,6 +182,18 @@ backups: _need-project
 restore file: _need-project
     bash scripts/restore-db.sh "$@"
 
+# End-to-end proof that a dump of the backup service restores cleanly and a damaged one changes nothing. Throwaway compose project, never the live stack.
+test-backup-restore:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # One run at a time on this host, and a project name that is unique per run and per checkout.
+    # The script itself refuses the live names; this one always carries the "sp-br-" prefix.
+    exec 9>/tmp/suckerpot-it.lock
+    flock 9
+    br="sp-br-$(printf %s "$PWD" | sha256sum | cut -c1-6)-$$"
+    export COMPOSE_PROJECT_NAME="$br" SUCKERPOT_VOLUME_PREFIX="$br"
+    exec bash scripts/test-backup-restore.sh
+
 # HTTP requests (WordPress login + PHP upload-progress) against the web sensor, then check the API.
 http-test:
     scripts/web-test.sh
