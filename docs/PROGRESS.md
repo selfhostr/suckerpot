@@ -274,3 +274,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - The same two-phase move serves a later change of port and `--undo`. Unusual setups are refused before any change. The installer still never edits the SSH configuration.
 - `docs/vps.md` leads with the script and keeps the manual steps under "By hand".
 - Two security review passes. Tests with stateful shims for both init paths, and a run against a real OpenSSH daemon in a container. A real systemd with socket activation is not covered by an automated test.
+
+## 2026-11-11: v0.11.2 (first install on a small VPS)
+
+- A first install on a rented 2 GB server showed two faults, both fixed here.
+- Memory: a machine sold as "2 GB" reports about 1.9 GiB and was refused. The bar is now 1.75 GiB, so such a machine gets the default participant setup with the low-memory overlay. Below the bar and above the lite minimum, the installer offers the lite setup. The swap question is really asked in participant mode.
+- First start: the `db` healthcheck used the Unix socket, which also answers while the image's temporary init server runs. `backup` then started its first dump too early, failed, and waited an hour, so the install timed out. The healthcheck now probes over TCP, and a failed dump is retried after 30 s, doubled each time up to the hour. An update recreates the `db` container once.
+- Tests: guardrail tests for both, and the compose, participant and backup-restore jobs green. Neither fix was run on a real small server yet: the affected install was finished by hand on v0.11.1 (restart `backup`, then `./scripts/install.sh --repair`).
