@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `localhost`, which the API always accepts.
 - An honest node on a network too small for corroboration no longer loses reputation every day.
   The hub's daily volume penalty (a node sending many values that no other node sees) now applies
-  only while at least `HUB_VOLUME_MIN_NODES` (default 5) active nodes old enough to count have reported in the last
-  14 days. Before, a lone node was penalised daily and ended up soft-suspended after about a week.
+  only while at least `HUB_VOLUME_MIN_NODES` (default 5) active nodes old enough to count have
+  reported in the last 14 days. Before, a lone node was penalised daily and ended up
+  soft-suspended after about a week.
 
 ## [0.11.2] - 2026-11-11
 

@@ -96,7 +96,8 @@ async def apply_day(
     )
     # -0.05 for a node with more than 500 distinct values in 14 days, over 95 % of them seen by
     # nobody else. Only while at least ``volume_min_nodes`` active nodes old enough to count
-    # (the consensus age rule) reported in that window: below that, nobody can corroborate anything and an honest lone node would be punished.
+    # (the consensus age rule) reported in that window: below that, nobody can corroborate
+    # anything and an honest lone node would be punished.
     await session.execute(
         text(
             """
