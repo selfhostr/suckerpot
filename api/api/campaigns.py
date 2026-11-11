@@ -16,6 +16,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, tuple_
+from suckerpot_db.event_bounds import session_events_select
 from suckerpot_db.models import (
     AttackTechniqueRow,
     CampaignKeyRow,
@@ -295,10 +296,13 @@ def _excerpt_line(ev: EventRow) -> ExcerptLine | None:
 async def _excerpt(db: DbSession, sid: str | None) -> Excerpt | None:
     if not sid:
         return None
+    session_row = await db.get(SessionRow, sid)
+    if session_row is None:
+        return None
     events = (
         await db.scalars(
-            select(EventRow)
-            .where(EventRow.session_id == sid, EventRow.type != "connect")
+            session_events_select(session_row)
+            .where(EventRow.type != "connect")
             .order_by(EventRow.ts, EventRow.id)
             .limit(EXCERPT_LINES * 4)
         )

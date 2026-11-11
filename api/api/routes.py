@@ -9,6 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 from pydantic import AfterValidator, AwareDatetime
 from sqlalchemy import func, or_, select, text, tuple_
+from suckerpot_db.event_bounds import session_events_select
 from suckerpot_db.models import (
     CampaignRow,
     EnrichmentQuotaRow,
@@ -195,17 +196,23 @@ async def list_session_events(
     limit: Limit = 100,
     cursor: Cursor = None,
 ) -> EventPage:
-    stmt = select(EventRow).where(EventRow.session_id == session_id)
+    after: tuple[datetime, int] | None = None
     if cursor is not None:
         try:
-            c_ts, c_id = parse_event_cursor(cursor)
+            after = parse_event_cursor(cursor)
         except InvalidCursorError as exc:
             raise HTTPException(status_code=400, detail="invalid cursor") from exc
-        stmt = stmt.where(tuple_(EventRow.ts, EventRow.id) > (c_ts, c_id))
+    # The session row bounds ``ts`` so TimescaleDB can skip every other (compressed) chunk.
+    row = await session.get(SessionRow, session_id)
+    if row is None:
+        if cursor is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        return EventPage(items=[], next_cursor=None)
+    stmt = session_events_select(row)
+    if after is not None:
+        stmt = stmt.where(tuple_(EventRow.ts, EventRow.id) > after)
     stmt = stmt.order_by(EventRow.ts.asc(), EventRow.id.asc()).limit(limit + 1)
     rows = list((await session.scalars(stmt)).all())
-    if not rows and cursor is None and await session.get(SessionRow, session_id) is None:
-        raise HTTPException(status_code=404, detail="session not found")
     page, more = rows[:limit], len(rows) > limit
     return EventPage(
         items=[EventOut.model_validate(r, from_attributes=True) for r in page],

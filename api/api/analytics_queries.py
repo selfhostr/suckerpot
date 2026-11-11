@@ -27,6 +27,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from suckerpot_db.event_bounds import SLACK
 from suckerpot_db.models import EventRow, SessionRow
 
 from api.analytics_schemas import (
@@ -618,6 +619,9 @@ def session_has_value(field: str, value: str) -> ColumnElement[bool]:
         select(literal_column("1"))
         .where(
             EventRow.session_id == SessionRow.session_id,
+            # The session's own time range lets TimescaleDB skip chunks it cannot be in.
+            EventRow.ts >= SessionRow.started_at,
+            EventRow.ts <= SessionRow.last_event_at + SLACK,
             EventRow.type.in_(types),
             expr == value,
         )
