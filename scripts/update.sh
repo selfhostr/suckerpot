@@ -12,8 +12,16 @@
 #
 # A database dump is taken first and recorded in .suckerpot-state/last-update.json, together with
 # the commit and version you were on, so `just rollback` can put everything back. Migrations are
-# forward-only: a rollback restores the dump (events received since are lost). The script never
-# rolls back by itself.
+# forward-only: when the schema moved, a rollback restores the dump (events received since are
+# lost); when it did not, a rollback keeps the data. The script never rolls back by itself.
+#
+# The health of every service is recorded before anything changes. The update fails only on a
+# regression: a service that was healthy (or had no healthcheck) and is not healthy after
+# UPDATE_HEALTH_WAIT_SECONDS (default 180). A service that was already unhealthy is only reported.
+#
+# Exit codes: 0 done, 1 failed, 2 bad usage, 10 failed because of the release itself (a
+# regression, a failed migration, a wrong running version). scripts/auto-update.sh blacklists a version
+# only on 10.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -56,6 +64,36 @@ if [ "$auto" = 1 ] && { [ "$no_backup" = 1 ] || [ "$skip_verify" = 1 ] || [ "$fo
 fi
 
 die() { echo "update: $*" >&2; exit 1; }
+# A failure caused by the release itself (exit 10, see the header).
+die_release() { echo "update: $*" >&2; exit 10; }
+# "service state health" per line; an empty health means a container without a healthcheck.
+health_snapshot() { docker compose ps --format '{{.Service}} {{.State}} {{.Health}}' 2> /dev/null | tr -d '\r' | sort || true; }
+# health_of SERVICE SNAPSHOT: prints the status of SERVICE, fails when it is absent. The status is
+# the container state when it is not "running" (restarting, exited...), else its health (empty for
+# a running container without a healthcheck, which is good).
+health_of() { printf '%s\n' "$2" | awk -v s="$1" '$1 == s { print ($2 != "running") ? $2 : $3; f = 1 } END { exit !f }'; }
+is_good() { [ "$1" = healthy ] || [ -z "$1" ]; }
+# good_before SERVICE: true when SERVICE was healthy (or had no healthcheck) before the update.
+good_before() {
+  local h
+  h=$(health_of "$1" "$health_before") || return 1
+  is_good "$h"
+}
+# release_or_warn SERVICE MESSAGE: a release fault if SERVICE was good before the update, otherwise
+# only a warning (the node was already degraded and the update did not change that).
+release_or_warn() {
+  if good_before "$1"; then die_release "$2"; fi
+  echo "      warning: $2, but $1 was already unhealthy before the update. The update did not change that." >&2
+}
+# The Alembic revision the database is at ("" when it cannot be read).
+db_alembic_revision() {
+  local rev
+  rev=$(docker compose exec -T db sh -c \
+    'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -q -At -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT version_num FROM alembic_version"' \
+    2> /dev/null | tr -d '\r' | head -n 1 || true)
+  [[ $rev =~ ^[A-Za-z0-9_]{1,64}$ ]] || rev=""
+  printf %s "$rev"
+}
 step() { printf '[%s/%s] %s\n' "$1" "$TOTAL" "$2"; }
 confirm() {
   [ "$assume_yes" = 1 ] && return 0
@@ -180,6 +218,21 @@ else
 fi
 confirm "Update now? A database backup is taken first." || { echo "aborted"; exit 1; }
 
+# What the node looks like before anything changes: the update is judged against this.
+wait_s=$(env_get UPDATE_HEALTH_WAIT_SECONDS "${UPDATE_HEALTH_WAIT_SECONDS:-180}")
+[[ $wait_s =~ ^[0-9]{1,4}$ ]] || wait_s=180
+# Let services that are still starting settle first (at most 60 s). One that is still starting
+# after that counts as good: the release is then held to the normal standard for it.
+pre_wait=$wait_s
+[ "$pre_wait" -le 60 ] || pre_wait=60
+for ((i = 0; i <= pre_wait / 5; i++)); do
+  health_before=$(health_snapshot)
+  printf '%s\n' "$health_before" | awk '$2 == "running" && $3 == "starting" { f = 1 } END { exit !f }' || break
+  [ "$i" -lt $((pre_wait / 5)) ] && sleep 5
+done
+health_before=$(printf '%s\n' "$health_before" | awk '$2 == "running" && $3 == "starting" { $3 = "healthy" } { print }')
+alembic_before=$(db_alembic_revision)
+
 # ---------------------------------------------------------------- 2. backup
 step 2 "Backing up the database"
 dump=""
@@ -218,6 +271,7 @@ cat > "$tmp" << EOF
   "from_branch": "$(clean "$from_branch")",
   "mode": "$mode",
   "dump": "$(clean "$dump")",
+  "alembic_before": "$(clean "$alembic_before")",
   "target": "$(clean "$target")",
   "at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "completed": false,
@@ -241,7 +295,7 @@ on_exit() {
       echo "update FAILED after the code was changed. Nothing was rolled back automatically." >&2
       echo "  To go back to $from_version and restore the database dump '${dump:-none}':" >&2
       echo "      just rollback" >&2
-      echo "  (events received since the dump are lost by a rollback)" >&2
+      echo "  (events received since the dump are lost only if the database schema changed)" >&2
     fi
   fi
 }
@@ -292,10 +346,18 @@ fi
 # ---------------------------------------------------------------- 7. start
 step 7 "Restarting (migrations run first)"
 bash scripts/check-ports.sh --dotenv-only
+up_rc=0
 if [ "$mode" = images ]; then
-  compose_up_recreating -d --no-build --pull never --wait --wait-timeout 600
+  compose_up_recreating -d --no-build --pull never --wait --wait-timeout 600 || up_rc=$?
 else
-  compose_up_recreating -d --wait --wait-timeout 600
+  compose_up_recreating -d --wait --wait-timeout 600 || up_rc=$?
+fi
+if [ "$up_rc" -ne 0 ]; then
+  # `up --wait` also fails for a service that was already unhealthy. Go on only when the
+  # migrations ran and finished cleanly; the health check below then judges each service.
+  migrate_state=$(docker compose ps -a migrate --format '{{.State}} {{.ExitCode}}' 2> /dev/null | tr -d '\r' | head -n 1 || true)
+  [ "$migrate_state" = "exited 0" ] || die_release "docker compose up failed and the migrations did not finish cleanly (exit $up_rc)"
+  echo "      warning: docker compose up reported an unhealthy service (exit $up_rc); judging each service below" >&2
 fi
 
 # ---------------------------------------------------------------- 8. health
@@ -310,18 +372,52 @@ else
     if curl -fsS --max-time 5 "http://$bind:$dport/healthz" > /dev/null 2>&1; then ok=1; break; fi
     sleep 3
   done
-  [ "$ok" = 1 ] || die "the dashboard does not answer on http://$bind:$dport/healthz"
+  [ "$ok" = 1 ] || release_or_warn api "the dashboard does not answer on http://$bind:$dport/healthz"
 fi
-if docker compose ps --format '{{.Service}} {{.Health}}' | grep -qE ' (unhealthy|starting)$'; then
-  die "a service is not healthy (docker compose ps)"
-fi
+# Judge each service against the snapshot taken before the update. Only a regression fails:
+# healthy (or no healthcheck) before, not healthy after the wait. A service that was already
+# bad, and still is, is reported but does not fail the update.
+regressions=""
+degraded=""
+polls=$((wait_s / 5 + 1))
+for ((i = 0; i < polls; i++)); do
+  health_after=$(health_snapshot)
+  regressions=""
+  degraded=""
+  pending=0
+  while read -r svc _; do
+    [ -n "$svc" ] || continue
+    now_h=$(health_of "$svc" "$health_after" || true)
+    is_good "$now_h" && continue
+    if was_h=$(health_of "$svc" "$health_before") && ! is_good "$was_h"; then
+      degraded+="$svc "
+    else
+      regressions+="$svc($now_h) "
+      [ "$now_h" != starting ] || pending=1
+    fi
+  done <<< "$health_after"
+  # A service that was healthy and is gone (stopped, crashed) is a regression too.
+  while read -r svc _; do
+    [ -n "$svc" ] || continue
+    was_h=$(health_of "$svc" "$health_before" || true)
+    is_good "$was_h" || continue
+    health_of "$svc" "$health_after" > /dev/null || regressions+="$svc(not running) "
+  done <<< "$health_before"
+  # Wait only while a regression candidate is still starting; an unhealthy one is judged now.
+  [ "$pending" = 1 ] || break
+  sleep 5
+done
+for svc in $degraded; do
+  echo "      warning: $svc was already unhealthy before the update and still is. The update did not change that." >&2
+done
+[ -z "$regressions" ] || die_release "not healthy after the update but healthy before: ${regressions% } (docker compose ps)"
 running=$(docker compose exec -T "$health_service" printenv SUCKERPOT_RUNNING_VERSION 2> /dev/null | tr -d '\r' || true)
 if [ "$running" != "$expected" ]; then
-  die "the $health_service reports version '${running:-unknown}' but '$expected' was expected"
+  die_release "the $health_service reports version '${running:-unknown}' but '$expected' was expected"
 fi
 if [ "$stack_mode" = participant ]; then
   docker compose exec -T ingest python -m ingest.network.cli status --json > /dev/null 2>&1 \
-    || die "the network client of ingest does not answer (ingest.network.cli status)"
+    || release_or_warn ingest "the network client of ingest does not answer (ingest.network.cli status)"
 fi
 
 # ---------------------------------------------------------------- 9. done
