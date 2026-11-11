@@ -38,7 +38,7 @@ services:
       - /var/run/postgresql:rw,noexec,nosuid,nodev,size=1m,uid=999,gid=999
       - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=999,gid=999
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hub -d hub"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U hub -d hub"]
       interval: 3s
       timeout: 3s
       retries: 20

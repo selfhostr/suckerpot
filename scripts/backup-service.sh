@@ -16,8 +16,9 @@
 # 4 weeks and 3 months. A dump that is smaller than half of the previous one is stored, but
 # NOTHING is pruned and the service turns unhealthy (marker /backups/.shrunk) until you look at
 # it and remove the marker. The owner credentials come from the environment and are never
-# printed. A failed dump is logged and retried the next hour; the healthcheck needs a dump
-# younger than 26 hours.
+# printed. A failed dump is logged and retried after 30 s, then 60 s, 120 s and so on (never more
+# than an hour), so a database that is slow to start does not leave the service without a dump;
+# after a success the check goes back to hourly. The healthcheck needs a dump younger than 26 hours.
 set -eu
 
 DIR=/backups
@@ -174,9 +175,18 @@ if locked; then
   unlock
 fi
 
+# Check hourly. After a failed dump retry sooner: 30 s, doubled each time, capped at the hour.
+delay=30
 while true; do
-  if [ -z "$(find "$DIR" -maxdepth 1 -name 'suckerpot-*.dump' -mmin -1440 2> /dev/null | head -n 1)" ]; then
-    locked_dump || true
+  pause=3600
+  if [ -n "$(find "$DIR" -maxdepth 1 -name 'suckerpot-*.dump' -mmin -1440 2> /dev/null | head -n 1)" ]; then
+    delay=30
+  elif locked_dump; then
+    delay=30
+  else
+    pause=$delay
+    delay=$((delay * 2))
+    if [ "$delay" -gt 3600 ]; then delay=3600; fi
   fi
-  sleep 3600
+  sleep "$pause"
 done
