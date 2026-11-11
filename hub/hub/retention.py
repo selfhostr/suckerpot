@@ -95,6 +95,13 @@ async def run_retention(
     )
     await _delete(
         session,
+        "recheck_assignments",
+        "DELETE FROM recheck_assignments WHERE day < :c",
+        {"c": today - timedelta(days=3)},
+        out,
+    )
+    await _delete(
+        session,
         "candidates",
         "DELETE FROM targets WHERE state = 'candidate' AND coalesce(last_day, first_day) < :c",
         {"c": today - timedelta(days=CANDIDATE_DAYS)},
