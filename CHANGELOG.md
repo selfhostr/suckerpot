@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/move-admin-ssh.sh`: moves your own admin SSH off port 22 in one command (`sudo ./scripts/move-admin-ssh.sh [PORT]`, default 22222; `--undo` goes back) on Debian and Ubuntu, including systemd socket activation. It opens the new port next to port 22, waits for a login on the new port and only then closes port 22; on a timeout, Ctrl-C or any error port 22 stays as it was. The installer is unchanged and still never edits the SSH configuration; its messages and `docs/vps.md`, `docs/install.md` and `docs/participate.md` now point to the script.
+
 ## [0.11.0] - 2026-11-11
 
 ### Upgrading

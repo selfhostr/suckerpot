@@ -601,11 +601,11 @@ if [ "$fresh" = 1 ]; then
       if is_busy "$port"; then
         if [ "$s" = ssh ] && [ "$port" = 22 ]; then
           note "Port 22 is used on this machine (its own sshd, most likely)."
-          ask a "SSH sensor: [m]ap it to host port 2222 and forward router port 22 to it, leave it [o]ff, or [k]eep 22 (you moved the admin SSH yourself)" m
+          ask a "SSH sensor: [m]ap it to host port 2222 and forward router port 22 to it, leave it [o]ff, or [k]eep 22 (you moved the admin SSH: sudo ./scripts/move-admin-ssh.sh)" m
           case $a in
             m | map) port_override[$var]=2222; ssh_moved=1 ;;
             o | off) sensor_off[$s]=1 ;;
-            k | keep) die "port 22 is still in use. Move your admin SSH first (this script never edits sshd_config), then run the installer again." ;;
+            k | keep) die "port 22 is still in use. Move your admin SSH first with: sudo ./scripts/move-admin-ssh.sh (this installer never edits sshd_config), then run it again." ;;
             *) die "answer m, o or k" ;;
           esac
           [ "$noask" = 1 ] && [ -z "${sensor_off[$s]:-}" ] && note "Mapped the SSH sensor to host port 2222."
