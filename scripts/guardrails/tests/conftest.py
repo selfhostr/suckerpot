@@ -65,11 +65,23 @@ case "$*" in
   "image inspect "*) echo "sha256:0123456789abcdef" ;;
   "compose ps backup --format"*) echo "${SHIM_BACKUP_HEALTH:-healthy}" ;;
   "compose ps -a --format"*) echo "api=shim/api:1"; echo "ingest=shim/ingest:1" ;;
-  "compose ps --format"*) echo "api healthy"; echo "db healthy" ;;
+  "compose ps -a migrate --format"*) [ -z "${SHIM_MIGRATE_STATE:-}" ] || echo "$SHIM_MIGRATE_STATE" ;;
+  "compose ps --format"*)
+    # SHIM_HEALTH_BEFORE / SHIM_HEALTH_AFTER: "service health" lines, switched by the first `up`.
+    if [ -f "$SHIM_DIR/upped" ]; then h="${SHIM_HEALTH_AFTER:-}"; else h="${SHIM_HEALTH_BEFORE:-}"; fi
+    [ -n "$h" ] || h=$(printf 'api healthy\ndb healthy')
+    # Lines are "service health" (shorthand for a running container) or "service state health".
+    printf '%s\n' "$h" | awk '{
+      if (NF == 1) print $1, "running", "";
+      else if (NF == 2 && ($2 == "healthy" || $2 == "unhealthy" || $2 == "starting")) print $1, "running", $2;
+      else if (NF == 2 && $2 != "") print $1, $2, "";
+      else print }' ;;
+  "compose exec -T db sh -c"*) [ -z "${SHIM_ALEMBIC:-}" ] || echo "$SHIM_ALEMBIC" ;;
   "compose exec -T backup /bin/sh /backup-service.sh now preupdate") exit "${SHIM_BACKUP_RC:-0}" ;;
   "compose exec -T backup sh -c"*) echo "/backups/suckerpot-preupdate-20261101T020000Z.dump" ;;
   "compose exec -T api printenv SUCKERPOT_RUNNING_VERSION") echo "${SHIM_RUNNING_VERSION:-}" ;;
   "compose up"*)
+    touch "$SHIM_DIR/upped"
     echo "ENV_AT_UP SUCKERPOT_VERSION=${SUCKERPOT_VERSION:-unset} DASHBOARD_PORT=${DASHBOARD_PORT:-unset} SENSOR_WEB=${SENSOR_WEB:-unset}" >> "$SHIM_LOG"
     [ "${SHIM_UP_RC:-0}" = 0 ] || exit "$SHIM_UP_RC" ;;
   *) ;;
@@ -114,7 +126,7 @@ exit 0
 
 CURL_SHIM = r"""#!/bin/sh
 echo "curl $*" >> "$SHIM_LOG"
-exit 0
+exit "${SHIM_CURL_RC:-0}"
 """
 
 SS_SHIM = r"""#!/bin/sh
