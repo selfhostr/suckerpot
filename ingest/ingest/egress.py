@@ -14,6 +14,7 @@ from collections.abc import Mapping
 import httpx
 from suckerpot_egress import EgressClosed, EgressGate, EgressSettings, egress_client
 from suckerpot_egress.gate import AsnLookup, ExtraCidrs, SelfNetworks
+from suckerpot_egress.settings import MODE_DIRECT, MODE_VPN
 from suckerpot_netproto import defaults
 
 __all__ = [
@@ -33,9 +34,10 @@ _gate: EgressGate | None = None
 def egress_settings(env: Mapping[str, str] | None = None) -> EgressSettings:
     """``EgressSettings.from_env`` with the direct-mode scope resolved the way the network code
     resolves its URLs (explicit value, else the shipped defaults), so the scope and the URL the
-    worker calls cannot disagree. VPN mode is unchanged: its scope stays empty."""
+    worker calls cannot disagree. In any other mode the result is exactly ``EgressSettings.from_env``."""
     e = dict(os.environ if env is None else env)
-    e.update(defaults.scope_env(e))
+    if (e.get("EGRESS_MODE", "") or MODE_VPN).strip().lower() == MODE_DIRECT:
+        e.update(defaults.scope_env(e))
     return EgressSettings.from_env(e)
 
 

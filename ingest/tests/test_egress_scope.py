@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import importlib
+import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
 import pytest
-from suckerpot_egress import EgressGate, EgressSettings
+from suckerpot_egress import EgressGate, EgressSettings, selftest
 from suckerpot_netproto import defaults, sign
 from suckerpot_netproto.feeds import minisign
 
 from ingest.egress import egress_settings, gate_open
+from ingest.network.config import NetworkSettings
 
 HUB = "hub.example.org"
 
@@ -145,3 +148,84 @@ def test_the_installer_allow_list_is_inside_the_scope() -> None:
     mirror = defaults.parse((REPO / "config" / "network-defaults.env").read_text("utf-8"))
     hosts = {urlsplit(mirror[n]).hostname for n in ("NETWORK_HUB_URL", "NETWORK_FEED_URL")}
     assert hosts == egress_settings(_direct_env()).scope_hosts
+
+
+# --- a bad hub URL must never break VPN mode, and never open the gate in direct mode ---
+
+BAD_URL = "https://[oops"
+
+
+async def test_a_malformed_hub_url_gives_no_hub_in_the_direct_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    env = _direct_env(NETWORK_HUB_URL=BAD_URL, NETWORK_HUB_KEY=KEY)
+    settings = egress_settings(env)
+    assert "hub.example.org" not in settings.scope_hosts
+    gate = _hubproxy_gate(settings, ["hub.example.org:443"])
+    assert not (await gate.check()).open
+    assert gate_open(gate, host="hub.example.org") is False
+
+
+def test_vpn_mode_never_resolves_the_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(env: object) -> dict[str, str]:
+        raise AssertionError("scope_env must not run in VPN mode")
+
+    monkeypatch.setattr(defaults, "scope_env", boom)
+    for env in (
+        {"NETWORK_HUB_URL": BAD_URL, "NETWORK_HUB_KEY": KEY},
+        {"EGRESS_MODE": "vpn", "NETWORK_HUB_URL": BAD_URL, "NETWORK_HUB_KEY": KEY},
+        {"EGRESS_MODE": " VPN "},
+    ):
+        assert egress_settings(env) == EgressSettings.from_env(env)
+
+
+def test_an_invalid_mode_still_raises() -> None:
+    with pytest.raises(ValueError):
+        egress_settings({"EGRESS_MODE": "bridge"})
+
+
+def test_the_environment_is_not_mutated(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    env = _direct_env()
+    before = dict(env)
+    egress_settings(env)
+    assert env == before
+    monkeypatch.setenv("EGRESS_MODE", "direct")
+    snapshot = dict(os.environ)
+    assert egress_settings().scope_hosts
+    assert dict(os.environ) == snapshot
+
+
+def test_selftest_uses_the_resolver_and_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    monkeypatch.setenv("EGRESS_MODE", "direct")
+    assert selftest.load_settings().scope_hosts == {"hub.example.org", "feeds.example.org"}
+    real_import = importlib.import_module
+
+    def no_ingest(name: str, package: str | None = None) -> object:
+        if name == "ingest.egress":
+            raise ImportError(name)
+        return real_import(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", no_ingest)
+    assert selftest.load_settings() == EgressSettings.from_env()
+    assert selftest.load_settings().scope_hosts == frozenset()
+
+
+@pytest.mark.parametrize("url", ["https://HUB.Example.ORG", "https://hub.example.org."])
+def test_scope_host_matches_the_network_worker_host(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    _use_defaults(monkeypatch, _defaults_text())
+    env = _direct_env(NETWORK_HUB_URL=url, NETWORK_HUB_KEY=KEY)
+    settings = egress_settings(env)
+    try:
+        host = NetworkSettings.from_env(env).hub_host
+    except ValueError:
+        assert "hub.example.org" not in settings.scope_hosts  # both reject it
+        return
+    # The gate lower-cases and strips a trailing dot, so the worker's host is in scope.
+    gate = _hubproxy_gate(settings, ["hub.example.org:443"])
+    assert host.lower().rstrip(".") in settings.scope_hosts
+    assert gate._in_scope(host)

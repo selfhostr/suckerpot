@@ -220,10 +220,8 @@ def _scope_url(env: Mapping[str, str], url_name: str, key_name: str, *, allow_pa
         if not (url and key):
             return ""
         return check_https_url(url, allow_path=allow_path)
-    except DefaultsError:
+    except ValueError, OSError:  # DefaultsError, a urlsplit error or an unreadable file
         return ""  # a malformed default or value closes the scope, never opens it
-    except OSError:
-        return ""
 
 
 def scope_env(env: Mapping[str, str]) -> dict[str, str]:
