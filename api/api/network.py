@@ -98,8 +98,8 @@ class LeaveBody(BaseModel):
 
 
 def _enabled() -> bool:
-    """On unless ``NETWORK_ENABLED`` is set to something false (M33: default on)."""
-    return os.environ.get("NETWORK_ENABLED", "true").strip().lower() in TRUE_VALUES
+    """Off unless ``NETWORK_ENABLED`` is set to something true."""
+    return os.environ.get("NETWORK_ENABLED", "false").strip().lower() in TRUE_VALUES
 
 
 def _hub_configured() -> bool:
