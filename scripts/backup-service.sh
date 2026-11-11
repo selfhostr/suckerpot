@@ -178,15 +178,15 @@ fi
 # Check hourly. After a failed dump retry sooner: 30 s, doubled each time, capped at the hour.
 delay=30
 while true; do
-  wait=3600
-  if [ -z "$(find "$DIR" -maxdepth 1 -name 'suckerpot-*.dump' -mmin -1440 2> /dev/null | head -n 1)" ]; then
-    if locked_dump; then
-      delay=30
-    else
-      wait=$delay
-      delay=$((delay * 2))
-      if [ "$delay" -gt 3600 ]; then delay=3600; fi
-    fi
+  pause=3600
+  if [ -n "$(find "$DIR" -maxdepth 1 -name 'suckerpot-*.dump' -mmin -1440 2> /dev/null | head -n 1)" ]; then
+    delay=30
+  elif locked_dump; then
+    delay=30
+  else
+    pause=$delay
+    delay=$((delay * 2))
+    if [ "$delay" -gt 3600 ]; then delay=3600; fi
   fi
-  sleep "$wait"
+  sleep "$pause"
 done
