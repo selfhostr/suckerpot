@@ -277,7 +277,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 
 ## 2026-11-11: v0.11.2 (first install on a small VPS)
 
-- A first install on a rented 2 GB server showed two faults, both fixed here.
+- A first install on a rented 2 GB server showed two faults, then a third once it ran.
 - Memory: a machine sold as "2 GB" reports about 1.9 GiB and was refused. The bar is now 1.75 GiB, so such a machine gets the default participant setup with the low-memory overlay. Below the bar and above the lite minimum, the installer offers the lite setup. The swap question is really asked in participant mode.
 - First start: the `db` healthcheck used the Unix socket, which also answers while the image's temporary init server runs. `backup` then started its first dump too early, failed, and waited an hour, so the install timed out. The healthcheck now probes over TCP, and a failed dump is retried after 30 s, doubled each time up to the hour. An update recreates the `db` container once.
-- Tests: guardrail tests for both, and the compose, participant and backup-restore jobs green. Neither fix was run on a real small server yet: the affected install was finished by hand on v0.11.1 (restart `backup`, then `./scripts/install.sh --repair`).
+- Joining without a VPN: the node ran but never joined. The installer relies on the hub address shipped with the release, while the direct-mode scope of the egress gate read `.env` only, so the gate stayed closed (`direct_allow_mismatch`). The scope now comes from the same defaults as the network code, in direct mode only; a malformed value gives an empty scope and a closed gate, never a crash. The security review asked for exactly that last point before merge. The feed worker had the same gap (`--feeds` fetched nothing) and got the same rule.
+- Why CI missed it: the participant end-to-end job writes the hub address and key into its test `.env`, which a real install never does. Open follow-up: make that job run on defaults only.
+- `./scripts/status.sh` now says that a requested join is pending, with the last problem, instead of telling the owner to join again.
+- Tests: guardrail and unit tests for all of the above, and every CI job green. Limits, stated plainly: none of these fixes was run on a real small server yet, and direct mode is covered by unit tests only until a real participant node updates to this release. The affected install was finished by hand on v0.11.1 (restart `backup`, then `./scripts/install.sh --repair`).

@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A fresh install no longer fails with `backup` stuck waiting. The `db` healthcheck now probes over TCP (`pg_isready -h 127.0.0.1`), so the database reports healthy only once it accepts network connections, not while the image still runs its temporary start-up server on the Unix socket. The `backup` service also retries a failed dump after 30 s, 60 s, 120 s and so on (never later than the hourly check) instead of waiting an hour. The hub database healthcheck got the same TCP probe.
+- A participant node installed without a VPN can now join the network. The installer leaves the hub address out of `.env` so that the one shipped with the release applies, but the egress gate of `ingest` built its direct-mode scope from `.env` only, found no host, and stayed closed with `direct_allow_mismatch`: the node kept running its sensors and never reached the hub. The scope now uses the same shipped defaults as the network code. A node that already agreed to join at install time keeps its request and retries by itself after the update, with nothing to run. VPN mode is unchanged.
+- `./scripts/install.sh --feeds` now really fetches the community lists: the feed worker uses the feed address and key shipped with the release when `NETWORK_FEED_URL` and `NETWORK_FEED_KEY` are both left out, instead of staying unconfigured. Set both to point at another feed.
+- `./scripts/status.sh` no longer says `Not joined. Join: ./scripts/participant.sh join` for a node that agreed to join but is not accepted by the hub yet. It says `Joining as <pseudonym>: not accepted by the hub yet`, with the last problem in plain words, and exits with code 1 (warning `join_pending`) while a problem blocks the join.
 
 ## [0.11.1] - 2026-11-11
 
