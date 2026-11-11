@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `update.sh` and `install.sh` no longer report a failed update or install on a healthy node
+  whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final
+  dashboard check sent the bind address as `Host`, which the API rejects; it now sends
+  `localhost`, which the API always accepts.
+
 ## [0.11.2] - 2026-11-11
 
 ### Changed
