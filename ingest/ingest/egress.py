@@ -34,7 +34,8 @@ _gate: EgressGate | None = None
 def egress_settings(env: Mapping[str, str] | None = None) -> EgressSettings:
     """``EgressSettings.from_env`` with the direct-mode scope resolved the way the network code
     resolves its URLs (explicit value, else the shipped defaults), so the scope and the URL the
-    worker calls cannot disagree. In any other mode the result is exactly ``EgressSettings.from_env``."""
+    worker calls cannot disagree. In any other mode the result is exactly
+    ``EgressSettings.from_env``."""
     e = dict(os.environ if env is None else env)
     if (e.get("EGRESS_MODE", "") or MODE_VPN).strip().lower() == MODE_DIRECT:
         e.update(defaults.scope_env(e))

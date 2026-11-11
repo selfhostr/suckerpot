@@ -128,7 +128,7 @@ def load_settings() -> EgressSettings:
     resolved with the shipped defaults (``ingest.egress``); elsewhere plain ``from_env``."""
     try:
         resolver = importlib.import_module("ingest.egress").egress_settings
-    except (ImportError, AttributeError):
+    except ImportError, AttributeError:
         return EgressSettings.from_env()
     settings: EgressSettings = resolver()
     return settings
