@@ -152,7 +152,7 @@ DECLARE
                   'outcome_rollup_monthly', 'network_membership',
                   'network_submissions', 'network_targets', 'network_summary',
                   'network_feed_state', 'network_feed_entries',
-                  'network_verify_tasks']
+                  'network_verify_tasks', 'pipeline_state']
         ) AS c WHERE to_regclass('public.' || c) IS NOT NULL
     );
 BEGIN
@@ -353,6 +353,10 @@ BEGIN
         EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON network_feed_state TO %I', r);
         EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON network_feed_entries TO %I', r);
     END IF;
+    IF to_regclass('public.pipeline_state') IS NOT NULL THEN
+        -- 0031: ingest stamps its heartbeat and last failure in the one row.
+        EXECUTE format('GRANT SELECT, UPDATE ON pipeline_state TO %I', r);
+    END IF;
     IF to_regclass('public.egress_trusted_exits') IS NOT NULL THEN
         -- M23: the gate reads the ranges the owner trusted; only the API changes them.
         EXECUTE format('GRANT SELECT ON egress_trusted_exits TO %I', r);
@@ -419,7 +423,7 @@ DECLARE
                   'outcome_rollup_monthly', 'network_membership',
                   'network_submissions', 'network_targets', 'network_summary',
                   'network_feed_state', 'network_feed_entries',
-                  'network_verify_tasks']
+                  'network_verify_tasks', 'pipeline_state']
         ) AS c WHERE to_regclass('public.' || c) IS NOT NULL
     );
 BEGIN
@@ -590,6 +594,10 @@ BEGIN
             'requested_at) ON network_membership TO %I', r);
         EXECUTE format(
             'GRANT SELECT ON network_submissions, network_targets, network_summary TO %I', r);
+    END IF;
+    IF to_regclass('public.pipeline_state') IS NOT NULL THEN
+        -- 0031: the dashboard shows the pipeline banner; it never writes the row.
+        EXECUTE format('GRANT SELECT ON pipeline_state TO %I', r);
     END IF;
     IF to_regclass('public.network_verify_tasks') IS NOT NULL THEN
         -- M32: the dashboard shows verification counts; it never writes a task.

@@ -1123,6 +1123,22 @@ class EgressTrustedExitRow(Base):
     created_by: Mapped[str | None] = mapped_column(Text)
 
 
+class PipelineStateRow(Base):
+    """One row (id 1): ingest's heartbeat and last failure (0031). Ingest updates it, the API reads
+    it for the "pipeline stalled" banner."""
+
+    __tablename__ = "pipeline_state"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    failing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    parked_events: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
 class EgressCheckRequestRow(Base):
     """A "Check now" from the dashboard (M24). Ingest wakes its gate and stamps ``done_at``.
     The table keeps its last 100 rows (trigger in migration 0021)."""

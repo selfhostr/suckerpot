@@ -65,7 +65,7 @@ user sensor-smb on #$(h REDIS_SENSOR_SMB_PASSWORD) resetkeys ~events:smb -@all +
 user sensor-sip on #$(h REDIS_SENSOR_SIP_PASSWORD) resetkeys ~events:sip -@all +xadd +hello +auth
 user sensor-synology on #$(h REDIS_SENSOR_SYNOLOGY_PASSWORD) resetkeys ~events:synology -@all +xadd +hello +auth
 user demo on #$(h REDIS_DEMO_PASSWORD) resetkeys ~events:* -@all +xadd +hello +auth
-user ingest on #$(h REDIS_INGEST_PASSWORD) resetkeys ~events:* -@all +xreadgroup +xack +xgroup|create +xautoclaim +xtrim +hello +auth
+user ingest on #$(h REDIS_INGEST_PASSWORD) resetkeys ~events:* -@all +xreadgroup +xack +xgroup|create +xautoclaim +xtrim +hello +auth (~events:parked +xadd)
 ACL
 chmod 0600 "$ACL_FILE"
 
