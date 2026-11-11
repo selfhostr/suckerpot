@@ -41,7 +41,7 @@ API_PASSWORD = "hubtest-api-password-0002"
 WORKER_PASSWORD = "hubtest-worker-password-0003"
 TABLES = (
     "hub_audit, never_list, network_summary, network_daily, node_stats_weekly, recipient_log, "
-    "reports, takedown_votes, target_contributors, targets, observations, batches, nonces, "
+    "reports, takedown_votes, recheck_assignments, target_contributors, targets, observations, batches, nonces, "
     "enrol_challenges, nodes, worker_state, payload_links, target_hosts, feed_entries, feed_runs, "
     "feed_daily, feed_allow, feed_auto_ranges, delist_challenges, delist_requests, "
     "abusech_submissions, node_roles, verify_tasks, verify_attestations, verify_daily, "

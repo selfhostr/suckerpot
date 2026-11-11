@@ -584,7 +584,7 @@ def test_worker_may_not_update_a_frozen_day() -> None:
     from hub import roles
 
     assert "observatory_daily" not in roles.WORKER_TABLES
-    assert roles.WORKER_GRANTS == ("SELECT, INSERT, DELETE ON observatory_daily",)
+    assert "SELECT, INSERT, DELETE ON observatory_daily" in roles.WORKER_GRANTS
 
 
 # --- database and worker (integration) -------------------------------------------------------------

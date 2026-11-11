@@ -174,7 +174,7 @@ The node records these codes itself. The hub never sends them.
 - `nodes` is a bucket: `0` is 5 to 9 nodes, `1` is 10 to 24, `2` is 25 or more.
 - `countries` is null below 3.
 - `state` is `confirmed`, `reported`, `taken_down`, `disputed` or `expired`.
-- The cursor is opaque. `recheck` lists confirmed or reported targets that the node is asked to check, at most 50 per pull.
+- The cursor is opaque. `recheck` lists confirmed or reported targets that the node is asked to check, at most 50 per pull. The hub records each of them as an assignment for that node and that UTC day (at most 200 a day per node). A `/v1/rechecks` answer counts only for a target assigned to the sender, with the `day` it was assigned on, and only once. Any other answer is dropped silently, and `accepted` counts the answers that were taken.
 - A target never carries a node id, a fingerprint or a pseudonym.
 
 ### Observation batch
