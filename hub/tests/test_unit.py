@@ -150,6 +150,8 @@ def test_settings_from_env_and_errors() -> None:
     assert Settings.from_env({"HUB_VOLUME_MIN_NODES": "2"}).volume_min_nodes == 2
     with pytest.raises(ConfigError):
         Settings.from_env({"HUB_VOLUME_MIN_NODES": "1"})
+    with pytest.raises(ConfigError):
+        Settings.from_env({"HUB_VOLUME_MIN_NODES": "1001"})
 
 
 def test_signing_key_file(tmp_path: Path) -> None:

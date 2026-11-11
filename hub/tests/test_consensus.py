@@ -374,9 +374,19 @@ async def test_reputation_takedown_bonus_and_cap(env: Env) -> None:
     assert all(r == pytest.approx(0.5 + 0.05 + 0.02) for r in reps)  # +0.01 x 5 (capped) + 0.02
 
 
-async def _flood(env: Env, contributors: int, *, extra_standing: str = "active") -> list[Any]:
+async def _flood(
+    env: Env,
+    contributors: int,
+    *,
+    extra_standing: str = "active",
+    fresh: int = 0,
+    edge: bool = False,
+) -> list[Any]:
     """Node 0 floods 600 values nobody else sees; ``contributors - 1`` others saw one value each."""
-    nodes = await add_nodes(env.worker, contributors, reputation=0.5)
+    # ``fresh`` of the other nodes enrolled yesterday; with ``edge`` the last node's only
+    # observation is exactly 14 days before the judged day, just outside the window.
+    enrolled = [TODAY - timedelta(days=30)] * (contributors - fresh) + [D2] * fresh
+    nodes = await add_nodes(env.worker, contributors, enrolled=enrolled, reputation=0.5)
     async with env.worker() as s:
         await s.execute(
             text(
@@ -391,7 +401,11 @@ async def _flood(env: Env, contributors: int, *, extra_standing: str = "active")
                 text(
                     "INSERT INTO observations (node_id, day, kind, value) VALUES (:n, :d, 'ip', :v)"
                 ),
-                {"n": node, "d": D2, "v": f"203.0.113.{200 + i}"},
+                {
+                    "n": node,
+                    "d": TODAY - timedelta(days=15) if edge and node == nodes[-1] else D2,
+                    "v": f"203.0.113.{200 + i}",
+                },
             )
         if extra_standing != "active":
             await s.execute(
@@ -419,6 +433,20 @@ async def test_uncorroborated_volume_is_penalised(env: Env) -> None:
 @pytest.mark.integration
 async def test_volume_penalty_needs_enough_contributing_nodes(env: Env) -> None:
     nodes = await _flood(env, 4)
+    reps = await _reputations(env)
+    assert all(reps[n] == pytest.approx(0.5) for n in nodes)
+
+
+@pytest.mark.integration
+async def test_volume_penalty_ignores_freshly_enrolled_nodes(env: Env) -> None:
+    nodes = await _flood(env, 5, fresh=4)
+    reps = await _reputations(env)
+    assert all(reps[n] == pytest.approx(0.5) for n in nodes)
+
+
+@pytest.mark.integration
+async def test_volume_penalty_window_excludes_the_edge_day(env: Env) -> None:
+    nodes = await _flood(env, 5, edge=True)
     reps = await _reputations(env)
     assert all(reps[n] == pytest.approx(0.5) for n in nodes)
 

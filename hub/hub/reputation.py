@@ -52,7 +52,9 @@ async def _suspend_low(session: AsyncSession) -> int:
     return int(getattr(result, "rowcount", 0) or 0)
 
 
-async def apply_day(session: AsyncSession, day: date, volume_min_nodes: int = 5) -> int:
+async def apply_day(
+    session: AsyncSession, day: date, volume_min_nodes: int = 5, node_min_age_days: int = 14
+) -> int:
     """Rewards and penalties for events of ``day``. Returns the number of suspensions."""
     # +0.01 per target confirmed that day (at most +0.05).
     await session.execute(
@@ -93,8 +95,8 @@ async def apply_day(session: AsyncSession, day: date, volume_min_nodes: int = 5)
         {"bonus": TAKEDOWN_BONUS, "day": day},
     )
     # -0.05 for a node with more than 500 distinct values in 14 days, over 95 % of them seen by
-    # nobody else. Only while at least ``volume_min_nodes`` active nodes reported in that window:
-    # below that, nobody can corroborate anything and an honest lone node would be punished.
+    # nobody else. Only while at least ``volume_min_nodes`` active nodes old enough to count
+    # (the consensus age rule) reported in that window: below that, nobody can corroborate anything and an honest lone node would be punished.
     await session.execute(
         text(
             """
@@ -113,6 +115,7 @@ async def apply_day(session: AsyncSession, day: date, volume_min_nodes: int = 5)
             WHERE v.node_id = n.id AND v.total > CAST(:values AS integer) AND v.alone > CAST(:share AS double precision) * v.total
               AND (SELECT count(DISTINCT w.node_id) FROM observations w
                    JOIN nodes a ON a.id = w.node_id AND a.standing = 'active'
+                        AND a.enrolled_day <= :oldest
                    WHERE w.day > :since AND w.day <= :day) >= CAST(:min_nodes AS integer)
             """
         ),
@@ -123,6 +126,7 @@ async def apply_day(session: AsyncSession, day: date, volume_min_nodes: int = 5)
             "values": VOLUME_VALUES,
             "share": VOLUME_UNCORROBORATED,
             "min_nodes": volume_min_nodes,
+            "oldest": day - timedelta(days=node_min_age_days),
         },
     )
     return await _suspend_low(session)
@@ -137,7 +141,7 @@ async def run_daily(session: AsyncSession, s: Settings, today: date) -> Reputati
     result = ReputationResult(days=[])
     day = first
     while day <= yesterday:
-        result.suspended += await apply_day(session, day, s.volume_min_nodes)
+        result.suspended += await apply_day(session, day, s.volume_min_nodes, s.node_min_age_days)
         result.days.append(day)
         day += timedelta(days=1)
     if result.days:
