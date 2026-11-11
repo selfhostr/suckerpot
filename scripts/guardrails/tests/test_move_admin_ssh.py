@@ -1,13 +1,13 @@
 """scripts/move-admin-ssh.sh: moves the admin SSH daemon without ever locking the user out.
 
-The script runs in a scratch root (MOVE_SSH_ROOT) with fake `id`, `sshd`, `systemctl`, `ss`, `ufw`
-and `sleep` first on PATH. The fakes keep a tiny model of the machine: a restart makes the
-listeners match the files the script wrote, and the Nth call of `sleep` makes a login appear on
-the new port. They never touch the real SSH daemon, and every call is recorded in a log.
+The script runs in a scratch root (MOVE_SSH_ROOT) with fake `id`, `sshd`, `systemctl`, `ss`, `ps`,
+`ufw`, `firewall-cmd` and `sleep` first on PATH. The fakes keep a tiny model of the machine: a
+restart makes the listeners match the files the script wrote (and is logged in a history file),
+and the Nth call of `sleep` makes a login appear on the target port. They never touch the real SSH
+daemon, and every call is recorded in a log.
 """
 
 import os
-import shutil
 import stat
 import subprocess
 from dataclasses import dataclass
@@ -17,8 +17,7 @@ import pytest
 from conftest import ROOT
 
 SCRIPT = ROOT / "scripts/move-admin-ssh.sh"
-MARK = "# move-admin-ssh.sh: managed file."
-MARK_FULL = MARK + " Undo with: ./scripts/move-admin-ssh.sh --undo"
+MARK = "# move-admin-ssh.sh: managed file. Undo with: ./scripts/move-admin-ssh.sh --undo"
 
 ID_SHIM = '#!/bin/sh\necho "id $*" >> "$SHIM_LOG"\necho "${SHIM_UID:-0}"\n'
 
@@ -40,13 +39,21 @@ SSHD_SHIM = (
     '#!/bin/sh\necho "sshd $*" >> "$SHIM_LOG"\n'
     + PORTS_FUNC
     + r"""
+d="$MOVE_SSH_ROOT/etc/ssh/sshd_config.d/10-admin-port.conf"
 case "$1" in
   -t)
-    if [ -n "${SHIM_SSHD_T_FAIL:-}" ] && [ -e "$MOVE_SSH_ROOT/etc/ssh/sshd_config.d/10-admin-port.conf" ]; then
+    if [ -n "${SHIM_SSHD_T_FAIL:-}" ] && [ -e "$d" ]; then
+      echo "sshd: bad configuration" >&2
+      exit 255
+    fi
+    # Fails only for the final single-port file (no "moving from" line): the second phase.
+    if [ -n "${SHIM_SSHD_T_FAIL_PHASE2:-}" ] && [ -e "$d" ] && ! grep -q '^# moving from' "$d"; then
       echo "sshd: bad configuration" >&2
       exit 255
     fi ;;
-  -T) for p in $(ports); do echo "port $p"; done ;;
+  -T)
+    for p in $(ports); do echo "port $p"; done
+    echo "listenaddress ${SHIM_LISTENADDR:-0.0.0.0}" ;;
 esac
 exit 0
 """
@@ -69,12 +76,17 @@ restart() {
   else
     for p in $(ports); do echo "$p sshd"; done > "$SHIM_DIR/listen"
   fi
+  echo "$(awk '{printf "%s ", $1}' "$SHIM_DIR/listen")" >> "$SHIM_DIR/history"
 }
 rc=0
 case "$1 $2" in
   "cat ssh.service") [ -z "${SHIM_NO_UNIT:-}" ] || rc=1 ;;
   "is-enabled --quiet" | "is-active --quiet")
-    { [ "$3" = ssh.socket ] && [ -n "${SHIM_SOCKET:-}" ]; } || rc=1 ;;
+    case "$3" in
+      ssh.socket) [ -n "${SHIM_SOCKET:-}" ] || rc=1 ;;
+      firewalld) [ -n "${SHIM_FIREWALLD:-}" ] || rc=1 ;;
+      *) rc=1 ;;
+    esac ;;
   "restart ssh.socket")
     n=$(cat "$SHIM_DIR/sockfails" 2>/dev/null || echo 0)
     if [ "$n" -lt "${SHIM_SOCKET_RESTART_FAILS:-0}" ]; then
@@ -83,10 +95,19 @@ case "$1 $2" in
     else
       restart || rc=1
     fi ;;
-  "restart ssh" | "try-restart ssh.service" | "start ssh.socket") restart || rc=1 ;;
+  "start ssh.socket")
+    n=$(cat "$SHIM_DIR/startfails" 2>/dev/null || echo 0)
+    if [ "$n" -lt "${SHIM_START_FAILS:-0}" ]; then
+      echo $((n + 1)) > "$SHIM_DIR/startfails"
+      rc=1
+    else
+      restart || rc=1
+    fi ;;
+  "restart ssh" | "try-restart ssh.service") restart || rc=1 ;;
   "stop ssh.service") [ -z "${SHIM_ALL_FAIL:-}" ] || rc=1 ;;
   "show ssh.socket")
-    while read -r p proc; do [ -n "$p" ] && [ -n "${SHIM_SOCKET:-}" ] && echo "0.0.0.0:$p (Stream)"; done < "$SHIM_DIR/listen" ;;
+    while read -r p proc; do [ -n "$p" ] && [ -n "${SHIM_SOCKET:-}" ] && echo "0.0.0.0:$p (Stream)"; done < "$SHIM_DIR/listen"
+    [ -z "${SHIM_SHOW_EXTRA:-}" ] || echo "$SHIM_SHOW_EXTRA" ;;
 esac
 exit $rc
 """
@@ -128,9 +149,32 @@ exit 0
 # Interrupts the script (its parent) at the first sleep, like a Ctrl-C while it waits.
 INTERRUPT_SLEEP_SHIM = '#!/bin/sh\nkill -TERM "$PPID"\nexit 0\n'
 
+# Hangs up the script once the test has closed its pipes and created the "go" file.
+HUP_SLEEP_SHIM = r"""#!/bin/sh
+echo "sleep $*" >> "$SHIM_LOG"
+[ -e "$SHIM_DIR/go" ] || { /bin/sleep 0.2; exit 0; }
+kill -HUP "$PPID"
+exit 0
+"""
+
 UFW_SHIM = r"""#!/bin/sh
 echo "ufw $*" >> "$SHIM_LOG"
-[ "$1" != status ] || { [ -z "${SHIM_UFW:-}" ] || echo "Status: active"; }
+if [ "$1" = status ] && [ -n "${SHIM_UFW:-}" ]; then
+  echo "Status: active"
+  echo
+  echo "To                         Action      From"
+  echo "--                         ------      ----"
+  printf '%s\n' "$SHIM_UFW_RULES"
+fi
+exit 0
+"""
+
+FIREWALLD_SHIM = r"""#!/bin/sh
+echo "firewall-cmd $*" >> "$SHIM_LOG"
+case "$1" in
+  --list-services) echo "${SHIM_FW_SERVICES:-}" ;;
+  --list-ports) echo "${SHIM_FW_PORTS:-}" ;;
+esac
 exit 0
 """
 
@@ -138,6 +182,7 @@ RECORD_SHIM = '#!/bin/sh\necho "$(basename "$0") $*" >> "$SHIM_LOG"\nexit 1\n'
 NETWORK_TOOLS = ["curl", "wget", "dig", "host", "nslookup", "getent", "ip", "hostname", "ifconfig"]
 
 MAIN_DEBIAN = "Include /etc/ssh/sshd_config.d/*.conf\n#Port 22\nUsePAM yes\n"
+OPEN_UFW = "22/tcp                     ALLOW       Anywhere\n22/tcp (v6)                ALLOW       Anywhere (v6)"
 
 
 @dataclass
@@ -163,8 +208,28 @@ class Box:
         log = self.shim / "calls.log"
         return log.read_text().splitlines() if log.exists() else []
 
+    def restarts(self) -> int:
+        return sum(
+            1 for c in self.calls() if c.startswith(("systemctl restart", "systemctl start"))
+        )
+
+    def history(self) -> list[list[str]]:
+        """The listening ports after every restart, in order."""
+        path = self.shim / "history"
+        return [line.split() for line in path.read_text().splitlines()] if path.exists() else []
+
     def listening(self) -> list[str]:
         return sorted((self.shim / "listen").read_text().split()[::2], key=int)
+
+    def start_on(self, port: int, own_line: bool = True) -> None:
+        """The machine's SSH already runs on this port, set up by the user."""
+        line = f"Port {port}\n" if own_line else ""
+        self.cfg.write_text(f"Include /etc/ssh/sshd_config.d/*.conf\n{line}UsePAM yes\n")
+        (self.shim / "listen").write_text(f"{port} sshd\n")
+
+    def reset_login(self) -> None:
+        for name in ("established", "sleeps"):
+            (self.shim / name).unlink(missing_ok=True)
 
     def run(self, *args: str, stdin: str = "y\n", **env: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # noqa: S603
@@ -191,6 +256,8 @@ def box(tmp_path: Path) -> Box:
     (fake_root / "etc/systemd/system").mkdir(parents=True)
     (fake_root / "etc/ssh/sshd_config").write_text(MAIN_DEBIAN)
     (shim / "listen").write_text("22 sshd\n")
+    (fake_root / "proc/4242").mkdir(parents=True)
+    (fake_root / "proc/4242/exe").symlink_to("/usr/sbin/sshd")
     shims = {
         "id": ID_SHIM,
         "sshd": SSHD_SHIM,
@@ -199,6 +266,7 @@ def box(tmp_path: Path) -> Box:
         "sleep": SLEEP_SHIM,
         "ps": PS_SHIM,
         "ufw": UFW_SHIM,
+        "firewall-cmd": FIREWALLD_SHIM,
         **dict.fromkeys(NETWORK_TOOLS, RECORD_SHIM),
     }
     for name, text in shims.items():
@@ -220,6 +288,15 @@ def box(tmp_path: Path) -> Box:
     return Box(tmp_path, fake_root, shim, env)
 
 
+def snapshot_hook(box: Box, target: Path, snap: Path) -> None:
+    """Copies `target` each time the script polls for a login (the state while it waits)."""
+    hook = box.shim / "ss"
+    hook.write_text(
+        hook.read_text().replace("-Htnp)", f'-Htnp) cp "{target}" "{snap}" 2>/dev/null || true;')
+    )
+
+
+# ---------------------------------------------------------------- arguments and preconditions
 def test_help_needs_no_root(box: Box) -> None:
     proc = box.run("--help", SHIM_UID="1000")
     assert proc.returncode == 0
@@ -268,6 +345,16 @@ def test_refuses_a_busy_port(box: Box) -> None:
     assert proc.returncode == 1
     assert "already used by another program" in proc.stderr
     assert not box.dropin.exists()
+    assert box.restarts() == 0
+
+
+def test_a_systemd_socket_of_another_unit_is_not_ssh(box: Box) -> None:
+    # Held by systemd, but ssh.socket does not list 48022: some other unit owns it.
+    (box.shim / "foreign").write_text(
+        'LISTEN 0 4096 0.0.0.0:48022 0.0.0.0:* users:(("systemd",pid=1,fd=40))\n'
+    )
+    assert box.run("48022", SHIM_SOCKET="1").returncode == 1
+    assert box.run("48022").returncode == 1
 
 
 def test_refuses_other_systems(box: Box) -> None:
@@ -282,9 +369,7 @@ def test_refuses_when_a_tool_is_missing(box: Box) -> None:
     only = box.base / "only"
     only.mkdir()
     for tool in ("bash", "uname"):
-        found = shutil.which(tool, path="/usr/bin:/bin")
-        assert found
-        (only / tool).symlink_to(found)
+        (only / tool).symlink_to(Path("/usr/bin") / tool)
     (only / "id").symlink_to(box.shim / "id")
     proc = box.run(PATH=str(only))
     assert proc.returncode == 1
@@ -296,8 +381,10 @@ def test_declining_changes_nothing(box: Box) -> None:
     assert proc.returncode == 1
     assert "nothing was changed" in proc.stderr
     assert not box.dropin.exists()
+    assert "from port 22 to port 22222" in proc.stdout
 
 
+# ---------------------------------------------------------------- the move itself
 def test_sshd_config_path_moves_the_port(box: Box) -> None:
     proc = box.run()
     text = out(proc)
@@ -310,25 +397,18 @@ def test_sshd_config_path_moves_the_port(box: Box) -> None:
     assert "Keep this window open" in text
     assert "./scripts/install.sh --participant" in text
     assert "--undo" in text
-    body = box.dropin.read_text().splitlines()
-    assert body[0].startswith(MARK)
-    assert body[1:] == ["Port 22222"]
+    assert box.dropin.read_text().splitlines() == [MARK, "Port 22222"]
     assert box.listening() == ["22222"]
     assert not box.override.exists()
+    assert box.history() == [["22", "22222"], ["22222"]]
 
 
 def test_both_ports_are_open_while_waiting(box: Box) -> None:
-    # The drop-in as it is at the first poll for the login.
     snap = box.shim / "snap"
-    hook = box.shim / "ss"
-    hook.write_text(
-        hook.read_text().replace(
-            "-Htnp)", f'-Htnp) cp "{box.dropin}" "{snap}" 2>/dev/null || true;'
-        )
-    )
+    snapshot_hook(box, box.dropin, snap)
     proc = box.run()
     assert proc.returncode == 0, out(proc)
-    assert snap.read_text().splitlines()[1:] == ["Port 22", "Port 22222"]
+    assert snap.read_text().splitlines() == [MARK, "# moving from 22", "Port 22", "Port 22222"]
 
 
 def test_socket_activation_path(box: Box) -> None:
@@ -339,26 +419,21 @@ def test_socket_activation_path(box: Box) -> None:
     assert "systemctl restart ssh.socket" in calls
     assert "systemctl restart ssh" not in calls
     assert "systemctl daemon-reload" in calls
-    lines = box.override.read_text().splitlines()
-    assert lines[0].startswith(MARK)
-    assert lines[1:] == [
+    assert box.override.read_text().splitlines() == [
+        MARK,
         "[Socket]",
         "ListenStream=",
         "ListenStream=0.0.0.0:22222",
         "ListenStream=[::]:22222",
+        "BindIPv6Only=ipv6-only",
     ]
     assert box.listening() == ["22222"]
-    assert box.dropin.read_text().splitlines()[1:] == ["Port 22222"]
+    assert box.dropin.read_text().splitlines() == [MARK, "Port 22222"]
 
 
 def test_socket_override_has_both_ports_in_phase_one(box: Box) -> None:
     snap = box.shim / "snap"
-    hook = box.shim / "ss"
-    hook.write_text(
-        hook.read_text().replace(
-            "-Htnp)", f'-Htnp) cp "{box.override}" "{snap}" 2>/dev/null || true;'
-        )
-    )
+    snapshot_hook(box, box.override, snap)
     proc = box.run(SHIM_SOCKET="1")
     assert proc.returncode == 0, out(proc)
     assert snap.read_text().splitlines()[1:] == [
@@ -368,21 +443,118 @@ def test_socket_override_has_both_ports_in_phase_one(box: Box) -> None:
         "ListenStream=[::]:22",
         "ListenStream=0.0.0.0:22222",
         "ListenStream=[::]:22222",
+        "BindIPv6Only=ipv6-only",
     ]
 
 
 def test_custom_port_and_yes(box: Box) -> None:
     proc = box.run("48022", "--yes", stdin="", SHIM_LOGIN_PORT="48022")
     assert proc.returncode == 0, out(proc)
-    assert box.dropin.read_text().splitlines()[1:] == ["Port 48022"]
+    assert box.dropin.read_text().splitlines() == [MARK, "Port 48022"]
     assert "ssh -p 48022 alice@YOUR-SERVER" in out(proc)
 
 
-def test_ufw_is_opened_when_active(box: Box) -> None:
-    proc = box.run(SHIM_UFW="1")
+def test_second_run_has_nothing_to_do(box: Box) -> None:
+    assert box.run().returncode == 0
+    before = len(box.calls())
+    proc = box.run()
+    assert proc.returncode == 0
+    assert "Nothing to do" in proc.stdout
+    assert not any(c.startswith("systemctl restart") for c in box.calls()[before:])
+
+
+def test_rerun_with_another_port_never_opens_22(box: Box) -> None:
+    assert box.run().returncode == 0
+    box.reset_login()
+    proc = box.run("48022", SHIM_LOGIN_PORT="48022")
+    assert proc.returncode == 0, out(proc)
+    assert "from port 22222 to port 48022" in proc.stdout
+    assert box.history() == [["22", "22222"], ["22222"], ["22222", "48022"], ["48022"]]
+    assert box.dropin.read_text().splitlines() == [MARK, "Port 48022"]
+
+
+def test_no_argument_run_off_port_22_changes_nothing(box: Box) -> None:
+    box.start_on(2200)
+    proc = box.run()
+    assert proc.returncode == 0, out(proc)
+    assert "already off port 22" in proc.stdout
+    assert "2200" in proc.stdout
+    assert "free for the SSH sensor" in proc.stdout
+    assert "move-admin-ssh.sh PORT" in proc.stdout
+    assert not box.dropin.exists()
+    assert box.restarts() == 0
+
+
+def test_explicit_port_moves_from_a_port_that_is_not_22(box: Box) -> None:
+    box.start_on(2200)
+    proc = box.run("48022", SHIM_LOGIN_PORT="48022")
+    assert proc.returncode == 0, out(proc)
+    assert "from port 2200 to port 48022" in proc.stdout
+    assert box.listening() == ["48022"]
+    assert all("22" not in step for step in box.history())
+
+
+def test_several_ports_not_set_up_by_the_script_are_refused(box: Box) -> None:
+    box.cfg.write_text("Include /etc/ssh/sshd_config.d/*.conf\nPort 22\nPort 2200\n")
+    (box.shim / "listen").write_text("22 sshd\n2200 sshd\n")
+    proc = box.run()
+    assert proc.returncode == 1
+    assert "unusual" in proc.stderr
+    assert "By hand" in proc.stderr
+    assert not box.dropin.exists()
+    assert box.restarts() == 0
+
+
+def test_a_specific_listen_address_is_refused(box: Box) -> None:
+    proc = box.run(SHIM_LISTENADDR="192.0.2.7")
+    assert proc.returncode == 1
+    assert "specific address" in proc.stderr
+    assert "192.0.2.7" in proc.stderr
+    assert not box.dropin.exists()
+    assert box.restarts() == 0
+    # Wildcards, with or without a port, are fine.
+    assert box.run(SHIM_LISTENADDR="[::]:22").returncode == 0
+
+
+def test_a_specific_socket_address_is_refused(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_SHOW_EXTRA="192.0.2.7:22 (Stream)")
+    assert proc.returncode == 1
+    assert "specific address" in proc.stderr
+    assert not box.override.exists()
+    assert box.restarts() == 0
+
+
+def test_another_file_that_sets_a_port_is_refused_by_name(box: Box) -> None:
+    other = box.fake_root / "etc/ssh/sshd_config.d/50-cloud.conf"
+    other.write_text("Port 2200\n")
+    proc = box.run()
+    assert proc.returncode == 1
+    assert str(other) in proc.stderr
+    assert not box.dropin.exists()
+    assert box.restarts() == 0
+
+
+# ---------------------------------------------------------------- firewalls
+def test_ufw_is_opened_when_ssh_is_open_to_anywhere(box: Box) -> None:
+    proc = box.run(SHIM_UFW="1", SHIM_UFW_RULES=OPEN_UFW)
     assert proc.returncode == 0, out(proc)
     assert "ufw allow 22222/tcp" in box.calls()
     assert "firewall panel" in out(proc)
+
+
+def test_ufw_open_through_the_openssh_profile(box: Box) -> None:
+    proc = box.run(SHIM_UFW="1", SHIM_UFW_RULES="OpenSSH                    ALLOW       Anywhere")
+    assert proc.returncode == 0, out(proc)
+    assert "ufw allow 22222/tcp" in box.calls()
+
+
+def test_ufw_limited_to_sources_gets_no_rule_but_a_note(box: Box) -> None:
+    proc = box.run(
+        SHIM_UFW="1", SHIM_UFW_RULES="22/tcp                     ALLOW       203.0.113.5"
+    )
+    assert proc.returncode == 0, out(proc)
+    assert not any(c.startswith("ufw allow") for c in box.calls())
+    assert "ufw allow from ADDRESS to any port 22222 proto tcp" in proc.stdout
 
 
 def test_no_ufw_rule_when_inactive(box: Box) -> None:
@@ -392,7 +564,21 @@ def test_no_ufw_rule_when_inactive(box: Box) -> None:
     assert "firewall panel" in out(proc)
 
 
-def test_timeout_leaves_port_22_only(box: Box) -> None:
+def test_firewalld_is_opened_when_ssh_is_allowed(box: Box) -> None:
+    proc = box.run(SHIM_FIREWALLD="1", SHIM_FW_SERVICES="dhcpv6-client ssh")
+    assert proc.returncode == 0, out(proc)
+    assert "firewall-cmd --permanent --add-port=22222/tcp" in box.calls()
+
+
+def test_firewalld_without_an_ssh_service_gets_no_rule(box: Box) -> None:
+    proc = box.run(SHIM_FIREWALLD="1", SHIM_FW_SERVICES="dhcpv6-client")
+    assert proc.returncode == 0, out(proc)
+    assert not any("--add-port" in c for c in box.calls())
+    assert "same way" in proc.stdout
+
+
+# ---------------------------------------------------------------- proof of login
+def test_timeout_goes_back_to_the_start_port(box: Box) -> None:
     proc = box.run(SHIM_LOGIN_AFTER="")
     text = out(proc)
     assert proc.returncode == 1
@@ -402,8 +588,8 @@ def test_timeout_leaves_port_22_only(box: Box) -> None:
     assert not box.override.exists()
     assert box.listening() == ["22"]
     assert box.cfg.read_text() == MAIN_DEBIAN
-    # Port 22 was never closed: the only restarts are "both ports" and "back to 22".
-    assert box.calls().count("systemctl restart ssh") == 2
+    # The old port was never closed: both ports, then back to the start port.
+    assert box.history() == [["22", "22222"], ["22"]]
 
 
 def test_timeout_with_socket_activation(box: Box) -> None:
@@ -413,6 +599,15 @@ def test_timeout_with_socket_activation(box: Box) -> None:
     assert not box.override.parent.exists()
     assert not box.dropin.exists()
     assert box.listening() == ["22"]
+
+
+def test_timeout_from_a_port_that_is_not_22_goes_back_there(box: Box) -> None:
+    box.start_on(2200)
+    proc = box.run("48022", SHIM_LOGIN_AFTER="")
+    assert proc.returncode == 1
+    assert box.listening() == ["2200"]
+    assert not box.dropin.exists() or box.dropin.read_text().splitlines()[1:] == ["Port 2200"]
+    assert all(step != ["48022"] for step in box.history())
 
 
 @pytest.mark.parametrize(
@@ -425,7 +620,7 @@ def test_timeout_with_socket_activation(box: Box) -> None:
         "sshd-session: [accepted]",
     ],
 )
-def test_a_pre_login_connection_never_closes_port_22(box: Box, title: str) -> None:
+def test_a_pre_login_connection_never_closes_the_old_port(box: Box, title: str) -> None:
     proc = box.run(SHIM_TITLE=title)
     assert proc.returncode == 1
     assert "no login on port 22222 was seen" in out(proc)
@@ -448,17 +643,188 @@ def test_an_authenticated_session_counts(box: Box, title: str) -> None:
     assert box.listening() == ["22222"]
 
 
-def test_interrupt_restores_port_22(box: Box) -> None:
+def test_a_forged_title_on_another_program_does_not_count(box: Box) -> None:
+    exe = box.fake_root / "proc/4242/exe"
+    exe.unlink()
+    exe.symlink_to("/usr/bin/python3")
+    proc = box.run()
+    assert proc.returncode == 1
+    assert box.listening() == ["22"]
+
+
+def test_the_executable_may_be_sshd_session_or_deleted(box: Box) -> None:
+    exe = box.fake_root / "proc/4242/exe"
+    exe.unlink()
+    exe.symlink_to("/usr/lib/openssh/sshd-session (deleted)")
+    assert box.run().returncode == 0
+
+
+# ---------------------------------------------------------------- undo is a normal move
+def test_undo_is_a_two_phase_move_back(box: Box) -> None:
+    assert box.run().returncode == 0
+    box.reset_login()
+    proc = box.run("--undo", "--yes", SHIM_LOGIN_PORT="22")
+    text = out(proc)
+    assert proc.returncode == 0, text
+    assert "from port 22222 to port 22" in text
+    assert box.listening() == ["22"]
+    assert not box.dropin.exists()
+    assert box.cfg.read_text() == MAIN_DEBIAN
+    assert box.history()[-2:] == [["22", "22222"], ["22"]]
+
+
+def test_undo_with_a_foreign_listener_on_22_changes_nothing(box: Box) -> None:
+    assert box.run().returncode == 0
+    box.reset_login()
+    (box.shim / "foreign").write_text(
+        'LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("docker-proxy",pid=9,fd=4))\n'
+    )
+    before = box.dropin.read_text()
+    restarts = box.restarts()
+    proc = box.run("--undo", "--yes", SHIM_LOGIN_PORT="22")
+    assert proc.returncode == 1
+    assert "most likely the SSH sensor" in proc.stderr
+    assert "docker compose down" in proc.stderr
+    assert box.dropin.read_text() == before
+    assert box.listening() == ["22222"]
+    assert box.restarts() == restarts
+
+
+def test_undo_timeout_names_the_sensor_and_keeps_the_admin_port(box: Box) -> None:
+    assert box.run().returncode == 0
+    box.reset_login()
+    proc = box.run("--undo", "--yes", SHIM_LOGIN_AFTER="")
+    assert proc.returncode == 1
+    assert "docker compose down" in proc.stderr
+    assert box.listening() == ["22222"]
+    assert box.dropin.read_text().splitlines() == [MARK, "Port 22222"]
+
+
+def test_undo_when_already_on_22_has_nothing_to_do(box: Box) -> None:
+    proc = box.run("--undo", "--yes")
+    assert proc.returncode == 0
+    assert "Nothing to do" in proc.stdout
+    assert box.restarts() == 0
+
+
+def test_undo_keeps_edits_made_after_the_move(box: Box) -> None:
+    original = "Include /etc/ssh/sshd_config.d/*.conf\nPort 22\nUsePAM yes\n"
+    box.cfg.write_text(original)
+    assert box.run().returncode == 0
+    backup = Path(str(box.cfg) + ".suckerpot.bak")
+    assert backup.read_text() == original
+    with box.cfg.open("a") as f:
+        f.write("PasswordAuthentication no\n")
+    box.reset_login()
+    proc = box.run("--undo", "--yes", SHIM_LOGIN_PORT="22")
+    assert proc.returncode == 0, out(proc)
+    assert box.cfg.read_text() == original + "PasswordAuthentication no\n"
+    assert backup.read_text() == original  # a plain safety copy, never copied back
+    assert box.listening() == ["22"]
+
+
+def test_main_config_without_include_is_fixed_and_unfixed(box: Box) -> None:
+    original = "Port 22\nPermitRootLogin no\n"
+    box.cfg.write_text(original)
+    proc = box.run()
+    assert proc.returncode == 0, out(proc)
+    assert "Include /etc/ssh/sshd_config.d/*.conf" in box.cfg.read_text()
+    assert box.listening() == ["22222"]
+    assert Path(str(box.cfg) + ".suckerpot.bak").read_text() == original
+    box.reset_login()
+    assert box.run("--undo", "--yes", SHIM_LOGIN_PORT="22").returncode == 0
+    assert box.cfg.read_text() == original
+
+
+def test_existing_backup_is_not_overwritten(box: Box) -> None:
+    box.cfg.write_text("Include /etc/ssh/sshd_config.d/*.conf\nPort 22\n")
+    bak = Path(str(box.cfg) + ".suckerpot.bak")
+    bak.write_text("the first original\n")
+    assert box.run().returncode == 0
+    assert bak.read_text() == "the first original\n"
+
+
+def test_existing_override_is_backed_up_and_restored(box: Box) -> None:
+    box.override.parent.mkdir(parents=True)
+    original = "[Socket]\nListenStream=\nListenStream=0.0.0.0:22\nListenStream=[::]:22\n"
+    box.override.write_text(original)
+    proc = box.run(SHIM_SOCKET="1")
+    assert proc.returncode == 0, out(proc)
+    backup = Path(str(box.override) + ".suckerpot.bak")
+    assert backup.read_text() == original
+    assert "kept as" in out(proc)
+    box.reset_login()
+    proc = box.run("--undo", "--yes", SHIM_SOCKET="1", SHIM_LOGIN_PORT="22")
+    assert proc.returncode == 0, out(proc)
+    assert box.override.read_text() == original
+    assert not backup.exists()
+
+
+# ---------------------------------------------------------------- an interrupted run
+def test_a_killed_run_goes_back_to_its_recorded_port(box: Box) -> None:
+    box.dropin.write_text(f"{MARK}\n# moving from 22222\nPort 22222\nPort 48022\n")
+    (box.shim / "listen").write_text("22222 sshd\n48022 sshd\n")
+    proc = box.run()
+    text = out(proc)
+    assert proc.returncode == 0, text
+    assert "earlier run" in text
+    assert "port 22222 first" in text
+    assert box.listening() == ["22222"]
+    assert box.history() == [["22222"]]
+    assert "Nothing to do" in text
+
+
+def test_a_killed_run_from_port_22_removes_its_files(box: Box) -> None:
+    box.dropin.write_text(f"{MARK}\n# moving from 22\nPort 22\nPort 22222\n")
+    (box.shim / "listen").write_text("22 sshd\n22222 sshd\n")
+    proc = box.run()
+    assert proc.returncode == 0, out(proc)
+    assert "earlier run" in proc.stdout
+    assert box.listening() == ["22222"]
+    assert box.history()[0] == ["22"]
+
+
+# ---------------------------------------------------------------- every failure ends on the start port
+def test_interrupt_restores_the_start_port(box: Box) -> None:
     sleeper = box.shim / "sleep"
     sleeper.write_text(INTERRUPT_SLEEP_SHIM)
     proc = box.run()
     assert proc.returncode == 143
     assert not box.dropin.exists()
     assert box.listening() == ["22"]
-    assert "Going back to port 22 only" in proc.stdout
+    assert "Going back to port 22" in proc.stdout
 
 
-def test_sshd_t_failure_restores_everything(box: Box) -> None:
+def test_a_hangup_with_closed_pipes_still_completes_the_revert(box: Box) -> None:
+    (box.shim / "sleep").write_text(HUP_SLEEP_SHIM)
+    env = {**box.env, "MOVE_SSH_WAIT_SECONDS": "200"}
+    proc = subprocess.Popen(  # noqa: S603
+        ["bash", str(SCRIPT)],  # noqa: S607
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdin is not None
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+    proc.stdin.write("y\n")
+    proc.stdin.close()
+    for line in proc.stdout:
+        if "Waiting up to" in line:
+            break
+    proc.stdout.close()
+    proc.stderr.close()
+    (box.shim / "go").write_text("")
+    proc.wait(timeout=30)
+    assert proc.returncode in (129, 141)
+    assert not box.dropin.exists()
+    assert box.cfg.read_text() == MAIN_DEBIAN
+    assert box.listening() == ["22"]
+
+
+def test_sshd_t_failure_in_phase_one_restores_everything(box: Box) -> None:
     box.override.parent.mkdir(parents=True)
     own = "[Socket]\nListenStream=\nListenStream=0.0.0.0:22\n"
     box.override.write_text(own)
@@ -472,84 +838,45 @@ def test_sshd_t_failure_restores_everything(box: Box) -> None:
     assert box.listening() == ["22"]
 
 
-def test_existing_override_is_backed_up_and_restored(box: Box) -> None:
-    box.override.parent.mkdir(parents=True)
-    original = "[Socket]\nListenStream=\nListenStream=0.0.0.0:22\nListenStream=[::]:22\n"
-    box.override.write_text(original)
-    proc = box.run(SHIM_SOCKET="1")
-    assert proc.returncode == 0, out(proc)
-    backup = Path(str(box.override) + ".suckerpot.bak")
-    assert backup.read_text() == original
-    assert "kept as" in out(proc)
-    proc = box.run("--undo", "--yes", SHIM_SOCKET="1")
-    assert proc.returncode == 0, out(proc)
-    assert box.override.read_text() == original
-    assert not backup.exists()
-
-
-def test_main_config_with_its_own_port_line(box: Box) -> None:
-    original = "Include /etc/ssh/sshd_config.d/*.conf\nPort 22\nUsePAM yes\n"
-    box.cfg.write_text(original)
-    proc = box.run()
-    assert proc.returncode == 0, out(proc)
-    assert Path(str(box.cfg) + ".suckerpot.bak").read_text() == original
-    changed = box.cfg.read_text()
-    assert "\nPort 22\n" not in changed
-    assert "UsePAM yes" in changed
-    assert box.listening() == ["22222"]
-    proc = box.run("--undo", "--yes")
-    assert proc.returncode == 0, out(proc)
-    assert box.cfg.read_text() == original
-    assert not Path(str(box.cfg) + ".suckerpot.bak").exists()
-    assert box.listening() == ["22"]
-
-
-def test_main_config_without_include(box: Box) -> None:
-    original = "Port 22\nPermitRootLogin no\n"
-    box.cfg.write_text(original)
-    proc = box.run()
-    assert proc.returncode == 0, out(proc)
-    assert "Include /etc/ssh/sshd_config.d/*.conf" in box.cfg.read_text()
-    assert box.listening() == ["22222"]
-    assert Path(str(box.cfg) + ".suckerpot.bak").read_text() == original
-    assert box.run("--undo", "--yes").returncode == 0
-    assert box.cfg.read_text() == original
-
-
-def test_existing_backup_is_not_overwritten(box: Box) -> None:
-    box.cfg.write_text("Include /etc/ssh/sshd_config.d/*.conf\nPort 22\n")
-    bak = Path(str(box.cfg) + ".suckerpot.bak")
-    bak.write_text("the first original\n")
-    assert box.run().returncode == 0
-    assert bak.read_text() == "the first original\n"
-
-
-def test_undo_restores_port_22(box: Box) -> None:
-    assert box.run().returncode == 0
-    assert box.listening() == ["22222"]
-    proc = box.run("--undo", "--yes")
-    text = out(proc)
-    assert proc.returncode == 0, text
+def test_a_failure_in_phase_two_ends_on_the_start_port_with_a_listener(box: Box) -> None:
+    proc = box.run(SHIM_SSHD_T_FAIL_PHASE2="1")
+    assert proc.returncode == 1
+    assert "refused" in proc.stderr
     assert box.listening() == ["22"]
     assert not box.dropin.exists()
-    assert "firewall rule" in text
+    assert box.history() == [["22", "22222"], ["22"]]
 
 
-def test_undo_without_anything_to_undo(box: Box) -> None:
-    proc = box.run("--undo", "--yes")
-    assert proc.returncode == 0
-    assert "already on port 22" in proc.stdout
+def test_socket_restart_failure_falls_back_to_stop_and_start(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_SOCKET_RESTART_FAILS="1")
+    assert proc.returncode == 0, out(proc)
+    calls = box.calls()
+    assert "systemctl stop ssh.service" in calls
+    assert "systemctl start ssh.socket" in calls
+    assert box.listening() == ["22222"]
 
 
-def test_second_run_has_nothing_to_do(box: Box) -> None:
-    assert box.run().returncode == 0
-    before = len(box.calls())
-    proc = box.run()
-    assert proc.returncode == 0
-    assert "Nothing to do" in proc.stdout
-    assert not any(c.startswith("systemctl restart") for c in box.calls()[before:])
+def test_a_stop_that_works_followed_by_a_start_that_fails_ends_on_the_start_port(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_SOCKET_RESTART_FAILS="1", SHIM_START_FAILS="1")
+    assert proc.returncode == 1
+    assert box.listening() == ["22"]
+    assert not box.dropin.exists()
+    assert not box.override.exists()
 
 
+def test_when_nothing_can_be_restarted_the_user_is_told_what_to_do(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_ALL_FAIL="1")
+    assert proc.returncode == 1
+    err = proc.stderr
+    assert "Do NOT close this session" in err
+    assert "sudo systemctl restart ssh\n" in err
+    assert "sudo ss -ltnp | grep -E 'sshd|systemd'" in err
+    assert not box.dropin.exists()
+    assert not box.override.exists()
+    assert box.calls().count("systemctl restart ssh.socket") >= 3
+
+
+# ---------------------------------------------------------------- hygiene
 def test_no_network_lookup_and_no_address(box: Box) -> None:
     proc = box.run()
     assert proc.returncode == 0
@@ -564,73 +891,3 @@ def test_script_is_executable_and_has_a_shebang() -> None:
     assert os.access(SCRIPT, os.X_OK)
     assert SCRIPT.read_text().startswith("#!/usr/bin/env bash\n")
     assert stat.S_IMODE(SCRIPT.stat().st_mode) & stat.S_IXUSR
-
-
-def test_already_off_port_22_changes_nothing(box: Box) -> None:
-    box.cfg.write_text("Include /etc/ssh/sshd_config.d/*.conf\nPort 2200\n")
-    (box.shim / "listen").write_text("2200 sshd\n")
-    proc = box.run()
-    assert proc.returncode == 0, out(proc)
-    assert "already off port 22" in proc.stdout
-    assert "2200" in proc.stdout
-    assert "free for the SSH sensor" in proc.stdout
-    assert not box.dropin.exists()
-    assert box.cfg.read_text().endswith("Port 2200\n")
-    assert not any(c.startswith("systemctl restart") for c in box.calls())
-
-
-def test_port_22_plus_foreign_ports_is_refused(box: Box) -> None:
-    box.cfg.write_text("Include /etc/ssh/sshd_config.d/*.conf\nPort 22\nPort 2200\n")
-    (box.shim / "listen").write_text("22 sshd\n2200 sshd\n")
-    proc = box.run()
-    assert proc.returncode == 1
-    assert "unusual" in proc.stderr
-    assert "By hand" in proc.stderr
-    assert not box.dropin.exists()
-    assert not any(c.startswith("systemctl restart") for c in box.calls())
-
-
-def test_files_of_an_interrupted_run_are_reverted_first(box: Box) -> None:
-    box.dropin.write_text(f"{MARK_FULL}\nPort 22\nPort 22222\n")
-    (box.shim / "listen").write_text("22 sshd\n22222 sshd\n")
-    proc = box.run()
-    text = out(proc)
-    assert proc.returncode == 0, text
-    assert "earlier run" in text
-    assert box.dropin.read_text().splitlines()[1:] == ["Port 22222"]
-    assert box.listening() == ["22222"]
-
-
-def test_a_systemd_socket_of_another_unit_is_not_ssh(box: Box) -> None:
-    # Held by systemd, but ssh.socket does not list 48022: some other unit owns it.
-    (box.shim / "foreign").write_text(
-        'LISTEN 0 4096 0.0.0.0:48022 0.0.0.0:* users:(("systemd",pid=1,fd=40))\n'
-    )
-    proc = box.run("48022", SHIM_SOCKET="1")
-    assert proc.returncode == 1
-    assert "already used by another program" in proc.stderr
-    # Without socket activation a systemd owner is never SSH either.
-    proc = box.run("48022")
-    assert proc.returncode == 1
-
-
-def test_socket_restart_failure_falls_back_to_stop_and_start(box: Box) -> None:
-    proc = box.run(SHIM_SOCKET="1", SHIM_SOCKET_RESTART_FAILS="1")
-    assert proc.returncode == 0, out(proc)
-    calls = box.calls()
-    assert "systemctl stop ssh.service" in calls
-    assert "systemctl start ssh.socket" in calls
-    assert box.listening() == ["22222"]
-
-
-def test_when_nothing_can_be_restarted_the_user_is_told_what_to_do(box: Box) -> None:
-    proc = box.run(SHIM_SOCKET="1", SHIM_ALL_FAIL="1")
-    assert proc.returncode == 1
-    err = proc.stderr
-    assert "Do NOT close this session" in err
-    assert "sudo systemctl restart ssh\n" in err
-    assert "sudo ss -ltnp | grep -E 'sshd|systemd'" in err
-    assert not box.dropin.exists()
-    assert not box.override.exists()
-    # The last attempt went straight at the socket.
-    assert box.calls().count("systemctl restart ssh.socket") >= 3

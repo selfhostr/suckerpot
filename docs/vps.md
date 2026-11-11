@@ -85,7 +85,7 @@ Some providers ship images without swap and some already have it. If `swapon` fa
 
 ## Move your admin SSH off port 22 first
 
-The SSH sensor listens on port 22, because that is where attackers look. Your own SSH daemon uses port 22 by default. On a VPS there is no router to translate ports, so **you must move your admin SSH to another port before you install**. One script does it, and it cannot lock you out: it opens the new port next to port 22, waits until you are logged in on the new port, and only then closes port 22.
+The SSH sensor listens on port 22, because that is where attackers look. Your own SSH daemon uses port 22 by default. On a VPS there is no router to translate ports, so **you must move your admin SSH to another port before you install**. One script does it, and it is built so that you are not locked out: it opens the new port next to port 22, waits until you are logged in on the new port, and only then closes port 22. Whatever goes wrong before that point, SSH goes back to port 22.
 
 It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below.
 
@@ -107,7 +107,14 @@ It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below
    (Use your own port and your VPS address.) The script sees that you are logged in (a bare connection is not enough) and closes port 22 by itself. If the login does not come within 5 minutes, or you press Ctrl-C, it puts everything back and port 22 stays as it was.
 3. **Done.** Port 22 is free for the SSH sensor. Your admin SSH uses the new port from now on.
 
-To go back to port 22 at any time: `sudo ./scripts/move-admin-ssh.sh --undo`.
+### Change the port again or go back
+
+- **Another port:** run it again with the port: `sudo ./scripts/move-admin-ssh.sh 48022`. It moves straight from the port in use to the new one and never opens port 22 on the way.
+- **Back to port 22:** `sudo ./scripts/move-admin-ssh.sh --undo`. It is the same careful move, back to port 22. Stop SuckerPot first (`docker compose down` in the SuckerPot folder), because the SSH sensor holds port 22 and the script refuses to start while another program uses it.
+- **Interrupted or failed run:** SSH goes back to the port it was on. If a run is killed outright (power loss, `kill -9`), the next run puts SSH back on the port it recorded before it does anything else.
+- **When the script stops and asks you not to close your session,** it could not confirm the old port. Run the two commands it shows, from that open session.
+
+The script refuses a few unusual setups before it changes anything: SSH bound to a specific address, several ports it did not set up, or another file in `/etc/ssh/sshd_config.d/` that sets `Port`. Use [By hand](#by-hand) there.
 
 The installer still never edits your SSH configuration. This script is separate, and you run it on purpose. After it, also read [Turn off password logins](#5-turn-off-password-logins) and [Free port 22 for the sensor](#6-free-port-22-for-the-sensor).
 
