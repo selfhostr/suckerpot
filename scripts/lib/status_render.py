@@ -14,7 +14,8 @@ Reads one JSON document on stdin, written by status.sh:
 The network shape (written by ingest/network/cli.py) is read defensively: every key is optional.
     state, pseudonym, node, standing, counts_from, path, self_address, reveals_7d,
     hub {host, last_contact, signature_ok}, sent [{day, sources, links, files}],
-    sessions_24h {sensor: n}, warnings [code], errors [code]
+    sessions_24h {sensor: n}, warnings [code], errors [code],
+    network {membership {desired, last_error}}   (the only place older ingest images carry these)
 
 Prints the text report (or JSON with --json) and exits 0 (OK), 1 (warning) or 2 (error).
 Standard library only. It never prints a secret: it never receives one.
@@ -40,6 +41,23 @@ KNOWN_TEXT = {
     "stack_not_running": "the stack is not running: ./scripts/install.sh --repair",
     "network_status_unavailable": "ingest did not answer the network status request",
     "auto_update_failed": "the last automatic update did not complete: .suckerpot-state/auto-update.log",
+}
+
+
+# Why a join request is not accepted yet (membership.last_error, written by the network worker).
+JOIN_PROBLEMS = {
+    "egress_closed": "the path to the hub is closed",
+    "egress_direct": "the direct path to the hub is not open yet",
+    "stale": "the path to the hub was not checked recently",
+    "hub_unreachable": "the hub cannot be reached",
+    "hub_error": "the hub answered with an error",
+    "waiting_enrolment": "waiting for the hub to finish enrolling this node",
+    "enrolment_closed": "the hub is not accepting new nodes right now",
+    "pow_timeout": "the hub's puzzle took too long, a new one will be tried",
+    "pseudonym_taken": "the pseudonym is already taken",
+    "pseudonym_invalid": "the pseudonym is not allowed",
+    "no_settings_key": "the settings key is missing",
+    "unsupported_protocol": "the hub speaks a protocol this version does not support",
 }
 
 
@@ -110,6 +128,9 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
     cli_error = str(doc.get("cli_error") or "")
     hub = _dict(cli.get("hub")) if cli else {}
     member = bool(cli) and cli.get("state") not in (None, "off", "left", "not_joined")
+    membership = _dict(_dict(cli.get("network") if cli else None).get("membership"))
+    pending = bool(cli) and cli.get("state") in ("off", "not_joined") and membership.get("desired") == "member"
+    join_error = str(membership.get("last_error") or "") if pending else ""
     if cli:
         for code in _list(cli.get("errors")):
             errors.append(str(code))
@@ -120,6 +141,8 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
             warnings.append("hub_contact_stale")
         if member and hub.get("signature_ok") is False:
             errors.append("hub_signature")
+        if join_error:
+            warnings.append("join_pending")
     elif services.get("ingest", ("", ""))[0] == "running":
         warnings.append("network_status_unavailable")
 
@@ -140,6 +163,8 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
         "cli_error": cli_error,
         "auto_state": auto_state,
         "member": member,
+        "pending": pending,
+        "join_error": join_error,
         "hub": hub,
     }
 
@@ -206,6 +231,15 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
     if not cli:
         why = info["cli_error"] or "ingest did not answer"
         out.append(f"  Status unavailable: {why}")
+    elif info["pending"]:
+        name = cli.get("pseudonym")
+        out.append(f"  Joining{f' as {name}' if name else ''}: not accepted by the hub yet.")
+        error = info["join_error"]
+        if error:
+            why = JOIN_PROBLEMS.get(error, "unexpected problem")
+            out.append(f"  Last problem: {why} ({error}). SuckerPot keeps trying by itself.")
+        else:
+            out.append("  The request is in progress.")
     elif not info["member"]:
         out.append("  Not joined. Join: ./scripts/participant.sh join")
     else:
