@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import socket
 import sys
 
@@ -122,8 +123,19 @@ async def echo_fails(settings: EgressSettings) -> bool:
     return False
 
 
+def load_settings() -> EgressSettings:
+    """The settings the service itself uses. Inside the ingest image that is the direct-mode scope
+    resolved with the shipped defaults (``ingest.egress``); elsewhere plain ``from_env``."""
+    try:
+        resolver = importlib.import_module("ingest.egress").egress_settings
+    except ImportError, AttributeError:
+        return EgressSettings.from_env()
+    settings: EgressSettings = resolver()
+    return settings
+
+
 async def main_async(args: argparse.Namespace) -> int:
-    settings = EgressSettings.from_env()
+    settings = load_settings()
     results: list[bool] = []
     if args.direct or args.no_connect:
         results += run_direct(args.no_connect)
