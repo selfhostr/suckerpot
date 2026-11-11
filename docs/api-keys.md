@@ -20,7 +20,7 @@ The Settings page lists seven providers: AbuseIPDB, GreyNoise Community, MaxMind
 | Provider | Adds | `.env` variable | Cost |
 | --- | --- | --- | --- |
 | AbuseIPDB | Abuse score of attacker IPs | `ABUSEIPDB_API_KEY` | Free tier, 1,000 checks per day |
-| GreyNoise Community | "Known scanner" labels | `GREYNOISE_API_KEY` | Free tier, about 50 checks per day |
+| GreyNoise Community | "Known scanner" labels | `GREYNOISE_API_KEY` | Free tier, about 50 checks per week |
 | MaxMind GeoLite2 | Country, city and ASN | `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY` | Free account |
 | NVD | Faster CVE watch | `NVD_API_KEY` | Free |
 | GitHub advisories | Faster CVE watch | `GITHUB_ADVISORY_TOKEN` | Free |
@@ -47,7 +47,7 @@ Adds a label that says whether an address is a known internet scanner, and wheth
 2. Sign in and open your account page. The API key is shown there.
 3. Copy it and set it in Settings, or as `GREYNOISE_API_KEY`.
 
-The Community API allows about 50 lookups per day (`GREYNOISE_DAILY_QUOTA`, default 50).
+The Community API allows about 50 lookups per week, not per day. The quota here is counted per day (`GREYNOISE_DAILY_QUOTA`, default 7), and 7 a day is 49 a week, so the node stays inside the allowance. Raising it only gets you errors from GreyNoise once the weekly allowance is spent.
 
 ## MaxMind GeoLite2
 

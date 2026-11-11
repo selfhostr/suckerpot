@@ -1,4 +1,4 @@
-"""The network worker (design M29 section 9.3). Off when ``NETWORK_ENABLED=false`` (default on),
+"""The network worker (design M29 section 9.3). Off unless ``NETWORK_ENABLED=true`` (default off),
 and idle until the node has joined (``network_membership.desired``: the dashboard, or a valid
 ``NETWORK_CONSENT`` from the installer). Nothing is sent otherwise (N1).
 

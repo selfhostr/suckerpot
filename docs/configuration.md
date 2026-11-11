@@ -185,7 +185,9 @@ The owner account lives in `.env`: it is always an administrator and works even 
 | `SESSION_TTL_HOURS` | `12` | How long a login lasts |
 | `COOKIE_SECURE` | `true` | Cookies are `Secure` and named `__Host-sp_session` and `__Host-sp_csrf`. Keep `true`, also behind a TLS-terminating tunnel (the browser talks HTTPS to the tunnel). `false` gives the plain names `sp_session` and `sp_csrf` without `Secure`: local development over HTTP only. |
 | `LOGIN_RATE` | `5` | Login attempts per client address per minute (every attempt counts) |
-| `LOGIN_RATE_GLOBAL` | `30` | **Wrong passwords** per minute for the whole server; successful sign-ins do not count |
+| `LOGIN_RATE_GLOBAL` | `30` | **Wrong passwords** per minute for the whole server. Over this budget, each refused sign-in (wrong password, unknown, locked or disabled user) is answered one second later. The wait holds no password-check slot. It never refuses a sign-in, so anonymous traffic cannot lock the owner out. Successful sign-ins do not count |
+| `LOGIN_VERIFY_CONCURRENCY` | `2` | Password checks (argon2, about 64 MiB each) running at once, from 1 to 4 (other values are clamped and logged). Extra attempts queue, up to 20 in all; beyond that login answers `429` at once. One sign-in per client address is checked at a time; a second one at once gets `429` |
+| `LOGIN_VERIFY_WAIT` | `5` | Seconds an attempt may queue for a free check slot before it gets `429` with `Retry-After`. Minimum 0.5 |
 | `LOGIN_RATE_USER` | `10` | Wrong passwords per minute for one username (any letter case), from any address. Not applied to the owner's name. |
 | `AUTH_TRUSTED_PROXIES` | empty | Comma-separated CIDR list of proxy addresses (such as `203.0.113.0/24`). Only from those peers does the API read `CF-Connecting-IP`, or the rightmost non-proxy `X-Forwarded-For` entry, as the client address. Empty means the headers are never trusted. Replaces the old `AUTH_TRUST_PROXY_HEADERS`. |
 | `API_ALLOWED_HOSTS` | empty | Comma-separated host names the API answers to. If empty, the hosts of `API_ALLOWED_ORIGINS` are used. `localhost` and `127.0.0.1` are always allowed. If both are empty, any host is allowed and the API logs a warning: set one in production, for example the tunnel's host name. |
@@ -261,7 +263,7 @@ The geolocation data has a licence that requires credit. See [Data sources and a
 | `ABUSEIPDB_API_KEY` | empty | AbuseIPDB key. Without it, no lookups. |
 | `ABUSEIPDB_DAILY_QUOTA` | `1000` | Maximum AbuseIPDB checks per day. Enforced, and persisted in the database. |
 | `GREYNOISE_API_KEY` | empty | GreyNoise Community key. Without it, no lookups. |
-| `GREYNOISE_DAILY_QUOTA` | `50` | Maximum GreyNoise checks per day |
+| `GREYNOISE_DAILY_QUOTA` | `7` | Maximum GreyNoise checks per day. The free Community API allows about 50 per week, so 7 a day (49 a week) stays inside it |
 | `CVE_WATCH_ENABLED` | `true` | Daily job that mirrors CISA KEV, NVD CVEs from the last 60 days and GitHub advisories. The feeds are read in chunks. See [Architecture](ARCHITECTURE.md). |
 | `NVD_API_KEY` | empty | NVD key. Optional: raises the rate limit from 5 to 50 requests per 30 s |
 | `GITHUB_ADVISORY_TOKEN` | empty | Token for the public GitHub advisories API. Optional: raises the limit from 60 requests per hour. Use a fine-grained token for public repositories only, read-only, with no permissions. Never your push token |

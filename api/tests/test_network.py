@@ -339,11 +339,11 @@ def test_leaving_needs_the_password_and_marks_the_wish(rig: Any) -> None:
     assert again.status_code == 200  # already leaving: idempotent
 
 
-def test_the_network_is_unlocked_by_default(rig: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """M33: no NETWORK_ENABLED in the environment means on; nothing joins by itself."""
+def test_the_network_is_off_by_default(rig: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No NETWORK_ENABLED in the environment means off; nothing joins by itself."""
     monkeypatch.delenv("NETWORK_ENABLED")
     body = rig.client().get("/api/v1/network/status").json()
-    assert body["enabled_env"] is True and body["desired"] == "off"
+    assert body["enabled_env"] is False and body["desired"] == "off"
 
 
 def test_a_node_that_left_can_join_again(rig: Any) -> None:
