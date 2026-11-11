@@ -637,11 +637,11 @@ The abuse.ch lookup key (used to check whether a value is already listed) is the
 
 ## SuckerPot network (M29)
 
-The network is unlocked by default, and nobody is joined by default. Details are in [The SuckerPot network](network.md) and [Network protocol](network-protocol.md). A system sends nothing until it has joined, through the installer question (the default answer is yes) or in Settings, Network. `NETWORK_ENABLED=false` switches the whole feature off.
+The network is an experimental preview and is off by default. Details are in [The SuckerPot network](network.md) and [Network protocol](network-protocol.md). To use it, set `NETWORK_ENABLED=true` and join: through the installer question (the default answer is no, and `--join-network` answers yes) or in Settings, Network. A system sends nothing until it has joined.
 
 | Variable | Default | Service | Description |
 | --- | --- | --- | --- |
-| `NETWORK_ENABLED` | `true` | `ingest`, `api` | Master switch. It only unlocks joining. With `false` the worker never contacts the hub, and the Network pages explain how to allow it |
+| `NETWORK_ENABLED` | `false` | `ingest`, `api` | Master switch. It only unlocks joining. With `false` (the default in Compose) the worker never contacts the hub, and the Network pages explain how to allow it. An install that already has `NETWORK_ENABLED=true` in its `.env` keeps it |
 | `NETWORK_HUB_URL` | empty | `ingest`, `api` | Address of the hub, for example `https://hub.example.org`. Must be HTTPS, with no path and no credentials. Set it together with `NETWORK_HUB_KEY` |
 | `NETWORK_HUB_KEY` | empty | `ingest`, `api` | The hub's public key (base64url, 32 bytes). The node refuses any answer that this key did not sign |
 | `NETWORK_INTERVAL_S` | `900` | `ingest` | Seconds between worker cycles, from 30 to 86400. While a join or a leave is pending, the worker checks every 60 seconds |
@@ -667,7 +667,7 @@ Participant mode is described in [Join the network](participate.md). The install
 | `COMPOSE_PROFILES` | `egress` (full) | compose | `direct` starts `hubproxy` (no VPN). `egress` starts the VPN. Never both |
 | `EGRESS_MODE` | `vpn` | `ingest` | `direct` reaches only the hub, through `hubproxy`. `vpn` uses the VPN proxy |
 | `HUBPROXY_ALLOW` | the hub host, port 443 | `hubproxy` | Comma-separated `host:443` pairs, at most two. Direct mode only |
-| `NETWORK_CONSENT` | empty | `ingest` | Consent record `v2:<list>:<UTC day>`, written by the installer (participant mode, or a yes to the network question in full mode) or `participant.sh join`. `ingest` joins from it once, and never again after a leave. `ingest` ignores a record older than 7 days. `just set NETWORK_CONSENT=` clears it; `just set` refuses any non-empty value. `ingest` does not join on a version it does not know (`consent_outdated`) |
+| `NETWORK_CONSENT` | empty | `ingest` | Consent record `v2:<list>:<UTC day>`, written by the installer (participant mode, or a yes or `--join-network` in full mode) or `participant.sh join`. `ingest` joins from it once, and never again after a leave. `ingest` ignores a record older than 7 days. `just set NETWORK_CONSENT=` clears it; `just set` refuses any non-empty value. `ingest` does not join on a version it does not know (`consent_outdated`) |
 | `NETWORK_PSEUDONYM` | random | `ingest` | Optional pseudonym |
 | `NETWORK_COUNTRY`, `NETWORK_SHOW_COUNTRY` | empty, `false` | `ingest` | Optional two-letter country, shown only if you opt in and enough members share it |
 | `NETWORK_VERIFY_REVEALS` | `false` (`true` in participant mode) | `ingest` | Answer the hub when it asks for a link that several sensors saw |

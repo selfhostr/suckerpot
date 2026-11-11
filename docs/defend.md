@@ -4,6 +4,11 @@ The Defend pages turn what the honeypot saw into things you can use at work: lis
 
 ## Blocklists
 
+```{warning}
+**Experimental preview.** The SuckerPot network has very few nodes today. Its shared feed may be empty, and a participant gets nothing back yet. Thresholds and the protocol may change without notice. Known limits: identity is free, so the consensus does not yet resist a determined attacker who creates several nodes, and the hub run by the project maintainers is the single root of trust. The local blocklists on this page do not depend on the network. Only the community lists do. See [The SuckerPot network](network.md) and [Community blocklist feeds](feeds.md).
+```
+
+
 Ingest scores every source address, host name, download URL and file hash seen in the last `BLOCKLIST_WINDOW_DAYS` days (default 30) and stores the result in `blocklist_entries`. It runs every 15 minutes and is off by default: set `BLOCKLIST_ENABLED=true`.
 
 A score runs from 0 to 100. Each point has a reason, shown in plain English on the page: brute-forcing, a login that worked, commands run, malware dropped, an exploit attempt, a bad AbuseIPDB score, several sensors hit, part of a campaign, and so on. Addresses that malware dropped on your decoys is said to contact (probable C2) are scored too: 75 when ThreatFox lists them as a botnet C2, 40 when only a VirusTotal sandbox saw the contact (below the default feed threshold of 50). See {ref}`Security <probable-c2-addresses>`. Mass scanners that did no harm are capped at 35. Entries below 10 are not listed. At most `BLOCKLIST_MAX_ROWS` entries are kept (default 20,000), best score first.
@@ -12,10 +17,10 @@ An indicator typed into a command can be planted by a single attacker, so indica
 
 Never listed, whatever the score:
 
-- public DNS resolvers (such as 8.8.8.8 and 1.1.1.1) and large SaaS, cloud and CDN domains;
+- public DNS resolvers (such as 8.8.8.8 and 1.1.1.1) and a built-in list of large SaaS, cloud and CDN domains;
 - anything in your own never-list: `BLOCKLIST_NEVER` (addresses, networks, names, comma separated), plus `AUTH_TRUSTED_PROXIES`, `API_ALLOWED_HOSTS` and `INDICATORS_IGNORE`, which are read automatically;
 - private, loopback, link-local, multicast and other reserved addresses (so your own network cannot end up on a list);
-- shared hosting names such as `github.com` or `pastebin.com` (attackers download tools from them, and so do you);
+- a short built-in list of shared hosting names such as `github.com` or `pastebin.com` (attackers download tools from them, and so do you). Other hosting providers are not excluded;
 - research scanners, unless you ask for them.
 
 ### Overrides

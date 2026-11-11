@@ -634,12 +634,14 @@ def test_participant_prints_the_consent_screen_with_the_vpn_truth(psb: Sandbox) 
     _, rc, out = p_dry_run(psb)
     assert rc == 0, out
     assert "SuckerPot participant mode" in out
-    assert "Without a VPN, the hub" in out
-    assert "sees this machine's public" in out
+    assert "Without a VPN that address" in out
+    assert "this machine's own public address" in out
     assert "./scripts/participant.sh vpn <file.conf>" in out
     assert "./scripts/participant.sh leave" in out
     assert "--yes was given" in out
-    assert "Never shared: passwords, commands" in out
+    assert "Never sent: passwords, commands" in out
+    assert "Cloudflare" in out
+    assert "What you get back today: nothing yet" in out
 
 
 def test_participant_pseudonym_override_and_none(
@@ -1061,10 +1063,10 @@ def test_participant_scripts_make_no_http_calls_and_look_up_no_address() -> None
 # --------------------------------------------------------------------- the network question (M33)
 
 
-def test_full_install_joins_the_network_with_yes(
+def test_full_install_joins_the_network_with_the_explicit_flag(
     sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
 ) -> None:
-    target, rc, out = dry_run(sandbox)
+    target, rc, out = dry_run(sandbox, "--join-network")
     assert rc == 0, out
     env = parse_env(target)
     assert env["NETWORK_ENABLED"] == "true"
@@ -1078,10 +1080,31 @@ def test_full_install_joins_the_network_with_yes(
     assert "NETWORK_VERIFY_REVEALS" not in env
     assert env["COMPOSE_PROFILES"] == "egress"
     assert "EGRESS_MODE" not in env and "HUBPROXY_ALLOW" not in env
-    assert "agreement to join" in out
-    assert "through your VPN" in out
+    assert "--join-network was given" in out
+    assert "your VPN exit address" in out
     assert env["NETWORK_PSEUDONYM"] in out
-    assert "Join the SuckerPot network?" not in out  # --yes does not prompt
+    assert "Join the SuckerPot network?" not in out  # the flag is the answer: no prompt
+
+
+def test_yes_alone_never_joins_the_network(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    target, rc, out = dry_run(sandbox)
+    assert rc == 0, out
+    env = parse_env(target)
+    for name in ("NETWORK_CONSENT", "NETWORK_PSEUDONYM", "NETWORK_ENABLED"):
+        assert name not in env, name
+    assert "--yes does not join it" in out
+
+
+def test_join_network_and_no_network_exclude_each_other(sandbox: Sandbox) -> None:
+    _, rc, out = dry_run(sandbox, "--join-network", "--no-network")
+    assert rc != 0 and "exclude each other" in out
+
+
+def test_join_network_is_a_full_mode_flag(psb: Sandbox) -> None:
+    _, rc, out = p_dry_run(psb, "--join-network")
+    assert rc != 0 and "--join-network" in out
 
 
 def test_no_network_declines_and_writes_no_consent(
@@ -1111,18 +1134,18 @@ def _interactive(sandbox: Sandbox, network_answer: str) -> tuple[Path, int, str]
     return target, proc.returncode, proc.stdout + proc.stderr
 
 
-@pytest.mark.parametrize("answer", ["\n", "y\n", "Y\n", "yes\n"])
-def test_the_network_question_defaults_to_yes(
+@pytest.mark.parametrize("answer", ["y\n", "Y\n", "yes\n"])
+def test_a_typed_yes_joins_the_network(
     sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]], answer: str
 ) -> None:
     target, rc, out = _interactive(sandbox, answer)
     assert rc == 0, out
-    assert "Join the SuckerPot network? [Y/n]" in out
+    assert "Join the SuckerPot network? [y/N]" in out
     assert parse_env(target)["NETWORK_CONSENT"].startswith("v2:sources,payloads,c2,files,rechecks:")
 
 
-@pytest.mark.parametrize("answer", ["n\n", "N\n", "no\n"])
-def test_answering_no_to_the_network_question_writes_nothing(
+@pytest.mark.parametrize("answer", ["\n", "n\n", "N\n", "no\n"])
+def test_an_empty_or_no_answer_does_not_join_the_network(
     sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]], answer: str
 ) -> None:
     target, rc, out = _interactive(sandbox, answer)
@@ -1145,10 +1168,13 @@ def test_end_of_input_is_not_a_yes_to_the_network_question(
 
 
 def test_the_consent_text_is_exact_about_the_vpn_and_the_address(sandbox: Sandbox) -> None:
-    _, rc, out = dry_run(sandbox)
+    _, rc, out = dry_run(sandbox, "--join-network")
     assert rc == 0, out
-    assert "nothing leaves at all" in out
-    assert "until your own public address is confirmed" in out
+    assert "nothing is sent at all" in out
+    assert "address is confirmed" in out
+    assert "Cloudflare" in out
+    assert "What you get back today: nothing yet" in out
+    assert "experimental preview" in out
 
 
 def test_a_fresh_install_carries_the_network_default_marker(

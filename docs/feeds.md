@@ -2,7 +2,9 @@
 
 The SuckerPot network publishes free blocklists. Any firewall can load them. This page is for the person who loads them: what the lists hold, how to fetch them, how to check them, and how to ask for a removal.
 
-The examples use the placeholder host `feeds.example.org`. The public address of the feed is written there until the project sets its real one. Use the address from the project documentation once it is live.
+The feed is an experimental preview. The network has very few nodes, so the lists may be empty or short, and the thresholds and format may change. Do not rely on it as your only protection. Known limits: identity is free, so the consensus does not yet resist a determined attacker who creates several nodes, and the hub run by the project maintainers is the single root of trust. See [The SuckerPot network](network.md).
+
+The examples use the public feed address shipped with each release in `config/network-defaults.env`: `https://suckerpot-feeds.selfhostr.io/v1`.
 
 The lists are built only from what many sensors saw. Each entry needs observations from at least five independent sensors. The network explains how that works in [The SuckerPot network](network.md).
 
@@ -48,7 +50,7 @@ The high tier is empty when the hub has no outside source configured. `outbound-
 | TCP evidence for inbound | An address is listed only when the evidence came over TCP. Scans, plain connects and web-only probes never list an address. Evidence seen on SIP (UDP) never lists one either, because UDP source addresses can be faked. A node sends one summary per address and day, so when an address shows up on SIP and on a TCP service the same day, that node's summary for the day is not counted at all. |
 | Payload hosts | A host is listed only when a file was fetched from it by at least 2 nodes, and that file has a known malware family. A URL that was merely typed into a command never lists its host. |
 | Command servers (C2) | A command server is listed only when the hub's analysis rates it with high confidence, and at least two different samples from at least two nodes point to it. |
-| Names | A host name is listed only when it was revealed by the same evidence as the address. Shared hosting and big cloud names are never listed. |
+| Names | A host name is listed only when it was revealed by the same evidence as the address. The names in the never-list (public resolvers, large CDN, cloud and software-hosting names) are never listed. |
 | Hold | A new value waits 6 hours after it was first confirmed before it appears. |
 | Expiry | A value leaves the list when it has no new sighting for a set time (see the table below). |
 | Size caps | Each list has a maximum number of entries. Over the cap, the high tier stays and the newest entries stay. |
@@ -69,10 +71,10 @@ Attack sources change address often, so inbound entries expire fast. That also l
 | --- | --- |
 | Private, loopback, link-local, multicast and other reserved addresses | Your own network must never end up on a list |
 | Public DNS resolvers and root servers (the big public resolver addresses, for example) | Attackers type them into commands. Blocking them breaks networks. |
-| Shared hosting and big SaaS names (for example `github.com`) | Blocking them breaks work |
-| Large CDN and cloud front-end address ranges | One address serves thousands of sites |
+| A fixed list of public resolvers and large CDN, cloud and software-hosting names (for example `github.com`, `pastebin.com`, `amazonaws.com`), in `hub/hub/data/never.yaml` | Blocking them breaks work. Other shared hosting and ordinary VPS providers are not excluded: that is where malware lives. |
+| The address ranges of three large CDNs (Cloudflare, Fastly, CloudFront), refreshed by the hub | One address serves thousands of sites |
 | Tor exit relays | An exit relays many users. The attacker is not the exit. If you want to block Tor, use the Tor Project's own exit list. |
-| Research scanners | They announce themselves and do no harm by our definition |
+| Research scanners that a node's own scanner rules recognise | Nodes drop them before sending. The hub keeps no scanner list of its own today. |
 | Values the operators removed by policy | Allow-list decisions |
 
 Commercial VPN exits and residential proxies cannot be excluded reliably. Short expiry and delisting handle them. Expect some false positives on inbound lists.
@@ -95,7 +97,7 @@ Nothing else is published. No node ids, no countries, no node counts, no sample 
 
 ## Formats and URLs
 
-Base address: `https://feeds.example.org/v1/`
+Base address: `https://suckerpot-feeds.selfhostr.io/v1/`
 
 The `v1` is the format version. Each file has a `.minisig` signature next to it. Each file has a `.gz` copy for clients that ask for compression.
 
@@ -167,10 +169,10 @@ Menu names follow OPNsense 25.x. Your version may name things a little different
    - **Name:** `selfhostr_outbound`
    - **Type:** **URL Table (IPs)**
    - **Refresh Frequency:** `0` days `6` hours
-   - **Content:** `https://feeds.example.org/v1/outbound.txt`
+   - **Content:** `https://suckerpot-feeds.selfhostr.io/v1/outbound.txt`
    - **Description:** `SuckerPot outbound (CC0)`
 3. Save, then **Apply**.
-4. Repeat for `selfhostr_inbound` with `https://feeds.example.org/v1/inbound-high.txt`. Start with the high tier.
+4. Repeat for `selfhostr_inbound` with `https://suckerpot-feeds.selfhostr.io/v1/inbound-high.txt`. Start with the high tier.
 5. Go to **Firewall → Settings → Advanced** and check **Firewall Maximum Table Entries**. It must be larger than the sum of all your tables. Each list holds up to 50,000 entries.
 6. Create the outbound block rule. Go to **Firewall → Rules → LAN** (or use a floating rule for all interfaces) and add:
    - **Action:** Block (Reject ends connections faster)
@@ -194,7 +196,7 @@ Menu names follow pfSense CE 2.7 and pfSense Plus 24.x.
 2. Fill in:
    - **Type:** **URL Table (IPs)**
    - **Name:** `selfhostr_outbound`
-   - **URL:** `https://feeds.example.org/v1/outbound.txt`
+   - **URL:** `https://suckerpot-feeds.selfhostr.io/v1/outbound.txt`
    - **Update Frequency:** `1` day
 3. Save, then **Apply Changes**.
 4. Go to **System → Advanced → Firewall & NAT** and make sure **Firewall Maximum Table Entries** is large enough.
@@ -213,13 +215,13 @@ pfBlockerNG refreshes on its own schedule and handles IPv4 and IPv6 separately. 
 
 1. Go to **Firewall → pfBlockerNG → IP → IPv4** and click **Add**.
    - **Name:** `Selfhostr_outbound`
-   - **Source Definitions:** format **Auto**, state **ON**, source `https://feeds.example.org/v1/outbound.v4.txt`, header `selfhostr_outbound`
+   - **Source Definitions:** format **Auto**, state **ON**, source `https://suckerpot-feeds.selfhostr.io/v1/outbound.v4.txt`, header `selfhostr_outbound`
    - **Action:** **Deny Outbound**
    - **Update Frequency:** **Every 1 hour**
    - Save.
 2. Do the same on the **IPv6** tab with `outbound.v6.txt`.
 3. For inbound lists use the action **Deny Inbound**.
-4. For names, go to **DNSBL → DNSBL Groups** and add a group with source `https://feeds.example.org/v1/outbound-domains.txt`.
+4. For names, go to **DNSBL → DNSBL Groups** and add a group with source `https://suckerpot-feeds.selfhostr.io/v1/outbound-domains.txt`.
 5. Go to **Firewall → pfBlockerNG → Update** and run **Force Update**.
 
 ## Step by step: nftables
@@ -276,7 +278,7 @@ The `.rsc` file adds each address with a timeout of 1 day 6 hours. Addresses tha
 
    ```
    /system script add name=selfhostr-update source={
-     /tool fetch url="https://feeds.example.org/v1/outbound.rsc" dst-path=selfhostr.rsc check-certificate=yes
+     /tool fetch url="https://suckerpot-feeds.selfhostr.io/v1/outbound.rsc" dst-path=selfhostr.rsc check-certificate=yes
      /import file-name=selfhostr.rsc
    }
    ```
@@ -306,9 +308,9 @@ Use the feed as a MISP feed to get the indicators into your events.
 
 1. Go to **Sync Actions → Feeds → Add feed**.
 2. Pick one of these:
-   - **Format:** **Freetext**, **URL:** `https://feeds.example.org/v1/outbound.txt`
-   - **Format:** **Simple CSV**, **URL:** `https://feeds.example.org/v1/outbound.csv`, value in column 1
-   - or import `https://feeds.example.org/v1/outbound.stix.json` as a STIX 2.1 file (**Event → Import**).
+   - **Format:** **Freetext**, **URL:** `https://suckerpot-feeds.selfhostr.io/v1/outbound.txt`
+   - **Format:** **Simple CSV**, **URL:** `https://suckerpot-feeds.selfhostr.io/v1/outbound.csv`, value in column 1
+   - or import `https://suckerpot-feeds.selfhostr.io/v1/outbound.stix.json` as a STIX 2.1 file (**Event → Import**).
 3. Enable the feed, fetch it, and check the event count against `outbound` in `index.json`.
 
 MISP does not check the signature for you. Run `fetch-verify.sh` first and point MISP at a copy you have verified, if you need that guarantee.
@@ -319,9 +321,9 @@ Use `outbound-domains.txt`. It holds one exact name per line.
 
 | Tool | Where | What to enter |
 | --- | --- | --- |
-| Pi-hole | **Group Management → Adlists → Add** | `https://feeds.example.org/v1/outbound-domains.txt`, then **Tools → Update Gravity** |
-| AdGuard Home | **Filters → DNS blocklists → Add blocklist → Add a custom list** | `https://feeds.example.org/v1/outbound-domains.txt` |
-| pfBlockerNG DNSBL | See the pfSense section above | Source `https://feeds.example.org/v1/outbound-domains.txt` |
+| Pi-hole | **Group Management → Adlists → Add** | `https://suckerpot-feeds.selfhostr.io/v1/outbound-domains.txt`, then **Tools → Update Gravity** |
+| AdGuard Home | **Filters → DNS blocklists → Add blocklist → Add a custom list** | `https://suckerpot-feeds.selfhostr.io/v1/outbound-domains.txt` |
+| pfBlockerNG DNSBL | See the pfSense section above | Source `https://suckerpot-feeds.selfhostr.io/v1/outbound-domains.txt` |
 
 A DNS block stops the lookup. It does not stop a device that connects by address. Use it together with the address lists.
 
@@ -344,8 +346,8 @@ RW...                 (the feed's public key, from README.txt)
 Install `minisign` from your package manager, then:
 
 ```sh
-curl -fsS -O https://feeds.example.org/v1/outbound.txt
-curl -fsS -O https://feeds.example.org/v1/outbound.txt.minisig
+curl -fsS -O https://suckerpot-feeds.selfhostr.io/v1/outbound.txt
+curl -fsS -O https://suckerpot-feeds.selfhostr.io/v1/outbound.txt.minisig
 minisign -Vm outbound.txt -P RW...
 ```
 
@@ -377,7 +379,7 @@ FEED_PUBKEY=RW... ./scripts/feeds/fetch-verify.sh -d /var/lib/lists outbound.txt
 
 | Option | Meaning |
 | --- | --- |
-| `-b BASE_URL` | Feed address. Default `https://feeds.example.org/v1`. Only `https` is accepted. |
+| `-b BASE_URL` | Feed address. Default `https://suckerpot-feeds.selfhostr.io/v1`. Only `https` is accepted. |
 | `-d DEST_DIR` | Where the verified files go. Default: the current directory. |
 | `-P PUBKEY` | The public key. You can also set `FEED_PUBKEY`. |
 
@@ -409,7 +411,7 @@ If an entry is wrong, or the problem is fixed, ask for removal. A person reviews
 
 ### The form
 
-Open `https://feeds.example.org/v1/delist.html`. Enter the value, choose a category, and add evidence or a contact address if you want. The form solves a small proof-of-work puzzle in your browser first. It takes about a second.
+Open `https://suckerpot-feeds.selfhostr.io/v1/delist.html`. Enter the value, choose a category, and add evidence or a contact address if you want. The form solves a small proof-of-work puzzle in your browser first. It takes about a second.
 
 | Field | Values |
 | --- | --- |
@@ -455,7 +457,7 @@ If the value is not on any list, step 3 answers `"listed": false`, and nothing i
 ## Look up one value
 
 ```sh
-curl -fsS 'https://feeds.example.org/v1/lookup?value=192.0.2.1'
+curl -fsS 'https://suckerpot-feeds.selfhostr.io/v1/lookup?value=192.0.2.1'
 ```
 
 The answer is one word:
@@ -514,7 +516,7 @@ What the mirror does:
    ```
    FEEDS_ENABLED=true
    NETWORK_FEED_ENABLED=true
-   NETWORK_FEED_URL=https://feeds.example.org/v1
+   NETWORK_FEED_URL=https://suckerpot-feeds.selfhostr.io/v1
    NETWORK_FEED_KEY=RW...
    ```
 

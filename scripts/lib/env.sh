@@ -321,24 +321,29 @@ consent_record() {
 # The installer and `participant.sh join` print the same text.
 consent_screen() {
   local pseudonym=$1 vpn=${2:-0}
-  echo "SuckerPot participant mode"
+  echo "SuckerPot participant mode (experimental preview)"
   echo
-  echo "This machine will run honeypot sensors and share what they see with the SuckerPot network:"
-  echo "  - addresses that attacked your sensors, with the services they used, what they did and"
-  echo "    rounded counts, once a day and a few hours late;"
+  echo "This machine will run honeypot sensors and send what they see to a hub run by the"
+  echo "SuckerPot maintainers. What is sent, once a day and a few hours late:"
+  echo "  - source addresses seen by your sensors, with the services they used, what they did and"
+  echo "    rounded counts;"
   echo "  - download links attackers tried, as hashes; the clear link goes to the hub only when two or"
   echo "    more sensors saw the same link, so a verifier can check it;"
   echo "  - malware hashes and command-and-control addresses (only with a VPN and the collector);"
   echo "  - takedown checks for addresses the network reported."
-  echo "Never shared: passwords, commands, your ports, your own address or names in any payload."
+  echo "Never sent: passwords, commands, your ports, your own address or names in any payload."
   echo
+  echo "What you get back today: nothing yet. The shared feed is an experimental preview and stays"
+  echo "empty until enough independent nodes exist. Its thresholds and protocol may change."
+  echo
+  echo "The hub is reached through a Cloudflare tunnel, so Cloudflare and the hub both see the"
+  echo "address the request comes from."
   if [ "$vpn" = 1 ]; then
-    echo "All of it leaves through your VPN: the hub sees the VPN's address, not this machine's."
+    echo "All of it leaves through your VPN: they see the VPN's exit address, not this machine's."
     echo "Remove the VPN at any time: ./scripts/participant.sh vpn --remove"
   else
-    echo "Without a VPN, the hub (and the tunnel provider in front of it) sees this machine's public"
-    echo "address when it connects. The hub stores and logs none, but it is not hidden. Add a VPN at"
-    echo "any time: ./scripts/participant.sh vpn <file.conf>"
+    echo "Without a VPN that address is this machine's own public address, so it is not hidden."
+    echo "Add a VPN at any time: ./scripts/participant.sh vpn <file.conf>"
   fi
   echo "Updates: signed releases install themselves once a day (turn off: --no-auto-update). The"
   echo "update checks contact GitHub, ghcr.io and Sigstore from this machine's own address, even"
@@ -353,27 +358,31 @@ consent_screen() {
   echo
 }
 
-# Prints the consent screen of a full install (M33). $1 = pseudonym (empty = none).
-# The question "Join the SuckerPot network?" follows it; the default is yes.
+# Prints the consent screen of a full install. $1 = pseudonym (empty = none).
+# The question "Join the SuckerPot network?" follows it; the default is no.
 consent_screen_full() {
   local pseudonym=$1
-  echo "The SuckerPot network"
+  echo "The SuckerPot network (experimental preview, off unless you join)"
   echo
-  echo "You can share what your sensors see with the SuckerPot network, and get its shared"
-  echo "blocklists back. What would be shared:"
-  echo "  - addresses that attacked your sensors, with the services they used, what they did and"
-  echo "    rounded counts, once a day and a few hours late;"
+  echo "You can send what your sensors see to a hub run by the SuckerPot maintainers. What would be"
+  echo "sent, once a day and a few hours late:"
+  echo "  - source addresses seen by your sensors, with the services they used, what they did and"
+  echo "    rounded counts;"
   echo "  - download links attackers tried, as hashes; the clear link goes to the hub only when two or"
   echo "    more sensors saw the same link, so a verifier can check it;"
   echo "  - malware hashes and command-and-control addresses (only with the collector);"
   echo "  - takedown checks for addresses the network reported."
-  echo "Never shared: passwords, commands, your ports, your own address or names in any payload."
+  echo "Never sent: passwords, commands, your ports, your own address or names in any payload."
   echo
-  echo "Joining and every network call go through your VPN once one is configured (Settings > VPN),"
-  echo "never from this machine's own address; with no VPN, nothing leaves at all. Nothing about your"
-  echo "sensors is submitted until your own public address is confirmed."
-  echo "Leave at any time in the dashboard (Network page). A leave is final: an update or a restart"
-  echo "never joins you again."
+  echo "What you get back today: nothing yet. The shared feed is an experimental preview and stays"
+  echo "empty until enough independent nodes exist. Its thresholds and protocol may change."
+  echo
+  echo "The hub is reached through a Cloudflare tunnel, so Cloudflare and the hub both see the"
+  echo "address the request comes from: your VPN exit address once a VPN is configured (Settings >"
+  echo "VPN). With no VPN, nothing is sent at all, and nothing is sent until your own public"
+  echo "address is confirmed."
+  echo "Leave at any time in the dashboard (Network page), or switch it all off with"
+  echo "just set NETWORK_ENABLED=false. A leave is final: an update or a restart never joins you again."
   echo
   if [ -n "$pseudonym" ]; then
     echo "Pseudonym: $pseudonym   (you can change it in the dashboard)"
