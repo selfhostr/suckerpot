@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-11-11
+
 ### Changed
 
 - The installer now accepts a machine sold as "2 GB" (about 1.9 GiB, for example `MemTotal: 2009976 kB`): the memory bar is 1.75 GiB (1,835,008 kB) instead of about 1.94 GiB, and the default setup runs there with the low-memory limits. Between 1.75 and 2 GiB it warns and asks when there is less than 512 MiB of swap (not with `--yes`). Below 1.75 GiB, participant mode says what the machine reports and offers the lite setup in one question (default yes; `--yes` takes it and prints a note); accepting it behaves exactly as `--lite`. Full mode and machines below the lite minimum (1 GiB) are still refused, and the message states the reported memory and, in full mode, the exact `--participant --lite` command.
@@ -14,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A fresh install no longer fails with `backup` stuck waiting. The `db` healthcheck now probes over TCP (`pg_isready -h 127.0.0.1`), so the database reports healthy only once it accepts network connections, not while the image still runs its temporary start-up server on the Unix socket. The `backup` service also retries a failed dump after 30 s, 60 s, 120 s and so on (never later than the hourly check) instead of waiting an hour. The hub database healthcheck got the same TCP probe.
+- A participant node installed without a VPN can now join the network. The installer leaves the hub address out of `.env` so that the one shipped with the release applies, but the egress gate of `ingest` built its direct-mode scope from `.env` only, found no host, and stayed closed with `direct_allow_mismatch`: the node kept running its sensors and never reached the hub. The scope now uses the same shipped defaults as the network code. A node that already agreed to join at install time keeps its request and retries by itself after the update, with nothing to run. VPN mode is unchanged.
+- `./scripts/install.sh --feeds` now really fetches the community lists: the feed worker uses the feed address and key shipped with the release when `NETWORK_FEED_URL` and `NETWORK_FEED_KEY` are both left out, instead of staying unconfigured. Set both to point at another feed.
+- `./scripts/status.sh` no longer says `Not joined. Join: ./scripts/participant.sh join` for a node that agreed to join but is not accepted by the hub yet. It says `Joining as <pseudonym>: not accepted by the hub yet`, with the last problem in plain words, and exits with code 1 (warning `join_pending`) while a problem blocks the join.
 
 ## [0.11.1] - 2026-11-11
 
@@ -342,7 +347,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.2...HEAD
+[0.11.2]: https://github.com/selfhostr/suckerpot/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/selfhostr/suckerpot/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/selfhostr/suckerpot/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/selfhostr/suckerpot/compare/v0.9.0...v0.10.0
