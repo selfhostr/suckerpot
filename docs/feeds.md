@@ -511,16 +511,14 @@ What the mirror does:
 
 ### Set it up
 
-1. Turn on the mirror and the fetch in `.env`. The mirror needs the dashboard feed switch (`FEEDS_ENABLED`), and the node needs the feed address and key:
+1. Turn on the mirror and the fetch in `.env`. The mirror needs the dashboard feed switch (`FEEDS_ENABLED`), and the node uses the feed address and key shipped with the release. Set them only to point at another feed:
 
    ```
    FEEDS_ENABLED=true
    NETWORK_FEED_ENABLED=true
-   NETWORK_FEED_URL=https://suckerpot-feeds.selfhostr.io/v1
-   NETWORK_FEED_KEY=RW...
    ```
 
-   `NETWORK_FEED_URL` and `NETWORK_FEED_KEY` are not in the `just set` list. Set them in `.env` by hand, then restart the stack. Turn the switches on with `just set FEEDS_ENABLED=true NETWORK_FEED_ENABLED=true`.
+   To override the feed, set `NETWORK_FEED_URL` and `NETWORK_FEED_KEY` together in `.env` by hand (they are not in the `just set` list), then restart the stack. Turn the switches on with `just set FEEDS_ENABLED=true NETWORK_FEED_ENABLED=true`.
 2. Create a token of kind `network`. Use the API (`POST /api/v1/defend/feed-tokens` with `"kinds": ["network"]` and your password), or the Settings, Feeds tab if your version offers the kind. Store the token like a password.
 3. Point the firewall at the mirror:
 

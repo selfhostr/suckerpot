@@ -187,7 +187,7 @@ Participant mode (`./scripts/install.sh --participant`) runs sensors, `db`, `mig
 | Egress self-check | Two public "what is my address" services (`EGRESS_ECHO_URLS`) | Every `EGRESS_CHECK_INTERVAL_S` | Goes through the proxy like everything else. |
 | `vpn` | The one WireGuard endpoint (`VPN_WG_ENDPOINT_IP`, UDP) | Always, with the profile | The host firewall allows nothing else from `sp-vpn`. |
 | Network hub (participant, no VPN) | The hub host in `NETWORK_HUB_URL` (and the feed host if feeds are on), port 443 | Participant mode, `EGRESS_MODE=direct` | Through `hubproxy` only: `CONNECT` to the names in `HUBPROXY_ALLOW`. The hub sees the participant's home address and does not store it. Nothing else leaves. |
-| Community lists (node) | The feed host in `NETWORK_FEED_URL` (for example `https://feeds.example.org/v1`) | `NETWORK_FEED_ENABLED=true`, with the address and key set | `GET` only, HTTPS, no redirect, no cookie, no query string, generic client name `spn-feed/1`. Through the VPN gate. The signature and the sha256 are checked before anything is stored. |
+| Community lists (node) | The feed host in `NETWORK_FEED_URL` (for example `https://feeds.example.org/v1`) | `NETWORK_FEED_ENABLED=true`. The address and key shipped with the release apply unless both are overridden | `GET` only, HTTPS, no redirect, no cookie, no query string, generic client name `spn-feed/1`. Through the VPN gate. The signature and the sha256 are checked before anything is stored. |
 
 Webhook and SMTP targets are checked when they are saved and again just before each send. Private and loopback addresses are refused. Every call in this table leaves through the `vpn` proxy; no service in the stack has a direct outbound route.
 
