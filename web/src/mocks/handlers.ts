@@ -23,7 +23,6 @@ import { abuseSendHandlers } from "./abuse-send"
 import { repliesHandlers } from "./replies"
 import { resultsHandlers } from "./results"
 import { takedownHandlers } from "./takedown"
-import { abusechHandlers } from "./abusech"
 import { vpnHandlers } from "./vpn"
 import { networkHandlers } from "./network"
 import { networkFeedHandlers } from "./network-feed"
@@ -105,7 +104,6 @@ export const handlers = [
   ...repliesHandlers,
   ...resultsHandlers,
   ...takedownHandlers,
-  ...abusechHandlers,
   ...abuseHandlers,
   ...vpnHandlers,
   ...networkHandlers,

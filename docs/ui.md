@@ -58,8 +58,7 @@ The Styleguide page is routable everywhere but listed in the sidebar only in dev
 | Detections | `/defend/detections` | Sigma and Suricata rules marked "review before deploying". |
 | Your exposure | `/defend/exposure` | Your own service inventory compared with what was recorded. |
 | Abuse reports | `/defend/abuse`, `/defend/abuse/<id>` | Drafts of anonymous abuse reports to review, copy and mark sent. See [Abuse reports](#abuse-reports-m22). |
-| Abuse reports: Submissions | `/defend/submissions` | Captured malware URLs waiting for abuse.ch, and what was sent. See [Results and Submissions](#results-and-submissions-m26-m27). |
-| Abuse reports: Results | `/defend/results`, `/defend/results/targets/<id>` | Did anyone answer, how fast did targets go down, and which providers act. See [Results and Submissions](#results-and-submissions-m26-m27). |
+| Abuse reports: Results | `/defend/results`, `/defend/results/targets/<id>` | Did anyone answer, how fast did targets go down, and which providers act. See [Results](#results-m26-m27). |
 | Alerts and reports | `/defend/alerts`, `/reports/<week>` | Alert rules and channels (all off until you switch them on), and the weekly report with a printable view. |
 | **System** | | |
 | Settings | `/settings` | Sensor status, enrichment quotas, retention, the disk guard and the database size. The provider API keys can be set, replaced, removed and tested here: write-only, with a password prompt for every change (see [Provider API keys](api-keys.md)). Administrators also see **Users** and the **Audit log**; viewers see neither, and no control that changes anything (see [Users and roles](#users-and-roles)). |
@@ -112,9 +111,9 @@ Nothing here sends mail. You read, copy and send from your own mailbox.
 - **Sample bundle.** Administrators select up to 10 stored samples (from the Samples tab or a sample page) and download one password-protected zip. The dialog explains the `infected` password, asks for your dashboard password again and says how many samples were excluded by the identity check.
 - **Settings > Reporting** (administrators). The reply contact, signature, introduction, closing text, note, subject template, X-ARF user agent and default options. Only the reply contact is required; the other texts are marked Optional and are left out of the report when empty. Below it, the **Never in a report** list: learned and manual terms, masked with a reveal button, a button to confirm a learned term, and add and delete for manual ones.
 
-## Results and Submissions (M26, M27)
+## Results (M26, M27)
 
-The **Abuse reports** entry is a hub with three tabs: **Reports**, **Submissions** and **Results**. The rules of the reports themselves are in [Abuse reports](#abuse-reports-m22). The answers and their matching are in [Replies to reports](replies.md), and the tracking of the targets in [Takedowns](takedowns.md).
+The **Abuse reports** entry is a hub with two tabs: **Reports** and **Results**. The rules of the reports themselves are in [Abuse reports](#abuse-reports-m22). The answers and their matching are in [Replies to reports](replies.md), and the tracking of the targets in [Takedowns](takedowns.md).
 
 - **Results page** (`/defend/results`). Every card opens with one plain sentence, then the chart or table that proves it. Filters (period, report kind, channel, provider, grouping) live in the URL, so a view can be shared. From the top:
   1. Stat tiles: reports sent, answered (%), median first reply and resolved. With takedown tracking on, also taken down within 48 hours and median time to takedown.
@@ -124,19 +123,16 @@ The **Abuse reports** entry is a hub with three tabs: **Reports**, **Submissions
   5. **How fast do things go down?** (tracking on) A step chart of the share of targets that went down, by hours since the report, one line for URLs and one for hosts. The legend has words, not only colours.
   6. **Providers.** One row per provider: name (an ASN chip, which opens the networks page), country, targets, down within 48 hours, median time to takedown, still up after 30 days, reports sent, answered, median first reply. Sortable. A row opens the Reports tab filtered by that recipient.
   7. **Targets** (tracking on). Tracked targets with a kind, a channel, a state and a time to takedown. Rows open the target page. A target is shown as defanged text and is never a link.
-  8. **abuse.ch.** What went to URLhaus this month, and how many were already known.
 
   Without any report, the page says "No report sent yet. Results appear here once you send one." With takedown tracking off, the page says so and names the variable. Viewers see everything, read-only.
 
 - **Target page** (`/defend/results/targets/<id>`). A header with the defanged value, the provider, the report time and the state with its time-to-takedown bounds. One sentence says what the last check found, for example "Still serving the same file 3 days after the report." For C2 servers the sentence says that only passive signals exist. Below it a **Timeline**: the report, the replies, and each check with its method, its result in words and its HTTP status. A changed file links to its new sample. Hosts list their URLs. Administrators have **Check now** (at most once an hour per target) and **Stop tracking**.
 
-- **Submissions page** (`/defend/submissions`). The opening sentence says what the mode is: "Submission is off.", "You review each URL before it goes to URLhaus.", or "New URLs go to URLhaus automatically after 60 minutes; 4 of 20 sent today." Tabs: **To review**, **Scheduled**, **Submitted**, **Skipped**, **Failed**. Each row shows the defanged URL, the platform, tags, the lookup result, the status (an icon and a word) and, when there is one, a link to the abuse.ch page. Administrators select rows and press **Submit selected**, which asks for confirmation and lists the URLs. A scheduled row has **Cancel**. Administrators also see a link to the abuse.ch settings. Viewers get a read-only list.
-
 - **Replies to check.** On the Reports page, administrators see a **Replies to check** tab with a count, when there are replies that are unmatched or unverified. Each reply can be linked to a report, confirmed, or its domain trusted.
 
 - **Report page: Outcome card.** Under the stepper, for sent and closed reports. One sentence, for example "The provider opened ticket 48213 2 hours after you sent this report." or "No answer after 16 days." An outcome badge with an icon and a word. Administrators can set the outcome by hand, or go back to automatic. The **Replies** list shows each reply's date, sender domain, class, and a **Verified** or **Check it** mark. Excerpts are text only, with no links and no HTML. Viewers see the sender domain, not the address or the excerpt. Administrators can add a reply by pasting it or uploading an `.eml` file.
 
-- **Settings > Reporting.** Two cards are added. **Replies** sets up the mailbox, with **Test connection** and **Check now**, and shows the last check or the last error. **abuse.ch** sets the mode (Off, Review each, Automatic), the ThreatFox and anonymity switches, the hold time and the daily cap, and the Auth-Key field, which is write-only.
+- **Settings > Reporting.** One card is added. **Replies** sets up the mailbox, with **Test connection** and **Check now**, and shows the last check or the last error.
 
 Colour follows the same rules as the rest of the dashboard. Red is used only for a payload that is still served or was replaced. Addresses and C2 servers are never red.
 

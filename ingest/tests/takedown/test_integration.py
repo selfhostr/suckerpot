@@ -212,46 +212,6 @@ async def test_payload_host_children_are_fetched_urls_only_and_capped(
     assert linked == 1  # the child belongs to the host's report
 
 
-async def test_a_submitted_urlhaus_url_becomes_a_url_target_with_a_host_parent(
-    engine: AsyncEngine, factory: Factory
-) -> None:
-    fid = await seed_fetched(engine, "http://files.example.net/bins/a.sh", "files.example.net")
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO abusech_submissions (platform, ioc_type, value, threat, status, "
-                "fetch_target_id, lookup, submitted_at, started_at, done_at) VALUES ('urlhaus', "
-                "'url', 'http://files.example.net/bins/a.sh', 'malware_download', 'candidate', "
-                ":f, 'unknown', NULL, NULL, NULL)"
-            ),
-            {"f": fid},
-        )
-        # Final states are written by ingest only through the trigger rules: walk the states.
-        stamp = {"t": NOW - timedelta(hours=1)}
-        await conn.execute(
-            text(
-                "UPDATE abusech_submissions SET status = 'pending', auto = true, "
-                "scheduled_at = now()"
-            )
-        )
-        await conn.execute(
-            text("UPDATE abusech_submissions SET status = 'submitting', started_at = now()")
-        )
-        await conn.execute(
-            text(
-                "UPDATE abusech_submissions SET status = 'submitted', submitted_at = :t, "
-                "done_at = :t, result_code = 'inserted'"
-            ),
-            stamp,
-        )
-    made = await sync(factory).sync(NOW)
-    assert made["submissions"] == 1
-    rows = {t.role: t for t in await targets(engine)}
-    assert rows["payload_url"].http_eligible and rows["payload_url"].channels == ["urlhaus"]
-    assert rows["payload_url"].parent_id == rows["payload_host"].id
-    assert rows["payload_host"].kind == "domain" and rows["payload_host"].provider_key == "unknown"
-
-
 async def test_sightings_and_states_for_an_attacking_address(
     engine: AsyncEngine, factory: Factory
 ) -> None:

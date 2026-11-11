@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 import { h1, settle, shoot } from "./helpers"
 
-// M26/M27: results of abuse reports, submissions, replies. Mock data only.
+// M26/M27: results of abuse reports and replies. Mock data only.
 
 test("results page", async ({ page }, info) => {
   await page.goto("/defend/results")
@@ -23,14 +23,6 @@ test("results target", async ({ page }, info) => {
   await shoot(page, "results-target", info.project.name, true)
 })
 
-test("submissions", async ({ page }, info) => {
-  await page.goto("/defend/submissions")
-  await expect(h1(page, "Submissions")).toBeVisible()
-  await expect(page.getByText("To review").first()).toBeVisible()
-  await settle(page)
-  await shoot(page, "submissions", info.project.name, true)
-})
-
 test("outcome card and replies on a sent report", async ({ page }, info) => {
   await page.goto("/defend/abuse/3c4d5e6f-7a8b-4c9d-8e0f-6f7a8b9c0d06")
   await expect(page.getByText("Outcome", { exact: true })).toBeVisible()
@@ -39,12 +31,11 @@ test("outcome card and replies on a sent report", async ({ page }, info) => {
   await shoot(page, "abuse-outcome", info.project.name, true)
 })
 
-test("settings replies and abuse.ch cards", async ({ page }, info) => {
+test("settings replies card", async ({ page }, info) => {
   await page.goto("/settings?tab=reporting")
-  await expect(page.getByText("Auth-Key")).toBeVisible()
   await expect(page.getByText("Read replies from this mailbox")).toBeVisible()
   await settle(page)
-  await shoot(page, "settings-replies-abusech", info.project.name, true)
+  await shoot(page, "settings-replies", info.project.name, true)
 })
 
 test("settings mailbox: free or shared mailbox and a failed check", async ({ page }, info) => {

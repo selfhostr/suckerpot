@@ -115,10 +115,6 @@ export const HELP = {
     title: "Results",
     body: "What your abuse reports led to: how many were sent, who answered and how fast, and, with takedown tracking on, how quickly reported malware URLs went down. Answers are read from the replies mailbox you set up in Settings, or added by hand on a report. Counts only include targets followed long enough, so young reports never pull a rate down.",
   },
-  "abuse-submissions": {
-    title: "Submissions",
-    body: "Captured malware URLs that can be shared with URLhaus, off by default. In review mode you pick the URLs and confirm; in automatic mode each URL waits for a delay in which you can cancel it. URLs are shown defanged and never as links.",
-  },
   "abuse-target": {
     title: "Target",
     body: "One reported address or URL and what we saw since. Only the exact reported URL is re-checked, through the VPN, and nothing it serves is run. Command servers and attacking addresses are never contacted; their state comes from public lists and from our own sensors.",
