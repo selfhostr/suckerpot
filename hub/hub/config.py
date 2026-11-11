@@ -81,6 +81,8 @@ class Settings:
     node_min_age_days: int = 14
     node_min_active_days: int = 7
     min_reputation: float = 0.3
+    # Active nodes that must report in 14 days before the volume penalty can apply.
+    volume_min_nodes: int = 5
     window_days: int = 7
     cohort_max_share: float = 0.5
     # Auto mode (reports sent without review) needs this many independent enrolment cohorts.
@@ -244,6 +246,7 @@ class Settings:
             node_min_age_days=_int(e, "HUB_NODE_MIN_AGE_DAYS", 14, 0),
             node_min_active_days=_int(e, "HUB_NODE_MIN_ACTIVE_DAYS", 7, 0, 14),
             min_reputation=_float(e, "HUB_MIN_REPUTATION", 0.3),
+            volume_min_nodes=_int(e, "HUB_VOLUME_MIN_NODES", 5, 2),
             window_days=_int(e, "HUB_WINDOW_DAYS", 7, 1, 14),
             cohort_max_share=_float(e, "HUB_COHORT_MAX_SHARE", 0.5),
             auto_min_cohorts=_int(e, "HUB_AUTO_MIN_COHORTS", 5, 1),
