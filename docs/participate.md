@@ -52,7 +52,7 @@ The installer ends with a table like this (example):
 | 80 | 80 | TCP | web |
 | 443 | 443 | TCP | web |
 
-The first column is the port on your router. The second is the port on this machine. They are the same unless port 22 is busy on the machine: then the SSH sensor uses port 2222 and the table shows `22` and `2222`. Forward each router port to this machine on your router or firewall. Never forward your own admin SSH port. The installer never edits your `sshd_config`.
+The first column is the port on your router. The second is the port on this machine. They are the same unless port 22 is busy on the machine: then the SSH sensor uses port 2222 and the table shows `22` and `2222`. Forward each router port to this machine on your router or firewall. Never forward your own admin SSH port. The installer never edits your `sshd_config`; to move your own SSH off port 22 run `sudo ./scripts/move-admin-ssh.sh` (see [VPS](vps.md#move-your-admin-ssh-off-port-22-first)).
 
 Use port forwards, not your router's DMZ. A DMZ sends every port of this machine to the internet: the real `sshd` on port 22 and anything else that listens. It also cannot do the "router 22 to machine 2222" mapping above. A DMZ is acceptable only if this machine runs nothing else and its admin SSH port is not 22. The [host firewall](deployment.md#host-firewall) only stops containers; it does not filter internet traffic to the machine's own services. Under a DMZ your admin SSH faces the internet, so allow key-only SSH and add a rule on the router or on this machine for the admin port. More on ports: [Install SuckerPot](install.md#ports-to-forward).
 

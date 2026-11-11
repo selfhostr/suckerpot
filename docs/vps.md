@@ -85,9 +85,42 @@ Some providers ship images without swap and some already have it. If `swapon` fa
 
 ## Move your admin SSH off port 22 first
 
-The SSH sensor listens on port 22, because that is where attackers look. Your own SSH daemon uses port 22 by default. On a VPS there is no router to translate ports, so **you must move your admin SSH to another port before you install**. Do this first, or you can lock yourself out of the machine.
+The SSH sensor listens on port 22, because that is where attackers look. Your own SSH daemon uses port 22 by default. On a VPS there is no router to translate ports, so **you must move your admin SSH to another port before you install**. One script does it, and it is built so that you are not locked out: it opens the new port next to port 22, waits until you are logged in on the new port, and only then closes port 22. Whatever goes wrong before that point, SSH goes back to port 22.
 
-The steps below keep your current session open the whole time. Never close it until the last step works.
+It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below.
+
+**Before you start:** if your provider has a firewall panel, allow TCP `22222` (or your own port) there first. The script opens `ufw` or `firewalld` when one is active, but it cannot reach a provider panel. If the port is not allowed there, your login cannot arrive: the script simply times out and keeps port 22, and you can try again.
+
+1. **Run it** from your SuckerPot folder, in your current SSH session:
+
+   ```bash
+   sudo ./scripts/move-admin-ssh.sh
+   ```
+
+   It moves your admin SSH to port `22222`. For another port, give it: `sudo ./scripts/move-admin-ssh.sh 48022` (any free port from 1024 to 65535 that SuckerPot does not use). It tells you what it will do and asks before it changes anything.
+2. **Connect from a second terminal** on your computer, while the first one stays open:
+
+   ```bash
+   ssh -p 22222 your-user@203.0.113.10
+   ```
+
+   (Use your own port and your VPS address.) The script sees that you are logged in (a bare connection is not enough) and closes port 22 by itself. If the login does not come within 5 minutes, or you press Ctrl-C, it puts everything back and port 22 stays as it was.
+3. **Done.** Port 22 is free for the SSH sensor. Your admin SSH uses the new port from now on.
+
+### Change the port again or go back
+
+- **Another port:** run it again with the port: `sudo ./scripts/move-admin-ssh.sh 48022`. It moves straight from the port in use to the new one and never opens port 22 on the way.
+- **Back to port 22:** `sudo ./scripts/move-admin-ssh.sh --undo`. It is the same careful move, back to port 22. Stop SuckerPot first (`docker compose down` in the SuckerPot folder), because the SSH sensor holds port 22 and the script refuses to start while another program uses it. If the node has the daily update schedule on, turn it off first (`./scripts/participant.sh auto-update off`) so the stack does not come back during the move, and turn it on again afterwards.
+- **Interrupted or failed run:** SSH goes back to the port it was on. If a run is killed outright (power loss, `kill -9`), the next run deals with it before it does anything else: it puts SSH back on the port it recorded, or, if another program holds that port by then (for example the SSH sensor after a reboot), it leaves SSH on the other port, which SSH can hold. A run that was killed in its very last step, after your login was seen, is finished by the next run.
+- **When the script stops and asks you not to close your session,** it could not confirm the old port. Run the two commands it shows, from that open session.
+
+The script refuses a few unusual setups before it changes anything: SSH bound to a specific address, several ports it did not set up, or another file in `/etc/ssh/sshd_config.d/` that sets `Port`. Use [By hand](#by-hand) there.
+
+The installer still never edits your SSH configuration. This script is separate, and you run it on purpose. After it, also read [Turn off password logins](#5-turn-off-password-logins) and [Free port 22 for the sensor](#6-free-port-22-for-the-sensor).
+
+## By hand
+
+Use these steps on a system the script does not support, or if you prefer to see every change. They keep your current session open the whole time. Never close it until the last step works.
 
 Pick a free port above 1024 for your admin SSH. This page uses `52022` as an example; choose your own, and do not reuse a sensor port. The sensors use 22, 23, 80, 443, 445, 1433, 2375, 3306, 3389, 5000, 5001, 5060, 5555 and 6379; pick a number outside that list.
 
@@ -216,7 +249,7 @@ A Raspberry Pi 4 or 5 with 1 GiB or more works with `--lite`, at home or anywher
 - **arm64 images.** The release images are multi-arch (`amd64` and `arm64`) and signed, so the installer pulls the right one by itself. No local build is needed.
 - **Use a good SD card, or better a USB SSD.** The database and the logs write a lot, and cheap cards wear out. Keep 15 GiB free.
 - **Swap.** Raspberry Pi OS ships a small swap file. Raise it to 1 GiB (`CONF_SWAPSIZE` in `/etc/dphys-swapfile`) if you have 1 GiB of memory.
-- **Admin SSH.** If you use SSH to reach the Pi, move it off port 22 first, as in the VPS steps above (Raspberry Pi OS Bookworm uses plain `ssh.service`, so follow 3b).
+- **Admin SSH.** If you use SSH to reach the Pi and want the SSH sensor on port 22, move your SSH off port 22 first with `sudo ./scripts/move-admin-ssh.sh`, as in the VPS steps above.
 - **At home, the router steps apply.** The Pi has no public address of its own: follow the port table in [Join the network](participate.md#open-the-ports).
 
 Then run the same installer:

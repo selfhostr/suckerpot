@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/move-admin-ssh.sh`: moves your own admin SSH from the port it uses to another one in one command on Debian and Ubuntu (`sudo ./scripts/move-admin-ssh.sh [PORT]`, default 22222; run it again with another port to change it; `--undo` goes back to port 22, with SuckerPot stopped), including systemd socket activation. It opens the new port next to the current one, waits until a real login on the new port is seen (not just a connection), and only then closes the current one; on a timeout, Ctrl-C, a failure or a killed earlier run, SSH goes back to the port it started from. It refuses SSH bound to a specific address, several ports it did not set up, and a port held by another program, and it opens ufw or firewalld only where SSH is open to everyone. The installer is unchanged and still never edits the SSH configuration; its messages and `docs/vps.md`, `docs/install.md` and `docs/participate.md` point to the script.
+
 ## [0.11.0] - 2026-11-11
 
 ### Upgrading

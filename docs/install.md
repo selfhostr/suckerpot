@@ -95,7 +95,7 @@ Each question has a default. Press Enter to accept it. With `--yes`, every quest
 | Join the SuckerPot network? | `no` | An experimental preview. Shows what would be shared, then asks `[y/N]`. An empty answer is a no. A yes writes a consent record and a random pseudonym; the join waits for a VPN. `--yes` alone never joins: use `--join-network` to join without the question, or `--no-network` to skip it. See [the network](network.md). |
 | Your own public address | empty | Optional. The installer never looks it up. If you type it, it goes to `INDICATORS_IGNORE`, so it never shows up as attack infrastructure. |
 | Port in use | depends | Asked only when a port the chosen sensors need is already taken. See [port 22](#port-22-is-already-in-use). |
-| Admin SSH port | empty, or `22` when port 22 is busy | The port of this machine's own SSH daemon. It is protected so no sensor can take it. |
+| Admin SSH port | empty, or `22` when port 22 is busy | The port of this machine's own SSH daemon. It is protected so no sensor can take it. `sudo ./scripts/move-admin-ssh.sh` moves it off port 22 for you. |
 
 ## What the installer does
 
@@ -156,7 +156,7 @@ The installer stops before it changes anything when one of these is true.
 | The project or prefix name is invalid, or is one of the test names (`sp-it-*`, `sp-test`, `sp-ci`). | Pick another name. |
 | `--dashboard-bind` is not `127.x.x.x`, and there is no `--public-host` and no `--allow-lan`. | Keep `127.0.0.1` and use an SSH tunnel, or give `--public-host` for an HTTPS tunnel. |
 | The dashboard port is in use. | Pass `--dashboard-port` with a free port. |
-| Port 22 is in use and you chose to keep it. | Move your own SSH to another port first. The installer never edits `sshd_config`. Then run the installer again. |
+| Port 22 is in use and you chose to keep it. | Move your own SSH to another port first with `sudo ./scripts/move-admin-ssh.sh` (see [VPS](vps.md#move-your-admin-ssh-off-port-22-first)). The installer itself never edits `sshd_config`. Then run the installer again. |
 | The admin password is shorter than 12 characters, or the two entries differ. | Enter it again. |
 | Images mode, and no release version. | Clone a release tag, or pass `--version vX.Y.Z`, or use `--source`. |
 | `--version` does not look like `vX.Y.Z`. | Fix the version. |
@@ -211,7 +211,7 @@ Most hosts run their own SSH daemon on port 22. When the installer finds port 22
 | --- | --- |
 | `m` (map), the default | The SSH sensor listens on host port 2222. Your router forwards its port 22 to 2222. Your own SSH keeps port 22. |
 | `o` (off) | The SSH sensor stays off. |
-| `k` (keep) | The installer stops. Move your own SSH to another port first, then run the installer again. |
+| `k` (keep) | The installer stops. Move your own SSH to another port first with `sudo ./scripts/move-admin-ssh.sh`, then run the installer again. |
 
 With `--yes`, the SSH sensor is mapped to 2222 and the other sensors whose ports are busy are turned off, with a warning for each.
 
@@ -336,7 +336,7 @@ This traffic shows the host's address to the registry and to GitHub. It is outsi
 | `The stack did not become healthy`. | Run `docker compose ps` and `docker compose logs --tail=100`. Fix the cause, then run `just up`. Do not delete `.env` to retry: the volumes already hold the database. |
 | `The dashboard does not answer on .../healthz`. | Run `docker compose logs api`. The API may still be starting. Wait a minute, then try again. |
 | `the image signatures could not be verified`. | Nothing was started. Check the version name, then see [image signatures](updates.md#image-signatures). |
-| `port 22 is still in use`. | Move your own SSH to another port, then run the installer again. The installer never edits `sshd_config`. |
+| `port 22 is still in use`. | Move your own SSH to another port with `sudo ./scripts/move-admin-ssh.sh`, then run the installer again. The installer itself never edits `sshd_config`. |
 | The Ports page shows **Waiting for the first connection** for a long time. | Check the router forwarding, the host firewall and the CGNAT note above. Bots normally arrive within minutes. |
 
 ## Next steps
