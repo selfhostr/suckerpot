@@ -193,7 +193,6 @@ class Bounds(BaseModel):
 
 class Links(BaseModel):
     reports: list[str] = []  # report public ids
-    submissions: list[int] = []
 
 
 class TargetDetail(BaseModel):
@@ -651,15 +650,6 @@ async def get_target(target_id: TargetId, db: DbSession) -> TargetDetail | JSONR
             {"i": target_id},
         )
     ).scalars().all()  # fmt: skip
-    subs = (
-        await db.execute(
-            text(
-                "SELECT submission_id FROM takedown_target_links "
-                "WHERE target_id = :i AND submission_id IS NOT NULL ORDER BY submission_id"
-            ),
-            {"i": target_id},
-        )
-    ).scalars().all()  # fmt: skip
     checks = (
         await db.execute(
             text(
@@ -674,7 +664,7 @@ async def get_target(target_id: TargetId, db: DbSession) -> TargetDetail | JSONR
     return TargetDetail(
         target=out,
         children=[to_out(k) for k in kids],
-        links=Links(reports=[str(p) for p in reports], submissions=list(subs)),
+        links=Links(reports=[str(p) for p in reports]),
         checks=[CheckOut(**dict(c._mapping)) for c in checks],
         ttd=Bounds(seconds=out.ttd_s, down_after=row.last_up_at, down_before=row.first_down_at),
         baseline_sha256=row.baseline_sha256,

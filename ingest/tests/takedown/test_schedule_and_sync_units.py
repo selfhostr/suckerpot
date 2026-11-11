@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from ingest.takedown.config import TakedownSettings
 from ingest.takedown.schedule import LISTING_OFFSETS, first_listing_at, next_listing_at
 from ingest.takedown.sync import (
-    _host_of_ioc,
     host_kind,
     provider_of,
     target_key,
@@ -51,13 +50,6 @@ def test_provider_key_rules() -> None:
     assert host_kind("203.0.113.5") == "ip"
     assert host_kind("2001:db8::1") == "ip"
     assert host_kind("files.example.net") == "domain"
-
-
-def test_ioc_host() -> None:
-    assert _host_of_ioc("198.51.100.7:4444") == "198.51.100.7"
-    assert _host_of_ioc("198.51.100.7") == "198.51.100.7"
-    assert _host_of_ioc("c2.example.net:80") is None  # domains are not submitted in M27
-    assert _host_of_ioc("[2001:db8::1]:80") == "2001:db8::1"
 
 
 def test_settings_defaults_and_bounds() -> None:

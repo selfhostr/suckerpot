@@ -23,7 +23,6 @@ from api.abuse_imap import router as abuse_imap_router
 from api.abuse_outcomes import router as abuse_outcomes_router
 from api.abuse_replies import router as abuse_replies_router
 from api.abuse_smtp import router as abuse_smtp_router
-from api.abusech import router as abusech_router
 from api.alerts import router as alerts_router
 from api.analytics import router as analytics_router
 from api.attack import router as attack_router
@@ -159,7 +158,6 @@ def create_app(
         abuse_imap_router,
         abuse_outcomes_router,
         abuse_replies_router,
-        abusech_router,
         takedown_router,
         search_router,
         today_router,

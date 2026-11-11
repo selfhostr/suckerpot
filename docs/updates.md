@@ -76,6 +76,10 @@ The script then prints the names of what it added. It never prints a value. It a
 
 The database password `POSTGRES_PASSWORD` is never generated during an update. The database owner's password lives inside the data volume, so a new value would lock you out. If it is missing, the update prints it as a name to set by hand.
 
+### Removed settings
+
+`ABUSECH_SUBMIT_ENABLED` no longer does anything (node-side abuse.ch submission was removed in v0.11.0): you can delete it from `.env`. Submission rows already stored are kept until the retention job removes them, and the abuse.ch lookup key is unchanged.
+
 ## Automatic updates
 
 Automatic updates are on by default in participant mode (see [Join the network](participate.md)). In full mode they are off, so an existing install does not change.
