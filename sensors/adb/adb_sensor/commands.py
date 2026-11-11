@@ -105,7 +105,7 @@ def cmd_uname(sh: Shell, io: CmdIO) -> int:
         "s": "Linux",
         "n": "localhost",
         "r": dev.model.kernel,
-        "v": dev.model.kernel_build,
+        "v": dev.kernel_build,
         "m": "armv7l",
         "o": "Android",
     }
@@ -294,7 +294,7 @@ def cmd_dmesg(sh: Shell, io: CmdIO) -> int:
     dev = device_of(sh)
     io.write(
         f"[    0.000000] Booting Linux on physical CPU 0x0\n"
-        f"[    0.000000] Linux version {dev.model.kernel} (root@android-build) {dev.model.kernel_build}\n"
+        f"[    0.000000] Linux version {dev.model.kernel} (root@android-build) {dev.kernel_build}\n"
         "[    0.000000] CPU: ARMv7 Processor [410fc075] revision 5 (ARMv7), cr=10c5387d\n"
     )
     return 0

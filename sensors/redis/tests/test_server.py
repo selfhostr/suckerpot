@@ -116,11 +116,11 @@ async def test_info_matches_what_nmap_expects(make_harness: HarnessFactory) -> N
 async def test_config_get_set_is_per_connection(make_harness: HarnessFactory) -> None:
     async with make_harness() as h:
         a, b = client(h.port), client(h.port)
-        assert (await a.config_get("dir"))["dir"] == "/data"
+        assert (await a.config_get("dir"))["dir"] == h.profile.workdir
         assert await a.config_set("dir", "/var/spool/cron/") is True
         assert await a.config_set("dbfilename", "root") is True
         assert (await a.config_get("dir"))["dir"] == "/var/spool/cron/"
-        assert (await b.config_get("dir"))["dir"] == "/data"
+        assert (await b.config_get("dir"))["dir"] == h.profile.workdir
         everything = await a.config_get("*")
         assert {"dir", "dbfilename", "appendonly", "save", "requirepass"} <= set(everything)
         with pytest.raises(ResponseError, match="can't be a path"):
@@ -182,7 +182,7 @@ async def test_hello_resp3(make_harness: HarnessFactory) -> None:
         assert await c.ping() is True
         assert await c.set("k", "v") is True
         assert await c.get("k") == b"v"
-        assert (await c.config_get("dir"))["dir"] == "/data"
+        assert (await c.config_get("dir"))["dir"] == h.profile.workdir
         await c.aclose()
 
 

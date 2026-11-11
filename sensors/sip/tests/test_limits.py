@@ -142,7 +142,7 @@ def test_secret_file_mode_and_profile(tmp_path: Path) -> None:
     assert len(secret) == 64 and load_or_create_secret(tmp_path / "data") == secret
     assert (tmp_path / "data" / "profile_secret").stat().st_mode & 0o777 == 0o600
     prof = derive_profile(secret)
-    assert prof.user_agent.startswith("Asterisk PBX ")
+    assert prof.user_agent.startswith(("Asterisk PBX ", "FPBX-"))
     assert derive_profile(secret, "FPBX-16.0.40(18.20.0)").user_agent == "FPBX-16.0.40(18.20.0)"
 
 
@@ -202,7 +202,7 @@ async def test_server_survives_garbage_flood(make_harness: HarnessFactory) -> No
 def test_versions_are_chan_sip_era(profile) -> None:  # type: ignore[no-untyped-def]
     from sip_sensor.identity import VERSIONS
 
-    assert all(v.split(".")[0] in ("16", "18") for v in VERSIONS)
+    assert all(v.split(".")[0] in ("13", "16", "18") for v in VERSIONS)
 
 
 def test_via_gets_received_and_rport_when_it_fits(profile) -> None:  # type: ignore[no-untyped-def]

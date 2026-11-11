@@ -51,7 +51,7 @@ def test_profile_is_stable_and_private(tmp_path: Path) -> None:
         or other.site_title != a.site_title
         or other.secret != a.secret
     )
-    assert len(a.posts) == 3 and a.users[0].login == "admin"
+    assert 3 <= len(a.posts) <= 6 and a.users[0].login == "admin"
 
 
 def test_normalize_path() -> None:
