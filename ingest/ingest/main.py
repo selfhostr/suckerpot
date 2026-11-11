@@ -37,7 +37,6 @@ from ingest.enrichment.reputation import ReputationWorker
 from ingest.enrichment.status import publish_status
 from ingest.features import FeatureSettings, FeatureWorker
 from ingest.indicators import IndicatorExtractor, IndicatorSettings
-from ingest.llm import ExplainerWorker
 from ingest.network import BatchBuilder, NetworkSettings, NetworkWorker
 from ingest.network.feed import FeedWorker, SqlFeedStore
 from ingest.network.feed_client import FeedSettings
@@ -193,12 +192,10 @@ async def run() -> None:
         await cve_status(await cve_watch.status())
         await rep_status(await intel.status())
         await publish_status(factory, "maxmind", sync.status("maxmind"))
-        await publish_status(factory, "anthropic", await explainer.provider_status())
 
     # M15 to M19 feature workers: off by default, no-op until their phase lands.
     annotations = load_annotations(enrich.rules_dir)  # fail fast on a broken annotation file
     log.info("loaded %d script annotations", len(annotations.entries))
-    explainer = ExplainerWorker(features, factory, enrich.anthropic_api_key)
     try:
         alert_settings = AlertSettings.from_env()
     except ValueError as exc:
@@ -209,7 +206,6 @@ async def run() -> None:
         CampaignWorker(features, factory, attack),
         BlocklistWorker(features, factory),
         ScriptWorker(features, factory, annotations),
-        explainer,
         AlertWorker(
             features,
             factory,
@@ -236,10 +232,7 @@ async def run() -> None:
             await publish_status(factory, name, value)
 
     async def run_test(provider: str) -> None:
-        if provider == "anthropic":
-            await explainer.run_key_test(provider)
-            await publish_status(factory, "anthropic", await explainer.provider_status())
-        elif provider == "smtp":
+        if provider == "smtp":
             return  # alert channels have their own test button
         elif provider in ("abusech", "virustotal"):
             await intel.run_key_test(provider)

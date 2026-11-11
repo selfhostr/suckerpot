@@ -5,14 +5,7 @@
  */
 import { delay, http, HttpResponse, type RequestHandler } from "msw"
 import type { Session } from "@/lib/api"
-import type {
-  AiExplanation,
-  ExplainedLine,
-  LlmState,
-  ScriptDetail,
-  ScriptItem,
-  ScriptsSummary,
-} from "@/lib/scripts"
+import type { ExplainedLine, ScriptDetail, ScriptItem, ScriptsSummary } from "@/lib/scripts"
 import type { Severity } from "@/lib/severity"
 import { buildFixtures } from "./fixtures"
 
@@ -291,20 +284,6 @@ const SEEDS: Seed[] = [
   },
 ]
 
-const AI_TEXT: AiExplanation = {
-  ai_generated: true,
-  model: "claude-haiku-5-5",
-  summary:
-    "The script fetches a program from a remote server, marks it as runnable, starts it and then deletes the file to hide the traces.",
-  lines: [
-    { n: 1, explanation: "Fetches an executable from a remote web server." },
-    { n: 2, explanation: "Gives every user permission to run the downloaded file." },
-    { n: 3, explanation: "Starts the downloaded program." },
-    { n: 4, explanation: "Removes the file again so it is harder to find afterwards." },
-  ],
-  created_at: iso(Date.now() - 3 * HOUR),
-}
-
 function build(now: number) {
   const ids = SEEDS.map((_, i) => i + 1)
   const items: ScriptItem[] = SEEDS.map((s, i) => {
@@ -377,22 +356,6 @@ function decodeCursor(cursor: string | null): number {
   }
 }
 
-// State of "Explain now" in this tab: script id -> when the (fake) answer arrives.
-const asked = new Map<number, number>()
-
-function llm(id: number | null, now: number): LlmState {
-  const at = id === null ? undefined : asked.get(id)
-  const queued = at !== undefined && now < at
-  return {
-    available: true,
-    reason: null,
-    model: "claude-haiku-5-5",
-    request_state: at === undefined ? null : queued ? "queued" : "done",
-    request_detail: null,
-    requested_at: at === undefined ? null : iso(at - 2500),
-  }
-}
-
 export const scriptsHandlers: RequestHandler[] = [
   http.get("/api/v1/scripts/summary", async () => {
     await delay(LATENCY_MS)
@@ -407,7 +370,6 @@ export const scriptsHandlers: RequestHandler[] = [
       top_id: top.id,
       top_summary: top.summary,
       top_sessions: top.sessions,
-      llm: llm(null, now),
     }
     return HttpResponse.json(body)
   }),
@@ -427,14 +389,6 @@ export const scriptsHandlers: RequestHandler[] = [
     return HttpResponse.json({ items: pool.slice(offset, offset + limit), next_cursor: next })
   }),
 
-  http.post("/api/v1/scripts/:id/explain", async ({ params }) => {
-    await delay(LATENCY_MS)
-    const id = Number(params.id)
-    if (!SEEDS[id - 1]) return HttpResponse.json({ detail: "script not found" }, { status: 404 })
-    asked.set(id, Date.now() + 2500)
-    return HttpResponse.json({ request_id: id, state: "queued" }, { status: 202 })
-  }),
-
   http.get("/api/v1/scripts/:id", async ({ params }) => {
     await delay(LATENCY_MS)
     const id = Number(params.id)
@@ -443,7 +397,6 @@ export const scriptsHandlers: RequestHandler[] = [
     const now = Date.now()
     const item = build(now)[id - 1]
     if (!item) return HttpResponse.json({ detail: "script not found" }, { status: 404 })
-    const state = llm(id, now)
     const explained = lines(seed)
     const body: ScriptDetail = {
       item,
@@ -458,8 +411,6 @@ export const scriptsHandlers: RequestHandler[] = [
       campaign: seed.campaign
         ? { id: seed.campaign[0], name: seed.campaign[1], status: "active" }
         : null,
-      ai: id === 1 || state.request_state === "done" ? { ...AI_TEXT } : null,
-      llm: state,
       demo: true,
     }
     return HttpResponse.json(body)

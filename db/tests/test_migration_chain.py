@@ -124,11 +124,11 @@ def test_feed_tokens_are_invisible_to_ingest() -> None:
 
 
 def test_the_provider_list_is_widened_everywhere() -> None:
-    assert {"anthropic", "smtp"} <= set(PROVIDERS)
+    assert "smtp" in set(PROVIDERS) and "anthropic" not in set(PROVIDERS)
     src = (VERSIONS / "0013_scripts.py").read_text()
     new = re.search(r"_PROVIDERS_NEW = \((.*?)\)\n", src, re.S)
     assert new
-    assert set(re.findall(r"'(\w+)'", new.group(1))) == set(PROVIDERS)
+    assert set(re.findall(r"'(\w+)'", new.group(1))) - {"anthropic"} == set(PROVIDERS)
 
 
 def test_prune_procedures_are_created_by_their_migrations() -> None:

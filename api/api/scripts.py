@@ -1,41 +1,29 @@
 """Script library endpoints (M17): the command sequences attackers ran, explained line by line.
 
 Reads ``scripts``, ``script_sessions`` and ``script_explanations`` (written by ingest). The
-built-in explanation comes from the annotation base. An optional second explanation written by an
-LLM is stored apart and always marked ``ai_generated``: the API only returns it as plain text
-fields, and the only write here is "Explain now", which queues a request for ingest (the API has
-no internet access and never sees the key). Every list is keyset-paginated.
+explanation comes from the annotation base. Read only. Every list is keyset-paginated.
 """
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy import ARRAY, Text, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from suckerpot_db import EnrichmentStatusRow, LlmRequestRow
 from suckerpot_db.models import SessionRow
 
-from api import audit as audit_db
-from api import auth as auth_mod
-from api import reauth
 from api.cursor import InvalidCursorError, decode_cursor, encode_cursor
 from api.deps import DbSession
 from api.schemas import SessionOut
 
 router = APIRouter(tags=["scripts"])
-audit = logging.getLogger("api.audit")
 
 MAX_LIMIT = 200
 NEW_DAYS = 7
 PREVIEW_LINES = 3
-EXPLAIN_COOLDOWN = timedelta(seconds=60)
-MAX_QUEUED = 5
 RISKS = ("info", "notice", "warning", "severe")
 
 Limit = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
@@ -68,17 +56,6 @@ class ScriptPage(BaseModel):
     next_cursor: str | None
 
 
-class LlmState(BaseModel):
-    """What the page may offer: whether "Explain now" can work, and where a request stands."""
-
-    available: bool
-    reason: str | None  # why it is not available: disabled | no_key
-    model: str | None
-    request_state: Literal["queued", "done", "refused", "failed"] | None
-    request_detail: str | None
-    requested_at: datetime | None
-
-
 class ScriptsSummary(BaseModel):
     total: int
     new_this_week: int
@@ -87,7 +64,6 @@ class ScriptsSummary(BaseModel):
     top_id: int | None
     top_summary: str | None
     top_sessions: int | None
-    llm: LlmState
 
 
 class ExplainedLine(BaseModel):
@@ -99,21 +75,6 @@ class ExplainedLine(BaseModel):
     technique: str | None
     technique_name: str | None
     rule: str | None
-
-
-class AiLine(BaseModel):
-    n: int
-    explanation: str
-
-
-class AiExplanation(BaseModel):
-    """Written by a language model. Text only; may be wrong; always labelled in the UI."""
-
-    ai_generated: Literal[True] = True
-    model: str | None
-    summary: str
-    lines: list[AiLine]
-    created_at: datetime
 
 
 class TechniqueRef(BaseModel):
@@ -135,19 +96,12 @@ class ScriptDetail(BaseModel):
     unexplained: int
     techniques_detail: list[TechniqueRef]
     campaign: CampaignRef | None
-    ai: AiExplanation | None
-    llm: LlmState
     demo: bool
 
 
 class SessionsPage(BaseModel):
     items: list[SessionOut]
     next_cursor: str | None
-
-
-class ExplainQueued(BaseModel):
-    request_id: int
-    state: str
 
 
 # ---- helpers ---------------------------------------------------------------------------------
@@ -210,38 +164,6 @@ def _parse_cursor(cursor: str, sort: str) -> tuple[Any, int]:
         raise InvalidCursorError("malformed cursor") from exc
 
 
-async def llm_state(db: AsyncSession, script_id: int | None) -> LlmState:
-    status = await db.get(EnrichmentStatusRow, "llm")
-    detail: dict[str, Any] = status.detail if status is not None else {}
-    available, reason = True, None
-    if not detail.get("enabled"):
-        available, reason = False, "disabled"
-    elif not detail.get("configured"):
-        available, reason = False, "no_key"
-    model = detail.get("model") if isinstance(detail.get("model"), str) else None
-    state = detail_text = at = None
-    if script_id is not None:
-        row = (
-            await db.execute(
-                text(
-                    "SELECT state, detail, requested_at FROM llm_requests WHERE script_id = :i "
-                    "ORDER BY requested_at DESC, id DESC LIMIT 1"
-                ),
-                {"i": script_id},
-            )
-        ).first()
-        if row is not None:
-            state, detail_text, at = row.state, row.detail, row.requested_at
-    return LlmState(
-        available=available,
-        reason=reason,
-        model=model,
-        request_state=state,
-        request_detail=detail_text,
-        requested_at=at,
-    )
-
-
 # ---- routes ----------------------------------------------------------------------------------
 @router.get("/scripts/summary", response_model=ScriptsSummary)
 async def scripts_summary(db: DbSession) -> ScriptsSummary:
@@ -279,7 +201,6 @@ async def scripts_summary(db: DbSession) -> ScriptsSummary:
         top_id=top.id if top else None,
         top_summary=top.summary if top else None,
         top_sessions=top.sessions if top else None,
-        llm=await llm_state(db, None),
     )
 
 
@@ -385,10 +306,7 @@ async def _detail(db: AsyncSession, script_id: int) -> ScriptDetail:
     expl = {
         r.source: r
         for r in await db.execute(
-            text(
-                "SELECT source, model, lines, summary, created_at FROM script_explanations "
-                "WHERE script_id = :i"
-            ),
+            text("SELECT source, lines FROM script_explanations WHERE script_id = :i"),
             {"i": script_id},
         )
     }
@@ -416,19 +334,6 @@ async def _detail(db: AsyncSession, script_id: int) -> ScriptDetail:
                 rule=item.get("rule") if isinstance(item.get("rule"), str) else None,
             )
         )
-    ai = None
-    llm_row = expl.get("llm")
-    if llm_row is not None:
-        ai = AiExplanation(
-            model=llm_row.model,
-            summary=llm_row.summary,
-            lines=[
-                AiLine(n=int(i["n"]), explanation=str(i["explanation"])[:300])
-                for i in llm_row.lines
-                if isinstance(i, dict) and isinstance(i.get("n"), int)
-            ],
-            created_at=llm_row.created_at,
-        )
     campaign = None
     if row.campaign_id is not None:
         c = (
@@ -444,8 +349,6 @@ async def _detail(db: AsyncSession, script_id: int) -> ScriptDetail:
         unexplained=unexplained,
         techniques_detail=refs,
         campaign=campaign,
-        ai=ai,
-        llm=await llm_state(db, script_id),
         demo=sample.demo,
     )
 
@@ -495,56 +398,3 @@ async def script_sessions(
         encode_cursor([page[-1].seen_at.isoformat(), page[-1].session_id]) if more else None
     )
     return SessionsPage(items=items, next_cursor=next_cursor)
-
-
-@router.post("/scripts/{script_id}/explain", status_code=202, response_model=ExplainQueued)
-async def explain_now(script_id: ScriptId, request: Request, db: DbSession) -> Response:
-    """Queue an LLM explanation ("Explain now"). Admin only; ingest does the call."""
-    principal, refused = await reauth.guard(request, None, "script explain")
-    if refused is not None:
-        return refused
-    actor = principal.username if principal else "unknown"
-    if (
-        await db.execute(text("SELECT 1 FROM scripts WHERE id = :i"), {"i": script_id})
-    ).first() is None:
-        raise HTTPException(status_code=404, detail="script not found")
-    state = await llm_state(db, script_id)
-    if not state.available:
-        why = (
-            "The AI explainer is switched off."
-            if state.reason == "disabled"
-            else "No Anthropic key is set."
-        )
-        return reauth.error(409, why, state.reason or "unavailable")
-    existing = (
-        await db.execute(
-            text(
-                "SELECT id, state, requested_at FROM llm_requests WHERE script_id = :i "
-                "ORDER BY requested_at DESC, id DESC LIMIT 1"
-            ),
-            {"i": script_id},
-        )
-    ).first()
-    now = datetime.now(UTC)
-    if existing is not None and existing.state == "queued":
-        return JSONResponse(ExplainQueued(request_id=existing.id, state="queued").model_dump(), 202)
-    if existing is not None and now - existing.requested_at < EXPLAIN_COOLDOWN:
-        return reauth.error(429, "Please wait a minute before asking again.", "too_soon")
-    queued = (
-        await db.execute(text("SELECT count(*) FROM llm_requests WHERE state = 'queued'"))
-    ).scalar_one()
-    if queued >= MAX_QUEUED:
-        return reauth.error(429, "Too many requests are waiting.", "queue_full")
-    row = LlmRequestRow(script_id=script_id, requested_by=actor[:128], state="queued")
-    db.add(row)
-    await db.flush()
-    service: auth_mod.AuthService = request.app.state.auth
-    principal_state = request.scope.get("state", {}).get("principal")
-    await audit_db.record(
-        db, actor=actor, action="script.explain", target=str(script_id),
-        ip=service.client_ip(request), actor_id=audit_db.actor_id_of(principal_state),
-    )  # fmt: skip
-    request_id = row.id
-    await db.commit()
-    audit.info("script explain requested script=%s actor=%s", script_id, actor)
-    return JSONResponse(ExplainQueued(request_id=request_id, state="queued").model_dump(), 202)

@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import case, delete
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db import (
     EnrichmentStatusRow,
     ProviderSecretRow,
@@ -53,7 +53,7 @@ MAX_TESTS_PER_DAY = 10  # per provider: every test spends one unit of the provid
 
 ProviderName = Annotated[
     str,
-    Path(pattern="^(abuseipdb|greynoise|maxmind|nvd|github|abusech|virustotal|anthropic|smtp)$"),
+    Path(pattern="^(" + "|".join(PROVIDERS) + ")$"),
 ]
 
 
@@ -174,6 +174,36 @@ async def remove_key(
     return Response(status_code=204)
 
 
+async def remove_retired_keys(factory: async_sessionmaker[AsyncSession]) -> list[str]:
+    """Delete stored keys of providers this version no longer knows (such as the removed LLM one).
+
+    Runs once when the API starts. Idempotent, and it never stops the start: a database error only
+    logs a warning (no key material is ever read or logged). Returns the provider names removed.
+    """
+    try:
+        async with factory() as session:
+            removed = list(
+                await session.scalars(
+                    delete(ProviderSecretRow)
+                    .where(ProviderSecretRow.provider.not_in(PROVIDERS))
+                    .returning(ProviderSecretRow.provider)
+                )
+            )
+            if removed:
+                await audit_db.record(
+                    session, actor="system", action="provider_key.remove",
+                    target=",".join(sorted(removed)), actor_id="system",
+                    details={"reason": "provider retired"},
+                )  # fmt: skip
+            await session.commit()
+    except Exception as exc:  # the start must never fail on a cleanup
+        log.warning("could not remove stored keys of retired providers (%s)", type(exc).__name__)
+        return []
+    if removed:
+        log.info("removed stored keys of retired providers: %s", ", ".join(sorted(removed)))
+    return sorted(removed)
+
+
 async def _configured(session: AsyncSession, provider: str) -> bool:
     if await session.get(ProviderSecretRow, provider) is not None:
         return True
@@ -249,4 +279,4 @@ def install(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 
-__all__ = ["PROVIDERS", "install", "router"]
+__all__ = ["PROVIDERS", "install", "remove_retired_keys", "router"]

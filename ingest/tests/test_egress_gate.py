@@ -18,8 +18,6 @@ from ingest.enrichment.credentials import CredentialSync
 from ingest.enrichment.downloader import GeoManager
 from ingest.enrichment.intel import IntelWorker
 from ingest.enrichment.reputation import ReputationWorker
-from ingest.features import FeatureSettings
-from ingest.llm import ExplainerWorker
 
 from .helpers import fake_gate
 
@@ -65,7 +63,6 @@ def trip(monkeypatch: pytest.MonkeyPatch) -> Tripwire:
     for mod in ("reputation", "credentials", "intel"):
         monkeypatch.setattr(f"ingest.enrichment.{mod}.reserve_quota", t.reserve)
     monkeypatch.setattr("ingest.cve.watch.reserve_quota", t.reserve)
-    monkeypatch.setattr("ingest.llm.worker.reserve_quota", t.reserve)
     return t
 
 
@@ -146,18 +143,6 @@ async def test_maxmind_key_test_closed_gate(trip: Tripwire) -> None:
         MagicMock(), ENV, None, on_change=lambda _s, _c: None, client=trip.client(), gate=closed()
     )
     assert (await s.test_maxmind())["error"] == "egress_closed"
-    assert trip.calls == 0
-
-
-async def test_llm_key_test_closed_gate(trip: Tripwire) -> None:
-    w = ExplainerWorker(
-        FeatureSettings.from_env({"LLM_ENABLED": "true"}),
-        MagicMock(),
-        "k" * 20,
-        trip.client(),
-        gate=closed(),
-    )
-    assert (await w.run_key_test())["error"] == "egress_closed"
     assert trip.calls == 0
 
 

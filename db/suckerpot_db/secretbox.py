@@ -33,7 +33,6 @@ Provider = Literal[
     "github",
     "abusech",
     "virustotal",
-    "anthropic",
     "smtp",
 ]
 PROVIDERS: tuple[str, ...] = get_args(Provider)

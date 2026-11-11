@@ -17,7 +17,7 @@ This page describes how SuckerPot is built: the services, the networks, the queu
 
 **Built in M20:** the Synology NAS sensor (a DSM look-alike on ports 5000 and 5001), the CVE watch fixes (a 60-day window in daily chunks, resumable runs, watched-CVE lookups by id) and a separate Compose overlay for `just test-integration`.
 
-**Built since (M10 to M19):** RDP depth, Settings that edit keys, CVE watch, indicators, users and roles, campaigns and ATT&CK, Defend (blocklists, exports, the opt-in feed, detections and exposure), the script library with its optional LLM explainer, alerts and the weekly report, and Today, search and research-scanner labels. The analysis features are in [Analysis workers](#analysis-workers-m15-to-m19).
+**Built since (M10 to M19):** RDP depth, Settings that edit keys, CVE watch, indicators, users and roles, campaigns and ATT&CK, Defend (blocklists, exports, the opt-in feed, detections and exposure), the script library, alerts and the weekly report, and Today, search and research-scanner labels. The analysis features are in [Analysis workers](#analysis-workers-m15-to-m19).
 ```
 
 ## Overview
@@ -142,7 +142,7 @@ The stack's own outbound traffic never leaves from the home address. The rules:
 - **A kill switch.** gluetun's firewall allows only the tunnel and the WireGuard packets to one endpoint. The [host firewall](deployment.md#host-firewall) repeats that rule for `sp-vpn`, so it holds even if gluetun's firewall failed.
 - **A gate.** Before any outbound work, `ingest` and `collector` check that the tunnel is up and that the public address seen through the proxy is the one gluetun reports, a global address and inside the expected network. A closed gate pauses lookups. Events are still stored.
 
-Without the `egress` profile there is no `vpn`, so every outbound feature stays idle (GeoIP downloads, reputation, intel, CVE feeds, LLM, alert delivery, the collector) and Settings says "no egress". There is no direct mode. Already downloaded GeoIP files keep working.
+Without the `egress` profile there is no `vpn`, so every outbound feature stays idle (GeoIP downloads, reputation, intel, CVE feeds, alert delivery, the collector) and Settings says "no egress". There is no direct mode. Already downloaded GeoIP files keep working.
 
 `scripts/guardrails/` holds a static test of `docker-compose.yml` that fails when these rules are broken. `just egress-check` proves them on the running stack. See [Security](SECURITY.md#anonymous-egress-m21).
 
@@ -182,7 +182,6 @@ Participant mode (`./scripts/install.sh --participant`) runs sensors, `db`, `mig
 | Alerts (Discord) | `discord.com`, `ptb.discord.com`, `canary.discord.com`, `discordapp.com` | A Discord channel is set up and a rule is on | Only `https`, port 443, a webhook path with the expected id and token shape. The URL is stored encrypted. |
 | Alerts (Teams) | `outlook.office.com`, `outlook.office365.com`, and hosts under `.webhook.office.com`, `.logic.azure.com` or `.api.powerplatform.com` | A Teams channel is set up and a rule is on | Same checks as Discord, with the Workflows and connector path prefixes. |
 | Alerts (e-mail) | The SMTP server you set (`SMTP_HOST`), over STARTTLS (port 587 by default) or SMTPS (465) | An e-mail channel is set up and a rule is on | The certificate is always checked. Plain text is never offered. The sender is the one address you set. |
-| Script explainer | `api.anthropic.com` | `LLM_ENABLED=true` and a key is set | Only normalised script text is sent. No address, host or session data. |
 | GeoIP download, reputation, intel, CVE feeds | The fixed hosts listed in [Enrichment](configuration.md) and in the CVE and indicator sections of [Security](SECURITY.md) | The matching feature is on | Fixed hosts only, quotas enforced, results cached 24 h. |
 | Collector | The host in a captured download URL | `COLLECTOR_ENABLED=true` | The only caller whose destination is chosen by an attacker. Public addresses only (see [Security](SECURITY.md#the-collector-and-ssrf)), size, time, redirect and rate caps, never executed. |
 | Egress self-check | Two public "what is my address" services (`EGRESS_ECHO_URLS`) | Every `EGRESS_CHECK_INTERVAL_S` | Goes through the proxy like everything else. |
@@ -298,8 +297,7 @@ PostgreSQL 17 with TimescaleDB, managed by Alembic migrations in `db/`.
 | `inventory_services` | Regular table | The owner's service inventory for "Your exposure" (free text, compared with our data only) |
 | `scripts` | Regular table | One row per distinct command script, with counters that only grow (0013) |
 | `script_sessions` | Regular table | Bounded links from a script to its sessions |
-| `script_explanations` | Regular table | The annotation or the LLM explanation of a script, with its source and prompt version |
-| `llm_requests` | Regular table | Queued and finished explanation requests (only an administrator queues one) |
+| `script_explanations` | Regular table | The annotation-based explanation of a script, with its source and prompt version |
 | `alert_channels` | Regular table | Discord, Teams and e-mail targets, encrypted at rest (0014) |
 | `alert_rules` | Regular table | The alert rules (new campaign, new download host, malware drop, watched CVE seen, weekly report) with their on/off state and the time each was switched on |
 | `alert_cursors` | Regular table | Where each rule has read up to, so enabling a rule never replays history |
@@ -356,7 +354,6 @@ Ingest runs one background worker per feature. Each one is off until its `*_ENAB
 | Campaigns | `CAMPAIGNS_ENABLED` | every 5 minutes | Clusters finished sessions into campaigns. One bounded cycle: at most a fixed number of sessions, commands and keys per session. No network. |
 | Blocklist | `BLOCKLIST_ENABLED` | every 15 minutes | Scores the last `BLOCKLIST_WINDOW_DAYS` and rewrites `blocklist_entries`. Nothing is resolved or contacted. |
 | Scripts | `SCRIPTS_ENABLED` | every 5 minutes | Fingerprints sessions with two or more commands into `scripts`. |
-| Script explainer | `LLM_ENABLED` | every 15 seconds (cheap when the queue is empty) | Takes at most one queued request per cycle. Without the switch, nothing is sent to Anthropic. |
 | Alerts | `ALERTS_ENABLED` | every 10 seconds for test messages, every minute for rules, then delivery | Reads new rows for each enabled rule, queues one message per channel, and delivers within the rate limits. |
 | Weekly report | `REPORTS_ENABLED` | every hour | Builds the report for the last finished week once, on the first check after Monday 06:00 in `SITE_TIMEZONE`. |
 | Abuse reports (M22) | `ABUSE_REPORTS_ENABLED` | every `ABUSE_BUILD_INTERVAL_S` (1 hour) | Learns the monitored system's own names, looks up abuse contacts over RDAP and builds draft reports. Sends nothing. See [Anonymous reporting](#anonymous-reporting-m22). |
@@ -368,7 +365,7 @@ Two parts run inside the normal write path rather than on a timer. While writing
 - **Campaigns** group sessions by shared keys: a command script, an exploit request shape, a credential list, a payload host, a file hash and a malware family. Script, exploit and credential-list keys are SHA-256 fingerprints, and the other keys are indicator values. Research scanners are never clustered. A campaign needs at least `CAMPAIGN_MIN_SOURCES` distinct sources.
 - **Techniques** come from the tagging rules. They fill `events.techniques` and `sessions.techniques`, and `technique_daily` feeds the heatmap.
 - **Blocklists** score indicators by distinct source networks, never by repeat count, and never list private, reserved, public resolver or big hosting names. Overrides are applied on every rewrite.
-- **Scripts** normalise the command text first (`ingest/ingest/normalize.py`: addresses, URLs, numbers and long blobs become placeholders). Annotations come from `ingest/rules/annotations/*.yaml`. The LLM only ever sees the normalised text, under a daily call quota and a monthly token cap.
+- **Scripts** normalise the command text first (`ingest/ingest/normalize.py`: addresses, URLs, numbers and long blobs become placeholders). Annotations come from `ingest/rules/annotations/*.yaml`.
 - **Alerts** read each rule's own cursor, so enabling a rule never replays old events. Channel targets are decrypted in memory only, right before a send. Failed sends are retried up to three times, only when the error can pass.
 - **Weekly report** is stored as escaped HTML plus a summary. It is built once per week.
 
@@ -442,7 +439,7 @@ The WebSocket checks the `Origin` header. Requests with no `Origin` (non-browser
 | Queue | Valkey 9.1 Streams (Redis protocol), AOF on a named volume |
 | Database | PostgreSQL 17 with TimescaleDB 2.31.0 |
 | Enrichment | MaxMind GeoLite2 or DB-IP Lite (local files), AbuseIPDB, GreyNoise Community, abuse.ch URLhaus and ThreatFox, VirusTotal (hashes only) |
-| Alerts and reports | Discord and Microsoft Teams webhooks, SMTP over TLS, the Anthropic API for the optional explainer |
+| Alerts and reports | Discord and Microsoft Teams webhooks, SMTP over TLS |
 | Web UI | React, Vite, TypeScript (strict), Tailwind, shadcn/ui, TanStack Query. The Live page is a flat SVG map, with no WebGL. Terminal replay planned. |
 | Python tooling | uv, ruff, mypy (strict), pytest |
 | Web tooling | pnpm, eslint, prettier, vitest, Playwright |

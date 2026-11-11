@@ -1,8 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- a styleguide section exports its descriptor (see registry.ts). */
-import { AiExplanationCard, AiLabel } from "@/components/scripts/ai-explanation"
 import { ExplainedLines } from "@/components/scripts/explained-lines"
 import { ScriptRow } from "@/components/scripts/script-row"
-import type { AiExplanation, ExplainedLine, LlmState, ScriptItem } from "@/lib/scripts"
+import type { ExplainedLine, ScriptItem } from "@/lib/scripts"
 import type { FeatureSection } from "./registry"
 import { Section, Specimen } from "./parts"
 
@@ -71,33 +70,12 @@ const LINES: ExplainedLine[] = [
   },
 ]
 
-const LLM: LlmState = {
-  available: true,
-  reason: null,
-  model: "example-model",
-  request_state: null,
-  request_detail: null,
-  requested_at: null,
-}
-
-const AI: AiExplanation = {
-  ai_generated: true,
-  model: "example-model",
-  summary: "The script fetches a program, installs a login key and looks around the system.",
-  lines: [
-    { n: 1, explanation: "Fetches an executable from a remote web server." },
-    { n: 2, explanation: "Adds a key so the attacker can come back without a password." },
-    { n: 3, explanation: "Prints the system details." },
-  ],
-  created_at: ago(3),
-}
-
 function ScriptsSection() {
   return (
     <Section
       id="scripts"
       title="Scripts"
-      description="A script is one story: what it does in plain words first, the commands second. Rule-based explanations are the source of truth; the AI card is a dashed, muted second opinion that always carries its label. Prose uses normal-nums so hyphens stay narrow."
+      description="A script is one story: what it does in plain words first, the commands second. Prose uses normal-nums so hyphens stay narrow."
     >
       <div className="space-y-4">
         <Specimen label="ScriptRow">
@@ -110,19 +88,6 @@ function ScriptsSection() {
             <ExplainedLines lines={LINES} />
           </div>
         </Specimen>
-        <Specimen label="AiLabel">
-          <AiLabel model="example-model" />
-          <AiLabel model={null} />
-        </Specimen>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <AiExplanationCard ai={AI} llm={LLM} scriptId={1} />
-          <AiExplanationCard ai={null} llm={LLM} scriptId={1} />
-        </div>
-        <AiExplanationCard
-          ai={null}
-          llm={{ ...LLM, available: false, reason: "no_key", model: null }}
-          scriptId={1}
-        />
       </div>
     </Section>
   )

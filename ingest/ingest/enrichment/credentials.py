@@ -49,7 +49,6 @@ KEY_FIELDS = {
     "github": "github_token",
     "abusech": "abusech_auth_key",
     "virustotal": "virustotal_api_key",
-    "anthropic": "anthropic_api_key",
     "smtp": "smtp_password",
 }
 
@@ -58,7 +57,7 @@ def _env_has(base: EnrichmentSettings, provider: str) -> bool:
     field = KEY_FIELDS.get(provider)
     if field is not None:
         return bool(getattr(base, field))
-    return base.maxmind_enabled
+    return provider == "maxmind" and base.maxmind_enabled
 
 
 def changed_providers(old: EnrichmentSettings, new: EnrichmentSettings) -> set[str]:
@@ -124,7 +123,7 @@ class CredentialSync:
                 info[provider] = ProviderInfo("settings")
                 if provider in KEY_FIELDS:
                     eff = replace(eff, **cast(dict[str, Any], {KEY_FIELDS[provider]: cred.key}))
-                else:
+                elif provider == "maxmind":
                     eff = replace(
                         eff, maxmind_account_id=cred.account_id or "", maxmind_license_key=cred.key
                     )
