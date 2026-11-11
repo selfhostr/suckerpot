@@ -146,6 +146,12 @@ def test_settings_from_env_and_errors() -> None:
         with pytest.raises(ConfigError):
             Settings.from_env(env)
     assert "password" not in repr(Settings(smtp_password="topsecret"))
+    assert Settings.from_env({}).volume_min_nodes == 5
+    assert Settings.from_env({"HUB_VOLUME_MIN_NODES": "2"}).volume_min_nodes == 2
+    with pytest.raises(ConfigError):
+        Settings.from_env({"HUB_VOLUME_MIN_NODES": "1"})
+    with pytest.raises(ConfigError):
+        Settings.from_env({"HUB_VOLUME_MIN_NODES": "1001"})
 
 
 def test_signing_key_file(tmp_path: Path) -> None:

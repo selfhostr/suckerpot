@@ -374,9 +374,19 @@ async def test_reputation_takedown_bonus_and_cap(env: Env) -> None:
     assert all(r == pytest.approx(0.5 + 0.05 + 0.02) for r in reps)  # +0.01 x 5 (capped) + 0.02
 
 
-@pytest.mark.integration
-async def test_uncorroborated_volume_is_penalised(env: Env) -> None:
-    nodes = await add_nodes(env.worker, 2, reputation=0.5)
+async def _flood(
+    env: Env,
+    contributors: int,
+    *,
+    extra_standing: str = "active",
+    fresh: int = 0,
+    edge: bool = False,
+) -> list[Any]:
+    """Node 0 floods 600 values nobody else sees; ``contributors - 1`` others saw one value each."""
+    # ``fresh`` of the other nodes enrolled yesterday; with ``edge`` the last node's only
+    # observation is exactly 14 days before the judged day, just outside the window.
+    enrolled = [TODAY - timedelta(days=30)] * (contributors - fresh) + [D2] * fresh
+    nodes = await add_nodes(env.worker, contributors, enrolled=enrolled, reputation=0.5)
     async with env.worker() as s:
         await s.execute(
             text(
@@ -386,17 +396,72 @@ async def test_uncorroborated_volume_is_penalised(env: Env) -> None:
             ),
             {"n": nodes[0], "d": D2},
         )
-        await s.execute(
-            text(
-                "INSERT INTO observations (node_id, day, kind, value) VALUES (:n, :d, 'ip', '203.0.113.250')"
-            ),
-            {"n": nodes[1], "d": D2},
-        )
+        for i, node in enumerate(nodes[1:]):
+            await s.execute(
+                text(
+                    "INSERT INTO observations (node_id, day, kind, value) VALUES (:n, :d, 'ip', :v)"
+                ),
+                {
+                    "n": node,
+                    "d": TODAY - timedelta(days=15) if edge and node == nodes[-1] else D2,
+                    "v": f"203.0.113.{200 + i}",
+                },
+            )
+        if extra_standing != "active":
+            await s.execute(
+                text("UPDATE nodes SET standing = :st WHERE id = ANY(:ids)"),
+                {"st": extra_standing, "ids": nodes[1:]},
+            )
         await s.commit()
-        await reputation.run_daily(s, env.settings, TODAY)
-        reps: dict[Any, Any] = dict(
-            (await s.execute(text("SELECT id, reputation FROM nodes"))).all()
-        )
+    return nodes
+
+
+async def _reputations(env: Env, settings: Settings | None = None) -> dict[Any, Any]:
+    async with env.worker() as s:
+        await reputation.run_daily(s, settings or env.settings, TODAY)
+        return dict((await s.execute(text("SELECT id, reputation FROM nodes"))).all())
+
+
+@pytest.mark.integration
+async def test_uncorroborated_volume_is_penalised(env: Env) -> None:
+    nodes = await _flood(env, 5)
+    reps = await _reputations(env)
+    assert reps[nodes[0]] == pytest.approx(0.45)
+    assert all(reps[n] == pytest.approx(0.5) for n in nodes[1:])
+
+
+@pytest.mark.integration
+async def test_volume_penalty_needs_enough_contributing_nodes(env: Env) -> None:
+    nodes = await _flood(env, 4)
+    reps = await _reputations(env)
+    assert all(reps[n] == pytest.approx(0.5) for n in nodes)
+
+
+@pytest.mark.integration
+async def test_volume_penalty_ignores_freshly_enrolled_nodes(env: Env) -> None:
+    nodes = await _flood(env, 5, fresh=4)
+    reps = await _reputations(env)
+    assert all(reps[n] == pytest.approx(0.5) for n in nodes)
+
+
+@pytest.mark.integration
+async def test_volume_penalty_window_excludes_the_edge_day(env: Env) -> None:
+    nodes = await _flood(env, 5, edge=True)
+    reps = await _reputations(env)
+    assert all(reps[n] == pytest.approx(0.5) for n in nodes)
+
+
+@pytest.mark.integration
+async def test_volume_penalty_ignores_nodes_that_are_not_active(env: Env) -> None:
+    nodes = await _flood(env, 5, extra_standing="soft_suspended")
+    reps = await _reputations(env)
+    assert all(reps[n] == pytest.approx(0.5) for n in nodes)
+
+
+@pytest.mark.integration
+async def test_lower_volume_min_nodes_restores_the_penalty(env: Env) -> None:
+    nodes = await _flood(env, 2)
+    reps = await _reputations(env, make_settings(volume_min_nodes=2))
     assert reps[nodes[0]] == pytest.approx(0.45) and reps[nodes[1]] == pytest.approx(0.5)
 
 

@@ -176,6 +176,7 @@ The price is per address prefix. An IPv4 address is its own prefix. An IPv6 addr
 | `HUB_NODE_MIN_AGE_DAYS` | `14` | Days a node must be enrolled before its sightings count |
 | `HUB_NODE_MIN_ACTIVE_DAYS` | `7` | Days with data in the last 14 that a node needs to count, from 0 to 14 |
 | `HUB_MIN_REPUTATION` | `0.3` | Lowest reputation that counts |
+| `HUB_VOLUME_MIN_NODES` | `5` | Active nodes old enough to count (`HUB_NODE_MIN_AGE_DAYS`) that must have reported in the last 14 days before the daily volume penalty applies, from 2. Below this nobody can corroborate a value, so a lone honest node is not penalised. From 2 to 1000. If you lower `HUB_MIN_NODES`, lower this too if you want the penalty to apply, otherwise consensus can confirm with fewer nodes than the penalty needs |
 | `HUB_WINDOW_DAYS` | `7` | Days of sightings that one consensus run looks at, from 1 to 14 |
 | `HUB_COHORT_MAX_SHARE` | `0.5` | Most of the nodes one enrolment week may supply |
 | `HUB_OBS_RETENTION_DAYS` | `14` | Days to keep per-node observations, from 1 to 60 |

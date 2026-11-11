@@ -175,7 +175,7 @@ By default, an **eligible node** must:
 
 ### Reputation
 
-Each node has a hidden reputation number. It rises a little when its sightings confirm a target, and more when a confirmed target is taken down. It falls when a sighting is disputed, and when a node sends a large volume that nobody else ever sees. Below 0.2 a node is soft-suspended. Its batches are accepted and then ignored, and it is not told. The number itself is never sent. Members only see `new`, `good` or `low`.
+Each node has a hidden reputation number. It rises a little when its sightings confirm a target, and more when a confirmed target is taken down. It falls when a sighting is disputed, and when a node sends a large volume that nobody else ever sees (only once enough nodes contribute for others to have a chance to see the same values). Below 0.2 a node is soft-suspended. Its batches are accepted and then ignored, and it is not told. The number itself is never sent. Members only see `new`, `good` or `low`.
 
 ### Published values only change with consensus
 

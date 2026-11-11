@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final
   dashboard check sent the bind address as `Host`, which the API rejects; it now sends
   `localhost`, which the API always accepts.
+- An honest node on a network too small for corroboration no longer loses reputation every day.
+  The hub's daily volume penalty (a node sending many values that no other node sees) now applies
+  only while at least `HUB_VOLUME_MIN_NODES` (default 5) active nodes old enough to count have
+  reported in the last 14 days. Before, a lone node was penalised daily and ended up
+  soft-suspended after about a week.
 - The network status no longer shows "0 sent" for a day whose batch was sent twice (after a
   restart or a lost answer). When the hub reports it already holds the batch, the node now
   records the item counts it sent instead of the hub's zeros.
