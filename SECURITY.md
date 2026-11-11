@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest `main` is supported. There is no stable release yet.
+SuckerPot is in alpha and has tagged releases. The supported version is the latest release tag (see the [releases](https://github.com/selfhostr/suckerpot/releases)); fixes land on `main` and ship in the next tag. Older tags are not patched. Before 1.0 the API, the database schema and the installer can change between minor versions.
 
 ## Reporting a vulnerability
 

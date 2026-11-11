@@ -5,7 +5,11 @@ The SuckerPot network is a pool you can join and leave at any time. Many SuckerP
 This page is for members and for people who want to know what joining means. The hub operator reads `hub/README.md`. The exact wire format is in [Network protocol](network-protocol.md). The design and its review are in [M29](design/m29.md).
 
 ```{warning}
-Joining is a choice you are always asked about. The installer asks "Join the SuckerPot network? [Y/n]" and shows what would be shared first. The default is yes, and `--no-network` says no. An existing install that never answered is never joined by an update. In a full install you can also join or leave in the dashboard at any time. In a participant install, choosing that mode in the installer is the join.
+**Experimental preview.** The SuckerPot network has very few nodes today. Its shared feed may be empty, and a participant gets nothing back yet. Thresholds and the protocol may change without notice. Known limits: identity is free, so the consensus does not yet resist a determined attacker who creates several nodes, and the hub run by the project maintainers is the single root of trust. The network is off unless you choose to join.
+```
+
+```{warning}
+Joining is a choice you are always asked about, and the default answer is no. The installer asks "Join the SuckerPot network? [y/N]" and shows what would be shared first. `--yes` never joins: joining without a question needs `--join-network`. `--no-network` skips the question. An existing install that never answered is never joined by an update. In a full install you can also join or leave in the dashboard at any time. In a participant install, choosing that mode in the installer is the join.
 ```
 
 ## What joining means
@@ -13,7 +17,7 @@ Joining is a choice you are always asked about. The installer asks "Join the Suc
 Joining turns your sensors into one voter in a shared network. Your system then:
 
 - sends one daily batch of attacker addresses and a few related facts (see [What is shared](#what-is-shared-and-what-never-is));
-- receives the list of targets the network has confirmed, and shows it to you;
+- receives the list of targets the network has confirmed, and shows it to you (today this list is usually empty, see the note above);
 - can see the network's totals and which members take part.
 
 You do not get a share of anything, and you do not get better detection. The benefit is for the internet: an address that many sensors agree on is more likely to be removed, and the people who run it are more likely to be told.
@@ -22,19 +26,19 @@ Your system stays on your own machine. Nothing is installed on the hub side for 
 
 ## Joining is always an explicit choice
 
-The network feature is unlocked by default (`NETWORK_ENABLED=true`), but unlocking is not joining. Nothing goes to the hub until this system has joined, and a join needs an explicit agreement:
+The network feature is off by default (`NETWORK_ENABLED=false`). To use it, set `NETWORK_ENABLED=true` and join. Nothing goes to the hub until this system has joined, and a join needs an explicit agreement:
 
 | Way to join | Who | Default |
 | --- | --- | --- |
-| The installer question "Join the SuckerPot network? [Y/n]" (full mode), after the consent screen | The person installing | Yes. `--yes` counts as the agreement, `--no-network` declines |
+| The installer question "Join the SuckerPot network? [y/N]" (full mode), after the consent screen, or the flag `--join-network` | The person installing | No. An empty answer is a no. `--yes` alone does not join. `--no-network` skips the question |
 | The participant install (`--participant`) | The person installing | The mode is the join |
 | Settings, Network: join, after being shown the five items and confirming with the password | An administrator | Not joined |
 
-A yes in the installer writes a consent record (`NETWORK_CONSENT`) and a random pseudonym to `.env`. Ingest then joins by itself, once. In a full install the traffic only ever leaves through the VPN, so the join waits until a VPN is configured. Enrolment and every network read go through the VPN once a VPN exists, and with none nothing leaves at all. Nothing about your sensors is submitted until your own public address is confirmed (it is learned from traffic, or you set it in Settings), so your own address cannot leak into a batch.
+A yes in the installer (or `--join-network`) writes a consent record (`NETWORK_CONSENT`) and a random pseudonym to `.env`. Ingest then joins by itself, once. In a full install the traffic only ever leaves through the VPN, so the join waits until a VPN is configured. Enrolment and every network read go through the VPN once a VPN exists, and with none nothing leaves at all. Nothing about your sensors is submitted until your own public address is confirmed (it is learned from traffic, or you set it in Settings), so your own address cannot leak into a batch.
 
 The record is consumed at the first start: ingest uses it only within 7 days of the day written in it. Later it is ignored, so restoring an old database cannot undo a leave. To re-agree, use the dashboard or, in a participant install, `./scripts/participant.sh join` (it writes a fresh record).
 
-If you set `NETWORK_ENABLED=false`, the whole feature is off: the Network pages explain it and the worker never contacts the hub.
+With `NETWORK_ENABLED=false` (the default), the whole feature is off: the Network pages explain it and the worker never contacts the hub.
 
 Other rules:
 
@@ -74,10 +78,11 @@ Your private key never leaves your system. It is stored encrypted and used only 
 The hub sees what a batch contains, and the requests that carry it. It does not see:
 
 - your name, mailbox, payment or account (there is none);
-- your IP address. The hub keeps no client address. Requests go out through the VPN, so the hub sees a VPN exit;
-- your domain or host name.
+- your domain or host name (every item is checked for them before it leaves).
 
 If you choose a pseudonym, the hub sees it. If you choose a country and show it, the hub sees that too.
+
+The address your request comes from is not hidden by the protocol, see [What the hub can and cannot learn](#what-the-hub-can-and-cannot-learn).
 
 ### Identity controls on your side
 
@@ -199,7 +204,7 @@ There are two ways to join. Both mean the same thing for the data that is shared
 
 ### The no-VPN trade-off
 
-A participant can run without a VPN. The node then reaches the hub through `hubproxy`, a small allow-list proxy that accepts connections to the hub host only. The cost is that the hub, and a tunnel provider in front of it, can see the participant's home address when it connects. The hub does not store or log it. This is stated in the consent text and in `./scripts/status.sh`. A VPN can be added at any time with `./scripts/participant.sh vpn <file>`. Without a VPN the collector and enrichment are off, so the node reports links but never downloads anything.
+A participant can run without a VPN. The node then reaches the hub through `hubproxy`, a small allow-list proxy that accepts connections to the hub host only. The cost is that the hub and the Cloudflare tunnel in front of it see the participant's own address when it connects. The hub application does not store it, but the reverse proxy and Cloudflare can log it. This is stated in the consent text and in `./scripts/status.sh`. A VPN can be added at any time with `./scripts/participant.sh vpn <file>`. Without a VPN the collector and enrichment are off, so the node reports links but never downloads anything.
 
 The hub and feeds host names (`suckerpot-hub.selfhostr.io`, `suckerpot-feeds.selfhostr.io`) contain the product name. Anyone who sees a node's DNS queries or the TLS server name (SNI) of its connections, such as the participant's internet provider without a VPN or the VPN provider with one, can tell that the machine runs SuckerPot. Attackers who only reach the sensors cannot see this traffic.
 
@@ -327,16 +332,23 @@ This section answers one question for each party: what can they learn, and what 
 
 A member can send many forged sightings. They are weighted by reputation, age, enrolment week and corroboration, so a few members cannot make a target. A large patient farm can. The hub can then refuse, report only with human review, or dispute the target.
 
-### What a malicious or curious hub can learn
+### What the hub can and cannot learn
 
-| Can learn | Cannot learn, by design |
+The hub is run by the project maintainers and is reached through a Cloudflare tunnel. That has consequences.
+
+| Who | What they see |
 | --- | --- |
-| For each node: its public key, pseudonym, country (if shown), enrolment day, last active day, reputation and standing | The IP address of any node. The hub keeps no client address in its code, its logs or its tables |
-| For 14 days: the addresses, services and activity each node submitted, by day | A node's exact times, source or destination ports, usernames, passwords or commands |
-| Which nodes sent a batch on a day | The clear value of a link that is not confirmed. Links are blinded |
-| Report contents: day ranges, buckets, services, tags and families | Node identities in reports |
+| Cloudflare | The source address of every request, the hub host name, and the size and timing of requests. Cloudflare ends the TLS connection, so it can also read the content of the requests. The signatures protect them from change, not from being read. |
+| The hub's reverse proxy and the hub operator | The same source address, in the proxy's logs if logging is on. The hub application itself keeps no client address in its code or tables. |
+| The hub operator, from stored data | Per node: public key, pseudonym, country (if shown), enrolment day, last active day, reputation, standing. For 14 days, the addresses, services and activity each node submitted, by day. |
 
-A hub operator who turns on logging against policy could link a VPN exit to a pseudonym. Each node then reaches the hub through a VPN exit, not through a home address. The design accepts that residual risk for version 1.
+Without a VPN, the source address is the node's own public address. With a VPN it is the VPN exit address. In both cases it is visible to Cloudflare and to the hub's proxy, so it cannot be called hidden.
+
+What the hub cannot learn from a batch: exact times, ports, usernames, passwords, commands, and the clear value of a link that is not confirmed (links are blinded).
+
+A hub operator can also link a node key to its sensors without any log. The operator sends probe traffic from distinctive source addresses to a sensor address, then watches which node key reports those addresses the next day. The design does not prevent this.
+
+A hub operator who turns on logging could also link a VPN exit or a home address to a pseudonym. The design accepts these risks for version 1.
 
 ### What a hub compromise or seizure gives away
 
@@ -351,7 +363,7 @@ It does not give away the node keys' private halves, which never leave the nodes
 
 - That your system talks to the VPN, and how much.
 - Requests to the hub are padded to a multiple of 4 KiB, so their size says little. The timing of one daily batch is visible.
-- Nothing about the content. TLS and the request signatures protect it.
+- Nothing about the content, as long as the observer is not Cloudflare. TLS protects the path up to Cloudflare, and the hub is behind Cloudflare's tunnel.
 
 ### What an attacker can learn about your sensors
 
@@ -363,8 +375,8 @@ The lists are public, so they are visible to everyone, attackers included.
 
 - **Member data:** none. Entries carry no node data. Every attribute that is published (services, tags, families, dates) needs at least five nodes behind it. One node's sighting of an address changes nothing public, not even its expiry.
 - **Timing:** the lists are regenerated on a fixed hourly schedule, and new entries wait 6 hours after confirmation. The publication time says nothing about one member.
-- **Downloads:** the feed site keeps no access log and sets no cookies. Nobody can see who fetches the lists.
-- **Poisoning:** an attacker who controls many sensors could try to list a third party. Only the hub's own confirmed targets can enter a list, after stricter rules than reports. A text typed into a honeypot command never lists an address by itself. Public resolvers, CDNs, shared hosting and Tor exit relays are never listed.
+- **Downloads:** the feed site is behind Cloudflare, which sees who fetches the lists. The feed site itself keeps no access log and sets no cookies.
+- **Poisoning:** an attacker who controls many sensors could try to list a third party. Only the hub's own confirmed targets can enter a list, after stricter rules than reports. A text typed into a honeypot command never lists an address by itself. The hub excludes a fixed list of public resolvers and large CDN, cloud and software-hosting names (`hub/hub/data/never.yaml`), the address ranges of three large CDNs, and Tor exit relays (`hub/hub/data/ranges.yaml`). Other shared hosting and ordinary VPS providers are not excluded, because that is where malware lives.
 - **Forgery:** each file is signed with a feed key that is separate from the hub's key. Your node checks the signature, the serial and the expiry before it stores anything.
 
 ### What the public figures reveal
@@ -373,8 +385,9 @@ The lists are public, so they are visible to everyone, attackers included.
 
 ### What is not protected
 
+- The consensus does not yet resist a determined attacker. Identity is free, so one person can create several nodes. Today the network has few nodes, and the hub operator is the single root of trust.
 - A sensor that is reachable from the internet is already visible to every attacker who scans it.
-- The hub operator can see the attacker addresses that nodes submit. These addresses belong to the attackers, not to members.
+- The hub operator can see the attacker addresses that nodes submit, and the address each request comes from. These addresses belong to the attackers, not to members.
 - The system's own logs (SSH, the host firewall, the Docker daemon on the host) are outside this design. Keep them private.
 
 ## Where to go next
