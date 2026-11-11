@@ -110,8 +110,8 @@ It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below
 ### Change the port again or go back
 
 - **Another port:** run it again with the port: `sudo ./scripts/move-admin-ssh.sh 48022`. It moves straight from the port in use to the new one and never opens port 22 on the way.
-- **Back to port 22:** `sudo ./scripts/move-admin-ssh.sh --undo`. It is the same careful move, back to port 22. Stop SuckerPot first (`docker compose down` in the SuckerPot folder), because the SSH sensor holds port 22 and the script refuses to start while another program uses it.
-- **Interrupted or failed run:** SSH goes back to the port it was on. If a run is killed outright (power loss, `kill -9`), the next run puts SSH back on the port it recorded before it does anything else.
+- **Back to port 22:** `sudo ./scripts/move-admin-ssh.sh --undo`. It is the same careful move, back to port 22. Stop SuckerPot first (`docker compose down` in the SuckerPot folder), because the SSH sensor holds port 22 and the script refuses to start while another program uses it. If the node has the daily update schedule on, turn it off first (`./scripts/participant.sh auto-update off`) so the stack does not come back during the move, and turn it on again afterwards.
+- **Interrupted or failed run:** SSH goes back to the port it was on. If a run is killed outright (power loss, `kill -9`), the next run deals with it before it does anything else: it puts SSH back on the port it recorded, or, if another program holds that port by then (for example the SSH sensor after a reboot), it leaves SSH on the other port, which SSH can hold. A run that was killed in its very last step, after your login was seen, is finished by the next run.
 - **When the script stops and asks you not to close your session,** it could not confirm the old port. Run the two commands it shows, from that open session.
 
 The script refuses a few unusual setups before it changes anything: SSH bound to a specific address, several ports it did not set up, or another file in `/etc/ssh/sshd_config.d/` that sets `Port`. Use [By hand](#by-hand) there.

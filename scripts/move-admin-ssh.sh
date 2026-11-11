@@ -79,9 +79,16 @@ explicit=0
 if [ "$undo" = 1 ]; then to=22; else to=${port:-$DEFAULT_PORT}; fi
 
 # ---------------------------------------------------------------- helpers
+# Every call of sshd goes through here: sshd -t and -T fail with "Missing privilege separation
+# directory" when /run/sshd is gone, and systemd removes it whenever ssh.service is stopped.
+run_sshd() {
+  mkdir -p "$R/run/sshd" 2> /dev/null && chmod 755 "$R/run/sshd" 2> /dev/null
+  sshd "$@"
+}
+
 # Ports sshd is configured for, as a sorted list, from the effective configuration.
 effective_ports() {
-  sshd -T -f "$CFG" 2> /dev/null | awk '$1 == "port" {print $2}' | sort -n | tr '\n' ' ' | sed 's/ $//'
+  run_sshd -T -f "$CFG" 2> /dev/null | awk '$1 == "port" {print $2}' | sort -n | tr '\n' ' ' | sed 's/ $//'
 }
 
 # Listening TCP sockets on port $1 (lines of `ss -ltnp`).
@@ -144,7 +151,7 @@ specific_bind() {
       echo "$a"
       return 0
     }
-  done < <(sshd -T -f "$CFG" 2> /dev/null | awk '$1 == "listenaddress" {print $2}'; if socket_activated; then socket_listen; fi)
+  done < <(run_sshd -T -f "$CFG" 2> /dev/null | awk '$1 == "listenaddress" {print $2}'; if socket_activated; then socket_listen; fi)
   return 1
 }
 
@@ -162,7 +169,13 @@ is_ours() { [ -f "$1" ] && [ "$(head -n 1 "$1")" = "$MARK" ]; }
 # Keeps the first backup only: it is the user's original file.
 backup() { [ -e "$1$BAK" ] || cp -p "$1" "$1$BAK"; }
 
-# $1 = ports. BindIPv6Only keeps the two entries of a port from colliding on one dual-stack socket.
+# The addresses ssh.socket listens on now (captured before any change), without the ports.
+socket_addresses() {
+  socket_listen | sed 's/:[0-9][0-9]*$//' | sort -u | tr '\n' ' ' | sed 's/ $//'
+}
+
+# $1 = ports. One ListenStream per captured address and port: the socket keeps the address
+# families it has now (IPv4 only stays IPv4 only, "[::]" only stays as it is).
 write_socket_override() {
   mkdir -p "$SOCK_DIR"
   if [ -f "$OVERRIDE" ] && ! is_ours "$OVERRIDE"; then
@@ -174,10 +187,8 @@ write_socket_override() {
     echo "[Socket]"
     echo "ListenStream="
     for p in $1; do
-      echo "ListenStream=0.0.0.0:$p"
-      echo "ListenStream=[::]:$p"
+      for a in $sock_addrs; do echo "ListenStream=$a:$p"; done
     done
-    echo "BindIPv6Only=ipv6-only"
   } | put "$OVERRIDE"
 }
 
@@ -275,7 +286,7 @@ set_ports() {
 
 # Checks the configuration, then makes sshd use it. Open sessions stay connected.
 apply() {
-  sshd -t -f "$CFG" || return 1
+  run_sshd -t -f "$CFG" || return 1
   systemctl daemon-reload || return 1
   if socket_activated; then
     # If systemd refuses to restart the socket while the service runs, stop the service (open
@@ -310,6 +321,7 @@ verify() {
 recover_to() {
   set_ports "$1"
   if apply && verify "$1" "$2"; then return 0; fi
+  systemctl daemon-reload || true
   if socket_activated; then systemctl restart ssh.socket || true; else systemctl restart ssh || true; fi
   if verify "$1" "$2"; then return 0; fi
   {
@@ -395,7 +407,7 @@ on_exit() {
     say
     say "Going back to port $from."
     if recover_to "$from" "$to"; then
-      say "Done: SSH listens on port $from again. Nothing else was changed."
+      say "Done: SSH listens on port $from again."
     fi
     [ "$rc" -ne 0 ] || rc=1
   fi
@@ -423,14 +435,48 @@ if [ "$undo" = 0 ]; then
   in_list "$to" "$RESERVED_PORTS" && die "port $to is used by SuckerPot ($RESERVED_PORTS). Pick another one."
 fi
 
+# Under socket activation, remember which addresses the socket listens on: the override this
+# script writes keeps exactly those, so SSH never listens in more places than before.
+sock_addrs=""
+if socket_activated; then
+  sock_addrs=$(socket_addresses)
+  [ -n "$sock_addrs" ] || die "cannot read what ssh.socket listens on (systemctl show ssh.socket). Follow \"By hand\" in docs/vps.md."
+  for f in "$SOCK_DIR"/*.conf; do
+    [ -e "$f" ] || continue
+    [ "$f" != "$OVERRIDE" ] || continue
+    if grep -Eiq '^[[:space:]]*ListenStream' "$f"; then
+      die "$f sets ListenStream itself. Remove that line or follow \"By hand\" in docs/vps.md, then run this again."
+    fi
+  done
+fi
+
 # ---------------------------------------------------------------- a run that was killed
-# Its drop-in records the port it started from: go back there first, never guess.
+# Its drop-in records the port it started from: go back there first, never guess. If another
+# program holds that port now (for example the SSH sensor after a reboot), SSH stays on the
+# other recorded port instead: it never closes a port it holds for one it cannot bind.
 if is_ours "$DROPIN" && grep -q '^# moving from [0-9][0-9]*$' "$DROPIN"; then
   from=$(sed -n 's/^# moving from \([0-9][0-9]*\)$/\1/p' "$DROPIN" | head -n 1)
   gone=$(awk -v r="$from" '$1 == "Port" && $2 != r {printf "%s ", $2}' "$DROPIN" | sed 's/ $//')
-  note "An earlier run of this script was interrupted. Going back to port $from first."
-  recover_to "$from" "$gone" || exit 1
-  note "SSH listens on port $from again."
+  note "An earlier run of this script was interrupted."
+  if [ -n "$gone" ] && [ -n "$(listeners "$from")" ] && ! ssh_listens "$from"; then
+    note "Port $from is used by another program now, so SSH stays on port $gone."
+    recover_to "$gone" "" || exit 1
+    note "SSH listens on port $gone."
+  else
+    note "Going back to port $from first."
+    recover_to "$from" "$gone" || exit 1
+    note "SSH listens on port $from again."
+  fi
+elif is_ours "$DROPIN"; then
+  # No record: the run was stopped after it proved the login, just before its last step. The
+  # files are authoritative: finish that step.
+  cfg_ports=$(effective_ports)
+  now_ports=$(ssh_ports)
+  if [ "$(wc -w <<< "$cfg_ports")" -eq 1 ] && [ -n "$now_ports" ] && [ "$now_ports" != "$cfg_ports" ] && in_list "$cfg_ports" "$now_ports"; then
+    extra=$(tr ' ' '\n' <<< "$now_ports" | grep -vx "$cfg_ports" | tr '\n' ' ' | sed 's/ $//')
+    note "An earlier run of this script was stopped just before its last step. Finishing it: SSH on port $cfg_ports only."
+    recover_to "$cfg_ports" "$extra" || exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------- starting state

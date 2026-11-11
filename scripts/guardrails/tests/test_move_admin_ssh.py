@@ -40,6 +40,10 @@ SSHD_SHIM = (
     + PORTS_FUNC
     + r"""
 d="$MOVE_SSH_ROOT/etc/ssh/sshd_config.d/10-admin-port.conf"
+if [ ! -d "$MOVE_SSH_ROOT/run/sshd" ]; then
+  echo "Missing privilege separation directory: /run/sshd" >&2
+  exit 255
+fi
 case "$1" in
   -t)
     if [ -n "${SHIM_SSHD_T_FAIL:-}" ] && [ -e "$d" ]; then
@@ -69,7 +73,7 @@ restart() {
   if [ -n "${SHIM_SOCKET:-}" ]; then
     ov="$MOVE_SSH_ROOT/etc/systemd/system/ssh.socket.d/override.conf"
     if [ -e "$ov" ]; then
-      sed -n 's/^ListenStream=0\.0\.0\.0:\([0-9]*\)$/\1/p' "$ov" | while read -r p; do echo "$p systemd"; done > "$SHIM_DIR/listen"
+      sed -n 's/^ListenStream=.*:\([0-9][0-9]*\)$/\1/p' "$ov" | sort -un | while read -r p; do echo "$p systemd"; done > "$SHIM_DIR/listen"
     else
       echo "22 systemd" > "$SHIM_DIR/listen"
     fi
@@ -104,9 +108,17 @@ case "$1 $2" in
       restart || rc=1
     fi ;;
   "restart ssh" | "try-restart ssh.service") restart || rc=1 ;;
-  "stop ssh.service") [ -z "${SHIM_ALL_FAIL:-}" ] || rc=1 ;;
+  "stop ssh.service")
+    rm -rf "$MOVE_SSH_ROOT/run/sshd"
+    [ -z "${SHIM_ALL_FAIL:-}" ] || rc=1 ;;
   "show ssh.socket")
-    while read -r p proc; do [ -n "$p" ] && [ -n "${SHIM_SOCKET:-}" ] && echo "0.0.0.0:$p (Stream)"; done < "$SHIM_DIR/listen"
+    # What the unit is configured for, like the real property: the override, else port 22.
+    ov="$MOVE_SSH_ROOT/etc/systemd/system/ssh.socket.d/override.conf"
+    if [ -e "$ov" ]; then
+      sed -n 's/^ListenStream=\(.*\)$/\1/p' "$ov" | grep . | while read -r e; do echo "$e (Stream)"; done
+    else
+      for a in ${SHIM_SOCK_ADDRS-0.0.0.0 [::]}; do echo "$a:22 (Stream)"; done
+    fi
     [ -z "${SHIM_SHOW_EXTRA:-}" ] || echo "$SHIM_SHOW_EXTRA" ;;
 esac
 exit $rc
@@ -425,10 +437,65 @@ def test_socket_activation_path(box: Box) -> None:
         "ListenStream=",
         "ListenStream=0.0.0.0:22222",
         "ListenStream=[::]:22222",
-        "BindIPv6Only=ipv6-only",
     ]
     assert box.listening() == ["22222"]
     assert box.dropin.read_text().splitlines() == [MARK, "Port 22222"]
+
+
+def test_an_ipv4_only_socket_never_gets_an_ipv6_entry(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_SOCK_ADDRS="0.0.0.0")  # noqa: S104
+    assert proc.returncode == 0, out(proc)
+    text = box.override.read_text()
+    assert "ListenStream=0.0.0.0:22222" in text
+    assert "[::]" not in text
+    assert "BindIPv6Only" not in text
+
+
+def test_an_ipv6_only_socket_keeps_one_entry_per_port(box: Box) -> None:
+    snap = box.shim / "snap"
+    snapshot_hook(box, box.override, snap)
+    proc = box.run(SHIM_SOCKET="1", SHIM_SOCK_ADDRS="[::]")
+    assert proc.returncode == 0, out(proc)
+    assert snap.read_text().splitlines()[1:] == [
+        "[Socket]",
+        "ListenStream=",
+        "ListenStream=[::]:22",
+        "ListenStream=[::]:22222",
+    ]
+    assert box.override.read_text().splitlines()[1:] == [
+        "[Socket]",
+        "ListenStream=",
+        "ListenStream=[::]:22222",
+    ]
+    assert "BindIPv6Only" not in box.override.read_text()
+
+
+def test_an_unreadable_socket_is_refused_before_any_change(box: Box) -> None:
+    proc = box.run(SHIM_SOCKET="1", SHIM_SOCK_ADDRS="")
+    assert proc.returncode == 1
+    assert "By hand" in proc.stderr
+    assert not box.dropin.exists()
+    assert box.restarts() == 0
+
+
+def test_another_socket_drop_in_with_listenstream_is_refused_by_name(box: Box) -> None:
+    other = box.fake_root / "etc/systemd/system/ssh.socket.d/10-other.conf"
+    other.parent.mkdir(parents=True)
+    other.write_text("[Socket]\nListenStream=\nListenStream=2200\n")
+    proc = box.run(SHIM_SOCKET="1")
+    assert proc.returncode == 1
+    assert str(other) in proc.stderr
+    assert not box.dropin.exists()
+    assert box.restarts() == 0
+
+
+def test_sshd_is_never_called_without_its_runtime_directory(box: Box) -> None:
+    run_dir = box.fake_root / "run/sshd"
+    assert not run_dir.exists()
+    proc = box.run()
+    assert proc.returncode == 0, out(proc)
+    assert run_dir.is_dir()
+    assert stat.S_IMODE(run_dir.stat().st_mode) == 0o755
 
 
 def test_socket_override_has_both_ports_in_phase_one(box: Box) -> None:
@@ -443,7 +510,6 @@ def test_socket_override_has_both_ports_in_phase_one(box: Box) -> None:
         "ListenStream=[::]:22",
         "ListenStream=0.0.0.0:22222",
         "ListenStream=[::]:22222",
-        "BindIPv6Only=ipv6-only",
     ]
 
 
@@ -784,6 +850,74 @@ def test_a_killed_run_from_port_22_removes_its_files(box: Box) -> None:
     assert box.history()[0] == ["22"]
 
 
+def test_a_killed_run_does_not_walk_into_a_port_another_program_holds(box: Box) -> None:
+    # Cut by a reboot while waiting: the SSH sensor took port 22, sshd came up on 22222 only.
+    box.dropin.write_text(f"{MARK}\n# moving from 22\nPort 22\nPort 22222\n")
+    (box.shim / "listen").write_text("22222 sshd\n")
+    (box.shim / "foreign").write_text(
+        'LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("docker-proxy",pid=9,fd=4))\n'
+    )
+    proc = box.run()
+    text = out(proc)
+    assert proc.returncode == 0, text
+    assert "used by another program" in text
+    assert "SSH stays on port 22222" in text
+    assert box.listening() == ["22222"]
+    assert box.history() == [["22222"]]
+    assert box.dropin.read_text().splitlines() == [MARK, "Port 22222"]
+
+
+def test_a_killed_run_with_socket_activation_and_a_held_port(box: Box) -> None:
+    box.override.parent.mkdir(parents=True)
+    box.override.write_text(
+        f"{MARK}\n[Socket]\nListenStream=\nListenStream=0.0.0.0:22\nListenStream=[::]:22\n"
+        "ListenStream=0.0.0.0:22222\nListenStream=[::]:22222\n"
+    )
+    box.dropin.write_text(f"{MARK}\n# moving from 22\nPort 22\nPort 22222\n")
+    (box.shim / "listen").write_text("")
+    (box.shim / "foreign").write_text(
+        'LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("docker-proxy",pid=9,fd=4))\n'
+    )
+    proc = box.run(SHIM_SOCKET="1")
+    text = out(proc)
+    assert proc.returncode == 0, text
+    assert "SSH stays on port 22222" in text
+    assert box.listening() == ["22222"]
+    assert "ListenStream=0.0.0.0:22\n" not in box.override.read_text()
+
+
+def test_a_killed_run_goes_back_when_its_port_is_free(box: Box) -> None:
+    # Nobody holds port 22: the rule is the usual one, back to the recorded port.
+    box.dropin.write_text(f"{MARK}\n# moving from 22\nPort 22\nPort 22222\n")
+    (box.shim / "listen").write_text("22222 sshd\n")
+    proc = box.run("--yes")
+    assert proc.returncode == 0, out(proc)
+    assert "Going back to port 22 first" in proc.stdout
+    assert box.history()[0] == ["22"]
+
+
+def test_a_run_stopped_before_its_last_step_is_finished(box: Box) -> None:
+    # Phase 2 wrote the single-port file, then the run was killed before apply: no record is
+    # left and sshd still listens on both ports.
+    box.dropin.write_text(f"{MARK}\nPort 22222\n")
+    (box.shim / "listen").write_text("22 sshd\n22222 sshd\n")
+    proc = box.run()
+    text = out(proc)
+    assert proc.returncode == 0, text
+    assert "stopped just before its last step" in text
+    assert box.listening() == ["22222"]
+    assert box.history() == [["22222"]]
+    assert "Nothing to do" in text
+
+
+def test_a_finished_move_is_not_mistaken_for_a_stopped_one(box: Box) -> None:
+    assert box.run().returncode == 0
+    before = box.restarts()
+    proc = box.run()
+    assert "stopped just before" not in out(proc)
+    assert box.restarts() == before
+
+
 # ---------------------------------------------------------------- every failure ends on the start port
 def test_interrupt_restores_the_start_port(box: Box) -> None:
     sleeper = box.shim / "sleep"
@@ -854,6 +988,7 @@ def test_socket_restart_failure_falls_back_to_stop_and_start(box: Box) -> None:
     assert "systemctl stop ssh.service" in calls
     assert "systemctl start ssh.socket" in calls
     assert box.listening() == ["22222"]
+    assert (box.fake_root / "run/sshd").is_dir()
 
 
 def test_a_stop_that_works_followed_by_a_start_that_fails_ends_on_the_start_port(box: Box) -> None:
