@@ -37,8 +37,15 @@ _GUARD_TRACKED_FLOOR = 0.10  # the guard acts only if sessions + events hold thi
 _READ_CHUNK = 1024
 _FEED_SLICE = 4 * 1024  # bytes handed to asyncssh per loop callback
 
-# Algorithm lists copied from the defaults of OpenSSH 9.6 on Ubuntu 24.04. asyncssh has no
-# sntrup761x25519-sha512@openssh.com, the one KEX algorithm that cannot be matched.
+# Algorithm lists copied, order included, from the KEXINIT of a stock OpenSSH 9.6p1 server on
+# Ubuntu 24.04 (RSA, ECDSA and Ed25519 host keys). Checked against asyncssh 2.24.1 by
+# tests/test_fingerprint.py: every list matches except one. A real 9.6p1 starts its KEX list with
+# sntrup761x25519-sha512@openssh.com, which asyncssh does not implement; advertising it without
+# being able to complete it would break handshakes, so it is left out. The trailing "ext-info-s"
+# and "kex-strict-s-v00@openssh.com" markers are added by asyncssh itself, in OpenSSH's order.
+# What still differs from the real thing is therefore only the missing first KEX entry, which
+# changes the HASSHServer value. A banner asyncssh can match exactly would be Ubuntu 20.04's
+# OpenSSH 8.2p1 (no sntrup, no strict-kex), but it would clash with the 24.04 image.
 KEX_ALGS = [
     "curve25519-sha256",
     "curve25519-sha256@libssh.org",
@@ -70,7 +77,10 @@ MAC_ALGS = [
     "hmac-sha2-512",
     "hmac-sha1",
 ]
-COMP_ALGS = ["none", "zlib@openssh.com"]
+# OpenSSH advertises "none,zlib@openssh.com"; only "none" is offered here: a compressed stream is a
+# decompression bomb risk and carries nothing worth capturing. This is the one deliberate
+# difference in the KEXINIT besides the missing sntrup entry.
+COMP_ALGS = ["none"]
 SIG_ALGS = ["rsa-sha2-512", "rsa-sha2-256", "ecdsa-sha2-nistp256", "ssh-ed25519"]
 
 _MOTD = (
@@ -536,7 +546,8 @@ class Connection(asyncssh.SSHServer):
         return True
 
     def kbdint_auth_supported(self) -> bool:
-        return True
+        # the fake sshd_config says KbdInteractiveAuthentication no, like a stock Ubuntu image
+        return False
 
     def public_key_auth_supported(self) -> bool:
         return True
@@ -582,13 +593,6 @@ class Connection(asyncssh.SSHServer):
 
     async def validate_password(self, username: str, password: str) -> bool:
         return await self._attempt(username, password, "password")
-
-    def get_kbdint_challenge(self, username: str, lang: str, submethods: str) -> Any:
-        return ("", "", "", [("Password: ", False)])
-
-    async def validate_kbdint_response(self, username: str, responses: Any) -> Any:
-        password = responses[0] if responses else ""
-        return await self._attempt(username, str(password), "keyboard-interactive")
 
     async def validate_public_key(self, username: str, key: asyncssh.SSHKey) -> bool:
         await self._attempt(
