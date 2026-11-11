@@ -237,6 +237,68 @@ def test_eligibility_pending_is_shown_and_not_a_warning(st: Status) -> None:
     assert "standing: pending" in out
 
 
+def not_member_cli(
+    state: str = "not_joined", desired: str = "off", last_error: str | None = None
+) -> dict[str, Any]:
+    """The shape of ingest v0.11.1 for a node that is not a member: only `network` is nested."""
+    return {
+        "state": state,
+        "pseudonym": "calm-otter-12",
+        "hub": {"host": "hub.example.org", "last_contact": None, "signature_ok": True},
+        "network": {"membership": {"desired": desired, "last_error": last_error, "state": "off"}},
+        "warnings": [],
+        "errors": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("code", "text"),
+    [
+        ("egress_closed", "the path to the hub is closed (egress_closed)"),
+        ("hub_unreachable", "the hub cannot be reached (hub_unreachable)"),
+        ("something_new", "unexpected problem (something_new)"),
+    ],
+)
+def test_pending_join_with_an_error_is_a_warning(st: Status, code: str, text: str) -> None:
+    st.schedule()
+    st.set_cli(not_member_cli(desired="member", last_error=code))
+    rc, out, _ = st.run()
+    assert rc == 1
+    assert "Joining as calm-otter-12: not accepted by the hub yet." in out
+    assert f"Last problem: {text}. SuckerPot keeps trying by itself." in out
+    assert "Not joined" not in out
+    assert "join_pending" in json.loads(st.run("--json")[1])["warnings"]
+
+
+def test_pending_join_without_an_error_is_ok(st: Status) -> None:
+    st.schedule()
+    st.set_cli(not_member_cli(desired="member"))
+    rc, out, _ = st.run()
+    assert rc == 0
+    assert "Joining as calm-otter-12: not accepted by the hub yet." in out
+    assert "The request is in progress." in out
+    assert "Last problem" not in out
+
+
+def test_never_asked_and_left_still_say_not_joined(st: Status) -> None:
+    st.schedule()
+    for state in ("not_joined", "left"):
+        st.set_cli(not_member_cli(state=state, desired="off"))
+        rc, out, _ = st.run()
+        assert rc == 0
+        assert "Not joined. Join: ./scripts/participant.sh join" in out
+        assert "Joining" not in out
+
+
+def test_a_member_is_not_shown_as_joining(st: Status) -> None:
+    st.schedule()
+    st.set_cli(member_cli())
+    rc, out, _ = st.run()
+    assert rc == 0
+    assert "Member as amber-falcon-42" in out
+    assert "Joining" not in out
+
+
 def test_auto_update_off_is_a_warning_in_participant_mode_only(st: Status) -> None:
     st.set_env(AUTO_UPDATE_ENABLED="false")
     rc, out, _ = st.run()

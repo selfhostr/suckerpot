@@ -113,6 +113,8 @@ Everything then goes through the VPN, and the collector and enrichment can run. 
 
 It shows the sensors and their ports, your standing in the network, the last contact with the hub, what was sent each day, and the update schedule. Exit code 0 is OK, 1 is a warning, 2 is an error. `--json` prints the same data for monitoring tools. `--last-batch` prints the exact data of the last submission.
 
+Right after the install, the network section may say `Joining as <your pseudonym>: not accepted by the hub yet`, with the last problem (for example a closed path to the hub). Your agreement is already recorded: SuckerPot keeps trying by itself, and a problem makes the exit code 1 until the hub accepts the node.
+
 By default, your sensor counts toward confirmations after 14 days of regular batches. Until then its standing is `new`.
 
 ## Automatic updates

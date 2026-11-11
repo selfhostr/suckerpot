@@ -8,15 +8,19 @@ anywhere else (a unit test, a forgotten code path) can never reach the network: 
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 
 import httpx
 from suckerpot_egress import EgressClosed, EgressGate, EgressSettings, egress_client
 from suckerpot_egress.gate import AsnLookup, ExtraCidrs, SelfNetworks
+from suckerpot_egress.settings import MODE_DIRECT, MODE_VPN
+from suckerpot_netproto import defaults
 
 __all__ = [
     "EgressClosed",
     "EgressGate",
+    "egress_settings",
     "gate_open",
     "get_gate",
     "install_gate",
@@ -27,10 +31,21 @@ __all__ = [
 _gate: EgressGate | None = None
 
 
+def egress_settings(env: Mapping[str, str] | None = None) -> EgressSettings:
+    """``EgressSettings.from_env`` with the direct-mode scope resolved the way the network code
+    resolves its URLs (explicit value, else the shipped defaults), so the scope and the URL the
+    worker calls cannot disagree. In any other mode the result is exactly
+    ``EgressSettings.from_env``."""
+    e = dict(os.environ if env is None else env)
+    if (e.get("EGRESS_MODE", "") or MODE_VPN).strip().lower() == MODE_DIRECT:
+        e.update(defaults.scope_env(e))
+    return EgressSettings.from_env(e)
+
+
 def get_gate() -> EgressGate:
     global _gate
     if _gate is None:
-        _gate = EgressGate(EgressSettings.from_env())
+        _gate = EgressGate(egress_settings())
     return _gate
 
 
@@ -41,7 +56,7 @@ def install_gate(
     and the local ASN lookup (M23). Call it before any worker is created, so that every worker
     shares this gate."""
     gate = EgressGate(
-        EgressSettings.from_env(),
+        egress_settings(),
         extra_cidrs=extra_cidrs,
         self_networks=self_networks,
         asn_lookup=asn_lookup,

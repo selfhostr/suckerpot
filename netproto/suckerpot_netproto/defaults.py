@@ -200,6 +200,42 @@ def effective(env: Mapping[str, str], name: str) -> str:
     return "" if is_placeholder(value) else value
 
 
+def effective_pair(env: Mapping[str, str], url_name: str, key_name: str) -> tuple[str, str]:
+    """The (URL, key) a node uses. Committed defaults apply only when the operator set neither
+    value: a half-set pair is returned as is (the caller rejects it), never mixed with a default
+    of the other half. A placeholder half means "not configured": both come back empty."""
+    url = env.get(url_name, "").strip().rstrip("/")
+    key = env.get(key_name, "").strip()
+    if not url and not key:
+        url = effective(env, url_name).rstrip("/")
+        key = effective(env, key_name)
+        if not (url and key):
+            return "", ""
+    return url, key
+
+
+def _scope_url(env: Mapping[str, str], url_name: str, key_name: str, *, allow_path: bool) -> str:
+    try:
+        url, key = effective_pair(env, url_name, key_name)
+        if not (url and key):
+            return ""
+        return check_https_url(url, allow_path=allow_path)
+    except ValueError, OSError:  # DefaultsError, a urlsplit error or an unreadable file
+        return ""  # a malformed default or value closes the scope, never opens it
+
+
+def scope_env(env: Mapping[str, str]) -> dict[str, str]:
+    """The hub and feed URLs the egress gate scopes direct mode to (M32 D2): exactly what the
+    network code resolves, defaults included. ``NETWORK_HUB_URL`` / ``NETWORK_FEED_URL`` come back
+    empty when unset, half-set, a placeholder or invalid, so the scope can only shrink."""
+    return {
+        "NETWORK_HUB_URL": _scope_url(env, "NETWORK_HUB_URL", "NETWORK_HUB_KEY", allow_path=False),
+        "NETWORK_FEED_URL": _scope_url(
+            env, "NETWORK_FEED_URL", "NETWORK_FEED_KEY", allow_path=True
+        ),
+    }
+
+
 def pseudonym_words() -> tuple[tuple[str, ...], tuple[str, ...]]:
     """(adjectives, nouns) from the shared word list."""
     text = resources.files("suckerpot_netproto").joinpath("data", WORDS_FILE).read_text("utf-8")

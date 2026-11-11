@@ -76,15 +76,9 @@ class NetworkSettings:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> NetworkSettings:
         e = os.environ if env is None else env
-        url = e.get("NETWORK_HUB_URL", "").strip().rstrip("/")
-        key = e.get("NETWORK_HUB_KEY", "").strip()
-        if not url and not key:
-            # Committed defaults (M32 D5) apply only when the operator set neither value: a
-            # half-set pair is an error, never mixed with a default of the other half.
-            url = defaults.effective(e, "NETWORK_HUB_URL").rstrip("/")
-            key = defaults.effective(e, "NETWORK_HUB_KEY")
-            if not (url and key):  # a placeholder half means "not configured", never half a pair
-                url = key = ""
+        # Committed defaults (M32 D5) apply only when the operator set neither value: a
+        # half-set pair is an error, never mixed with a default of the other half.
+        url, key = defaults.effective_pair(e, "NETWORK_HUB_URL", "NETWORK_HUB_KEY")
         stack_mode = e.get("SUCKERPOT_STACK_MODE", "").strip().lower() or "full"
         if stack_mode not in ("full", "participant"):
             raise ValueError("SUCKERPOT_STACK_MODE must be full or participant")
