@@ -16,7 +16,7 @@ SuckerPot is built to be attacked. Install it on a dedicated machine that holds 
 | Shell tools | Bash 4 or newer, `git`, `curl`, and the usual GNU tools (`awk`, `sed`, `tr`, `base64`) | `ss` (from iproute2) is used for the port check. Without it the check is skipped. |
 | Docker Engine | 24 or newer, 28 or newer recommended | Before 28 the internal networks are not isolated from the host (the installer warns). Your user must run `docker` without `sudo`. The installer tells you how to add the group if not. |
 | Docker Compose | v2.24 or newer | The Compose plugin (`docker compose version` must work). |
-| Memory | 2 GiB minimum | Use [low-memory mode](#low-memory-hosts) below 6 GiB. The installer refuses below about 2 GiB. |
+| Memory | 2 GiB minimum | Use [low-memory mode](#low-memory-hosts) below 6 GiB. Below about 2 GiB the installer refuses a full install and points to `--participant --lite`. |
 | Free disk | 15 GiB minimum under Docker's data folder | The installer warns below 30 GiB. Logs and captured payloads need room. |
 | Outbound access | Yes, for the install | The host pulls images from the registry and checks their signatures. This traffic uses the host's own address. See [Anonymous egress](#what-leaves-this-machine). |
 | Router | Forwarding for the sensor ports you chose | See [Ports to forward](#ports-to-forward). |
@@ -149,7 +149,7 @@ The installer stops before it changes anything when one of these is true.
 | The checkout is a linked git worktree. | Install from a normal clone. |
 | Docker is missing or does not answer for your user. | Install Docker, or run `sudo usermod -aG docker $USER`, then log in again. |
 | Docker Engine is older than 24, or Compose older than 2.24. | Upgrade Docker. |
-| Less than about 2 GiB of memory. | Use a bigger machine. |
+| Less than about 2 GiB of memory. | Read the memory size in the message. In participant mode the installer offers the lite setup (same as `--lite`) when the machine reports between about 1 and 2 GiB, which is common on "2 GB" plans. In full mode it refuses and prints `./scripts/install.sh --participant --lite`; otherwise use a bigger machine. |
 | Less than 15 GiB free under Docker's data folder. | Free disk space. |
 | Volumes named `<prefix>_*` already exist. | An earlier install used this prefix. Restore your old `.env`, or pass another `--prefix`. The installer never adopts old volumes: the database password is stored inside them. |
 | Containers of the chosen `--project` already exist. | Pick another `--project`, or remove that stack yourself. |

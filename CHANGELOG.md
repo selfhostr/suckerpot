@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+
+### Changed
+
+- The participant installer no longer stops on a machine sold as "2 GB" that reports a little less than 2 GiB (for example 1.9 GiB). It says what the machine reports and offers the lite setup in one question (default yes; `--yes` takes it and prints a note); accepting it behaves exactly as `--lite`. Full mode and machines below the lite minimum are still refused, and the message now states the reported memory and, in full mode, the exact `--participant --lite` command. The memory thresholds are unchanged.
 ## [0.11.1] - 2026-11-11
 
 ### Added

@@ -144,9 +144,11 @@ if [ "$dry_run" = 1 ] && [ -z "$env_out" ]; then die "--dry-run needs --env-out 
 if [ "$dry_run" = 0 ] && [ -n "$env_out" ]; then die "--env-out is only for --dry-run"; fi
 case ${lowmem:-auto} in auto | on | off) ;; *) die "--lowmem must be auto, on or off" ;; esac
 lowmem=${lowmem:-auto}
-if [ "$lite" = 1 ]; then
+# Applies what --lite implies for --lowmem. Also called when the installer switches to lite itself.
+lite_lowmem() {
   case $lowmem in auto | on) lowmem=on ;; *) die "--lite needs the low-memory overlay: it cannot be combined with --lowmem off" ;; esac
-fi
+}
+if [ "$lite" = 1 ]; then lite_lowmem; fi
 
 # Interactive answers come from the terminal (or SELFHOSTR_TTY, used by the tests), so that
 # stdin stays free for --admin-password-stdin.
@@ -294,6 +296,30 @@ fi
 valid_project_name "$project" || die "bad project name '$project': use lowercase letters, digits, - and _ (at most 41 characters), and not sp-it-*, sp-test or sp-ci"
 valid_project_name "$prefix" || die "bad volume prefix '$prefix': use lowercase letters, digits, - and _ (at most 41 characters), and not sp-it-*, sp-test or sp-ci"
 
+# A machine sold as "2 GB" reports a bit less than 2 GiB. In participant mode the installer then
+# offers the lite setup and, once accepted, goes on exactly as if --lite had been given. Reading
+# /proc/meminfo needs no Docker, so this is decided before anything depends on $lite.
+if [ "$dry_run" = 0 ] && [ "$stack" = participant ] && [ "$lite" = 0 ] && { [ "$fresh" = 1 ] || [ "$switching" = 1 ]; }; then
+  early_kb=$(awk '/^MemTotal:/ {print $2}' "${SELFHOSTR_MEMINFO:-/proc/meminfo}" 2> /dev/null || true)
+  if [[ ${early_kb:-} =~ ^[0-9]+$ ]] && [ "$early_kb" -lt $((2 * 1024 * 1024 - 65536)) ] \
+    && [ "$early_kb" -ge $((1024 * 1024 - 131072)) ]; then
+    early_gib=$(awk -v k="$early_kb" 'BEGIN {printf "%.1f", k / 1048576}')
+    note "This machine reports $early_gib GiB of memory. The default setup needs 2 GiB."
+    if [ "$assume_yes" = 1 ]; then
+      note "Taking the lite setup (--lite): four sensors (SSH, Telnet, web, Redis) and lower memory limits."
+      a=yes
+    else
+      noask=0
+      ask a "Use the lite setup instead? Four sensors (SSH, Telnet, web, Redis) and lower memory limits. (yes/no)" yes
+      noask=1
+    fi
+    case $a in
+      y | yes) lite=1; lite_lowmem ;;
+      *) die "SuckerPot needs 2 GiB of memory, and this machine reports $early_gib GiB. Use a machine with 2 GiB or more, or run: ./scripts/install.sh --participant --lite" ;;
+    esac
+  fi
+fi
+
 mem_kb=0
 if [ "$dry_run" = 1 ]; then
   note "dry run: Docker, memory, disk and volume checks skipped"
@@ -315,7 +341,7 @@ else
     if [ "$lite" = 1 ]; then
       # A "1 GiB" machine reports a little less than 1 GiB to the kernel.
       if [ "$mem_kb" -lt $((1024 * 1024 - 131072)) ]; then
-        die "less than 1 GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
+        die "this machine reports $(awk -v k="$mem_kb" 'BEGIN {printf "%.1f", k / 1048576}') GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
       fi
       # Containers never swap (memswap_limit equals mem_limit). Host swap only gives the host room
       # when a burst of attacks pushes the whole machine, so the global OOM killer is less likely
@@ -330,7 +356,11 @@ else
         fi
       fi
     elif [ "$mem_kb" -lt $((2 * 1024 * 1024 - 65536)) ]; then
-      die "less than 2 GiB of memory: SuckerPot needs at least 2 GiB (with --lowmem on), or 1 GiB with --participant --lite"
+      mem_gib=$(awk -v k="$mem_kb" 'BEGIN {printf "%.1f", k / 1048576}')
+      if [ "$mem_kb" -ge $((1024 * 1024 - 131072)) ]; then
+        die "this machine reports $mem_gib GiB of memory and the full setup needs 2 GiB. Only the participant lite setup fits here: ./scripts/install.sh --participant --lite"
+      fi
+      die "this machine reports $mem_gib GiB of memory: SuckerPot needs at least 2 GiB, or 1 GiB with --participant --lite"
     fi
   fi
   if [ "$fresh" = 1 ]; then

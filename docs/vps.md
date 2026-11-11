@@ -32,6 +32,8 @@ Any provider works. Choose one that allows Linux with a public IPv4 address and 
 ./scripts/install.sh --participant --lite
 ```
 
+On a machine that reports a little less than 2 GiB (a plan sold as "2 GB" often shows about 1.9 GiB), the participant installer offers this setup by itself and, once you accept, behaves exactly as if you had passed `--lite`. With `--yes` it takes it without asking.
+
 `--lite` is for fresh participant installs only. It does two things:
 
 1. **Lower memory limits.** It adds `docker-compose.lite.yml` on top of the low-memory overlay. The database and Redis get smaller limits and smaller buffers. Ingest and the sensors keep the low-memory values (320 MiB and 128 MiB each): ingest also runs the status and update commands inside its own limit, so it is not squeezed.
