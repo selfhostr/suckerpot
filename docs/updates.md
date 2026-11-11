@@ -282,6 +282,7 @@ When the schema did not move, the database line reads `database: KEPT as it is, 
 - When the database is restored, every row written to it after the dump is gone. That includes events, sessions, indicators, reports, alerts, accounts and settings changed after the dump.
 - Only the database is restored. The other volumes, such as the sensor data, are not touched.
 - `.env` is not rolled back. Settings that the update added stay in it. Only `SUCKERPOT_VERSION` changes, in images mode.
+- The dump is restored into a side database first and swapped in only when that worked, so a failed restore leaves the current database as it was. It needs room for a second copy of the database. See [Deployment](deployment.md#data-volumes-and-backups).
 
 ### The stream buffer on update and rollback
 

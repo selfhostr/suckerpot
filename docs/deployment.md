@@ -424,7 +424,7 @@ Every data volume (`db-data`, `redis-data`, `quarantine`, `ssh-hostkeys`, `vpn-c
 
 `just up` runs `scripts/ensure-volumes.sh` first. It creates the missing volumes (`docker volume create` is idempotent) and never touches the data of an existing one. Plain `docker compose up` on a host where they do not exist fails with "external volume not found" instead of starting empty.
 
-The test overlays (`docker-compose.it.yml` for `just test-integration`, `docker-compose.ci.yml` for CI and `just up-test`) turn every volume back into a project-local one with an explicit name `test-<prefix>_<volume>`, which can never equal a live `<prefix>_<volume>` name, even when a test is given the live project name. The live recipes also refuse to run from a linked git worktree, and `just restore` checks the dump with `pg_restore -l` before it drops anything. Guardrail tests (`just guardrails`, in CI) assert that no service of either overlay mounts an external or `suckerpot_*` volume, and that the base file's data volumes are external. `just test-integration` also refuses to run unless its project name contains `-it-`, and `just up-test` never uses the live project name. Never copy `.env.example` to make a test `.env`: its project name and volume prefix are the live ones. The live recipes (`up`, `down`, `ps`, `logs`, `backup*`, `restore`, `psql`, `demo`, `egress-check`) refuse to run unless both variables are set, and `just test-integration`, `just up-test` and the CI job set their own throwaway values.
+The test overlays (`docker-compose.it.yml` for `just test-integration`, `docker-compose.ci.yml` for CI and `just up-test`) turn every volume back into a project-local one with an explicit name `test-<prefix>_<volume>`, which can never equal a live `<prefix>_<volume>` name, even when a test is given the live project name. The live recipes also refuse to run from a linked git worktree, and `just restore` restores the dump into a side database first and swaps it in only when that worked. Guardrail tests (`just guardrails`, in CI) assert that no service of either overlay mounts an external or `suckerpot_*` volume, and that the base file's data volumes are external. `just test-integration` also refuses to run unless its project name contains `-it-`, and `just up-test` never uses the live project name. Never copy `.env.example` to make a test `.env`: its project name and volume prefix are the live ones. The live recipes (`up`, `down`, `ps`, `logs`, `backup*`, `restore`, `psql`, `demo`, `egress-check`) refuse to run unless both variables are set, and `just test-integration`, `just up-test` and the CI job set their own throwaway values.
 
 ### Missing database volume
 
@@ -452,7 +452,44 @@ just restore volume:suckerpot-20261101T020000Z.dump
 just restore backups/suckerpot-20261024T020000Z.dump   # a dump file on the host
 ```
 
-This **replaces the whole database**. The script asks you to type `restore`, stops ingest and the API, recreates the database, restores the dump, runs the migrations (which re-apply the role grants) and starts ingest and the API again. Sensors keep running during a restore: their events wait in Redis and are ingested afterwards.
+This **replaces the whole database**, but only once the dump has restored cleanly. The script asks you to type `restore` (or pass `--yes`), prints the size of the dump, and then:
+
+1. checks the dump with `pg_restore -l`;
+2. restores it into a **side database** (`<db>_restore`) while ingest and the API keep running on the live database. A leftover side database of an earlier failed run is dropped first;
+3. checks the side database: `alembic_version` has exactly one row and the `events` hypertable exists. If any step fails, it drops the side database, says that nothing was changed and exits with an error. The live database and the services are untouched;
+4. only now stops ingest, the API and the backup service, refuses new connections, terminates the remaining ones (TimescaleDB keeps a background worker connected to every database with the extension) and swaps the two databases with one transaction of `ALTER DATABASE ... RENAME`: the live one becomes `<db>_before_restore`, the restored one becomes the live one. The restore refuses to start while a `<db>_before_restore` exists (see below);
+5. restarts the TimescaleDB background jobs on the restored database (a renamed database loses its scheduler), runs the migrations (which re-apply the role grants), starts ingest, the API and the backup service and waits until they are healthy. Then it drops `<db>_before_restore`, unless you pass `--keep-previous`.
+
+Sensors keep running during a restore: their events wait in Redis and are ingested afterwards.
+
+**Disk space.** Until the swap, the side database lives next to the live one, so the restore needs room for a second copy of the database (and `--keep-previous` keeps the old one until you drop it by hand). Check `docker system df` and the size of the `db-data` volume first.
+
+**A kept previous database blocks the next restore.** After `--keep-previous`, or after a restore that failed after the swap, `<db>_before_restore` may be the only copy of the data it replaced. The next restore refuses to start while it exists, changes nothing and prints this command. Drop it by hand once you no longer need it (replace `suckerpot` with your `POSTGRES_DB`):
+
+```bash
+docker compose exec -T db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE \"suckerpot_before_restore\" WITH (FORCE)"'
+```
+
+A database name longer than 47 characters is refused, because PostgreSQL cuts names at 63 bytes.
+
+**If the migration or the start fails after the swap**, both databases stay in place and the script prints the exact commands to swap back. They are:
+
+```bash
+docker compose stop ingest api backup
+docker compose exec -T db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d postgres' <<'SQL'
+ALTER DATABASE "suckerpot" ALLOW_CONNECTIONS false;
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'suckerpot' AND pid <> pg_backend_pid();
+ALTER DATABASE "suckerpot" RENAME TO "suckerpot_bad_1";
+ALTER DATABASE "suckerpot_before_restore" RENAME TO "suckerpot";
+ALTER DATABASE "suckerpot" ALLOW_CONNECTIONS true;
+SQL
+docker compose exec -T db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d suckerpot -c "SELECT timescaledb_post_restore()"'
+docker compose up -d --wait ingest api backup
+```
+
+Replace `suckerpot` with your `POSTGRES_DB`. The last `psql` call starts the TimescaleDB background jobs on the database you just renamed. The same commands work later if you used `--keep-previous` and want to go back.
+
+`just test-backup-restore` (and the CI job `backup-restore`) proves the whole path on a throwaway project: it dumps a known data set with the `backup` service, changes the data, restores the dump with `restore-db.sh`, checks the row counts, the migration head, the role grants and the TimescaleDB jobs, and then checks that a truncated dump is refused and leaves the live database alone. It refuses to run unless `COMPOSE_PROJECT_NAME` is a throwaway name and `SUCKERPOT_VOLUME_PREFIX` equals it.
 
 ### Deleting data on purpose
 
