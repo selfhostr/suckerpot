@@ -131,6 +131,7 @@ These pages are generated from the code, so they match the running version. Use 
 | `GET` | `/api/v1/search` | Global search (M19) |
 | `GET` | `/api/v1/stats/benign` | Sessions and addresses from research scanners in the last 24 hours (M19) |
 | `GET` | `/api/v1/settings/system` | Sensor status, retention policy, disk guard state and database size. See [System settings](#get-apiv1settingssystem). |
+| `GET` | `/api/v1/settings/pipeline` | Whether ingest is storing events: `ok`, `stalled` or `unknown`. See [Pipeline health](#get-apiv1settingspipeline). |
 | `GET` | `/api/v1/samples` | Files fetched by the collector, with filters and cursor paging. See [Samples and egress](#samples-and-egress-m21). |
 | `GET` | `/api/v1/samples/{sha256}` | One sample with its analysis, sources and links |
 | `GET` | `/api/v1/samples/{sha256}/chain` | The chain session, URL, sample and C2 of one sample |
@@ -425,6 +426,23 @@ Read-only data for the Settings page. Every block becomes `null` or empty when i
 | `disk_guard` | The state written by the disk guard job (see [Data retention](retention.md#disk-guard)), or `null` |
 | `ingest_disk` | The state ingest reports for its own payload trimming, or `null` |
 | `database` | `size_bytes` and `max_bytes` (from `DB_MAX_SIZE_GB`) |
+
+### `GET /api/v1/settings/pipeline`
+
+Whether ingest is storing events, read from the heartbeat row ingest keeps in the database.
+
+```json
+{"status": "ok", "last_ok_at": "2026-11-09T12:00:00Z", "stalled_for_seconds": 0, "failing_since": null, "last_error": null, "parked_events": 0}
+```
+
+| Field | Content |
+| --- | --- |
+| `status` | `unknown` when there is no heartbeat yet (a fresh install, or an ingest that predates it), `stalled` when `last_ok_at` or `failing_since` is older than `PIPELINE_STALL_SECONDS` (default 300), otherwise `ok` |
+| `last_ok_at` | The last time a full ingest loop ran without a failing batch (stamped every 30 seconds) |
+| `stalled_for_seconds` | Seconds since `last_ok_at` when `stalled`, otherwise `0` |
+| `failing_since` | Start of the current run of failing batches, or `null` |
+| `last_error` | Short description of the last failure, for example `57014 QueryCanceledError on events:ssh`, or `null` |
+| `parked_events` | Events set aside in the `events:parked` stream because the database kept refusing them, since the install |
 
 ### `GET /api/v1/settings/enrichment`
 

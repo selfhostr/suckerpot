@@ -35,7 +35,7 @@ ENV: dict[str, str] = {
 }
 PRODUCTION = "0025"
 # 0026, 0027 (M26, M27), 0028 (M29 network), 0029 (M30 feed); see the 0027 test as well
-HEAD = "0030"
+HEAD = "0031"
 M26_M27_TABLES = (
     "report_imap",
     "report_imap_state",

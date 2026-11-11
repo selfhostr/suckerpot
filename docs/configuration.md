@@ -164,6 +164,7 @@ Inside each service, Compose sets `REDIS_PASSWORD` to the password of that servi
 | --- | --- | --- | --- |
 | `API_ENABLE_DOCS` | `false` | `.env` | Serve `/docs`, `/redoc` and `/openapi.json`. Keep `false` unless you are developing. |
 | `API_ALLOWED_ORIGINS` | empty | `.env` | Extra browser origins for the live WebSocket, comma-separated, full origins such as `https://dash.example.com`. Needed behind a TLS-terminating tunnel. Same-host origins are always allowed. |
+| `PIPELINE_STALL_SECONDS` | `300` | `.env` | Seconds without an ingest heartbeat (or since the first failing batch of the current streak) before `GET /api/v1/settings/pipeline` reports `stalled`. |
 | `WEB_DIST_DIR` | `/app/web` | Code default | Folder with the built web UI. Served only when it contains an `index.html`. |
 
 ## Dashboard authentication
@@ -236,6 +237,7 @@ Defaults are set in code. Compose passes `INGEST_STREAMS` through from `.env`. T
 | `INGEST_GROUP` | `ingest` | Code default | Consumer group name |
 | `INGEST_CONSUMER` | `ingest-1` | Code default | Consumer name inside the group. Keep it stable: a stable name makes restarts take over their own pending entries. |
 | `INGEST_HEARTBEAT_PATH` | `/tmp/ingest-heartbeat` | Code default | File touched on each healthy loop. The health check reads it. |
+| `INGEST_MAX_BATCH_FAILURES` | `5` | `.env` | Failed attempts in a row (a timeout, a deadlock, a permission error) before ingest bisects the batch of that stream to find the event the database refuses. That event is copied to the capped `events:parked` stream and counted. Outages are retried forever. 1 to 100 |
 
 ## Enrichment and tagging
 

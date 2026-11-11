@@ -6,6 +6,7 @@ Read-only. Every block degrades to ``null`` / empty when its source (TimescaleDB
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -26,6 +27,8 @@ QUIET_WITHIN = timedelta(hours=24)
 AGGREGATES = ["events_hourly", "events_daily_tags", "events_daily_country", "events_daily_ip"]
 
 SensorState = Literal["active", "quiet", "silent"]
+PipelineState = Literal["ok", "stalled", "unknown"]
+DEFAULT_STALL_SECONDS = 300
 
 
 class SensorStatus(BaseModel):
@@ -52,6 +55,52 @@ class SystemSettings(BaseModel):
     disk_guard: dict[str, Any] | None
     ingest_disk: dict[str, Any] | None
     database: DatabaseSize
+
+
+class PipelineHealth(BaseModel):
+    status: PipelineState
+    last_ok_at: datetime | None
+    stalled_for_seconds: int
+    failing_since: datetime | None
+    last_error: str | None
+    parked_events: int
+
+
+def stall_seconds() -> int:
+    """``PIPELINE_STALL_SECONDS``: how long without a heartbeat before the pipeline is stalled."""
+    try:
+        value = int(os.environ.get("PIPELINE_STALL_SECONDS", ""))
+    except ValueError:
+        return DEFAULT_STALL_SECONDS
+    return value if value > 0 else DEFAULT_STALL_SECONDS
+
+
+def pipeline_health(
+    last_ok_at: datetime | None,
+    failing_since: datetime | None,
+    last_error: str | None,
+    parked_events: int,
+    now: datetime,
+    stall: int,
+) -> PipelineHealth:
+    """``unknown`` without a heartbeat (fresh install or an older ingest), ``stalled`` when the
+    heartbeat or the first failure of the current streak is older than ``stall`` seconds."""
+    limit = timedelta(seconds=stall)
+    state: PipelineState = "unknown"
+    stalled_for = 0
+    if last_ok_at is not None:
+        state = "ok"
+        if now - last_ok_at > limit or (failing_since is not None and now - failing_since > limit):
+            state = "stalled"
+            stalled_for = max(0, int((now - last_ok_at).total_seconds()))
+    return PipelineHealth(
+        status=state,
+        last_ok_at=last_ok_at,
+        stalled_for_seconds=stalled_for,
+        failing_since=failing_since,
+        last_error=last_error,
+        parked_events=parked_events,
+    )
 
 
 def sensor_state(last: datetime | None, now: datetime) -> SensorState:
@@ -134,3 +183,24 @@ async def system_settings(db: DbSession) -> SystemSettings:
             max_bytes=int(max_bytes) if isinstance(max_bytes, int | float) else None,
         ),
     )
+
+
+@router.get("/settings/pipeline", response_model=PipelineHealth)
+async def pipeline_settings(db: DbSession) -> PipelineHealth:
+    """Is ingest storing events? Read from the heartbeat row ingest keeps (``pipeline_state``)."""
+    now = datetime.now(UTC)
+    try:
+        async with db.begin_nested():
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT last_ok_at, failing_since, last_error, parked_events "
+                        "FROM pipeline_state WHERE id = 1"
+                    )
+                )
+            ).first()
+    except DBAPIError:  # table not migrated yet
+        row = None
+    if row is None:
+        return pipeline_health(None, None, None, 0, now, stall_seconds())
+    return pipeline_health(row[0], row[1], row[2], int(row[3] or 0), now, stall_seconds())
