@@ -1036,8 +1036,9 @@ if [ "$stack" = full ]; then
   hbind=$bind
   [ "$hbind" = 0.0.0.0 ] && hbind=127.0.0.1
   ok=0
+  # Host: localhost is always accepted by the API, whatever address the dashboard is bound to.
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -fsS --max-time 5 "http://$hbind:$dport/healthz" > /dev/null 2>&1; then ok=1; break; fi
+    if curl -fsS --max-time 5 -H "Host: localhost" "http://$hbind:$dport/healthz" > /dev/null 2>&1; then ok=1; break; fi
     sleep 3
   done
   [ "$ok" = 1 ] || die "the dashboard does not answer on http://$hbind:$dport/healthz. See: docker compose logs api"

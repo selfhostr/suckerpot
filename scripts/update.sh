@@ -368,8 +368,10 @@ if [ "$stack_mode" = participant ]; then
 else
   health_service=api
   ok=0
+  # Host: localhost is always accepted by the API. Without it, a dashboard bound to a LAN address
+  # with API_ALLOWED_ORIGINS set answers 400 (the address is not an allowed host).
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -fsS --max-time 5 "http://$bind:$dport/healthz" > /dev/null 2>&1; then ok=1; break; fi
+    if curl -fsS --max-time 5 -H "Host: localhost" "http://$bind:$dport/healthz" > /dev/null 2>&1; then ok=1; break; fi
     sleep 3
   done
   [ "$ok" = 1 ] || release_or_warn api "the dashboard does not answer on http://$bind:$dport/healthz"

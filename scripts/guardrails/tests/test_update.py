@@ -521,6 +521,18 @@ def test_full_mode_health_is_unchanged(sandbox: Sandbox) -> None:
     assert any(c.startswith("curl") and "/healthz" in c for c in calls)
 
 
+def test_dashboard_probe_uses_a_host_the_api_always_accepts(sandbox: Sandbox) -> None:
+    """A dashboard bound to a LAN address with API_ALLOWED_ORIGINS set rejects its own address."""
+    prepare(sandbox)
+    sandbox.write_env(ENV + "DASHBOARD_BIND=192.0.2.10\n")
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert (
+        "curl -fsS --max-time 5 -H Host: localhost http://192.0.2.10:8443/healthz"
+        in sandbox.calls()
+    )
+
+
 def test_a_second_update_cannot_run_while_the_lock_is_held(sandbox: Sandbox) -> None:
     prepare(sandbox)
     state = sandbox.root / ".suckerpot-state"

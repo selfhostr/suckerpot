@@ -278,7 +278,7 @@ def test_full_install_with_fake_docker(
     assert "docker volume create suckerpot_db-data" in calls
     assert "docker compose pull --policy missing" in calls
     assert "docker compose up -d --no-build --pull never --wait --wait-timeout 600" in calls
-    assert "curl -fsS --max-time 5 http://127.0.0.1:8443/healthz" in calls
+    assert "curl -fsS --max-time 5 -H Host: localhost http://127.0.0.1:8443/healthz" in calls
     log = (sandbox.root / "install.log").read_text()
     assert PASSWORD not in log
     assert all(env[name] not in log for name in SECRET_NAMES)
