@@ -153,6 +153,11 @@ if [ "$lite" = 1 ]; then lite_lowmem; fi
 # A machine sold as "2 GB" reports clearly less than 2 GiB to the kernel (a real one: MemTotal
 # 2009976 kB), so the 2 GiB bar is 1.75 GiB. The low-memory setup runs there, with swap.
 full_min_kb=$((2 * 1024 * 1024 - 262144))
+# A "1 GiB" machine reports a little less than 1 GiB to the kernel.
+lite_min_kb=$((1024 * 1024 - 131072))
+
+# gib KB: memory in GiB with one decimal.
+gib() { awk -v k="$1" 'BEGIN {printf "%.1f", k / 1048576}'; }
 
 # swap_check "what the machine is": warns when there is little swap, then asks (not with --yes).
 # Containers never swap (memswap_limit equals mem_limit). Host swap only gives the host room
@@ -164,7 +169,7 @@ swap_check() {
   if [ "$swap_kb" -lt $((512 * 1024)) ]; then
     warn "this machine has less than 512 MiB of swap. On $1, a burst of attacks can make the kernel kill a container (the database included). Add 1 GiB of swap first (docs/vps.md)."
     if [ "$assume_yes" = 0 ]; then
-      ask a "Continue without enough swap? (yes/no)" no
+      ask_always a "Continue without enough swap? (yes/no)" no
       case $a in y | yes) ;; *) die "add swap, then run the installer again" ;; esac
     fi
   fi
@@ -192,6 +197,14 @@ ask() {
   printf '  %s [%s]: ' "$__q" "$__d" >&2
   IFS= read -r __ans <&3 || __ans=""
   printf -v "$__var" %s "${__ans:-$__d}"
+}
+
+# ask_always: like ask, but participant mode does not skip the question. Only --yes does.
+ask_always() {
+  local __keep=$noask
+  noask=$assume_yes
+  ask "$@"
+  noask=$__keep
 }
 
 # ---------------------------------------------------------------- 1. preflight
@@ -322,17 +335,13 @@ valid_project_name "$prefix" || die "bad volume prefix '$prefix': use lowercase 
 if [ "$dry_run" = 0 ] && [ "$stack" = participant ] && [ "$lite" = 0 ] && { [ "$fresh" = 1 ] || [ "$switching" = 1 ]; }; then
   early_kb=$(awk '/^MemTotal:/ {print $2}' "${SELFHOSTR_MEMINFO:-/proc/meminfo}" 2> /dev/null || true)
   if [[ ${early_kb:-} =~ ^[0-9]+$ ]] && [ "$early_kb" -lt "$full_min_kb" ] \
-    && [ "$early_kb" -ge $((1024 * 1024 - 131072)) ]; then
-    early_gib=$(awk -v k="$early_kb" 'BEGIN {printf "%.1f", k / 1048576}')
+    && [ "$early_kb" -ge "$lite_min_kb" ]; then
+    early_gib=$(gib "$early_kb")
     note "This machine reports $early_gib GiB of memory. The default setup needs 2 GiB."
     if [ "$assume_yes" = 1 ]; then
       note "Taking the lite setup (--lite): four sensors (SSH, Telnet, web, Redis) and lower memory limits."
-      a=yes
-    else
-      noask=0
-      ask a "Use the lite setup instead? Four sensors (SSH, Telnet, web, Redis) and lower memory limits. (yes/no)" yes
-      noask=1
     fi
+    ask_always a "Use the lite setup instead? Four sensors (SSH, Telnet, web, Redis) and lower memory limits. (yes/no)" yes
     case $a in
       y | yes) lite=1; lite_lowmem ;;
       *) die "SuckerPot needs 2 GiB of memory, and this machine reports $early_gib GiB. Use a machine with 2 GiB or more, or run: ./scripts/install.sh --participant --lite" ;;
@@ -359,14 +368,13 @@ else
   [[ ${mem_kb:-} =~ ^[0-9]+$ ]] || die "cannot read the memory size from $meminfo"
   if [ "$fresh" = 1 ] || [ "$switching" = 1 ]; then
     if [ "$lite" = 1 ]; then
-      # A "1 GiB" machine reports a little less than 1 GiB to the kernel.
-      if [ "$mem_kb" -lt $((1024 * 1024 - 131072)) ]; then
-        die "this machine reports $(awk -v k="$mem_kb" 'BEGIN {printf "%.1f", k / 1048576}') GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
+      if [ "$mem_kb" -lt "$lite_min_kb" ]; then
+        die "this machine reports $(gib "$mem_kb") GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
       fi
       swap_check "1 GiB"
     elif [ "$mem_kb" -lt "$full_min_kb" ]; then
-      mem_gib=$(awk -v k="$mem_kb" 'BEGIN {printf "%.1f", k / 1048576}')
-      if [ "$mem_kb" -ge $((1024 * 1024 - 131072)) ]; then
+      mem_gib=$(gib "$mem_kb")
+      if [ "$mem_kb" -ge "$lite_min_kb" ]; then
         die "this machine reports $mem_gib GiB of memory and the full setup needs 2 GiB. Only the participant lite setup fits here: ./scripts/install.sh --participant --lite"
       fi
       die "this machine reports $mem_gib GiB of memory: SuckerPot needs at least 2 GiB, or 1 GiB with --participant --lite"

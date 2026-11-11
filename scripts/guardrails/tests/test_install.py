@@ -1555,3 +1555,38 @@ def test_just_under_the_new_bar_is_offered_lite(psb: Sandbox) -> None:
     rc, out = _lite_run(psb)
     assert rc == 0, out
     assert "Taking the lite setup (--lite)" in out
+
+
+def _no_swap(sb: Sandbox, mem_kb: int) -> None:
+    _with_overlays(sb, mem_kb)
+    (sb.shim / "meminfo").write_text(f"MemTotal:        {mem_kb} kB\n")
+
+
+def test_participant_asks_the_swap_question_and_yes_goes_on(psb: Sandbox) -> None:
+    _no_swap(psb, REAL_2GB_KB)
+    rc, out = _ask_run(psb, "yes\ny\n")
+    assert rc == 0, out
+    assert "Continue without enough swap? (yes/no) [no]" in out
+    assert (psb.root / ".env").exists()
+
+
+def test_participant_swap_question_no_or_enter_stops(psb: Sandbox) -> None:
+    for answers in ("no\n", "\n"):
+        _no_swap(psb, REAL_2GB_KB)
+        rc, out = _ask_run(psb, answers + "y\n")
+        assert rc != 0, out
+        assert "Continue without enough swap?" in out
+        assert "add swap, then run the installer again" in out
+        assert not (psb.root / ".env").exists()
+
+
+def test_explicit_lite_on_one_gib_asks_the_swap_question(psb: Sandbox) -> None:
+    _no_swap(psb, 990000)
+    rc, out = _ask_run(psb, "yes\ny\n", "--lite")
+    assert rc == 0, out
+    assert "Continue without enough swap?" in out
+    assert (psb.root / ".env").exists()
+    (psb.root / ".env").unlink()
+    for answers in ("no\n", "\n"):
+        rc, out = _ask_run(psb, answers + "y\n", "--lite")
+        assert rc != 0 and "add swap, then run the installer again" in out
