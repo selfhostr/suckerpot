@@ -16,7 +16,7 @@ SuckerPot is built to be attacked. Use a dedicated machine that holds nothing el
 
 | Item | Needed |
 | --- | --- |
-| Machine | A Linux VM or small server, `x86_64` or `aarch64`, with 2 GiB of memory or more and 15 GiB of free disk. A plan sold as "2 GB" often reports about 1.9 GiB: the installer then offers the lite setup by itself. A 1 GiB VPS or Raspberry Pi works with `--lite` |
+| Machine | A Linux VM or small server, `x86_64` or `aarch64`, with 2 GiB of memory (a plan sold as "2 GB", about 1.9 GiB, is fine: add swap) and 15 GiB of free disk. A 1 GiB VPS or Raspberry Pi works with `--lite` |
 | Software | Docker Engine 24+ with the Compose plugin, `git`, `curl`, Bash 4+. Your user must run `docker` without `sudo` |
 | Router | You can forward ports to this machine (not needed on a VPS) |
 | VPN | Not needed |
@@ -37,7 +37,7 @@ The installer prints what it will share and asks one question: `Join the SuckerP
 
 It then creates every secret on this machine, starts the sensors, the database, the ingest service and the network node, and picks a random pseudonym such as `amber-falcon-42`. Memory use is about 2 GiB.
 
-If the machine reports less than 2 GiB (many "2 GB" plans do, with about 1.9 GiB), the installer says so and offers the lite setup in one question (default yes; `--yes` takes it and prints a note). Accepting it is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
+A machine sold as "2 GB" reports about 1.9 GiB and runs the default setup with the low-memory limits: add swap (the installer warns and asks when there is less than 512 MiB). If the machine reports less than 1.75 GiB, the installer says so and offers the lite setup in one question (default yes; `--yes` takes it and prints a note). Accepting it is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
 
 Near the end it offers the **host firewall**: `Install the host firewall now? ... Needs sudo. [Y/n]`. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. It asks for your `sudo` password on the terminal. If you say no, or run with `--yes`, it prints the two commands to run later; you can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
 

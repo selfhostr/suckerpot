@@ -150,6 +150,26 @@ lite_lowmem() {
 }
 if [ "$lite" = 1 ]; then lite_lowmem; fi
 
+# A machine sold as "2 GB" reports clearly less than 2 GiB to the kernel (a real one: MemTotal
+# 2009976 kB), so the 2 GiB bar is 1.75 GiB. The low-memory setup runs there, with swap.
+full_min_kb=$((2 * 1024 * 1024 - 262144))
+
+# swap_check "what the machine is": warns when there is little swap, then asks (not with --yes).
+# Containers never swap (memswap_limit equals mem_limit). Host swap only gives the host room
+# when a burst of attacks pushes the whole machine, so the global OOM killer is less likely
+# to restart the database.
+swap_check() {
+  swap_kb=$(awk '/^SwapTotal:/ {print $2}' "$meminfo" 2> /dev/null || true)
+  [[ ${swap_kb:-} =~ ^[0-9]+$ ]] || swap_kb=0
+  if [ "$swap_kb" -lt $((512 * 1024)) ]; then
+    warn "this machine has less than 512 MiB of swap. On $1, a burst of attacks can make the kernel kill a container (the database included). Add 1 GiB of swap first (docs/vps.md)."
+    if [ "$assume_yes" = 0 ]; then
+      ask a "Continue without enough swap? (yes/no)" no
+      case $a in y | yes) ;; *) die "add swap, then run the installer again" ;; esac
+    fi
+  fi
+}
+
 # Interactive answers come from the terminal (or SELFHOSTR_TTY, used by the tests), so that
 # stdin stays free for --admin-password-stdin.
 if [ "$assume_yes" = 0 ]; then
@@ -301,7 +321,7 @@ valid_project_name "$prefix" || die "bad volume prefix '$prefix': use lowercase 
 # /proc/meminfo needs no Docker, so this is decided before anything depends on $lite.
 if [ "$dry_run" = 0 ] && [ "$stack" = participant ] && [ "$lite" = 0 ] && { [ "$fresh" = 1 ] || [ "$switching" = 1 ]; }; then
   early_kb=$(awk '/^MemTotal:/ {print $2}' "${SELFHOSTR_MEMINFO:-/proc/meminfo}" 2> /dev/null || true)
-  if [[ ${early_kb:-} =~ ^[0-9]+$ ]] && [ "$early_kb" -lt $((2 * 1024 * 1024 - 65536)) ] \
+  if [[ ${early_kb:-} =~ ^[0-9]+$ ]] && [ "$early_kb" -lt "$full_min_kb" ] \
     && [ "$early_kb" -ge $((1024 * 1024 - 131072)) ]; then
     early_gib=$(awk -v k="$early_kb" 'BEGIN {printf "%.1f", k / 1048576}')
     note "This machine reports $early_gib GiB of memory. The default setup needs 2 GiB."
@@ -343,24 +363,16 @@ else
       if [ "$mem_kb" -lt $((1024 * 1024 - 131072)) ]; then
         die "this machine reports $(awk -v k="$mem_kb" 'BEGIN {printf "%.1f", k / 1048576}') GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
       fi
-      # Containers never swap (memswap_limit equals mem_limit). Host swap only gives the host room
-      # when a burst of attacks pushes the whole machine, so the global OOM killer is less likely
-      # to restart the database.
-      swap_kb=$(awk '/^SwapTotal:/ {print $2}' "$meminfo" 2> /dev/null || true)
-      [[ ${swap_kb:-} =~ ^[0-9]+$ ]] || swap_kb=0
-      if [ "$swap_kb" -lt $((512 * 1024)) ]; then
-        warn "this machine has less than 512 MiB of swap. On 1 GiB, a burst of attacks can make the kernel kill a container (the database included). Add 1 GiB of swap first (docs/vps.md)."
-        if [ "$assume_yes" = 0 ]; then
-          ask a "Continue without enough swap? (yes/no)" no
-          case $a in y | yes) ;; *) die "add swap, then run the installer again" ;; esac
-        fi
-      fi
-    elif [ "$mem_kb" -lt $((2 * 1024 * 1024 - 65536)) ]; then
+      swap_check "1 GiB"
+    elif [ "$mem_kb" -lt "$full_min_kb" ]; then
       mem_gib=$(awk -v k="$mem_kb" 'BEGIN {printf "%.1f", k / 1048576}')
       if [ "$mem_kb" -ge $((1024 * 1024 - 131072)) ]; then
         die "this machine reports $mem_gib GiB of memory and the full setup needs 2 GiB. Only the participant lite setup fits here: ./scripts/install.sh --participant --lite"
       fi
       die "this machine reports $mem_gib GiB of memory: SuckerPot needs at least 2 GiB, or 1 GiB with --participant --lite"
+    elif [ "$mem_kb" -lt $((2 * 1024 * 1024)) ]; then
+      # Sold as 2 GB: the low-memory limits add up to about the whole machine.
+      swap_check "about 2 GiB"
     fi
   fi
   if [ "$fresh" = 1 ]; then

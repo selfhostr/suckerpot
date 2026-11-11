@@ -1360,7 +1360,8 @@ def test_admin_ssh_port_defaults_from_sshd_when_22_is_free(
 
 # --- A "2 GB" machine reports a bit less than 2 GiB: participant mode offers --lite -------------
 
-SMALL_KB = 2_009_976  # 1.9 GiB, what a real plan sold as "2 GB" reports
+SMALL_KB = 1_500_000  # 1.4 GiB, below the 1.75 GiB bar of the default setup
+REAL_2GB_KB = 2_009_976  # 1.9 GiB, what a real plan sold as "2 GB" reports
 LITE_COMPOSE = (
     "docker-compose.yml:docker-compose.lowmem.yml:docker-compose.lite.yml"
     ":docker-compose.participant.yml"
@@ -1397,7 +1398,7 @@ def test_small_machine_accepting_the_offer_installs_as_lite(
     _small_machine(psb)
     rc, out = _ask_run(psb, "yes\ny\n")
     assert rc == 0, out
-    assert "reports 1.9 GiB of memory" in out and "needs 2 GiB" in out
+    assert "reports 1.4 GiB of memory" in out and "needs 2 GiB" in out
     assert "Use the lite setup instead?" in out
     env = parse_env(psb.root / ".env")
     assert env["COMPOSE_FILE"] == LITE_COMPOSE
@@ -1428,7 +1429,7 @@ def test_small_machine_refusing_the_offer_names_the_ways_out(psb: Sandbox) -> No
     _small_machine(psb)
     rc, out = _ask_run(psb, "no\n")
     assert rc != 0
-    assert "reports 1.9 GiB" in out
+    assert "reports 1.4 GiB" in out
     assert "2 GiB or more" in out and "--participant --lite" in out
     assert not (psb.root / ".env").exists()
 
@@ -1474,7 +1475,7 @@ def test_full_mode_on_a_small_machine_points_to_participant_lite(psb: Sandbox) -
     )
     out = proc.stdout + proc.stderr
     assert proc.returncode != 0
-    assert "reports 1.9 GiB of memory" in out
+    assert "reports 1.4 GiB of memory" in out
     assert "./scripts/install.sh --participant --lite" in out
 
 
@@ -1495,3 +1496,62 @@ def test_below_the_lite_minimum_is_refused_with_the_reported_size(psb: Sandbox) 
     rc, out = _lite_run(psb)
     assert rc != 0
     assert "reports 0.5 GiB of memory" in out
+
+
+def test_real_two_gb_machine_runs_the_default_setup(
+    psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    assert "lite setup" not in out and "swap" not in out
+    env = parse_env(psb.root / ".env")
+    assert env["COMPOSE_FILE"] == (
+        "docker-compose.yml:docker-compose.lowmem.yml:docker-compose.participant.yml"
+    )
+    assert len(_lite_sensors(env)) >= 5 and "redis" in _lite_sensors(env)
+
+
+def test_real_two_gb_machine_interactive_is_not_offered_lite(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    rc, out = _ask_run(psb, "y\n")
+    assert rc == 0, out
+    assert "Use the lite setup instead?" not in out
+    assert "docker-compose.lite.yml" not in (psb.root / ".env").read_text()
+
+
+def test_real_two_gb_machine_without_swap_warns_and_yes_goes_on(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    (psb.shim / "meminfo").write_text(f"MemTotal:        {REAL_2GB_KB} kB\n")
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    assert "less than 512 MiB of swap" in out and "about 2 GiB" in out
+
+
+def test_real_two_gb_machine_without_swap_asks_and_no_stops(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    (psb.shim / "meminfo").write_text(f"MemTotal:        {REAL_2GB_KB} kB\n")
+    rc, out = _ask_run(psb, "no\n")
+    assert rc != 0 and "add swap" in out
+    assert not (psb.root / ".env").exists()
+
+
+def test_real_two_gb_machine_full_mode_is_accepted(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    proc = psb.run(
+        "scripts/install.sh",
+        "--full",
+        "--yes",
+        "--version",
+        "v0.8.0",
+        "--admin-password-stdin",
+        stdin=PASSWORD + "\n",
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_just_under_the_new_bar_is_offered_lite(psb: Sandbox) -> None:
+    _small_machine(psb, 1_835_007)
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    assert "Taking the lite setup (--lite)" in out
