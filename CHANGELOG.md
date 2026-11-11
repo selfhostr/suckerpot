@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A fresh install no longer fails with `backup` stuck waiting. The `db` healthcheck now probes over TCP (`pg_isready -h 127.0.0.1`), so the database reports healthy only once it accepts network connections, not while the image still runs its temporary start-up server on the Unix socket. The `backup` service also retries a failed dump after 30 s, 60 s, 120 s and so on (never later than the hourly check) instead of waiting an hour. The hub database healthcheck got the same TCP probe.
+
 ## [0.11.1] - 2026-11-11
 
 ### Added

@@ -27,6 +27,30 @@ def test_overlays_keep_the_guardrails(overlay: str) -> None:
     assert check_compose(load_compose([BASE, ROOT / overlay])) == []
 
 
+@pytest.mark.parametrize(
+    "overlay",
+    [
+        "docker-compose.ci.yml",
+        "docker-compose.it.yml",
+        "docker-compose.lite.yml",
+        "docker-compose.lowmem.yml",
+        "docker-compose.participant.yml",
+    ],
+)
+def test_db_healthcheck_probes_over_tcp(overlay: str) -> None:
+    """On a fresh volume the image first runs a temporary server on the Unix socket only. A socket
+    probe passes then, and dependants (migrate, ingest, api, backup) are refused over TCP."""
+    for files in ([BASE], [BASE, ROOT / overlay]):
+        test = " ".join(load_compose(files)["services"]["db"]["healthcheck"]["test"])
+        assert "pg_isready" in test
+        assert "-h 127.0.0.1" in test
+
+
+@pytest.mark.parametrize("name", ["docker-compose.yml", "docker-compose.test.yml"])
+def test_hub_db_healthcheck_probes_over_tcp(name: str) -> None:
+    assert "pg_isready -h 127.0.0.1" in (ROOT / "hub" / name).read_text()
+
+
 def test_it_overlay_override_tag_is_applied() -> None:
     merged = load_compose([BASE, ROOT / "docker-compose.it.yml"])
     assert merged["services"]["redis"]["networks"] == ["backend"]

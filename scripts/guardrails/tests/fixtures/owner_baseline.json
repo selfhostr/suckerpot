@@ -594,7 +594,7 @@
     "start_period": "30s",
     "test": [
      "CMD-SHELL",
-     "pg_isready -q -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""
+     "pg_isready -q -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""
     ],
     "timeout": "5s"
    },
