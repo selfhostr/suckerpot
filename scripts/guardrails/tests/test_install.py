@@ -816,7 +816,7 @@ def test_participant_install_with_fake_docker(
     assert re.search(r"22\s+->\s+22\s+TCP\s+ssh", out)
     assert re.search(r"443\s+->\s+443\s+TCP\s+web", out)
     assert "./scripts/status.sh" in out
-    assert "22222" not in out
+    assert "2200" not in out
     assert "8443" not in out
     # Scheduled once, with the marker, at a random time between 03:00 and 05:59.
     cron = [line for line in crontab_text(psb).splitlines() if "selfhostr-auto-update" in line]

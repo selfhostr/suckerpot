@@ -153,7 +153,7 @@ def test_dashboard_never_uses_a_sensor_port_or_the_admin_port() -> None:
     ports = compose["services"]["api"]["ports"]
     assert len(ports) == 1
     assert "DASHBOARD_PORT" in ports[0]
-    assert "22222" not in json.dumps(compose["services"])
+    assert "2200" not in json.dumps(compose["services"])
 
 
 @pytest.mark.parametrize(
@@ -241,11 +241,11 @@ def _dashboard_on_ssh_port(c: dict[str, Any]) -> None:
 
 
 def _dashboard_on_admin_port(c: dict[str, Any]) -> None:
-    c["services"]["api"]["ports"] = ["127.0.0.1:22222:8000"]
+    c["services"]["api"]["ports"] = ["127.0.0.1:2200:8000"]
 
 
 def _sensor_on_admin_port(c: dict[str, Any]) -> None:
-    c["services"]["sensor-web"]["ports"] = ["0.0.0.0:22222:8080"]
+    c["services"]["sensor-web"]["ports"] = ["0.0.0.0:2200:8080"]
 
 
 def _collector_in_direct(c: dict[str, Any]) -> None:
@@ -282,6 +282,18 @@ MUTATIONS = [
 def test_mutations_are_caught(mutation: Any) -> None:
     for profiles in PROFILES:
         assert check_participant(_mutated(mutation), profiles) != [], profiles
+
+
+def test_admin_port_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An operator whose admin SSH daemon sits on a port that is also a sensor default (here 22)
+    # sets ADMIN_SSH_PORT: the guardrail then refuses to publish it. Unset, the allow-list
+    # check alone applies and the shipped compose is clean.
+    monkeypatch.delenv("ADMIN_SSH_PORT", raising=False)
+    assert check_participant(_participant(), ["direct"]) == []
+    monkeypatch.setenv("ADMIN_SSH_PORT", "22")
+    assert any("admin SSH port" in p for p in check_participant(_participant(), ["direct"]))
+    monkeypatch.setenv("ADMIN_SSH_PORT", "")
+    assert check_participant(_participant(), ["direct"]) == []
 
 
 def test_vpn_and_hubproxy_running_together_is_caught() -> None:
