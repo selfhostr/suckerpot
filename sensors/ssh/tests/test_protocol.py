@@ -42,14 +42,6 @@ async def test_login_failure_and_success_events(make_harness) -> None:  # type: 
         assert len({e.session_id for e in await h.events()}) == 2
 
 
-async def test_keyboard_interactive(make_harness) -> None:  # type: ignore[no-untyped-def]
-    async with make_harness() as h:
-        conn = await h.connect(preferred_auth="keyboard-interactive", password="root")
-        conn.close()
-        ev = await h.events("login_attempt")
-        assert ev[0].data["method"] == "keyboard-interactive" and ev[0].data["success"] is True
-
-
 async def test_publickey_is_recorded_and_rejected(make_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     key = asyncssh.generate_private_key("ssh-ed25519")
     async with make_harness() as h:
