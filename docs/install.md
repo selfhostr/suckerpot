@@ -48,12 +48,12 @@ The mode is saved as `SUCKERPOT_INSTALL_MODE` in `.env`. Updates use the same mo
 Clone a release tag, then run the installer from the checkout:
 
 ```bash
-git clone --depth 1 --branch v0.11.0 https://github.com/selfhostr/suckerpot.git
+git clone --depth 1 --branch v0.11.1 https://github.com/selfhostr/suckerpot.git
 cd suckerpot
 ./scripts/install.sh
 ```
 
-Replace `v0.11.0` with the release you want. The tag is the release name on the repository's Releases page.
+Replace `v0.11.1` with the release you want. The tag is the release name on the repository's Releases page.
 
 If you clone without a tag, or you want to build from source, run:
 
