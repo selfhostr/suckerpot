@@ -71,6 +71,14 @@ class BuildResult:
     dropped: dict[str, int] = field(default_factory=dict)
 
 
+BATCH_LISTS: Final = ("sources", "payloads", "c2", "files")
+
+
+def batch_counts(batch: dict[str, Any]) -> dict[str, int]:
+    """Item counts of a batch body, with the four keys the hub reports."""
+    return {k: len(batch[k]) for k in BATCH_LISTS}
+
+
 def file_type_of(kind: str | None, arch: str | None) -> str | None:
     """The coarse file type of a sample's kind and architecture, or ``None``."""
     if kind == "elf":
@@ -378,7 +386,7 @@ class BatchBuilder:
             cut = max(1, len(sources) // 10)
             del sources[-cut:]
             dropped["cap"] = dropped.get("cap", 0) + cut
-        counts = {k: len(batch[k]) for k in ("sources", "payloads", "c2", "files")}
+        counts = batch_counts(batch)
         # The whole body once more, then the wire models (the hub's own validation).
         whole = guard(batch, terms, fmt="json", ctx=self._ctx())
         if not set(whole.codes) <= {"no_self_address"}:

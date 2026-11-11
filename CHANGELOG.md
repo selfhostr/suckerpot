@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final
   dashboard check sent the bind address as `Host`, which the API rejects; it now sends
   `localhost`, which the API always accepts.
+- The network status no longer shows "0 sent" for a day whose batch was sent twice (after a
+  restart or a lost answer). When the hub reports it already holds the batch, the node now
+  records the item counts it sent instead of the hub's zeros.
 
 ## [0.11.2] - 2026-11-11
 

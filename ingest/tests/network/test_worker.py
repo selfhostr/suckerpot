@@ -316,6 +316,41 @@ async def _pending_rig() -> tuple[Rig, MemoryStore]:
     return rig, store
 
 
+async def test_a_duplicate_answer_to_a_resend_keeps_the_sent_counts() -> None:
+    rig, store = await _pending_rig()
+    stored = store.subs[date(2026, 11, 1)]["payload"]
+    expected = {k: len(stored[k]) for k in ("sources", "payloads", "c2", "files")}
+    assert sum(expected.values()) > 0
+    rig.hub.duplicate = True
+    await rig.cycle()
+    row = store.subs[date(2026, 11, 1)]
+    assert row["status"] == "sent" and row["counts"] == expected
+
+
+async def test_a_duplicate_answer_to_a_fresh_build_keeps_the_sent_counts() -> None:
+    store = member_store()
+    rig = Rig(store)
+    rig.hub.duplicate = True
+    await rig.cycle()
+    row = store.subs[date(2026, 11, 1)]
+    posted = next(b for b in rig.hub.bodies if b.get("day") == "2026-11-01")
+    expected = {k: len(posted[k]) for k in ("sources", "payloads", "c2", "files")}
+    assert sum(expected.values()) > 0
+    assert row["status"] == "sent" and row["counts"] == expected
+
+
+async def test_a_normal_answer_records_the_hub_numbers_even_when_lower() -> None:
+    store = member_store()
+    rig = Rig(store)
+    rig.hub.accept_at_most = 0
+    await rig.cycle()
+    row = store.subs[date(2026, 11, 1)]
+    posted = next(b for b in rig.hub.bodies if b.get("day") == "2026-11-01")
+    assert sum(len(posted[k]) for k in ("sources", "payloads", "c2", "files")) > 0
+    assert row["status"] == "sent"
+    assert row["counts"] == {"sources": 0, "payloads": 0, "c2": 0, "files": 0}
+
+
 async def test_a_stored_batch_is_guarded_again_before_the_resend() -> None:
     rig, store = await _pending_rig()
     sent = len(rig.hub.bodies)

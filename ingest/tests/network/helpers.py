@@ -148,6 +148,8 @@ class FakeHub:
         self.node_key: str | None = None
         self.deleted = False
         self.fail_once: dict[str, tuple[int, str]] = {}  # same as ``fail``, consumed on use
+        self.duplicate = False  # answer observations as already held (zero accepted)
+        self.accept_at_most: int | None = None  # cap each accepted counter (hub rejects the rest)
         self.alt_seed: bytes | None = None  # also sign with this key in the Alt header
         self.primary_signs = True  # False: only the Alt header carries a valid signature
         self.verify_refs: list[str] = []  # blinded hashes of /v1/verify/reveals
@@ -256,6 +258,11 @@ class FakeHub:
         if route == "POST /v1/observations":
             b = self.bodies[-1]
             counts = {k: len(b[k]) for k in ("sources", "payloads", "c2", "files")}
+            if self.duplicate:  # the hub already holds this batch id
+                zeros = dict.fromkeys(counts, 0)
+                return 200, {"accepted": zeros, "rejected": {}, "duplicate": True}
+            if self.accept_at_most is not None:
+                counts = {k: min(v, self.accept_at_most) for k, v in counts.items()}
             return 200, {"accepted": counts, "rejected": {}, "duplicate": False}
         if route == "DELETE /v1/node":
             self.deleted = True

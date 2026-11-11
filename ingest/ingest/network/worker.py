@@ -35,7 +35,7 @@ from ingest.features import FeatureSettings, FeatureWorker
 
 from . import identity as ident
 from . import participant, pseudonym, scheduler, sync, verify_reveal
-from .builder import BatchBuilder, TermsSource
+from .builder import BatchBuilder, TermsSource, batch_counts
 from .client import HubClient, HubError, HubNoVerify, HubUnavailable
 from .config import NetworkSettings
 from .powproc import solve_low_priority
@@ -582,9 +582,16 @@ class NetworkWorker(FeatureWorker):
                     dropped=dropped, error_code="hub_unreachable", payload=None, sent_at=None,
                 )  # fmt: skip
                 raise
+            # A duplicate answer carries zeros (the hub already held the batch): record what
+            # was sent instead. Otherwise the hub's numbers are the truth (it may reject items).
+            sent_counts = (
+                batch_counts(batch)
+                if answer.duplicate
+                else {k: int(v) for k, v in answer.accepted.items()}
+            )
             await store.record_submission(
                 day, batch_id=batch["batch_id"], status="sent",
-                counts={k: int(v) for k, v in answer.accepted.items()}, dropped=dropped,
+                counts=sent_counts, dropped=dropped,
                 error_code=None, payload=None, sent_at=self._now(),
             )  # fmt: skip
             await store.update(last_submit_day=day)
