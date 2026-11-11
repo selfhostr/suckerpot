@@ -31,6 +31,7 @@ export function systemSettings(): SystemSettings {
     retention: {
       raw_days: 90,
       compression_after_days: 7,
+      oldest_event_at: daysAgo(21),
       aggregates: ["events_hourly", "events_daily_tags", "events_daily_country", "events_daily_ip"],
     },
     disk_guard: {
