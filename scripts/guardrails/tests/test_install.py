@@ -1296,7 +1296,7 @@ def test_lite_is_a_participant_flag(sandbox: Sandbox) -> None:
 
 
 def test_default_participant_install_still_needs_two_gib(psb: Sandbox) -> None:
-    _with_overlays(psb, 990000)
+    _with_overlays(psb, 800000)
     rc, out = _lite_run(psb, "--sensors", "ssh,web")
     assert rc != 0 and "2 GiB" in out
 
@@ -1356,3 +1356,237 @@ def test_admin_ssh_port_defaults_from_sshd_when_22_is_free(
     rc, out = p_real(psb)
     assert rc == 0, out
     assert parse_env(psb.root / ".env")["ADMIN_SSH_PORT"] == "52022"
+
+
+# --- A "2 GB" machine reports a bit less than 2 GiB: participant mode offers --lite -------------
+
+SMALL_KB = 1_500_000  # 1.4 GiB, below the 1.75 GiB bar of the default setup
+REAL_2GB_KB = 2_009_976  # 1.9 GiB, what a real plan sold as "2 GB" reports
+LITE_COMPOSE = (
+    "docker-compose.yml:docker-compose.lowmem.yml:docker-compose.lite.yml"
+    ":docker-compose.participant.yml"
+)
+
+
+def _small_machine(sb: Sandbox, mem_kb: int = SMALL_KB) -> None:
+    _with_overlays(sb, mem_kb)
+    (sb.shim / "meminfo").write_text(f"MemTotal:        {mem_kb} kB\nSwapTotal:      2097152 kB\n")
+
+
+def _ask_run(sb: Sandbox, answers: str, *extra: str) -> tuple[int, str]:
+    tty = sb.root / "answers"
+    tty.write_text(answers)
+    proc = sb.run(
+        "scripts/install.sh",
+        "--participant",
+        "--version",
+        "v0.8.0",
+        *extra,
+        extra_env={"SELFHOSTR_TTY": str(tty)},
+    )
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def _lite_sensors(env: dict[str, str]) -> set[str]:
+    names = ("ssh", "telnet", "web", "redis", "docker", "adb", "rdp")
+    return {s for s in names if env[f"SENSOR_{s.upper()}"] == "1"}
+
+
+def test_small_machine_accepting_the_offer_installs_as_lite(
+    psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    _small_machine(psb)
+    rc, out = _ask_run(psb, "yes\ny\n")
+    assert rc == 0, out
+    assert "reports 1.4 GiB of memory" in out and "needs 2 GiB" in out
+    assert "Use the lite setup instead?" in out
+    env = parse_env(psb.root / ".env")
+    assert env["COMPOSE_FILE"] == LITE_COMPOSE
+    assert _lite_sensors(env) == {"ssh", "telnet", "web", "redis"}
+
+
+def test_small_machine_enter_takes_the_default_yes(psb: Sandbox) -> None:
+    _small_machine(psb)
+    rc, out = _ask_run(psb, "\ny\n")
+    assert rc == 0, out
+    assert "docker-compose.lite.yml" in (psb.root / ".env").read_text()
+
+
+def test_small_machine_with_yes_takes_lite_and_says_so(
+    psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    _small_machine(psb)
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    assert "Taking the lite setup (--lite)" in out
+    assert "Use the lite setup instead?" not in out
+    env = parse_env(psb.root / ".env")
+    assert env["COMPOSE_FILE"] == LITE_COMPOSE
+    assert _lite_sensors(env) == {"ssh", "telnet", "web", "redis"}
+
+
+def test_small_machine_refusing_the_offer_names_the_ways_out(psb: Sandbox) -> None:
+    _small_machine(psb)
+    rc, out = _ask_run(psb, "no\n")
+    assert rc != 0
+    assert "reports 1.4 GiB" in out
+    assert "2 GiB or more" in out and "--participant --lite" in out
+    assert not (psb.root / ".env").exists()
+
+
+def test_automatic_lite_equals_explicit_lite(
+    psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    keep = ("COMPOSE_FILE", "SENSOR_", "LOWMEM", "MEM")
+    _small_machine(psb)
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    auto = {k: v for k, v in parse_env(psb.root / ".env").items() if k.startswith(keep)}
+    (psb.root / ".env").unlink()
+    rc, out = _lite_run(psb, "--lite")
+    assert rc == 0, out
+    explicit = {k: v for k, v in parse_env(psb.root / ".env").items() if k.startswith(keep)}
+    assert auto == explicit and auto["COMPOSE_FILE"] == LITE_COMPOSE
+
+
+def test_small_machine_keeps_an_explicit_sensor_list(
+    psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    _small_machine(psb)
+    rc, out = _lite_run(psb, "--sensors", "ssh,adb")
+    assert rc == 0, out
+    env = parse_env(psb.root / ".env")
+    assert env["SENSOR_ADB"] == "1" and env["SENSOR_WEB"] == "0"
+    assert env["COMPOSE_FILE"] == LITE_COMPOSE
+
+
+def test_small_machine_with_lowmem_off_is_refused_naming_the_conflict(psb: Sandbox) -> None:
+    _small_machine(psb)
+    rc, out = _lite_run(psb, "--lowmem", "off")
+    assert rc != 0
+    assert "--lite needs the low-memory overlay" in out and "--lowmem off" in out
+    assert not (psb.root / ".env").exists()
+
+
+def test_full_mode_on_a_small_machine_points_to_participant_lite(psb: Sandbox) -> None:
+    _small_machine(psb)
+    proc = psb.run(
+        "scripts/install.sh", "--full", "--yes", "--admin-password-stdin", stdin=PASSWORD + "\n"
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode != 0
+    assert "reports 1.4 GiB of memory" in out
+    assert "./scripts/install.sh --participant --lite" in out
+
+
+def test_two_gib_machine_is_not_asked_anything(
+    psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    for kb in (2_040_000, 4_000_000):
+        _small_machine(psb, kb)
+        rc, out = _lite_run(psb, "--sensors", "ssh,web")
+        assert rc == 0, out
+        assert "lite setup" not in out
+        assert "docker-compose.lite.yml" not in parse_env(psb.root / ".env")["COMPOSE_FILE"]
+        (psb.root / ".env").unlink()
+
+
+def test_below_the_lite_minimum_is_refused_with_the_reported_size(psb: Sandbox) -> None:
+    _small_machine(psb, 500_000)
+    rc, out = _lite_run(psb)
+    assert rc != 0
+    assert "reports 0.5 GiB of memory" in out
+
+
+def test_real_two_gb_machine_runs_the_default_setup(
+    psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    assert "lite setup" not in out and "swap" not in out
+    env = parse_env(psb.root / ".env")
+    assert env["COMPOSE_FILE"] == (
+        "docker-compose.yml:docker-compose.lowmem.yml:docker-compose.participant.yml"
+    )
+    assert len(_lite_sensors(env)) >= 5 and "redis" in _lite_sensors(env)
+
+
+def test_real_two_gb_machine_interactive_is_not_offered_lite(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    rc, out = _ask_run(psb, "y\n")
+    assert rc == 0, out
+    assert "Use the lite setup instead?" not in out
+    assert "docker-compose.lite.yml" not in (psb.root / ".env").read_text()
+
+
+def test_real_two_gb_machine_without_swap_warns_and_yes_goes_on(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    (psb.shim / "meminfo").write_text(f"MemTotal:        {REAL_2GB_KB} kB\n")
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    assert "less than 512 MiB of swap" in out and "about 2 GiB" in out
+
+
+def test_real_two_gb_machine_without_swap_asks_and_no_stops(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    (psb.shim / "meminfo").write_text(f"MemTotal:        {REAL_2GB_KB} kB\n")
+    rc, out = _ask_run(psb, "no\n")
+    assert rc != 0 and "add swap" in out
+    assert not (psb.root / ".env").exists()
+
+
+def test_real_two_gb_machine_full_mode_is_accepted(psb: Sandbox) -> None:
+    _small_machine(psb, REAL_2GB_KB)
+    proc = psb.run(
+        "scripts/install.sh",
+        "--full",
+        "--yes",
+        "--version",
+        "v0.8.0",
+        "--admin-password-stdin",
+        stdin=PASSWORD + "\n",
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_just_under_the_new_bar_is_offered_lite(psb: Sandbox) -> None:
+    _small_machine(psb, 1_835_007)
+    rc, out = _lite_run(psb)
+    assert rc == 0, out
+    assert "Taking the lite setup (--lite)" in out
+
+
+def _no_swap(sb: Sandbox, mem_kb: int) -> None:
+    _with_overlays(sb, mem_kb)
+    (sb.shim / "meminfo").write_text(f"MemTotal:        {mem_kb} kB\n")
+
+
+def test_participant_asks_the_swap_question_and_yes_goes_on(psb: Sandbox) -> None:
+    _no_swap(psb, REAL_2GB_KB)
+    rc, out = _ask_run(psb, "yes\ny\n")
+    assert rc == 0, out
+    assert "Continue without enough swap? (yes/no) [no]" in out
+    assert (psb.root / ".env").exists()
+
+
+def test_participant_swap_question_no_or_enter_stops(psb: Sandbox) -> None:
+    for answers in ("no\n", "\n"):
+        _no_swap(psb, REAL_2GB_KB)
+        rc, out = _ask_run(psb, answers + "y\n")
+        assert rc != 0, out
+        assert "Continue without enough swap?" in out
+        assert "add swap, then run the installer again" in out
+        assert not (psb.root / ".env").exists()
+
+
+def test_explicit_lite_on_one_gib_asks_the_swap_question(psb: Sandbox) -> None:
+    _no_swap(psb, 990000)
+    rc, out = _ask_run(psb, "yes\ny\n", "--lite")
+    assert rc == 0, out
+    assert "Continue without enough swap?" in out
+    assert (psb.root / ".env").exists()
+    (psb.root / ".env").unlink()
+    for answers in ("no\n", "\n"):
+        rc, out = _ask_run(psb, answers + "y\n", "--lite")
+        assert rc != 0 and "add swap, then run the installer again" in out

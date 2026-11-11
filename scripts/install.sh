@@ -144,9 +144,36 @@ if [ "$dry_run" = 1 ] && [ -z "$env_out" ]; then die "--dry-run needs --env-out 
 if [ "$dry_run" = 0 ] && [ -n "$env_out" ]; then die "--env-out is only for --dry-run"; fi
 case ${lowmem:-auto} in auto | on | off) ;; *) die "--lowmem must be auto, on or off" ;; esac
 lowmem=${lowmem:-auto}
-if [ "$lite" = 1 ]; then
+# Applies what --lite implies for --lowmem. Also called when the installer switches to lite itself.
+lite_lowmem() {
   case $lowmem in auto | on) lowmem=on ;; *) die "--lite needs the low-memory overlay: it cannot be combined with --lowmem off" ;; esac
-fi
+}
+if [ "$lite" = 1 ]; then lite_lowmem; fi
+
+# A machine sold as "2 GB" reports clearly less than 2 GiB to the kernel (a real one: MemTotal
+# 2009976 kB), so the 2 GiB bar is 1.75 GiB. The low-memory setup runs there, with swap.
+full_min_kb=$((2 * 1024 * 1024 - 262144))
+# A "1 GiB" machine reports a little less than 1 GiB to the kernel.
+lite_min_kb=$((1024 * 1024 - 131072))
+
+# gib KB: memory in GiB with one decimal.
+gib() { awk -v k="$1" 'BEGIN {printf "%.1f", k / 1048576}'; }
+
+# swap_check "what the machine is": warns when there is little swap, then asks (not with --yes).
+# Containers never swap (memswap_limit equals mem_limit). Host swap only gives the host room
+# when a burst of attacks pushes the whole machine, so the global OOM killer is less likely
+# to restart the database.
+swap_check() {
+  swap_kb=$(awk '/^SwapTotal:/ {print $2}' "$meminfo" 2> /dev/null || true)
+  [[ ${swap_kb:-} =~ ^[0-9]+$ ]] || swap_kb=0
+  if [ "$swap_kb" -lt $((512 * 1024)) ]; then
+    warn "this machine has less than 512 MiB of swap. On $1, a burst of attacks can make the kernel kill a container (the database included). Add 1 GiB of swap first (docs/vps.md)."
+    if [ "$assume_yes" = 0 ]; then
+      ask_always a "Continue without enough swap? (yes/no)" no
+      case $a in y | yes) ;; *) die "add swap, then run the installer again" ;; esac
+    fi
+  fi
+}
 
 # Interactive answers come from the terminal (or SELFHOSTR_TTY, used by the tests), so that
 # stdin stays free for --admin-password-stdin.
@@ -170,6 +197,14 @@ ask() {
   printf '  %s [%s]: ' "$__q" "$__d" >&2
   IFS= read -r __ans <&3 || __ans=""
   printf -v "$__var" %s "${__ans:-$__d}"
+}
+
+# ask_always: like ask, but participant mode does not skip the question. Only --yes does.
+ask_always() {
+  local __keep=$noask
+  noask=$assume_yes
+  ask "$@"
+  noask=$__keep
 }
 
 # ---------------------------------------------------------------- 1. preflight
@@ -294,6 +329,26 @@ fi
 valid_project_name "$project" || die "bad project name '$project': use lowercase letters, digits, - and _ (at most 41 characters), and not sp-it-*, sp-test or sp-ci"
 valid_project_name "$prefix" || die "bad volume prefix '$prefix': use lowercase letters, digits, - and _ (at most 41 characters), and not sp-it-*, sp-test or sp-ci"
 
+# A machine sold as "2 GB" reports a bit less than 2 GiB. In participant mode the installer then
+# offers the lite setup and, once accepted, goes on exactly as if --lite had been given. Reading
+# /proc/meminfo needs no Docker, so this is decided before anything depends on $lite.
+if [ "$dry_run" = 0 ] && [ "$stack" = participant ] && [ "$lite" = 0 ] && { [ "$fresh" = 1 ] || [ "$switching" = 1 ]; }; then
+  early_kb=$(awk '/^MemTotal:/ {print $2}' "${SELFHOSTR_MEMINFO:-/proc/meminfo}" 2> /dev/null || true)
+  if [[ ${early_kb:-} =~ ^[0-9]+$ ]] && [ "$early_kb" -lt "$full_min_kb" ] \
+    && [ "$early_kb" -ge "$lite_min_kb" ]; then
+    early_gib=$(gib "$early_kb")
+    note "This machine reports $early_gib GiB of memory. The default setup needs 2 GiB."
+    if [ "$assume_yes" = 1 ]; then
+      note "Taking the lite setup (--lite): four sensors (SSH, Telnet, web, Redis) and lower memory limits."
+    fi
+    ask_always a "Use the lite setup instead? Four sensors (SSH, Telnet, web, Redis) and lower memory limits. (yes/no)" yes
+    case $a in
+      y | yes) lite=1; lite_lowmem ;;
+      *) die "SuckerPot needs 2 GiB of memory, and this machine reports $early_gib GiB. Use a machine with 2 GiB or more, or run: ./scripts/install.sh --participant --lite" ;;
+    esac
+  fi
+fi
+
 mem_kb=0
 if [ "$dry_run" = 1 ]; then
   note "dry run: Docker, memory, disk and volume checks skipped"
@@ -313,24 +368,19 @@ else
   [[ ${mem_kb:-} =~ ^[0-9]+$ ]] || die "cannot read the memory size from $meminfo"
   if [ "$fresh" = 1 ] || [ "$switching" = 1 ]; then
     if [ "$lite" = 1 ]; then
-      # A "1 GiB" machine reports a little less than 1 GiB to the kernel.
-      if [ "$mem_kb" -lt $((1024 * 1024 - 131072)) ]; then
-        die "less than 1 GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
+      if [ "$mem_kb" -lt "$lite_min_kb" ]; then
+        die "this machine reports $(gib "$mem_kb") GiB of memory: even --lite needs a machine with 1 GiB (and some swap)"
       fi
-      # Containers never swap (memswap_limit equals mem_limit). Host swap only gives the host room
-      # when a burst of attacks pushes the whole machine, so the global OOM killer is less likely
-      # to restart the database.
-      swap_kb=$(awk '/^SwapTotal:/ {print $2}' "$meminfo" 2> /dev/null || true)
-      [[ ${swap_kb:-} =~ ^[0-9]+$ ]] || swap_kb=0
-      if [ "$swap_kb" -lt $((512 * 1024)) ]; then
-        warn "this machine has less than 512 MiB of swap. On 1 GiB, a burst of attacks can make the kernel kill a container (the database included). Add 1 GiB of swap first (docs/vps.md)."
-        if [ "$assume_yes" = 0 ]; then
-          ask a "Continue without enough swap? (yes/no)" no
-          case $a in y | yes) ;; *) die "add swap, then run the installer again" ;; esac
-        fi
+      swap_check "1 GiB"
+    elif [ "$mem_kb" -lt "$full_min_kb" ]; then
+      mem_gib=$(gib "$mem_kb")
+      if [ "$mem_kb" -ge "$lite_min_kb" ]; then
+        die "this machine reports $mem_gib GiB of memory and the full setup needs 2 GiB. Only the participant lite setup fits here: ./scripts/install.sh --participant --lite"
       fi
-    elif [ "$mem_kb" -lt $((2 * 1024 * 1024 - 65536)) ]; then
-      die "less than 2 GiB of memory: SuckerPot needs at least 2 GiB (with --lowmem on), or 1 GiB with --participant --lite"
+      die "this machine reports $mem_gib GiB of memory: SuckerPot needs at least 2 GiB, or 1 GiB with --participant --lite"
+    elif [ "$mem_kb" -lt $((2 * 1024 * 1024)) ]; then
+      # Sold as 2 GB: the low-memory limits add up to about the whole machine.
+      swap_check "about 2 GiB"
     fi
   fi
   if [ "$fresh" = 1 ]; then
