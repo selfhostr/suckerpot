@@ -18,7 +18,7 @@ from suckerpot_db import database_url_from_env
 from ingest.diskguard import DiskGuard
 from ingest.writer import write_batch
 
-from .db_fixtures import _migrate
+from .db_fixtures import _migrate, refresh_aggregate
 from .helpers import make_event
 
 pytestmark = [
@@ -42,11 +42,8 @@ async def auto(engine: AsyncEngine) -> AsyncIterator[AsyncConnection]:
 async def _clean(conn: AsyncConnection) -> None:
     await conn.execute(text("TRUNCATE events, sessions, system_status, maintenance_log"))
     for view in VIEWS:
-        await conn.execute(
-            text(
-                f"CALL refresh_continuous_aggregate('{view}', now() - INTERVAL '400 days', "
-                "now() + INTERVAL '2 days', force => true)"
-            )
+        await refresh_aggregate(
+            conn, view, "now() - INTERVAL '400 days'", "now() + INTERVAL '2 days'", force="true"
         )
 
 
@@ -151,9 +148,10 @@ async def test_above_ninety_percent_drops_oldest_chunks_until_below_eighty(
         auto, range(5, 13), rows=OLD_ROWS
     )  # eight chunks, all older than the protected 4 days
     await _fill(auto, range(0, 2), rows=10)  # recent chunks: never dropped
-    refresh = "CALL refresh_continuous_aggregate('{v}', now() - INTERVAL '30 days', now() + INTERVAL '2 days')"
     for view in VIEWS:
-        await auto.execute(text(refresh.format(v=view)))
+        await refresh_aggregate(
+            auto, view, "now() - INTERVAL '30 days'", "now() + INTERVAL '2 days'"
+        )
     aggregated = await _hourly_total(auto)
     assert aggregated == 8 * OLD_ROWS + 2 * 10
     size = await _size(auto)

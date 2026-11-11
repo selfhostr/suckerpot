@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -125,3 +126,30 @@ async def factory(engine: AsyncEngine) -> AsyncIterator[async_sessionmaker[Async
     eng = create_engine(_role_url("INGEST"), pool_size=2)
     yield create_session_factory(eng)
     await eng.dispose()
+
+
+_REFRESH_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0, 8.0, 15.0)
+
+
+async def refresh_aggregate(
+    conn: AsyncConnection, view: str, start: str, end: str, **opts: str
+) -> None:
+    """CALL refresh_continuous_aggregate, waiting out the view's own refresh policy job.
+
+    TimescaleDB fails an overlapping refresh at once ("due to a concurrent refresh", SQLSTATE
+    55P03) when its hourly policy job runs for the same view. Only that condition is retried,
+    with a bounded wait; nothing is paused, so no state is left behind. Any other error raises.
+    `start` and `end` are SQL expressions, `opts` are named arguments such as force => true.
+    """
+    extra = "".join(f", {k} => {v}" for k, v in opts.items())
+    statement = text(f"CALL refresh_continuous_aggregate('{view}', {start}, {end}{extra})")
+    for delay in (*_REFRESH_RETRY_DELAYS, None):
+        try:
+            await conn.execute(statement)
+            return
+        except DBAPIError as exc:
+            orig = exc.orig
+            state = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+            if delay is None or not (state == "55P03" or "concurrent refresh" in str(exc)):
+                raise
+        await asyncio.sleep(delay)
