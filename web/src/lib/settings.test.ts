@@ -130,7 +130,12 @@ describe("settings findings", () => {
   } as const
   const sys: SystemSettings = {
     sensors: [],
-    retention: { raw_days: 90, compression_after_days: 7, aggregates: ["events_hourly"] },
+    retention: {
+      raw_days: 90,
+      compression_after_days: 7,
+      oldest_event_at: null,
+      aggregates: ["events_hourly"],
+    },
     disk_guard: GUARD,
     ingest_disk: null,
     database: { size_bytes: 3.2e9, max_bytes: 20e9 },
@@ -147,6 +152,48 @@ describe("settings findings", () => {
     expect(storageFinding({ ...sys, database: { size_bytes: null, max_bytes: null } })).toBe(
       "The database size is not available.",
     )
+  })
+
+  describe("retentionFinding", () => {
+    const at = (days: number) => new Date(NOW - days * 86_400_000).toISOString()
+    const withOldest = (days: number | null) => ({
+      ...sys.retention,
+      oldest_event_at: days === null ? null : at(days),
+    })
+    const full = { ...GUARD, max_bytes: 10e9 }
+
+    it("keeps the plain sentence when the window is filled", () => {
+      const plain = "Raw events are kept for 90 days; aggregates are kept forever."
+      expect(retentionFinding(withOldest(89), null, NOW)).toBe(plain)
+      expect(retentionFinding(withOldest(90), full, NOW)).toBe(plain)
+      expect(retentionFinding(withOldest(null), full, NOW)).toBe(plain)
+    })
+
+    it("says plainly that a young store has not filled the window", () => {
+      expect(retentionFinding(withOldest(5), GUARD, NOW)).toBe(
+        "Raw events are set to be kept for 90 days; the oldest stored event is 5 days old, so the store has not filled that window yet.",
+      )
+      expect(retentionFinding(withOldest(5), null, NOW)).toMatch(/has not filled/)
+    })
+
+    it("blames the size limit when the guard dropped data", () => {
+      const trimmed = { ...full, state: "trimmed" as const, last_trim_at: at(1) }
+      expect(retentionFinding(withOldest(12), trimmed, NOW)).toBe(
+        "Raw events are set to be kept for 90 days, but the oldest stored event is 12 days old: the 10 GB size limit removes older data first.",
+      )
+    })
+
+    it("blames the size limit when the database is near it", () => {
+      expect(retentionFinding(withOldest(12), { ...full, percent: 85 }, NOW)).toMatch(
+        /10 GB size limit/,
+      )
+    })
+
+    it("handles retention without a time window", () => {
+      expect(retentionFinding({ ...sys.retention, raw_days: null }, null, NOW)).toMatch(
+        /until the disk guard trims/,
+      )
+    })
   })
 
   it("formats bytes", () => {

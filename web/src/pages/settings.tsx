@@ -37,7 +37,7 @@ import { SensorBadge } from "@/components/sensor-badge"
 import { SkeletonText } from "@/components/skeletons"
 import { api, queryKeys } from "@/lib/api"
 import { settingsHelpId } from "@/lib/help"
-import { formatBytes, formatNumber, plural } from "@/lib/format"
+import { formatAbsolute, formatBytes, formatNumber, plural } from "@/lib/format"
 import {
   enrichmentFinding,
   geoAgeDays,
@@ -316,7 +316,10 @@ function StorageCard({ data, loading }: { data?: SystemSettings; loading: boolea
 function RetentionCard({ data, loading }: { data?: SystemSettings; loading: boolean }) {
   const r = data?.retention
   return (
-    <FindingCard eyebrow="Data retention" finding={r ? retentionFinding(r) : "Checking retention…"}>
+    <FindingCard
+      eyebrow="Data retention"
+      finding={r ? retentionFinding(r, data.disk_guard) : "Checking retention…"}
+    >
       {loading ? (
         <Loading />
       ) : !r ? (
@@ -328,6 +331,9 @@ function RetentionCard({ data, loading }: { data?: SystemSettings; loading: bool
           </Field>
           <Field label="Compressed after">
             {r.compression_after_days ? plural(r.compression_after_days, "day") : "–"}
+          </Field>
+          <Field label="Oldest stored event" className="col-span-2">
+            {r.oldest_event_at ? formatAbsolute(r.oldest_event_at) : "–"}
           </Field>
           <Field label="Aggregates, kept forever" className="col-span-2">
             <span className="mt-1 flex flex-wrap gap-1.5">

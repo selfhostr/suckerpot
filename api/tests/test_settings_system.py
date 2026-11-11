@@ -4,15 +4,18 @@ import json
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from typing import Self, cast
 
 import httpx
 import pytest
 from analytics_seed import api_engine, owner_engine, small_dataset
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db import create_session_factory
 
 from api.main import create_app
-from api.settings import sensor_state
+from api.settings import oldest_event_at, sensor_state
 
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
 
@@ -34,6 +37,64 @@ def test_sensor_state_thresholds(age: timedelta, expected: str) -> None:
 
 def test_sensor_state_never_seen() -> None:
     assert sensor_state(None, NOW) == "silent"
+
+
+class _Result:
+    def __init__(self, row: tuple[datetime, datetime] | None = None, value: object = None) -> None:
+        self._row, self._value = row, value
+
+    def first(self) -> tuple[datetime, datetime] | None:
+        return self._row
+
+    def scalar(self) -> object:
+        return self._value
+
+
+class _FakeDb:
+    """Answers the chunk catalogue query, then the in-chunk minimum; either may fail."""
+
+    def __init__(self, *results: _Result | Exception) -> None:
+        self._results = list(results)
+
+    def begin_nested(self) -> Self:
+        return self
+
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def execute(self, *_: object) -> _Result:
+        item = self._results.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _fake(*results: _Result | Exception) -> AsyncSession:
+    return cast(AsyncSession, _FakeDb(*results))
+
+
+CHUNK = (NOW - timedelta(days=7), NOW)
+
+
+async def test_oldest_event_exact_minimum_in_oldest_chunk() -> None:
+    first = NOW - timedelta(days=3)
+    assert await oldest_event_at(_fake(_Result(CHUNK), _Result(value=first))) == first
+
+
+async def test_oldest_event_falls_back_to_chunk_start() -> None:
+    assert await oldest_event_at(_fake(_Result(CHUNK), _Result(value=None))) == CHUNK[0]
+
+
+async def test_oldest_event_null_when_no_chunks() -> None:
+    assert await oldest_event_at(_fake(_Result(None))) is None
+
+
+async def test_oldest_event_null_when_catalogue_unreadable() -> None:
+    err = DBAPIError("SELECT 1", None, Exception("permission denied"))
+    assert await oldest_event_at(_fake(err)) is None
 
 
 @pytest.fixture
@@ -99,6 +160,8 @@ async def test_system_settings(client: httpx.AsyncClient) -> None:
     assert body["retention"]["raw_days"] == 90
     assert body["retention"]["compression_after_days"] == 7
     assert "events_hourly" in body["retention"]["aggregates"]
+    oldest = datetime.fromisoformat(body["retention"]["oldest_event_at"])
+    assert oldest <= datetime.now(UTC)
     assert body["disk_guard"]["state"] == "ok"
     assert body["ingest_disk"] == {"free_bytes": 1}
     assert body["database"]["size_bytes"] > 0
