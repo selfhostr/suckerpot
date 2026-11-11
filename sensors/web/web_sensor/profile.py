@@ -17,47 +17,12 @@ import random
 import secrets
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
-log = logging.getLogger("web_sensor.profile")
+from web_sensor import corpus
 
-_TITLES = [
-    ("Blue Harbor Studio", "Design and print, made by hand"),
-    ("Maple &amp; Pine", "Notes from a small workshop"),
-    ("Northgate Dental", "Gentle care for the whole family"),
-    ("The Daily Crumb", "Bakery news and weekend recipes"),
-    ("Redwood Cycles", "Repairs, rentals and local rides"),
-    ("Harbor View Realty", "Homes with a view"),
-    ("Quiet Fox Photography", "Weddings, portraits and landscapes"),
-    ("Lakeside Yoga", "Classes for every level"),
-    ("Oakline Accounting", "Straightforward numbers for small business"),
-    ("Cedar &amp; Stone Landscaping", "Gardens that last"),
-]
-_POST_TITLES = [
-    "Spring opening hours",
-    "New website, same friendly team",
-    "Five tips for the busy season",
-    "Meet the team",
-    "Our summer newsletter",
-    "Thank you for a great year",
-    "What to expect at your first visit",
-    "Holiday schedule",
-    "A look behind the scenes",
-    "We are hiring",
-]
-_FIRST = [
-    "Daniel",
-    "Sarah",
-    "Michael",
-    "Laura",
-    "Thomas",
-    "Julia",
-    "Marc",
-    "Elena",
-    "Peter",
-    "Nina",
-]
-_LAST = ["Moreau", "Keller", "Brandt", "Fischer", "Novak", "Larsen", "Weber", "Costa", "Hartmann"]
+log = logging.getLogger("web_sensor.profile")
 
 
 @dataclass(frozen=True)
@@ -112,36 +77,42 @@ def build_profile(secret: bytes, created: float) -> Profile:
     base = Profile(secret, created, "", "", "", 0.0, (), ())
     rng = base.rng("layout")
     ip = f"10.{rng.randrange(0, 4)}.{rng.randrange(0, 256)}.{rng.randrange(5, 250)}"
-    title, tagline = _TITLES[rng.randrange(len(_TITLES))]
+    trade = corpus.pick_trade(rng)
+    title, tagline = corpus.site_identity(rng, trade)
     install_ts = created - rng.randrange(150, 520) * 86400 - rng.randrange(0, 86400)
-    first = rng.choice(_FIRST)
-    last = rng.choice(_LAST)
+    first = rng.choice(corpus.first_names())
+    last = rng.choice(corpus.SURNAMES)
     users = (
         WPUser(1, "admin", "admin", base.derive("email-1", 32)),
         WPUser(2, (first[0] + last).lower(), f"{first} {last}", base.derive("email-2", 32)),
     )
-    picks = rng.sample(_POST_TITLES, 2)
-    posts = [
-        Post(
-            1,
-            "hello-world",
-            "Hello world!",
-            install_ts,
-            "Welcome to WordPress. This is your first post. Edit or delete it, then start writing!",
-        )
-    ]
-    for i, t in enumerate(picks, start=2):
-        ts = min(install_ts + rng.randrange(20, 300) * 86400 * i // 2, created - 86400)
+    prng = base.rng("posts")
+    posts: list[Post] = []
+    if prng.random() < 0.35:  # many owners never delete the stock first post
         posts.append(
             Post(
-                i * 3 + 2,
-                _slug(t),
-                t,
-                ts,
-                "Thank you for visiting. Stop by during opening hours or send us a message "
-                "and we will get back to you as soon as we can.",
+                1,
+                "hello-world",
+                "Hello world!",
+                install_ts,
+                "Welcome to WordPress. This is your first post. Edit or delete it, "
+                "then start writing!",
             )
         )
+    post_id = 1
+    slugs = {p.slug for p in posts}
+    wanted = prng.randrange(3, 7)
+    span = max(int(created - install_ts) - 2 * 86400, 86400)
+    while len(posts) < wanted:
+        ts = min(install_ts + prng.randrange(3 * 86400, span), created - 86400)
+        year = datetime.fromtimestamp(ts, UTC).year
+        t, body = corpus.compose_post(prng, trade, year)
+        slug = _slug(t)
+        if slug in slugs:
+            continue
+        slugs.add(slug)
+        post_id += prng.randrange(2, 9)
+        posts.append(Post(post_id, slug, t, ts, body))
     posts.sort(key=lambda p: p.ts, reverse=True)
     return Profile(secret, created, ip, title, tagline, install_ts, users, tuple(posts))
 

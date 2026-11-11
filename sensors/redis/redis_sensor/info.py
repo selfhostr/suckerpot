@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from redis_sensor.identity import Profile
@@ -38,6 +39,11 @@ class ServerContext:
     net_in: int = 0
     net_out: int = 0
     rejected: int = 0
+    clock: Callable[[], float] = time.monotonic
+
+    def elapsed(self) -> float:
+        """Seconds since the process anchor: the one clock every TTL is read from."""
+        return self.clock() - self.started
 
     def uptime(self) -> int:
         return self.profile.uptime_offset + int(time.monotonic() - self.started)
@@ -55,6 +61,8 @@ class InfoView:
     appendonly: bool
     maxmemory: int
     requirepass: bool
+    expires: int = 0
+    avg_ttl_ms: int = 0
 
 
 def _human(n: int) -> str:
@@ -101,7 +109,7 @@ def render_info(ctx: ServerContext, view: InfoView, sections: list[str]) -> str:
                 "Server",
                 [
                     f"redis_version:{p.version}",
-                    "redis_git_sha1:00000000",
+                    f"redis_git_sha1:{p.git_sha1}",
                     "redis_git_dirty:0",
                     f"redis_build_id:{p.build_id}",
                     "redis_mode:standalone",
@@ -110,9 +118,9 @@ def render_info(ctx: ServerContext, view: InfoView, sections: list[str]) -> str:
                     "monotonic_clock:POSIX clock_gettime",
                     "multiplexing_api:epoll",
                     "atomicvar_api:c11-builtin",
-                    "gcc_version:12.2.0",
-                    "process_id:1",
-                    "process_supervised:no",
+                    f"gcc_version:{p.gcc_version}",
+                    f"process_id:{p.process_id}",
+                    f"process_supervised:{p.supervised}",
                     f"run_id:{p.run_id}",
                     f"tcp_port:{ctx.port}",
                     f"server_time_usec:{int(now * 1_000_000)}",
@@ -121,8 +129,8 @@ def render_info(ctx: ServerContext, view: InfoView, sections: list[str]) -> str:
                     "hz:10",
                     "configured_hz:10",
                     f"lru_clock:{int(now) % 16777216}",
-                    "executable:/data/redis-server",
-                    "config_file:",
+                    f"executable:{p.executable}",
+                    f"config_file:{p.config_file}",
                     "io_threads_active:0",
                 ],
             )
@@ -371,6 +379,8 @@ def render_info(ctx: ServerContext, view: InfoView, sections: list[str]) -> str:
         elif name == "keyspace":
             section(
                 "Keyspace",
-                [f"db0:keys={view.keys},expires=0,avg_ttl=0"] if view.keys else [],
+                [f"db0:keys={view.keys},expires={view.expires},avg_ttl={view.avg_ttl_ms}"]
+                if view.keys
+                else [],
             )
     return "\r\n".join(out) + "\r\n" if out else ""
