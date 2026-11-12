@@ -11,11 +11,12 @@ from typing import Any
 import httpx
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ingest.abuse import AbuseSettings, AbuseWorker
 from ingest.abuse.bootstrap import Bootstrap
-from ingest.abuse.build import DEMO_MAILBOX, DraftBuilder
+from ingest.abuse.build import DEMO_MAILBOX, DraftBuilder, check_evidence
 from ingest.abuse.contacts import ContactResolver, make_reserve
 from ingest.abuse.rdap import QuotaExhausted, RdapClient
 from ingest.abuse.reguard import DraftReguard
@@ -529,6 +530,122 @@ async def test_drafts_are_rechecked_after_the_wording_changes(
     stats = await reguard.run_if_changed()
     assert stats is not None and stats.checked == 0
     assert await scalar(engine, "SELECT guard_ok FROM abuse_reports") is False
+
+
+async def second_draft(engine: AsyncEngine) -> int:
+    """A copy of the existing draft for another recipient; returns that recipient's id."""
+    async with engine.begin() as conn:
+        rid = (
+            await conn.execute(
+                text(
+                    "INSERT INTO abuse_recipients (mailbox, name, source) "
+                    "VALUES ('abuse@example.org', 'Other Net', 'rdap') RETURNING id"
+                )
+            )
+        ).scalar_one()
+        await conn.execute(
+            text(
+                "INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, demo, "
+                "window_start, window_end, subject_count, evidence, content_sha256, guard_ok, "
+                "guard_codes, redaction, options) "
+                "SELECT gen_random_uuid(), gen_random_uuid(), :r, kind, demo, window_start, "
+                "window_end, subject_count, evidence, 'copy', true, '{}', redaction, options "
+                "FROM abuse_reports WHERE recipient_id <> :r LIMIT 1"
+            ),
+            {"r": rid},
+        )
+    return int(rid)
+
+
+async def test_the_recheck_keeps_what_the_build_found_and_only_the_build_clears_it(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    await seed_attack(engine)
+    await add_self_address(engine)
+    b = builder(factory, DEMO)
+    await b.run(NOW, allow_lookups=False)
+    clean = (await rows(engine, "SELECT guard_ok, guard_codes FROM abuse_reports"))[0]
+    assert clean.guard_ok is True
+    # The build found an internal id in the evidence, and a settings fault on top of it.
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, "
+                "guard_codes = '{internal_id,project_term}'"
+            )
+        )
+    reguard = DraftReguard(factory, DEMO, TermsCache(factory, {}))
+    stats = await reguard.run_if_changed()
+    # The settings fault is the re-check's to clear. The internal id is not: it cannot replay
+    # the build's reads (the sessions behind the evidence), so it stays and the draft stays blocked.
+    assert stats is not None and (stats.checked, stats.changed) == (1, 1)
+    kept = (await rows(engine, "SELECT guard_ok, guard_codes FROM abuse_reports"))[0]
+    assert kept.guard_ok is False and kept.guard_codes == ["internal_id"]
+    await set_wording(engine, intro="Another intro, written by the owner.")
+    await reguard.run_if_changed()
+    again = (await rows(engine, "SELECT guard_ok, guard_codes FROM abuse_reports"))[0]
+    assert again.guard_ok is False and again.guard_codes == ["internal_id"]
+    # Only a build that reads the evidence again and finds it clean may clear it.
+    b.terms._terms = None
+    await b.run(NOW, allow_lookups=False)
+    cleared = (await rows(engine, "SELECT guard_ok, guard_codes FROM abuse_reports"))[0]
+    assert cleared.guard_ok is True and cleared.guard_codes == []
+
+
+async def test_one_bad_draft_does_not_stop_the_recheck(
+    engine: AsyncEngine, factory: Factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await seed_attack(engine)
+    await add_self_address(engine)
+    await builder(factory, DEMO).run(NOW, allow_lookups=False)
+    await second_draft(engine)
+
+    def flaky(evidence: Any, *args: Any, **kwargs: Any) -> Any:
+        if evidence.recipient == "abuse@example.org":
+            raise ValueError("a draft the renderer cannot handle")
+        return check_evidence(evidence, *args, **kwargs)
+
+    monkeypatch.setattr("ingest.abuse.reguard.check_evidence", flaky)
+    reguard = DraftReguard(factory, DEMO, TermsCache(factory, {}))
+    stats = await reguard.run_if_changed()
+    assert stats is not None and (stats.checked, stats.skipped) == (1, 1)
+    # The pass is done: a draft that always fails is not retried every minute.
+    assert await reguard.run_if_changed() is None
+
+    # A database that stops answering is not "one bad draft": the pass is tried again.
+    def gone(*_args: Any, **_kwargs: Any) -> Any:
+        raise SQLAlchemyError("the database went away")
+
+    monkeypatch.setattr("ingest.abuse.reguard.check_evidence", gone)
+    retry = DraftReguard(factory, DEMO, TermsCache(factory, {}))
+    with pytest.raises(SQLAlchemyError):
+        await retry.run_if_changed()
+    assert retry._seen is None
+
+
+async def test_an_options_edit_rechecks_only_that_draft(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    await seed_attack(engine)
+    await add_self_address(engine)
+    await builder(factory, DEMO).run(NOW, allow_lookups=False)
+    rid = await second_draft(engine)
+    reguard = DraftReguard(factory, DEMO, TermsCache(factory, {}))
+    first = await reguard.run_if_changed()
+    assert first is not None and first.checked == 2
+    assert await reguard.run_if_changed() is None
+    # The owner's PATCH of one draft's options: that draft is re-checked, the other is not.
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET options = jsonb_set(options, '{defang}', 'false') "
+                "WHERE recipient_id = :r"
+            ),
+            {"r": rid},
+        )
+    edited = await reguard.run_if_changed()
+    assert edited is not None and edited.checked == 1
+    assert await reguard.run_if_changed() is None
 
 
 async def test_reviewed_drafts_are_untouched_and_new_evidence_waits(

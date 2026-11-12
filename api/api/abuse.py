@@ -57,6 +57,7 @@ from suckerpot_reporting import (
 
 from api import audit as audit_db
 from api.abuse_core import (
+    EVIDENCE_CODES,
     MAILBOX_RE,
     SETTINGS_TEXT_FIELDS,
     EvidenceInvalidError,
@@ -465,7 +466,14 @@ async def _live_guard(
         )
     except RenderUnavailable:
         return GuardOut(ok=row.guard_ok, codes=list(row.guard_codes))
-    return GuardOut(ok=rendered.guard.ok, codes=list(rendered.guard.codes))
+    ok, codes = rendered.guard.ok, set(rendered.guard.codes)
+    if row.status == "draft":
+        # What the build found in the evidence stays until a rebuild finds it gone: this check
+        # cannot replay the build's reads, so it never clears those codes.
+        kept = EVIDENCE_CODES.intersection(row.guard_codes or ())
+        if kept - codes:
+            ok, codes = False, codes | kept
+    return GuardOut(ok=ok, codes=sorted(codes))
 
 
 async def _detail(

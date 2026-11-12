@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -36,14 +36,12 @@ from suckerpot_reporting import (
     RenderedMessage,
     RenderUnavailable,
     ReportSettings,
-    render_csv,
-    render_text,
-    render_xarf,
 )
 
-from ingest.abuse.build import default_options, options_of
+from ingest.abuse.build import default_options, options_of, render_mail
 from ingest.abuse.config import AbuseSettings
 from ingest.abuse.selfterms import TermsCache
+from ingest.abuse.session_ids import internal_session_ids
 from ingest.egress import EgressClosed, EgressGate, gate_open, get_gate
 from ingest.reportmail.outgoing import (
     SMTP_DEADLINE_S,
@@ -61,7 +59,6 @@ log = logging.getLogger(__name__)
 MAX_PER_CYCLE = 10
 MAX_SCHEDULE = 50
 TEST_EGRESS_WAIT = timedelta(minutes=2)
-MAX_SESSION_IDS = 5000
 PASSWORD_AAD = "report_smtp"  # noqa: S105 - a label, not a secret; bound to the ciphertext, see api.abuse_smtp
 
 
@@ -469,40 +466,15 @@ class ReportSender:
         try:
             evidence = Evidence.model_validate(data)
             rendered = await asyncio.to_thread(
-                _render_mail, evidence, settings, report["reply_token"], style
+                render_mail, evidence, settings, report["reply_token"], style
             )
         except RenderUnavailable as exc:
             raise SendFailure("guard_failed", reasons=(exc.code,)) from None
         except ValueError:
             raise SendFailure("not_ready") from None
-        ips = [s.value for s in evidence.subjects if s.type == "ip"]
-        # The seed never leaves: a token built from it (or the seed itself) is caught (M26).
-        ids: set[str] = {report["id_seed"].hex}
-        if ips:
-            found = await session.execute(
-                text(
-                    "SELECT session_id FROM sessions WHERE src_ip = ANY(CAST(:ips AS inet[])) "
-                    "AND started_at >= :a AND started_at <= :b LIMIT :n"
-                ),
-                {"ips": ips, "a": evidence.window_start, "b": evidence.window_end,
-                 "n": MAX_SESSION_IDS},
-            )  # fmt: skip
-            ids.update(found.scalars().all())
+        # The seed never leaves: a token built from it (or the seed itself) is caught (M26). The
+        # sessions behind the subjects are the superset the re-check of the drafts uses.
+        ids = {report["id_seed"].hex} | await internal_session_ids(session, evidence)
         return rendered, GuardContext(
             internal_ids=frozenset(ids), allow_documentation=self._allow_documentation
         )
-
-
-def _render_mail(
-    evidence: Evidence,
-    settings: ReportSettings,
-    reply_token: str | None = None,
-    style: ReferenceStyle = "subject",
-) -> RenderedMessage:
-    """What the owner would paste: the X-ARF message when possible, else text and evidence CSV.
-    The reply token goes into the subject (and the body for ``subject_and_body``) only."""
-    try:
-        return render_xarf(evidence, settings, reply_token=reply_token, reference_style=style)
-    except RenderUnavailable:
-        body = render_text(evidence, settings, reply_token=reply_token, reference_style=style)
-        return replace(body, attachments=(render_csv(evidence),))
