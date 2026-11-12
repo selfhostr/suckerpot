@@ -79,6 +79,8 @@ export const GUARD_REASON: Record<string, string> = {
   // Set by the draft builder, not by the guard itself.
   settings_incomplete: "No reply contact is set, so the report cannot be written.",
   evidence_invalid: "The stored evidence of this draft is not valid.",
+  eml_invalid_recipient: "The abuse mailbox of this provider is not a valid address.",
+  bad_reply_token: "The reply reference of this draft is not valid.",
 }
 
 export function guardReason(code: string): string {
@@ -112,6 +114,8 @@ export const GUARD_FIX: Record<string, string> = {
   self_terms_unavailable: "Try again in a minute. If it lasts, check that the database is healthy.",
   settings_incomplete: "Set a reply contact in the Reporting settings.",
   evidence_invalid: "Regenerate the draft, or discard it.",
+  eml_invalid_recipient: "Type a valid mailbox for this provider in the list of recipients.",
+  bad_reply_token: "Regenerate the draft, or discard it.",
 }
 
 /** A few words for one draft row: why it is held back. */
@@ -130,6 +134,8 @@ export const GUARD_SHORT: Record<string, string> = {
   self_terms_unavailable: "the deny list could not be read",
   settings_incomplete: "no reply contact is set",
   evidence_invalid: "its evidence is not valid",
+  eml_invalid_recipient: "its mailbox is not valid",
+  bad_reply_token: "its reply reference is not valid",
 }
 
 /** One reason as two sentences: what was found, and what to do about it. */

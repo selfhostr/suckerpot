@@ -122,6 +122,8 @@ const STORED_CODES = [
   "self_terms_unavailable",
   "settings_incomplete",
   "evidence_invalid",
+  "eml_invalid_recipient",
+  "bad_reply_token",
 ]
 
 describe("why a draft is blocked", () => {
