@@ -53,7 +53,7 @@ from api.schemas import (
     StatsSummary,
 )
 from api.sensors import SensorFilter
-from api.session_floods import credentials_of, find_group_of
+from api.session_floods import AT_MAX, AT_MIN, credentials_of, find_group_of
 from api.story import STATEMENT_TIMEOUT_MS, Stage, stage_expr
 
 router = APIRouter()
@@ -205,11 +205,14 @@ async def get_session_detail(
         ),
     ] = None,
 ) -> SessionDetail:
+    when = _utc_or_422(at) if at is not None else None
+    if when is not None and not AT_MIN <= when <= AT_MAX:
+        raise HTTPException(status_code=422, detail="timestamp out of range")
     row = await session.get(SessionRow, session_id)
     if row is not None:
         return SessionDetail.model_validate(row, from_attributes=True)
-    if at is not None:
-        group = await find_group_of(session, session_id, _utc_or_422(at))
+    if when is not None:
+        group = await find_group_of(session, session_id, when)
         if group is not None:
             out = SessionDetail.model_validate(group, from_attributes=True)
             out.folded_from = session_id

@@ -9,7 +9,7 @@ the 5 second statement timeout holds.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Select, case, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,10 @@ from api.schemas import CredentialCount, CredentialPair, SessionCredentials
 
 #: How far from ``at`` the events of a folded id are looked for.
 AT_WINDOW = timedelta(hours=1)
+#: The ``at`` values worth a lookup. Anything outside is refused (422) by the route, and clamped
+#: here, so the window never overflows a datetime.
+AT_MIN = datetime(1970, 1, 1, tzinfo=UTC)
+AT_MAX = datetime(9000, 1, 1, tzinfo=UTC)
 #: Most events read to place a folded id (one connection holds a handful).
 MAX_PROBE_EVENTS = 200
 #: Most login attempts one credentials answer reads; ``truncated`` says when it was reached.
@@ -39,6 +43,7 @@ async def find_group_of(db: AsyncSession, session_id: str, at: datetime) -> Sess
     and hour (other tags or stage) cover the same events; the one that agrees on whether the
     connection tried to log in is returned.
     """
+    at = min(max(at, AT_MIN), AT_MAX)
     probe = (
         select(EventRow.ts, EventRow.type, EventRow.src_ip, EventRow.sensor, EventRow.dst_port)
         .where(

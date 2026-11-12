@@ -247,6 +247,29 @@ async def test_folded_id_prefers_the_group_that_agrees_on_login() -> None:
         assert f"ORDER BY CASE WHEN ((sessions.login_attempts > 0) = {stage})" in sql, sql
 
 
+@pytest.mark.parametrize(
+    ("at", "low", "high"),
+    [
+        (datetime(1, 1, 1, 0, 30, tzinfo=UTC), "1969-12-31 23:00:00+00:00", "1970-01-01 01:00:00"),
+        (datetime(9999, 12, 31, 23, 59, tzinfo=UTC), "8999-12-31 23:00:00", "9000-01-01 01:00:00"),
+    ],
+)
+async def test_an_extreme_at_is_clamped_never_overflows(at: datetime, low: str, high: str) -> None:
+    db = _ProbeDb([], _group())
+    assert await session_floods.find_group_of(db, "gone", at) is None  # type: ignore[arg-type]
+    probe = _sql(db.stmts[0])
+    assert f"events.ts >= '{low}" in probe and f"events.ts <= '{high}" in probe
+
+
+async def test_detail_route_refuses_an_at_out_of_range_before_any_read() -> None:
+    db = _ProbeDb([], _group())
+    for at in (datetime(1, 1, 1, 0, 30, tzinfo=UTC), datetime(9999, 12, 31, tzinfo=UTC)):
+        with pytest.raises(HTTPException) as exc:
+            await routes.get_session_detail("gone", db, at)  # type: ignore[arg-type]
+        assert exc.value.status_code == 422
+    assert db.stmts == []
+
+
 async def test_folded_id_with_no_events_is_not_found() -> None:
     db = _ProbeDb([], _group())
     assert await session_floods.find_group_of(db, "gone", T0) is None  # type: ignore[arg-type]
@@ -373,6 +396,10 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         "/api/v1/sessions?kind=",
         "/api/v1/sessions/abc?at=2026-11-01T12:00:00",  # no time zone
         "/api/v1/sessions/abc?at=yesterday",
+        "/api/v1/sessions/abc?at=0001-01-01T00:30:00Z",  # the window would overflow
+        "/api/v1/sessions/abc?at=0001-01-01T00:00:00%2B23:00",
+        "/api/v1/sessions/abc?at=9999-12-31T23:59:59Z",
+        "/api/v1/sessions/abc?at=1969-12-31T23:59:59Z",
         "/api/v1/sessions/abc/credentials?limit=0",
         "/api/v1/sessions/abc/credentials?limit=51",
         "/api/v1/sessions/a.b/credentials",
