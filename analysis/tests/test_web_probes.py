@@ -126,6 +126,67 @@ def test_json_must_parse() -> None:
     assert identify(big).kind not in WEB_KINDS
 
 
+def test_json_nesting_is_capped_by_a_scan_not_by_the_recursion_limit() -> None:
+    assert identify(b"[" * 64 + b"]" * 64).kind == "json"  # the cap itself is allowed
+    assert identify(b"[" * 65 + b"]" * 65).kind not in WEB_KINDS
+    assert identify(b'{"a":' * 65 + b"1" + b"}" * 65).kind not in WEB_KINDS
+    assert identify(b'{"a":' * 64 + b"1" + b"}" * 64).kind == "json"
+    # Brackets inside strings are not nesting, whatever their number or their escapes.
+    quoted = (
+        b'{"a": "'
+        + b"[" * 5000
+        + b'", "b": "\\"[[[[ ]]]]\\"", "c": ['
+        + b",".join([b"{}"] * 10)
+        + b"]}"
+    )
+    assert identify(quoted).kind == "json"
+    # A deep input with no closing at all is refused too, and quickly.
+    assert identify(b"[" * 200_000).kind not in WEB_KINDS
+    assert identify(b'{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}").kind not in WEB_KINDS
+
+
+# -- case: tags and keywords are matched whatever their case ---------------------------------------
+
+MIXED_CASE_PAGES = {
+    "upper case document": b"<!DOCTYPE HTML><HTML><HEAD><TITLE>t</TITLE></HEAD><BODY>x</BODY></HTML>",
+    "mixed case html": b"<Html><Body>hi</Body></Html>",
+    "upper case script tag first": b"<SCRIPT>var a = 1;</SCRIPT>",
+    "mixed case script tag first": b"<ScRiPt>var a = 1;</ScRiPt>",
+    "upper case svg": b'<SVG xmlns="http://www.w3.org/2000/svg"></SVG>',
+    "upper case xml prolog and svg": b'<?XML version="1.0"?><SVG xmlns="x"></SVG>',
+    "upper case rss": b'<?XML version="1.0"?><RSS version="2.0"><CHANNEL/></RSS>',
+}
+MIXED_CASE_ACTIVE = {
+    "upper case asp tag": b"<HTML><BODY><% Response.Write(1) %></BODY></HTML>",
+    "upper case hta": b"<HTML><HEAD><HTA:APPLICATION ID=x></HEAD></HTML>",
+    "mixed case hta": b"<Html><Head><Hta:Application Id=x></Head></Html>",
+    "mixed case php short tag": b"<Html><Body><? System($_GET[c]) ?></Body></Html>",
+    "upper case scriptlet": b'<?XML version="1.0"?><SCRIPTLET><REGISTRATION progid="x"/></SCRIPTLET>',
+    "upper case job": b'<?XML version="1.0"?><JOB><SCRIPT language="JScript"></SCRIPT></JOB>',
+    "upper case svg script": b'<SVG><SCRIPT>new ActiveXObject("WScript.Shell")</SCRIPT></SVG>',
+    "upper case runat": b'<HTML><BODY RUNAT="SERVER"></BODY></HTML>',
+    "upper case jsp": b"<HTML><BODY><JSP:SCRIPTLET>x</JSP:SCRIPTLET></BODY></HTML>",
+    "mixed case powershell": b"<html><body>PowerShell -enc AAAA</body></html>",
+    "upper case getruntime": b"<HTML><BODY>RUNTIME.GETRUNTIME()</BODY></HTML>",
+}
+
+
+@pytest.mark.parametrize("name", sorted(MIXED_CASE_PAGES))
+def test_upper_and_mixed_case_markup_is_still_web_content(name: str) -> None:
+    kind = identify(MIXED_CASE_PAGES[name]).kind
+    assert kind in WEB_KINDS, (name, kind)
+
+
+@pytest.mark.parametrize("name", sorted(MIXED_CASE_ACTIVE))
+def test_upper_and_mixed_case_active_content_is_refused(name: str) -> None:
+    assert identify(MIXED_CASE_ACTIVE[name]).kind not in WEB_KINDS, name
+
+
+def test_upper_case_css_keywords() -> None:
+    assert identify(b"@MEDIA print{A{COLOR:red}B{MARGIN:0}C{PADDING:0}}").kind == "css"
+    assert identify(b"@Import url(a.css);\nBODY{Margin:0}").kind == "css"
+
+
 def test_css_must_be_made_of_rules() -> None:
     sheet = b"a{color:red}b{margin:0}@media (min-width:1px){c{padding:0;margin:0}}"
     assert identify(sheet).kind == "css"

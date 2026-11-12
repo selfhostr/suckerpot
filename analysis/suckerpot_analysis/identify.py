@@ -42,14 +42,17 @@ _SHELL_HINT = re.compile(
 # `text` kind, whose links are followed.
 _SNIFF = 4096
 _JSON_PARSE_MAX = 2 * 1024 * 1024
+_JSON_MAX_DEPTH = 64
 _CSS_CHECK_MAX = 4 * 1024 * 1024
 _CSS_MAX_DEPTH = 32
 _HTML_OPEN = re.compile(
     rb"<!doctype\s+html|<(?:html|head|body|title|meta|base|div|span|p|a|b|i|pre|br|hr|img|ul|ol"
     rb"|nav|header|footer|main|section|article|noscript|script|style|link|h[1-6]|form|table"
-    rb"|iframe|center|font)[\s>/]"
+    rb"|iframe|center|font)[\s>/]",
+    re.IGNORECASE,
 )
-_XML_ROOT = re.compile(rb"<(?:svg|rss|feed|urlset|sitemapindex|plist|opml)[\s>]")
+_XML_ROOT = re.compile(rb"<(?:svg|rss|feed|urlset|sitemapindex|plist|opml)[\s>]", re.IGNORECASE)
+_JSON_BRACKET = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"|[\[{]|[\]}]', re.DOTALL)
 _JSON_START = re.compile(rb'[\[{]\s*(?:"[^"\n]{0,200}"\s*:|[\[{"\]}]|-?\d|true\b|false\b|null\b)')
 _JS_SYNTAX = re.compile(
     rb"\bfunction\s*[\w$]*\s*\(|\b(?:var|let|const)\s+[\w$]+\s*=|\bimport\s*(?:[{*(]|[\w$]+\s+from\b)"
@@ -63,9 +66,10 @@ _NOT_JS = re.compile(
     re.MULTILINE,
 )
 _CSS_AT_RULE = re.compile(
-    rb"@(?:charset|import|font-face|media|keyframes|layer|supports|namespace|page|tailwind|property)\b"
+    rb"@(?:charset|import|font-face|media|keyframes|layer|supports|namespace|page|tailwind|property)\b",
+    re.IGNORECASE,
 )
-_CSS_BLOCK = re.compile(rb"[^{}]{1,200}\{\s*[a-z-]+\s*:[^{}]{0,200}\}")
+_CSS_BLOCK = re.compile(rb"[^{}]{1,200}\{\s*[a-z-]+\s*:[^{}]{0,200}\}", re.IGNORECASE)
 _CSS_TOKEN = re.compile(
     rb"/\*.*?\*/|url\((?:[^)\\]|\\.)*\)|\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|[{};]"
     rb"|(?:(?!url\()[^{};\"'/])+|.",
@@ -240,7 +244,10 @@ def _skip_markup_prolog(lowered: bytes) -> bytes | None:
 
 
 def _markup_kind(lowered: bytes) -> str | None:
-    """`html`, `svg` or `xml` when the document OPENS like one (after its prolog), else None."""
+    """`html`, `svg` or `xml` when the document OPENS like one (after its prolog), else None.
+
+    The caller passes the opening bytes in lower case; the patterns are case-insensitive anyway.
+    """
     body = _skip_markup_prolog(lowered)
     if body is None:
         return None
@@ -251,9 +258,28 @@ def _markup_kind(lowered: bytes) -> str | None:
     return None
 
 
+def _json_depth_ok(data: bytes) -> bool:
+    """True when no bracket outside a string is nested deeper than `_JSON_MAX_DEPTH`.
+
+    A linear scan, so the check does not rely on the interpreter's recursion limit.
+    """
+    depth = 0
+    for m in _JSON_BRACKET.finditer(data):
+        tok = m.group()
+        if tok in (b"[", b"{"):
+            depth += 1
+            if depth > _JSON_MAX_DEPTH:
+                return False
+        elif tok in (b"]", b"}"):
+            depth -= 1
+    return True
+
+
 def _parses_as_json(data: bytes) -> bool:
     if len(data) > _JSON_PARSE_MAX:
         return False  # too big to check here: it keeps the text kind
+    if not _json_depth_ok(data):
+        return False
     try:
         json.loads(data)
     except ValueError, RecursionError:
