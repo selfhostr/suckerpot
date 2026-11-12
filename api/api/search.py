@@ -4,9 +4,11 @@
 domains and URLs, CVE ids and campaigns. It is built from indexed lookups only:
 
 * IPs: an exact match, or a dotted prefix such as ``203.0.113.`` turned into an address range,
-  both on ``ix_sessions_src_ip``. The range scan reads at most ``IP_SCAN_ROWS`` index entries in
-  address order, so on a very wide prefix (a /8) the hits come from the lowest addresses of the
-  range, then are ordered by recency among those.
+  both on ``ix_sessions_src_ip_sensor_started_at`` (its first column is the address). The hit
+  count is the number of connections: a flood group of one hour counts its ``connections``. The
+  range scan reads at most ``IP_SCAN_ROWS`` index entries in address order, so on a very wide
+  prefix (a /8) the hits come from the lowest addresses of the range, then are ordered by
+  recency among those.
 * Hashes and domains/URLs: a left-anchored ``LIKE`` on ``ix_indicators_value_prefix``.
 * CVEs: the primary key, for a complete id (``CVE-2026-109618``).
 * Campaigns: a left-anchored ``LIKE`` on ``ix_campaigns_name_prefix``, or the numeric id.
@@ -32,6 +34,7 @@ from pydantic import BaseModel
 from sqlalchemy import ColumnElement, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import CampaignRow, CveRow, IndicatorRow, SessionRow
+from suckerpot_db.session_counts import sessions_count
 
 from api.deps import DbSession
 from api.indicators import defang
@@ -147,7 +150,7 @@ async def _ips(db: AsyncSession, q: str) -> SearchGroup:
         stmt = (
             select(
                 s.src_ip.label("ip"),
-                func.count().label("n"),
+                sessions_count().label("n"),
                 func.max(s.last_event_at).label("last_seen"),
                 func.max(s.country).label("country"),
                 func.max(s.org).label("org"),
@@ -158,7 +161,7 @@ async def _ips(db: AsyncSession, q: str) -> SearchGroup:
         )
     else:
         inner = (
-            select(s.src_ip, s.last_event_at, s.country, s.org, s.benign)
+            select(s.src_ip, s.last_event_at, s.country, s.org, s.benign, s.connections)
             .where(s.src_ip >= str(low), s.src_ip <= str(high))
             .order_by(s.src_ip)
             .limit(IP_SCAN_ROWS)
@@ -167,7 +170,7 @@ async def _ips(db: AsyncSession, q: str) -> SearchGroup:
         stmt = (
             select(
                 inner.c.src_ip.label("ip"),
-                func.count().label("n"),
+                sessions_count(connections=inner.c.connections).label("n"),
                 func.max(inner.c.last_event_at).label("last_seen"),
                 func.max(inner.c.country).label("country"),
                 func.max(inner.c.org).label("org"),

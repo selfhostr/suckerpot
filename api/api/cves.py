@@ -17,9 +17,11 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from suckerpot_db.session_counts import sql_sessions_count
 
 from api.cursor import InvalidCursorError, decode_cursor, encode_cursor
 from api.deps import DbSession
+from api.session_floods import SQL_LAST_SEEN
 
 router = APIRouter(tags=["cves"])
 
@@ -37,7 +39,7 @@ Sort = Literal["rank", "published"]
 _PUB = "COALESCE(c.published_at, c.kev_added_at::timestamp AT TIME ZONE 'UTC', c.first_seen_at)"
 _SEEN = (
     "CASE WHEN cardinality(c.tags) = 0 THEN 0 ELSE "
-    "(SELECT count(*) FROM sessions s WHERE s.tags && c.tags) END"
+    f"(SELECT {sql_sessions_count('s')} FROM sessions s WHERE s.tags && c.tags) END"
 )
 _ITEM_COLS = f"""
     c.cve_id, c.title, left(c.description, {DESCRIPTION_IN_LIST}) AS description, c.vendor,
@@ -296,8 +298,8 @@ async def cve_detail(
         agg = (
             await db.execute(
                 text(
-                    "SELECT count(*) AS sessions, count(DISTINCT src_ip) AS ips, "
-                    "min(started_at) AS first_seen, max(started_at) AS last_seen "
+                    f"SELECT {sql_sessions_count()} AS sessions, count(DISTINCT src_ip) AS ips, "
+                    f"min(started_at) AS first_seen, {SQL_LAST_SEEN} AS last_seen "
                     "FROM sessions WHERE tags && CAST(:tags AS text[])"
                 ),
                 {"tags": row.tags},
@@ -306,7 +308,8 @@ async def cve_detail(
         per_tag = (
             await db.execute(
                 text(
-                    "SELECT t AS tag, count(*) AS sessions FROM sessions, unnest(tags) AS t "
+                    f"SELECT t AS tag, {sql_sessions_count()} AS sessions "
+                    "FROM sessions, unnest(tags) AS t "
                     "WHERE t = ANY(CAST(:tags AS text[])) GROUP BY t ORDER BY sessions DESC, t"
                 ),
                 {"tags": row.tags},

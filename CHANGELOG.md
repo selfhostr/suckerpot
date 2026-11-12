@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   candidates, blocklists, network batches, reports, alerts, takedown sightings) now sums
   `connections`, so the numbers are the same with and without folding. New settings
   `SESSION_FOLD_ENABLED`, `SESSION_FOLD_MIN` and `SESSION_FOLD_IDLE_MIN`.
+- Flood groups in the API. Sessions carry `kind` and `connections`; `/api/v1/sessions` takes
+  `kind=session|burst`; `/api/v1/stats/summary` adds `flood_sessions` and `flood_sources`;
+  `/api/v1/sessions/{id}?at=` finds the group a folded connection joined; a group's events
+  are read from its source, sensor and port inside its hour, and the new
+  `/api/v1/sessions/{id}/credentials` lists the usernames, passwords and pairs a session or
+  group tried. Every count of sessions in the API sums `connections`, so folding changes no
+  number, and the value filters of the session list still find a flood. The brute-force
+  threshold of the CERT exports is per connection.
 
 ## [0.11.5] - 2026-11-12
 

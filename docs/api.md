@@ -124,8 +124,9 @@ These pages are generated from the code, so they match the running version. Use 
 | `GET` | `/healthz` | Health check. Checks the database. |
 | `GET` | `/api/v1/events/recent` | The newest events, newest first |
 | `GET` | `/api/v1/sessions` | List sessions, newest first |
-| `GET` | `/api/v1/sessions/{session_id}` | One session |
-| `GET` | `/api/v1/sessions/{session_id}/events` | Events of one session, oldest first |
+| `GET` | `/api/v1/sessions/{session_id}` | One session or flood group, or the group a folded connection joined (`?at=`) |
+| `GET` | `/api/v1/sessions/{session_id}/events` | Events of one session or flood group, oldest first |
+| `GET` | `/api/v1/sessions/{session_id}/credentials` | What a session or a flood group tried to log in with |
 | `GET` | `/api/v1/stats/summary` | Totals for the last 24 hours |
 | `GET` | `/api/v1/today` | The cards of the Today page (M19) |
 | `GET` | `/api/v1/search` | Global search (M19) |
@@ -244,6 +245,7 @@ Lists sessions, newest first. Order: `started_at` descending, then `session_id`.
 | `asn` | none | Only sessions from this autonomous system number (an integer) |
 | `since` | none | Only sessions that started at or after this time (ISO 8601, with a time zone) |
 | `until` | none | Only sessions that started before this time |
+| `kind` | none | `session` for single connections, `burst` for flood groups (see [Flood groups](#flood-groups)) |
 
 Example request:
 
@@ -278,7 +280,9 @@ Example response (values are fake, and use documentation addresses):
       "abuse_score": null,
       "known_scanner": null,
       "client_tool": null,
-      "tags": []
+      "tags": [],
+      "kind": "session",
+      "connections": 1
     },
     {
       "session_id": "Q8mW1-zT4bA",
@@ -302,7 +306,9 @@ Example response (values are fake, and use documentation addresses):
       "abuse_score": null,
       "known_scanner": null,
       "client_tool": null,
-      "tags": []
+      "tags": [],
+      "kind": "session",
+      "connections": 1
     }
   ],
   "next_cursor": "WyIyMDI2LTEwLTI0VDE3OjQ4OjAzKzAwOjAwIiwiUThtVzEtelQ0YkEiXQ"
@@ -319,13 +325,19 @@ Filters combine with AND. `since` and `until` need a time zone (`2026-10-24T00:0
 
 ### `GET /api/v1/sessions/{session_id}`
 
-Returns one session, with the same fields as a list item. Returns `404` when the session does not exist.
+Returns one session, with the same fields as a list item (a flood group is returned the same way). Returns `404` when the session does not exist.
 
 ```json
 {
   "detail": "session not found"
 }
 ```
+
+| Query parameter | Default | Meaning |
+| --- | --- | --- |
+| `at` | none | When the connection happened (ISO 8601, with a time zone). A connection that was folded into a flood group has no row of its own any more. With `at`, its events are looked up from one hour before to one hour after that time and the group that holds it is returned, with `folded_from` set to the id that was asked for. Without a match the answer is `404`. |
+
+When several groups of the same source and hour could hold the connection (the connections of that hour differ in tags or in whether they tried to log in), the one that agrees on whether it tried to log in is returned. Web links to a session from an event carry `at` for this reason.
 
 ### `GET /api/v1/sessions/{session_id}/events`
 
@@ -391,6 +403,37 @@ Example response:
 
 The `data` object follows the recommended keys in [Event schema](event-schema.md). An event `cursor` is bounded: an id outside 0 to 2^63-1 returns `400`.
 
+For a flood group the events are those of the group's source address, sensor and port inside the group's time range, leaving out the events of any connection that kept a row of its own (those are told on their own page). Two groups of the same source and hour (other tags, or one that tried to log in and one that did not) can share events.
+
+### `GET /api/v1/sessions/{session_id}/credentials`
+
+What a session or a flood group tried to log in with: the most used usernames, passwords and username/password pairs, and how many different ones there were. Values are cut to 256 characters. It reads the `login_attempt` events of the session (or of the group, see above) inside their time range and at most the first 50,000 of them (`truncated` says so). A group that saw no login attempt answers with zeros. Returns `404` when the session does not exist.
+
+| Query parameter | Default | Meaning |
+| --- | --- | --- |
+| `limit` | `10` | Entries in each of the three lists, 1 to 50 |
+
+```json
+{
+  "attempts": 812,
+  "distinct_usernames": 1,
+  "distinct_passwords": 812,
+  "distinct_pairs": 812,
+  "truncated": false,
+  "usernames": [{"value": "Administrator", "count": 812}],
+  "passwords": [{"value": "Spring2026!", "count": 1}],
+  "pairs": [{"username": "Administrator", "password": "Spring2026!", "count": 1}]
+}
+```
+
+### Flood groups
+
+A source that opens many plain connections in one UTC hour has them merged into one session row, a flood group ([Data retention](retention.md#flood-groups)). A group has `kind` `burst`, an id that starts with `burst-`, `connections` set to the number of connections it stands for, the sums of their `event_count` and `login_attempts`, and `src_port` `0`. A single connection has `kind` `session` and `connections` `1`; both fields are on every session object in the API.
+
+Every count of sessions in the API (the summary, the time series, the top lists, the attacker and network profiles, the story, the Today cards, trends, CVE and exposure counts, the live counters, search) sums `connections`, so folding a flood changes none of them. What does change: the session list shows groups next to the remaining single rows, the time of "last seen" for a group is the end of its last connection, and a chart with 5-minute buckets places a group at its first connection (hourly and daily buckets are exact). A group is never severe on the brute-force count: that threshold (50 attempts) is per connection, in the CERT exports and everywhere else.
+
+The value filters of `/sessions` (`username`, `password`, `command`, `url`) match a group when one of its events does.
+
 ### `GET /api/v1/stats/summary`
 
 Totals for the last 24 hours (`window_hours` is `24`). The `by_sensor` object has one entry per sensor that has data.
@@ -411,9 +454,13 @@ Example response (fake values):
     "ssh": {"events": 12010, "sessions": 910},
     "telnet": {"events": 3580, "sessions": 280},
     "web": {"events": 1548, "sessions": 120}
-  }
+  },
+  "flood_sessions": 640,
+  "flood_sources": 3
 }
 ```
+
+`sessions` counts connections. `flood_sessions` is the part of them that sits in flood groups, and `flood_sources` the number of addresses that sent them.
 
 ### `GET /api/v1/settings/system`
 
