@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Abuse reports now say why a draft is blocked and what to do. Settings, Reporting checks each text (reply contact, signature, introduction, closing, note, subject template, X-ARF user agent) on its own: a text that would block every draft, for example a reply address on a domain that names the project, is refused with one sentence under the field and nothing is saved. The same sentences show when a text you saved earlier blocks drafts today, because the rules grow over time. The list of drafts gets a Blocked drafts card (how many, one sentence per reason, what to do, and the setting that causes it) and a few words on each blocked row. The report page gives a next step for every reason instead of a bare description. The API adds `fields` to a refused settings save, `field_issues` to `GET /abuse/settings` and `blocked_drafts` to `GET /abuse/status`.
+
 ### Fixed
+
+- Open drafts are checked again after the reporting settings or the "never in a report" list change. Before, a draft kept the result of its last build for up to an hour (longer for a draft the lookup cap skipped), so a reply contact fixed in Settings left every draft marked blocked. The worker now re-checks the open drafts from their stored evidence, with no lookup and no rebuild, when the settings revision or the deny set changed. The check itself is unchanged and nothing is ever sent by this pass.
 
 - `update.sh` and `install.sh` no longer report a failed update or install on a healthy node
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final

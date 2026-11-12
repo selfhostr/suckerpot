@@ -386,6 +386,7 @@ How a draft is made:
 2. **Find the contact.** RDAP, through the same egress gate as every other lookup (a closed gate means wait, no quota spent). Answers are cached per network and capped in size, time and quota. A domain goes to the registrar only.
 3. **Build.** One open draft per recipient and kind. Evidence is copied field by field, passed through redaction, then checked by the identity guard. The result is stored in `abuse_reports` (migration 0019) with the guard outcome.
 4. **Render on demand.** The API renders text, X-ARF, `.eml`, STIX, MISP and bundles when asked, and runs the guard again on every artefact right before returning it. Nothing rendered is stored, so a settings change needs no rebuild.
+5. **Re-check.** A draft stores its guard outcome, and the lists show it. The worker re-checks every open draft from its stored evidence, with no lookup and no rebuild, when the settings revision or the deny set differs from the last pass (and once after a start). A reply contact fixed in Settings therefore unblocks the drafts within a minute, and a new deny term blocks a leaking draft just as fast. It runs the same check and writes only the outcome of drafts.
 
 The database roles split the work: `suckerpot_ingest` can write drafts only, `suckerpot_api` can change status, notes and options but cannot rewrite evidence. A trigger allows only the legal status changes and refuses `sent` for demo reports. Learned self terms (`report_self_terms`) are never deleted by retention. See [Security](SECURITY.md#anonymous-reporting-m22).
 

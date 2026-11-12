@@ -722,11 +722,11 @@ The state of the anonymous egress, for the Settings card.
 
 The API prepares reports and never talks SMTP itself: optional sending (M25) queues a request that ingest delivers through the VPN. Every `GET` is open to both roles, except settings and self terms (administrators only). Every write needs an administrator, the CSRF header and an allowed origin. Lists use cursor pagination (`limit` up to 100).
 
-Every render, download and export runs the identity guard before it returns. A failure answers `409` with `{"detail", "code": "identity_guard_failed", "reasons": [...]}`. Reasons are constant codes, never the matched value (see [Security](SECURITY.md#the-identity-guard)). When the reply contact is empty the answer is `409` with `code: "settings_incomplete"` and `missing: ["reply_contact"]`. It is the only required setting: the introduction, closing, note, signature, subject template and X-ARF user agent are optional (an empty part is left out; an empty subject template gives `Abuse report for {value}`, an empty user agent gives `Mozilla/5.0`).
+Every render, download and export runs the identity guard before it returns. A failure answers `409` with `{"detail", "code": "identity_guard_failed", "reasons": [...]}`. Reasons are constant codes, never the matched value (see [Security](SECURITY.md#the-identity-guard)). A refused settings save adds `fields`, the reason codes per field name (`{"reply_contact": ["project_term"]}`), so the UI can say which text blocks every report. When the reply contact is empty the answer is `409` with `code: "settings_incomplete"` and `missing: ["reply_contact"]`. It is the only required setting: the introduction, closing, note, signature, subject template and X-ARF user agent are optional (an empty part is left out; an empty subject template gives `Abuse report for {value}`, an empty user agent gives `Mozilla/5.0`).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/abuse/status` | Worker on or off, gate state, RDAP quota, whether a self address is known (never the value), counts per status |
+| `GET` | `/api/v1/abuse/status` | Worker on or off, gate state, RDAP quota, whether a self address is known (never the value), counts per status, and `blocked_drafts`: how many open drafts the identity check holds back, and how many carry each reason code |
 | `GET` | `/api/v1/abuse/reports` | Reports, newest change first. Filters: `status`, `kind`, `recipient`, `demo`. |
 | `GET` | `/api/v1/abuse/reports/{public_id}` | One report: subjects, guard result, redaction counters, revision, history and the send state (`send_state`, M25) |
 | `GET` | `/api/v1/abuse/reports/{public_id}/render` | `format=text`, `xarf` or `eml`, optional `subject`. Returns To, Subject, body, attachments and revision. |
@@ -735,7 +735,7 @@ Every render, download and export runs the identity guard before it returns. A f
 | `PATCH` | `/api/v1/abuse/reports/{public_id}` | Notes and options of an open report |
 | `POST` | `/api/v1/abuse/reports/{public_id}/regenerate` | Ask ingest to rebuild the draft. A reviewed report goes back to draft. |
 | `GET`, `PATCH` | `/api/v1/abuse/recipients`, `/{id}` | List recipients. Mute one or set an override mailbox. |
-| `GET`, `PUT` | `/api/v1/abuse/settings` | Reply contact, signature, wording, X-ARF user agent, default options. Administrators only. Every text field is checked by the guard. The audit log records field names, never values. |
+| `GET`, `PUT` | `/api/v1/abuse/settings` | Reply contact, signature, wording, X-ARF user agent, default options. Administrators only. Every text field is checked by the guard on its own: `PUT` refuses a text that would block every report (`409`, with `fields`), and `GET` returns `field_issues`, the saved texts that block reports today, as reason codes per field (the rules grow, so an old text can start to block). The audit log records field names, never values. |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/api/v1/abuse/self-terms`, `/{id}` | The "never in a report" list. Administrators only. Values are masked unless `reveal=true`. Confirm a learned term with `PATCH`. |
 | `GET` | `/api/v1/abuse/exports/stix`, `/misp` | Indicators of one `report`, one `campaign` or a `since`/`until` window, with a `tlp` (default `TLP:GREEN`). Audited. |
 | `POST` | `/api/v1/abuse/exports/samples` | Up to 10 stored samples in one AES-256 zip (password `infected`) with a hash table. Administrators only, password asked again, 5 per hour. A sample that contains a self term is excluded and counted in `X-Excluded`. |
