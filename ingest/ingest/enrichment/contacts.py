@@ -29,6 +29,7 @@ from typing import Any, Literal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.blocklist_values import normalize_value
+from suckerpot_db.sample_kinds import is_benign_web_hash
 
 from ingest.enrichment.textutil import clean, parse_when
 from ingest.indicators import IndicatorSettings, normalize_host
@@ -229,11 +230,11 @@ async def candidates(
     if not sources:
         return []
     stmt = text(
-        """
+        f"""
         SELECT i.id, i.value,
                COALESCE(array_agg(c.source) FILTER (
                    WHERE c.source = ANY(:srcs)
-                     AND c.checked_at > now() - make_interval(hours => :hours)), '{}') AS fresh
+                     AND c.checked_at > now() - make_interval(hours => :hours)), '{{}}') AS fresh
         FROM indicators i
         CROSS JOIN LATERAL (
             SELECT count(DISTINCT network(set_masklen(s.src_ip,
@@ -252,6 +253,7 @@ async def candidates(
         LEFT JOIN indicator_contact_checks c ON c.indicator_id = i.id
         WHERE i.type = 'hash' AND NOT i.demo AND i.last_seen > now() - interval '7 days'
           AND (i.trusted OR l.nets >= :min_nets)
+          AND NOT {is_benign_web_hash("i.value")}
           AND u.used < :per_ip
           AND EXISTS (SELECT 1 FROM indicator_intel n
                       WHERE n.indicator_id = i.id AND n.known
@@ -262,7 +264,7 @@ async def candidates(
                      AND c.checked_at > now() - make_interval(hours => :hours)) < :n
         ORDER BY l.ips DESC, i.sightings DESC, i.id
         LIMIT :k
-        """
+        """  # noqa: S608  (constant fragments only)
     )
     async with factory() as session:
         rows = (
