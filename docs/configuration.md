@@ -474,6 +474,18 @@ See [Demo data](demo-data.md) for the command-line options that override these.
 | `RETENTION_DAYS` | `90` | Days to keep raw events (7 to 3650). Aggregates are kept forever. Read by the `migrate` service, which re-applies the policies on every run. See [Data retention](retention.md). |
 | `DB_MAX_SIZE_GB` | `10` | Size ceiling of the database (at least 1). Above 90% the disk guard drops the oldest raw chunks down to 80%. Above 95% ingest keeps only payload previews. Read by `migrate` and `ingest`. The ceiling can shorten the effective retention below `RETENTION_DAYS`: Settings shows the oldest stored raw event next to the configured window. |
 
+## Flood groups
+
+Ingest merges the plain connections of a flooding source into one row per sensor, address and hour, so a credential spray cannot fill the `sessions` table. A connection that did anything else keeps its own row, and events are never touched. What counts as plain, and what a group looks like, is in [Data retention](retention.md#flood-groups). Which tags a plain connection may carry is the list `plain_tags` in `ingest/rules/floods.yaml`; ingest refuses to start when it names a payload or severe tag, a CVE tag, `bluekeep` or `eternalblue`. Compose passes these variables to `ingest`.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SESSION_FOLD_ENABLED` | `true` | Fold as connections close, and sweep the history. `false` switches both off; groups already stored stay |
+| `SESSION_FOLD_MIN` | `20` | Connections of one source on one sensor in one UTC hour that make a flood (5 to 10,000). Lowering it does not re-fold history already swept |
+| `SESSION_FOLD_IDLE_MIN` | `15` | Minutes of silence after which a connection with no disconnect counts as finished (5 to 1,440) |
+
+The sweep runs every minute: a pass over the last three hours, then, until it has reached the oldest session, a backfill that walks backwards six hours at a time. Its progress is the `session_fold` row of `system_status`.
+
 ## Blocklists and feeds (M16)
 
 Details in [Defend](defend.md). Ingest scores indicators into blocklists when `BLOCKLIST_ENABLED=true`; the API serves a token-protected feed when `FEEDS_ENABLED=true`. Both are off by default.

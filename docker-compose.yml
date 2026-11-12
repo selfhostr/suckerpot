@@ -233,6 +233,10 @@ services:
       INGEST_STREAMS: ${INGEST_STREAMS:-events:ssh,events:telnet,events:web,events:rdp,events:redis,events:docker,events:mysql,events:mssql,events:adb,events:smb,events:sip,events:synology}
       INGEST_MAX_BATCH_FAILURES: ${INGEST_MAX_BATCH_FAILURES:-5}
       DB_MAX_SIZE_GB: ${DB_MAX_SIZE_GB:-10}
+      # Flood groups (0034): merge a source's plain connections of one hour into one row.
+      SESSION_FOLD_ENABLED: ${SESSION_FOLD_ENABLED:-true}
+      SESSION_FOLD_MIN: ${SESSION_FOLD_MIN:-20}
+      SESSION_FOLD_IDLE_MIN: ${SESSION_FOLD_IDLE_MIN:-15}
       GEOIP_PROVIDER: ${GEOIP_PROVIDER:-auto}
       GEOIP_REFRESH_DAYS: ${GEOIP_REFRESH_DAYS:-30}
       GEOIP_FAKE_FOR_PRIVATE: ${GEOIP_FAKE_FOR_PRIVATE:-false}

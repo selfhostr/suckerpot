@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   into `sessions_daily` included. Migration 0034; the ingest role gets `EXECUTE` on the function
   and still has no `DELETE` on `sessions`; going back to 0033 is refused while a group exists.
   See [Data retention](docs/retention.md#flood-groups).
+- Flood groups in ingest. The writer folds a connection into its group as soon as it closes, when
+  its source has opened enough connections in the hour (`SESSION_FOLD_MIN`, default 20). A sweep
+  worker (every minute: the last three hours, then the history, six hours at a time, resuming after
+  a restart) folds what the writer did not: connections that never sent a disconnect, a flood
+  already under way when ingest started, and the rows stored before this release. Which tags a
+  plain connection may carry is `ingest/rules/floods.yaml`; ingest refuses to start when it lists a
+  payload or severe tag, a CVE tag, `bluekeep` or `eternalblue`. A failing fold never fails a
+  batch. An event whose session id starts with `burst-` is dropped and counted like a forged
+  sensor, campaigns never cluster a group, and every count of sessions in ingest (abuse
+  candidates, blocklists, network batches, reports, alerts, takedown sightings) now sums
+  `connections`, so the numbers are the same with and without folding. New settings
+  `SESSION_FOLD_ENABLED`, `SESSION_FOLD_MIN` and `SESSION_FOLD_IDLE_MIN`.
 
 ## [0.11.5] - 2026-11-12
 
