@@ -11,10 +11,12 @@ from pydantic import BaseModel, ConfigDict, Field
 ANALYSIS_VERSION = 2
 
 # File kinds for ordinary web content (pages, images, style sheets, scripts of a web page, data
-# documents). Unless a detection rule matched it, such a file is not deobfuscated and its links are
-# not followed. A file only gets one of these when it plausibly is that format and its whole input
-# holds no shell command, downloader or active content (see `identify._identify_web`); anything
-# else keeps the `script` or `text` kind.
+# documents), with the severity "info" unless a detection rule matched. A file only gets one of
+# these when it plausibly is that format and its whole input holds no shell command, downloader,
+# code runner or active content (see `identify._identify_web`); anything else keeps the `script` or
+# `text` kind. The kind alone never spares a file: the collector skips the links and the hash of a
+# web sample only when no rule matched it AND it was reached by following links found in other
+# web content, never when an attacker asked for it (`suckerpot_db.sample_kinds`).
 WEB_KINDS: frozenset[str] = frozenset({"html", "svg", "xml", "css", "json", "javascript"})
 
 IocKind = Literal["next_url", "c2_ip", "c2_domain", "c2_url"]

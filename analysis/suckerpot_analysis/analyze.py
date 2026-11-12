@@ -11,6 +11,7 @@ from .rules import CompiledRules, scan
 from .strings import printable_strings
 
 _ORDER: tuple[Severity, ...] = ("info", "notice", "warning", "severe")
+_TEXT_KINDS = frozenset({"script", "text"})
 
 
 def _severity(value: object) -> Severity | None:
@@ -30,7 +31,8 @@ def analyze(data: bytes, *, rules: CompiledRules, limits: Limits = Limits()) -> 
     errors.extend(scan_errors)
 
     family: str | None = None
-    # Ordinary web content is harmless until a rule says otherwise (the lowest level, no family).
+    # Web content starts at the lowest level; any rule that matches raises it to at least
+    # "notice", so a web sample at "info" with no family is one that no rule matched.
     severity: Severity = "info" if info.kind in WEB_KINDS else "notice"
     tags: list[str] = []
     for hit in hits:
@@ -43,16 +45,18 @@ def analyze(data: bytes, *, rules: CompiledRules, limits: Limits = Limits()) -> 
         for tag in hit.tags:
             if tag not in tags:
                 tags.append(tag)
+    if hits and severity == "info":
+        severity = "notice"
 
     strings = printable_strings(data, max_count=limits.max_strings, max_len=limits.string_max_len)
     iocs: list[Ioc] = []
     deobfuscated: str | None = None
     deob_steps = []
-    # Web content (WEB_KINDS) is neither deobfuscated nor mined for links: its hundreds of asset
-    # links would only queue more fetches. Unless a detection rule matched it: then it is treated
-    # like any other text, because the rule says it is not an ordinary page.
-    flagged_web = info.kind in WEB_KINDS and bool(hits)
-    if (info.kind in {"script", "text"} or flagged_web) and len(data) <= limits.deob_max_input:
+    # Web content (WEB_KINDS) is read like any text: its links are extracted. Whether they are
+    # followed is the collector's decision, which knows how the file was reached: links of a page
+    # that an attacker asked for are followed, links found in a page it reached by following other
+    # web links are not.
+    if (info.kind in _TEXT_KINDS or info.kind in WEB_KINDS) and len(data) <= limits.deob_max_input:
         text = data.decode("utf-8", errors="replace")
         result = deobfuscate_shell(
             text,

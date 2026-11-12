@@ -7,8 +7,9 @@ import os
 import random
 import struct
 import time
+from pathlib import Path
 
-from suckerpot_analysis import AnalysisResult, CompiledRules, Limits, analyze
+from suckerpot_analysis import AnalysisResult, CompiledRules, Limits, analyze, compile_rules
 
 from .conftest import make_elf, make_pe
 
@@ -124,7 +125,10 @@ def test_regex_pathologies(rules: CompiledRules) -> None:
     timed(b"a.b.c.d." * 100_000, rules)
 
 
-def test_web_pages_carry_no_next_stage(rules: CompiledRules) -> None:
+def test_web_pages_keep_their_links_for_the_collector_to_decide(rules: CompiledRules) -> None:
+    # The analysis cannot know how a page was reached, so it reads its links like any text. The
+    # collector follows them when an attacker asked for the page, and never for a page it reached
+    # through the links of other web content.
     page = (
         b"<!doctype html><html><head><title>t</title>"
         b'<script src="https://cdn.example.test/a.js"></script></head>'
@@ -135,8 +139,11 @@ def test_web_pages_carry_no_next_stage(rules: CompiledRules) -> None:
     assert result.file.kind == "html"
     assert result.severity == "info"
     assert result.family is None
-    assert result.iocs == []
-    assert result.deobfuscated is None
+    assert [(i.kind, i.value) for i in result.iocs] == [
+        ("next_url", "https://cdn.example.test/a.js"),
+        ("next_url", "https://www.example.test/x"),
+        ("next_url", "http://198.51.100.7/logo.png"),
+    ]
     assert result.strings  # strings are still extracted
 
 
@@ -153,7 +160,7 @@ def test_huge_web_files_stay_within_limits(rules: CompiledRules) -> None:
     timed(b"x" * 150 + b"{" + b"y" * 150 + b"{" * 3000, rules)
 
 
-def test_every_web_kind_has_no_links_and_the_lowest_severity(rules: CompiledRules) -> None:
+def test_every_web_kind_has_the_lowest_severity_and_keeps_its_links(rules: CompiledRules) -> None:
     bodies = {
         "svg": b'<svg xmlns="http://www.w3.org/2000/svg"><a href="https://example.test/x"/></svg>',
         "xml": b'<?xml version="1.0"?><rss><link>https://example.test/feed</link></rss>',
@@ -166,7 +173,22 @@ def test_every_web_kind_has_no_links_and_the_lowest_severity(rules: CompiledRule
     }
     for kind, body in bodies.items():
         result = timed(body, rules)
-        assert (result.file.kind, result.severity, result.iocs) == (kind, "info", [])
+        assert (result.file.kind, result.severity, result.family) == (kind, "info", None)
+        links = [i.value for i in result.iocs if i.kind == "next_url"]
+        assert any(u.startswith("https://example.test/") for u in links), (kind, links)
+
+
+def test_a_rule_that_matches_web_content_always_raises_it(tmp_path: Path) -> None:
+    # A rule with no family and no severity still means "not an ordinary page": the sample never
+    # stays at the lowest level, which the database reads as "no rule matched".
+    (tmp_path / "bare.yar").write_text('rule bare { strings: $a = "needle" condition: $a }\n')
+    bare = compile_rules(tmp_path)
+    result = timed(b"<!doctype html><html><body>needle</body></html>", bare)
+    assert result.file.kind == "html"
+    assert [h.rule for h in result.yara] == ["bare"]
+    assert (result.family, result.severity) == (None, "notice")
+    plain = timed(b"<!doctype html><html><body>hay</body></html>", bare)
+    assert (plain.family, plain.severity) == (None, "info")
 
 
 def test_web_content_that_a_rule_matched_is_read_like_text(rules: CompiledRules) -> None:

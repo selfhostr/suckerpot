@@ -52,17 +52,26 @@ _HTML_OPEN = re.compile(
     re.IGNORECASE,
 )
 _XML_ROOT = re.compile(rb"<(?:svg|rss|feed|urlset|sitemapindex|plist|opml)[\s>]", re.IGNORECASE)
-_JSON_BRACKET = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"|[\[{]|[\]}]', re.DOTALL)
 _JSON_START = re.compile(rb'[\[{]\s*(?:"[^"\n]{0,200}"\s*:|[\[{"\]}]|-?\d|true\b|false\b|null\b)')
 _JS_SYNTAX = re.compile(
-    rb"\bfunction\s*[\w$]*\s*\(|\b(?:var|let|const)\s+[\w$]+\s*=|\bimport\s*(?:[{*(]|[\w$]+\s+from\b)"
-    rb"|\bexport\s+(?:default|const|function|class|\{)|\bmodule\.exports\b|\brequire\s*\("
+    rb"\bfunction\s*+[\w$]*+\s*+\(|\b(?:var|let|const)\s++[\w$]++\s*+="
+    rb"|\bimport\s*+(?:[{*(]|[\w$]++\s++from\b)"
+    rb"|\bexport\s++(?:default|const|function|class|\{)|\bmodule\.exports\b|\brequire\s*+\("
     rb"|\b(?:window|document)\.|\bwebpackChunk|[\"']use strict[\"']"
+)
+# Syntax that only JavaScript has. A shell, PowerShell or Perl script can hold two of the markers
+# above (`let a=1`, `function f()`), never by accident one of these, so the `javascript` kind needs
+# at least one: arrows, strict equality, prototypes, the browser globals, CommonJS and ES module
+# syntax, strict mode, bundler runtimes.
+_JS_ONLY = re.compile(
+    rb"=>|[=!]==|\.prototype\b|\b(?:window|document)\.|\bmodule\.exports\b|[\"']use strict[\"']"
+    rb"|\bexport\s++(?:default\b|\{)|\bimport\s*+[{*][^;\n]{0,200}?\bfrom\s*+[\"']"
+    rb"|\bimport\s++[\w$]++\s++from\s*+[\"']|\bwebpackChunk|__webpack_require__"
 )
 # Syntax of other languages, which share a few words with JavaScript.
 _NOT_JS = re.compile(
-    rb"^\s*(?:import\s+[\w.]+\s*(?:,|$)|from\s+[\w.]+\s+import\b|def\s+\w+\s*\(|use\s+[\w:]+\s*;"
-    rb"|my\s+[$@%]|package\s+[\w:]+\s*;)",
+    rb"^[ \t]*+(?:import\s+[\w.]+\s*(?:,|$)|from\s+[\w.]+\s+import\b|def\s+\w+\s*\("
+    rb"|use\s+[\w:]+\s*;|my\s+[$@%]|package\s+[\w:]+\s*;)",
     re.MULTILINE,
 )
 _CSS_AT_RULE = re.compile(
@@ -70,36 +79,147 @@ _CSS_AT_RULE = re.compile(
     re.IGNORECASE,
 )
 _CSS_BLOCK = re.compile(rb"[^{}]{1,200}\{\s*[a-z-]+\s*:[^{}]{0,200}\}", re.IGNORECASE)
-_CSS_TOKEN = re.compile(
-    rb"/\*.*?\*/|url\((?:[^)\\]|\\.)*\)|\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|[{};]"
-    rb"|(?:(?!url\()[^{};\"'/])+|.",
-    re.DOTALL | re.IGNORECASE,
+# Every pattern that runs over the WHOLE input is linear: a string, comment or `url(` that is never
+# closed is consumed to the end of the input in one match, repeats are possessive or bounded, and
+# no pattern rescans the rest of the input from every position.
+#
+# Strings, comments and `url(...)` of a style sheet or a JSON document, replaced by an empty
+# placeholder (`""`, nothing, `url()`) so that only the structure is left. One that is never closed
+# is kept as it is, to the end of the input, so the structure check refuses it.
+_NEUTRAL = re.compile(
+    # Each alternative starts after the one character of the leading set (a fast scan); the
+    # lookbehinds tell which one it was, and capture it again where it must be kept.
+    rb"[/\"'uU](?:"
+    rb"(?<=/)\*.*?\*/|(?<=(?P<c0>/))(?P<c1>\*.*+)|(?<=(?P<c2>/))"
+    rb'|(?<=")(?:[^"\\]++|\\.)*+(?P<d>")|(?<=\')(?:[^\'\\]++|\\.)*+(?P<s>\')'
+    rb"|(?<=(?P<q0>[\"']))(?P<q1>.*+)"
+    rb"|(?<=(?P<u0>[uU]))(?P<u1>[rR][lL]\()(?:[^)\\]++|\\.)*+(?P<u2>\))"
+    rb"|(?<=(?P<u3>[uU]))(?P<u4>[rR][lL]\(.*+)|(?<=(?P<u5>[uU]))"
+    rb")",
+    re.DOTALL,
 )
-# Run over the WHOLE input for every web kind: a command, a downloader or active content anywhere
-# means the file is a program, not a page.
-# Shell statements, written the way a shell script writes them. Narrower than `_SHELL_HINT`, whose
-# single words ("export", "echo", "bash") are in every ES module and in many pages.
-_SHELL_STATEMENT = re.compile(
-    rb"^[ \t]*export[ \t]+[A-Za-z_]\w*="
-    rb"|\b(?:ba)?sh[ \t]+-c\b|[ \t\r\n]\|[ \t]*(?:ba)?sh\b|/bin/(?:ba)?sh\b"
-    rb"|\bcd[ \t]+/tmp\b|/(?:dev/shm|var/tmp)\b|\bnohup[ \t]|\bcrontab\b|\bbusybox\b|\btftp\b"
-    rb"|\brm[ \t]+-[a-zA-Z]*[rf][a-zA-Z]*[ \t]+/|\bnc[ \t]+-e\b|/dev/tcp/"
-    rb"|;[ \t]*\./\S|&&[ \t]*\./\S",
-    re.MULTILINE,
+_NEUTRAL_KEEP = (
+    rb"\g<c0>\g<c1>\g<c2>\g<d>\g<d>\g<s>\g<s>\g<q0>\g<q1>\g<u0>\g<u1>\g<u2>\g<u3>\g<u4>\g<u5>"
 )
-_DROPPER_HINT = re.compile(
-    rb"\b(?:wget|curl|busybox|tftp|nohup|crontab|pkill)\b|chmod|/bin/(?:ba)?sh\b|/dev/tcp/"
-    rb"|child[\"'\s+.\[\]()]{0,12}_?process|\b(?:execSync|execFileSync|execFile|spawnSync|spawn\s*\()"
-    rb"|\b(?:writeFileSync|appendFileSync)\b|\bos\.(?:system|popen)\b|\bsubprocess\b"
-    rb"|\b(?:system|popen|shell_exec|passthru|proc_open)\s*\(",
-    re.IGNORECASE,
+_JSON_BRACKETS = bytes(range(256)).translate(None, b"[]{}")  # every byte but brackets
+_CSS_BLOCK_MARK = b"\x01"  # an inner block already checked; a style sheet never holds this byte
+# The checks below run on the emptied sheet behind one `;`, so every statement starts after a
+# `{`, `}` or `;` (a leading charset, which the regular expression engine scans for quickly).
+# A `{` with no selector before it.
+_CSS_EMPTY_SELECTOR = re.compile(rb"[{};]\s*+\{")
+# A statement ending in `;` or `}` that is neither a declaration (no colon) nor an at-rule.
+_CSS_NOT_DECLARATION = re.compile(rb"[{};]\s*+[^{};:@\s][^{};:]*+[;}]")
+_CSS_INNER_BLOCK = re.compile(rb"\{[^{}]*+\}")
+# Outside every block, a statement ending in `;` must be an at-rule.
+_CSS_TOP_STATEMENT = re.compile(rb"[;\x01]\s*+[^;\x01@\s][^;\x01]*+;")
+
+
+def _sign(literal: bytes, pattern: bytes | None = None) -> tuple[bytes, re.Pattern[bytes] | None]:
+    return literal, None if pattern is None else re.compile(pattern)
+
+
+# Signs that a file runs something: shell statements, downloaders, program calls, code runners
+# and active content. Each sign is a lower-case literal that every match holds, and the pattern
+# (if any) that confirms it; both run over the lower-cased input, and a pattern runs only when its
+# literal is there, which keeps the scan of a large file fast. Single words that every page and ES
+# module uses ("echo", "export", "bash") are not signs; shell statements made of them are.
+_SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
+    # Shell statements, written the way a shell script writes them.
+    _sign(b"export", rb"(?<![\w.$-])export[ \t]++[a-z_]\w*+="),
+    _sign(b"sh", rb"\b(?:ba)?sh[ \t]++-c\b"),
+    _sign(b"|", rb"[ \t\r\n]\|[ \t]*+(?:ba)?sh\b"),
+    _sign(b"/bin/", rb"/bin/(?:ba)?sh\b"),
+    _sign(b"sh", rb"(?m)^[ \t]*+(?:ba|da)?sh[ \t]++[\w./$-]"),
+    _sign(b"./", rb"(?m)^[ \t]*+\./[\w.$-]|(?:;|&&)[ \t]*+\./\S"),
+    _sign(b"/tmp", rb"\bcd[ \t]++/tmp\b"),
+    _sign(b"/dev/shm"),
+    _sign(b"/var/tmp"),
+    _sign(b"/dev/tcp/"),
+    _sign(b"nohup", rb"\bnohup[ \t]"),
+    _sign(b"crontab", rb"\bcrontab\b"),
+    _sign(b"busybox", rb"\bbusybox\b"),
+    _sign(b"tftp", rb"\btftp\b"),
+    _sign(b"rm", rb"\brm[ \t]++-[a-z]{0,8}[rf][a-z]{0,8}[ \t]++/"),
+    _sign(b"-e", rb"\bnc[ \t]++-e\b"),
+    # Downloaders and program calls.
+    _sign(b"wget", rb"\bwget\b"),
+    _sign(b"curl", rb"\bcurl\b"),
+    _sign(b"pkill", rb"\bpkill\b"),
+    _sign(b"chmod"),
+    _sign(b"process", rb"child[\"'\s+.\[\]()]{0,12}_?process"),
+    _sign(b"execsync"),
+    _sign(b"execfile"),
+    _sign(b"spawnsync"),
+    _sign(b"spawn", rb"\bspawn\s*+\("),
+    _sign(b"writefilesync"),
+    _sign(b"appendfilesync"),
+    _sign(b"os.system"),
+    _sign(b"os.popen"),
+    _sign(b"subprocess", rb"\bsubprocess\b"),
+    _sign(b"system", rb"\bsystem\s*+\("),
+    _sign(b"popen", rb"\bpopen\s*+\("),
+    _sign(b"shell_exec"),
+    _sign(b"passthru"),
+    _sign(b"proc_open"),
+    # Windows tools, PowerShell and .NET, one-line Python and Perl, shell `eval` and base64
+    # decoding, BusyBox `ftpget`, Node file writes and code built from base64 text.
+    _sign(b"certutil"),
+    _sign(b"bitsadmin"),
+    _sign(b"ftpget"),
+    _sign(b"urlretrieve"),
+    _sign(b"createwritestream"),
+    _sign(b"frombase64string"),
+    _sign(b"iex", rb"\biex\b"),
+    _sign(b"iwr", rb"\biwr\b"),
+    _sign(b"irm", rb"\birm\b"),
+    _sign(b"invoke-expression"),
+    _sign(b"invoke-webrequest"),
+    _sign(b"invoke-restmethod"),
+    _sign(b"start-process"),
+    _sign(b"download", rb"\.\s*+download(?:string|file|data)\s*+\("),
+    _sign(b"net.webclient"),
+    _sign(b"lwp::"),
+    _sign(b"base64", rb"\bbase64[ \t]++(?:-[a-z]{0,4}d|--decode)\b"),
+    _sign(b"eval", rb"\beval[ \t]++[\"'$`]|=\s*+eval\s*+[;,)]"),
+    _sign(b"python", rb"\bpython[23]?(?:\.[0-9]{1,2})?[ \t]++-[a-z]{0,4}c\b"),
+    _sign(b"perl", rb"\bperl[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}[em]"),
+    _sign(b"atob", rb"\b(?:function|eval)\s*+\(\s*+atob\s*+\("),
+    _sign(b"function", rb"=\s*+function\s*+[;,)]"),
+    # Active content that a browser, Windows or a server would run.
+    _sign(b"<%"),
+    _sign(b"<?", rb"<\?(?!xml)"),
+    _sign(b"<jsp:"),
+    _sign(b"hta:application"),
+    _sign(b"<scriptlet"),
+    _sign(b"<job", rb"<job\b"),
+    _sign(b"<component", rb"<component\b"),
+    _sign(b"<registration", rb"<registration\b"),
+    _sign(b"msxsl:"),
+    _sign(b"activexobject"),
+    _sign(b"wscript"),
+    _sign(b"vbscript"),
+    _sign(b"powershell"),
+    _sign(b"mshta"),
+    _sign(b"regsvr32"),
+    _sign(b"rundll32"),
+    _sign(b"cmd", rb"cmd\s*+/c"),
+    _sign(b"runat", rb"runat\s*+=\s*+[\"']?server"),
+    _sign(b"getruntime"),
+    _sign(b"processbuilder"),
+    _sign(b"scripting.filesystemobject"),
+    _sign(b"shell.application"),
+    _sign(b"adodb.stream"),
 )
-_ACTIVE_CONTENT = re.compile(
-    rb"<%|<\?(?!xml)|<jsp:|hta:application|<scriptlet|<job\b|<component\b|<registration\b"
-    rb"|msxsl:|activexobject|wscript|vbscript|powershell|mshta|regsvr32|rundll32|cmd\s*/c"
-    rb"|runat\s*=\s*[\"']?server|getruntime|processbuilder|scripting\.filesystemobject"
-    rb"|shell\.application|adodb\.stream",
-    re.IGNORECASE,
+# `.exec(` runs a command only in Node, after a module was loaded; in a page it is the regular
+# expression method of every bundle. So it counts together with a Node module load: `require` or
+# `import()` of anything but one plain string (a variable, `Buffer.from(...)`, a name built from
+# parts or a template), of a Node module that reaches the system, or the module loader itself.
+_EXEC_CALL = re.compile(rb"\.\s*+exec\s*+\(")
+_NODE_LOAD = re.compile(
+    rb"\b(?:require|import)\s*+\(\s*+(?:(?![\"'][^\"'`\n]{0,200}+[\"']\s*+\))"
+    rb"|[\"'](?:node:|(?:child_process|fs|net|https?|os|vm|worker_threads|cluster|dgram|tls"
+    rb"|module)[\"'/]))"
+    rb"|\bprocess\s*+\.\s*+(?:mainmodule|binding|dlopen)\b|\bmodule\s*+\.\s*+constructor\b"
 )
 
 
@@ -261,16 +381,16 @@ def _markup_kind(lowered: bytes) -> str | None:
 def _json_depth_ok(data: bytes) -> bool:
     """True when no bracket outside a string is nested deeper than `_JSON_MAX_DEPTH`.
 
-    A linear scan, so the check does not rely on the interpreter's recursion limit.
+    Strings are emptied first, then one pass over the brackets alone, so the check does not rely
+    on the interpreter's recursion limit. A string that is never closed is left to the parser.
     """
     depth = 0
-    for m in _JSON_BRACKET.finditer(data):
-        tok = m.group()
-        if tok in (b"[", b"{"):
+    for c in _NEUTRAL.sub(_NEUTRAL_KEEP, data).translate(None, _JSON_BRACKETS):
+        if c in b"[{":
             depth += 1
             if depth > _JSON_MAX_DEPTH:
                 return False
-        elif tok in (b"]", b"}"):
+        else:
             depth -= 1
     return True
 
@@ -290,45 +410,36 @@ def _parses_as_json(data: bytes) -> bool:
 def _css_shaped(data: bytes) -> bool:
     """True when the whole input is made of at-rules, rules and `property: value` declarations.
 
-    One tokenising pass over strings, comments and `url(...)`, with no backtracking. Text outside
-    a block must be an at-rule ending in `;` or a selector ending in `{`; text inside a block must
-    be a declaration (it holds a colon), an at-rule or a nested selector. Shell lines, code in
-    another language and any text after the last rule fail.
+    Comments are dropped and strings and `url(...)` emptied (one that is never closed is kept, and
+    fails below). On what is left: every `{` has a selector; every statement that ends in `;` or
+    `}` is a declaration (it holds a colon) or an at-rule; the innermost blocks are folded away one
+    level per pass, so braces must balance within `_CSS_MAX_DEPTH` levels; outside every block a
+    `;` ends only an at-rule; nothing follows the last rule. Shell lines, code in another language
+    and any text after the last rule fail. Every step is linear in the input.
     """
-    if len(data) > _CSS_CHECK_MAX:
+    if len(data) > _CSS_CHECK_MAX or _CSS_BLOCK_MARK in data:
         return False
-    depth = 0
-    has = colon = False
-    first = b""
-    for m in _CSS_TOKEN.finditer(data):
-        tok = m.group()
-        if len(tok) >= 4 and tok.startswith(b"/*") and tok.endswith(b"*/"):
-            continue
-        if tok in (b"{", b"}", b";"):
-            at_rule = first == b"@"
-            if tok == b"{":
-                depth += 1
-                if not has or depth > _CSS_MAX_DEPTH:
-                    return False
-            elif tok == b";":
-                if has and not at_rule and (depth == 0 or not colon):
-                    return False
-            else:  # a closing brace also ends a declaration that has no `;`
-                depth -= 1
-                if depth < 0 or (has and not at_rule and not colon):
-                    return False
-            has = colon = False
-            first = b""
-            continue
-        stripped = tok.strip()
-        if not stripped:
-            continue
-        if not has:
-            first = stripped[:1]
-        has = True
-        if not tok.startswith((b'"', b"'")) and b":" in tok:
-            colon = True
-    return depth == 0 and not has
+    sheet = b";" + _NEUTRAL.sub(_NEUTRAL_KEEP, data)
+    if _CSS_EMPTY_SELECTOR.search(sheet) or _CSS_NOT_DECLARATION.search(sheet):
+        return False
+    for _ in range(_CSS_MAX_DEPTH):
+        sheet, folded = _CSS_INNER_BLOCK.subn(_CSS_BLOCK_MARK, sheet)
+        if not folded:
+            break
+    if b"{" in sheet or b"}" in sheet or _CSS_TOP_STATEMENT.search(sheet):
+        return False
+    tail = sheet[max(sheet.rfind(b";"), sheet.rfind(_CSS_BLOCK_MARK)) + 1 :]
+    return not tail.strip()
+
+
+def _runs_something(data: bytes) -> bool:
+    """True when the input holds a shell statement, a downloader, a code runner or active content
+    (`_SIGNS`), or `.exec(` next to a Node module load."""
+    low = data.lower()
+    for literal, pattern in _SIGNS:
+        if literal in low and (pattern is None or pattern.search(low)):
+            return True
+    return b"exec" in low and bool(_EXEC_CALL.search(low) and _NODE_LOAD.search(low))
 
 
 def _identify_web(data: bytes) -> str | None:
@@ -336,16 +447,22 @@ def _identify_web(data: bytes) -> str | None:
 
     1. The opening bytes name the format: a document that opens like HTML, SVG or XML (after its
        XML declaration, comments and plain document type), a JSON bracket, JavaScript syntax (two
-       markers, none of another language) or a style sheet rule.
-    2. The WHOLE input is scanned, whatever its size, for shell statements (`_SHELL_STATEMENT`),
-       downloaders and program calls (`_DROPPER_HINT`) and for active content that a browser or a
-       server would run (`_ACTIVE_CONTENT`: ASP and JSP tags, any `<?` other than the XML
-       declaration, HTA, scriptlets, WSH, PowerShell, `runat="server"` and the like). One hit
-       anywhere refuses every kind. Single words such as "echo", "export" or "bash" do not count.
+       markers and at least one token only JavaScript has, none of another language) or a style
+       sheet rule.
+    2. The WHOLE input is scanned, whatever its size, for shell statements, downloaders, program
+       calls and code runners (`wget`, `certutil`, `iex`, `python -c`, `perl -e`, shell `eval`,
+       `base64 -d`, Node `child_process` in any spelling, `.exec(` next to a Node module load...)
+       and for active content that a browser or a server would run (ASP and JSP tags, any `<?`
+       other than the XML declaration, HTA, scriptlets, WSH, PowerShell, `runat="server"` and the
+       like): see `_SIGNS`. One hit anywhere refuses every kind. Single words such as "echo",
+       "export" or "bash" do not count.
     3. The format is checked: JSON must parse (up to 2 MiB) and a style sheet must be made only
        of rules and declarations (up to 4 MiB). A larger file of either keeps the text kind.
 
-    A refused file keeps the `script` or `text` kind, so its links are followed.
+    A refused file keeps the `script` or `text` kind, so its links are followed. This guard is
+    the second layer: the collector treats any file an attacker asked for (depth 0 or a typed URL)
+    as attacker content whatever its kind, and only spares links found in other web content.
+    Every pattern is linear in the input size.
     """
     head = data[:_SNIFF]
     if head.startswith(b"\xef\xbb\xbf"):
@@ -358,14 +475,14 @@ def _identify_web(data: bytes) -> str | None:
         kind = _markup_kind(head.lower())
     elif _JSON_START.match(head):
         kind = "json"
-    elif len(_JS_SYNTAX.findall(head)) >= 2 and not _NOT_JS.search(head):
+    elif len(_JS_SYNTAX.findall(head)) >= 2 and _JS_ONLY.search(head) and not _NOT_JS.search(head):
         kind = "javascript"
     else:
         css = _strip_css_comments(head)
         kind = "css" if _CSS_AT_RULE.match(css) or len(_CSS_BLOCK.findall(css)) >= 3 else None
     if kind is None:
         return None
-    if _SHELL_STATEMENT.search(data) or _DROPPER_HINT.search(data) or _ACTIVE_CONTENT.search(data):
+    if _runs_something(data):
         return None
     if kind == "json" and not _parses_as_json(data):
         return None
