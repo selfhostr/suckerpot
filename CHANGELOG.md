@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The Docker and Synology sensors named their `events_suppressed` summary events `sum-<counter>`,
+  and the counter restarted at zero with every sensor restart. After a restart new summaries
+  reused ids already stored, so ingest merged unrelated summaries, even from different source
+  addresses, into one session row. Summaries now carry a random 24 character session id like every
+  other sensor event. No other sensor builds a session id from a counter or a fixed string.
+
 ## [0.11.5] - 2026-11-12
 
 ### Fixed

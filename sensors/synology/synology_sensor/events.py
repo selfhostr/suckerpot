@@ -30,6 +30,7 @@ import itertools
 import json
 import logging
 import time
+import uuid
 from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -237,7 +238,7 @@ class EventSink:
             event = Event(
                 ts=datetime.now(UTC),
                 sensor=SensorName("synology"),
-                session_id=f"sum-{next(self._seq):x}",
+                session_id=uuid.uuid4().hex[:24],
                 src_ip=ip,  # type: ignore[arg-type]
                 src_port=0,
                 dst_port=self._dst_port,
