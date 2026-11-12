@@ -9,10 +9,11 @@ from typing import Any
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ingest.attack import load_attack, sync_catalogue
-from ingest.campaigns.cluster import ClusterConfig, ContentCache, run_cycle
+from ingest.campaigns.cluster import ClusterConfig, ContentCache, MergeCursor, run_cycle
 from ingest.enrichment import GeoResolver
 from ingest.enrichment.enricher import Enricher
 from ingest.indicators import IndicatorExtractor, IndicatorSettings
@@ -286,3 +287,240 @@ async def test_an_untrusted_hash_never_links_sessions(
     await write_batch(factory, events, enricher(tmp_path))
     stats = await run_cycle(factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER)
     assert stats.created == 0
+
+
+# ---- campaigns that are one actor ------------------------------------------------------------
+
+NETS = ("192.0.2", "198.51.100", "203.0.113")
+SCRIPT_B = ["whoami", "cat /proc/cpuinfo", "free -m"]
+
+
+def addresses(start: int, stop: int) -> list[str]:
+    """Distinct documentation addresses, spread over three networks."""
+    return [f"{NETS[i % 3]}.{i // 3 + 1}" for i in range(start, stop)]
+
+
+async def add_campaign(
+    engine: AsyncEngine,
+    name: str,
+    ips: list[str],
+    *,
+    age_days: int,
+    sensor: str = "mysql",
+    tags: tuple[str, ...] = (),
+    demo: bool = False,
+) -> int:
+    """A campaign as an earlier version of the worker left it: counters and links, nothing else."""
+    seen = T0 - timedelta(days=age_days)
+    async with engine.begin() as conn:
+        cid = (
+            await conn.execute(
+                text(
+                    "INSERT INTO campaigns (name, first_seen, last_seen, sessions, sources, "
+                    "sensors, tags, demo) VALUES (:n, :fs, :ls, :s, :src, CAST(:se AS text[]), "
+                    "CAST(:tg AS text[]), :demo) RETURNING id"
+                ),
+                {
+                    "n": name,
+                    "fs": seen,
+                    "ls": seen + timedelta(days=1),
+                    "s": 2 * len(ips),
+                    "src": len(ips),
+                    "se": [sensor],
+                    "tg": list(tags),
+                    "demo": demo,
+                },
+            )
+        ).scalar_one()
+        for i, ip in enumerate(ips):
+            await conn.execute(
+                text(
+                    "INSERT INTO campaign_sessions (campaign_id, session_id, src_ip, sensor, "
+                    "seen_at) VALUES (:c, :sid, CAST(:ip AS inet), :sensor, :seen)"
+                ),
+                {"c": cid, "sid": f"c{cid}-{i}", "ip": ip, "sensor": sensor, "seen": seen},
+            )
+    return int(cid)
+
+
+async def campaign_states(engine: AsyncEngine) -> dict[int, Any]:
+    return {
+        r.id: r
+        for r in await rows(
+            engine,
+            "SELECT id, name, status, merged_into, sessions, sources, tags, severity "
+            "FROM campaigns ORDER BY id",
+        )
+    }
+
+
+async def test_one_actor_that_uses_two_scripts_ends_up_in_one_campaign(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    """Two kinds of tooling from the same six addresses are two keys, and no session carries
+    both, so the key rule alone leaves two campaigns. The address rule joins them."""
+    ips = addresses(0, 6)
+    events = []
+    for i, ip in enumerate(ips):
+        events += shell_session(f"a{i}", ip, script("203.0.113.66"), offset=i * 40)
+        events += shell_session(f"b{i}", ip, SCRIPT_B, offset=i * 40 + 20)
+    await write_batch(factory, events, enricher(tmp_path))
+
+    never = ClusterConfig(merge_overlap=2.0)  # the address rule switched off
+    stats = await run_cycle(factory, ATTACK, never, ContentCache(), now=LATER)
+    assert (stats.created, stats.merged) == (2, 0)
+    assert len(await campaign_states(engine)) == 2
+
+    # Nothing new arrives. A fresh cursor looks at every campaign again, as after a restart.
+    stats = await run_cycle(factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER)
+    assert (stats.created, stats.merged, stats.overlap_checked) == (0, 1, 2)
+    states = await campaign_states(engine)
+    first, second = sorted(states)
+    assert (states[first].status, states[second].status) == ("active", "merged")
+    assert states[second].merged_into == first  # the oldest id survives
+    assert (states[first].sessions, states[first].sources) == (12, 6)  # six addresses, not twelve
+    assert states[first].name.endswith(f"#{first}")
+    assert (
+        await rows(
+            engine, "SELECT DISTINCT campaign_id FROM sessions WHERE campaign_id IS NOT NULL"
+        )
+    )[0].campaign_id == first
+    assert {r.campaign_id for r in await rows(engine, "SELECT campaign_id FROM campaign_keys")} == {
+        first
+    }
+    links = await rows(
+        engine,
+        "SELECT count(DISTINCT session_id) AS n FROM campaign_sessions WHERE campaign_id = :c",
+        c=first,
+    )
+    assert links[0].n == 12
+
+    # Settled: with a memory the survivor is looked at once, then nothing is left to check.
+    cursor = MergeCursor()
+    for checked in (1, 0):
+        stats = await run_cycle(
+            factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER, cursor=cursor
+        )
+        assert (stats.merged, stats.overlap_checked) == (0, checked)
+
+
+async def test_two_actors_with_a_couple_of_shared_addresses_stay_apart(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    mine, other = addresses(0, 6), addresses(4, 10)  # two addresses in common
+    events = []
+    for i, ip in enumerate(mine):
+        events += shell_session(f"a{i}", ip, script("203.0.113.66"), offset=i * 40)
+    for i, ip in enumerate(other):
+        events += shell_session(f"b{i}", ip, SCRIPT_B, offset=i * 40 + 20)
+    await write_batch(factory, events, enricher(tmp_path))
+    stats = await run_cycle(factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER)
+    assert (stats.created, stats.merged) == (2, 0)
+    assert [c.status for c in (await campaign_states(engine)).values()] == ["active", "active"]
+
+
+async def test_campaigns_left_split_by_an_earlier_version_merge_on_their_own(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Seven MySQL campaigns from the same 31 or 32 addresses, plus campaigns that must not join."""
+    actor = addresses(0, 32)
+    kinds = [
+        ("credential-stuffing",), ("malware-drop",), ("db-ransom",), ("recon",),
+        ("credential-stuffing",), ("malware-drop",), ("persistence",),
+    ]  # fmt: skip
+    split = [
+        await add_campaign(
+            engine, "Shared activity over MySQL", actor[: 31 + (i % 2)], age_days=20 - i, tags=t
+        )
+        for i, t in enumerate(kinds)
+    ]
+    jump_host = await add_campaign(  # shares three addresses only
+        engine, "Credential stuffing over MySQL", actor[:3] + addresses(100, 137), age_days=5
+    )
+    demo = await add_campaign(engine, "Demo", actor, age_days=5, tags=("mirai",), demo=True)
+    telnet = await add_campaign(engine, "Other sensor", actor, age_days=5, sensor="telnet")
+
+    cursor = MergeCursor()
+    stats = await run_cycle(
+        factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER, cursor=cursor
+    )
+    assert stats.merged == 6
+    states = await campaign_states(engine)
+    survivor = split[0]
+    assert states[survivor].status in ("active", "quiet")
+    assert [states[c].merged_into for c in split[1:]] == [survivor] * 6
+    assert states[survivor].sessions == 2 * sum(31 + i % 2 for i in range(7))
+    assert states[survivor].sources == 32  # one actor: the addresses are counted once
+    assert set(states[survivor].tags) == {
+        "credential-stuffing", "malware-drop", "db-ransom", "recon", "persistence",
+    }  # fmt: skip
+    assert states[survivor].severity == "severe"
+    assert states[survivor].name == f"Malware dropper and database ransom over MySQL #{survivor}"
+    for untouched in (jump_host, demo, telnet):
+        assert states[untouched].merged_into is None
+        assert states[untouched].status != "merged"
+
+    # A later cycle has nothing left to merge.
+    for _ in range(2):
+        again = await run_cycle(
+            factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER, cursor=cursor
+        )
+        assert again.merged == 0
+
+
+async def test_a_chain_of_merges_leaves_every_old_id_one_hop_from_the_survivor(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    oldest = await add_campaign(engine, "A", addresses(0, 30), age_days=9)
+    middle = await add_campaign(engine, "B", addresses(8, 48), age_days=5)
+    newest = await add_campaign(engine, "C", addresses(8, 50), age_days=1)
+    # B is inside C, so they merge first; then the group is mostly inside A's addresses.
+    stats = await run_cycle(factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER)
+    assert stats.merged == 2
+    states = await campaign_states(engine)
+    assert states[oldest].merged_into is None
+    assert (states[middle].merged_into, states[newest].merged_into) == (oldest, oldest)
+    assert states[oldest].sessions == 2 * (30 + 40 + 42)
+
+
+async def test_a_merge_budget_only_delays_the_rest(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    ids = [
+        await add_campaign(engine, f"Kind {i}", addresses(0, 20), age_days=9 - i) for i in range(4)
+    ]
+    cfg, cursor, merged = ClusterConfig(merge_budget=1), MergeCursor(), []
+    for _ in range(6):
+        stats = await run_cycle(factory, ATTACK, cfg, ContentCache(), now=LATER, cursor=cursor)
+        merged.append(stats.merged)
+    assert merged[:3] == [1, 1, 1]  # one per cycle, none forgotten
+    assert sum(merged) == 3
+    states = await campaign_states(engine)
+    assert [states[c].merged_into for c in ids[1:]] == [ids[0]] * 3
+
+
+async def test_a_failing_actor_pass_does_not_cost_the_clustering(
+    engine: AsyncEngine,
+    factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The address pass runs after the clustering committed, and is retried by the next cycle."""
+
+    async def timeout(*args: Any, **kwargs: Any) -> list[Any]:
+        raise OperationalError("SELECT 1", {}, Exception("canceling statement due to timeout"))
+
+    monkeypatch.setattr("ingest.campaigns.cluster._overlaps", timeout)
+    events = [
+        e
+        for i, ip in enumerate(addresses(0, 3))
+        for e in shell_session(f"s{i}", ip, script("203.0.113.66"), offset=i * 40)
+    ]
+    await write_batch(factory, events, enricher(tmp_path))
+    cursor = MergeCursor()
+    stats = await run_cycle(
+        factory, ATTACK, ClusterConfig(), ContentCache(), now=LATER, cursor=cursor
+    )
+    assert (stats.created, stats.merged) == (1, 0)
+    assert len(await campaign_states(engine)) == 1
+    assert cursor == MergeCursor()  # not moved: the same campaigns are checked again

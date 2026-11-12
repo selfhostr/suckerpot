@@ -46,7 +46,7 @@ The Styleguide page is routable everywhere but listed in the sidebar only in dev
 | Networks | `/networks` | The hosting providers and networks (ASNs) the attacks come from. The old `/attackers?view=asns` address redirects here. |
 | Activity | `/overview` | KPIs for the last 24 hours, activity per sensor, the sensor mix, the latest events and up to three insights (see [Insights](#insights)). |
 | **Understand** | | |
-| Campaigns | `/campaigns`, `/campaigns/<id>` | Sessions that share a script, payload host, file hash, malware family, exploit or credential list, grouped into one campaign with a plain-English story. |
+| Campaigns | `/campaigns`, `/campaigns/<id>` | Sessions that share a script, payload host, file hash, malware family, exploit or credential list, grouped into one campaign with a plain-English story. Campaigns from the same addresses are merged into the oldest one; the old address shows a note with a link to the combined campaign. |
 | Techniques | `/techniques` | The MITRE ATT&CK techniques seen, as a heatmap per day. |
 | Scripts | `/scripts`, `/scripts/<id>` | The library of command scripts that attackers typed, each with an explanation and the sessions that used it. |
 | Malware | `/malware` | Download URLs, defanged, with how often, from how many addresses and with which tool. File hashes and VirusTotal links appear when payload fetching is on. |

@@ -1046,7 +1046,7 @@ A campaign is a group of sessions that share a script, a payload host, a file ha
 | Route | What it returns |
 | --- | --- |
 | `GET /api/v1/campaigns` | Keyset-paginated list, most recently seen first (`cursor`, `limit` 1 to 200). Merged campaigns are hidden unless `status=merged`. Filters: `status` (`active`, `quiet`, `merged`), `sensor`, `technique` (`T1059` or `T1059.004`), `family`, `hours` (1 to 8760) or `days` (1 to 365) since the campaign was last seen, `q` (literal substring of the name), `include_benign` (accepted, no effect). |
-| `GET /api/v1/campaigns/{id}` | One campaign: counters, countries, networks, sensors, techniques, stages, tags, families, severity and the representative session. A merged campaign carries `merged_into`. |
+| `GET /api/v1/campaigns/{id}` | One campaign: counters, countries, networks, sensors, techniques, stages, tags, families, severity and the representative session. A merged campaign has `status` `merged` and `merged_into`, always the id of the surviving campaign (the oldest), so an old link still resolves. |
 | `GET /api/v1/campaigns/{id}/story` | The campaign told in stages (looking around, getting in, running code, staying in, bringing tools, the goal), each with a plain-English sentence and its techniques; up to 12 lines from the representative session; counts; and up to four next actions (`what_to_do`). |
 | `GET /api/v1/campaigns/{id}/timeline` | Sessions per hour for the last `days` (1 to 30, default 7), from the campaign's links. Links are capped at `CAMPAIGN_LINK_CAP`; `linked` says how many sessions the points are made of. |
 | `GET /api/v1/campaigns/{id}/sessions` | The campaign's sessions, keyset-paginated like `/sessions`. |
