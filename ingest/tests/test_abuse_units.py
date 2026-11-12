@@ -1,12 +1,31 @@
 """Settings, term learning (pure parts) and the worker's off switch."""
 
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import Any, cast
+
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_reporting import (
+    Activity,
+    Evidence,
+    GuardContext,
+    GuardResult,
+    ReportSettings,
+    SelfTermRow,
+    SelfTerms,
+    Subject,
+    load_self_terms,
+    render_text,
+)
 
 from ingest.abuse import AbuseSettings, AbuseWorker
-from ingest.abuse.build import default_options, fit_evidence, options_of, sha256_of
+from ingest.abuse.build import check_evidence, default_options, fit_evidence, options_of, sha256_of
 from ingest.abuse.candidates import origin_of_domain, origin_of_ip
 from ingest.abuse.ports import PortMap, protocol_of
-from ingest.abuse.selfterms import count_sources, hosts_of
+from ingest.abuse.reguard import DraftReguard, ReguardStats, keep_evidence_codes
+from ingest.abuse.selfterms import TermsCache, count_sources, hosts_of
 from ingest.features import FeatureSettings
 
 
@@ -117,10 +136,6 @@ def test_options_default_to_minute_precision() -> None:
 
 
 def test_fit_evidence_trims_to_the_size_cap() -> None:
-    from datetime import UTC, datetime
-
-    from suckerpot_reporting import Activity, Evidence, Subject
-
     now = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
     act = Activity(
         ts=now, src_ip="198.51.100.4", src_port=40000, dst_port=22, protocol="tcp",
@@ -137,3 +152,198 @@ def test_fit_evidence_trims_to_the_size_cap() -> None:
     trimmed = fit_evidence(ev)
     assert len(trimmed.model_dump_json()) <= 250_000 and trimmed.subjects
     assert sha256_of(trimmed) == sha256_of(trimmed)
+
+
+# -- re-checking the open drafts ----------------------------------------------------------
+
+SELF_ADDR = "198.51.100.200"  # the monitored system, a placeholder
+T0 = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
+
+
+def _terms(*extra: SelfTermRow) -> SelfTerms:
+    own = SelfTermRow(kind="address", value=SELF_ADDR, source="manual")
+    return load_self_terms([own, *extra], {})
+
+
+def _evidence() -> Evidence:
+    act = Activity(
+        ts=T0, src_ip="198.51.100.4", src_port=40000, dst_port=22, protocol="tcp",
+        service="ssh", action="command", text="uname -a",
+    )  # fmt: skip
+    sub = Subject(type="ip", value="198.51.100.4", first_ts=T0, last_ts=T0, sessions=1,
+                  events=1, activities=(act,))  # fmt: skip
+    return Evidence(kind="attack_source", recipient="abuse@example.net", subjects=(sub,),
+                    window_start=T0, window_end=T0, demo=True)  # fmt: skip
+
+
+def test_a_draft_is_blocked_by_the_reply_contact_and_clear_once_it_is_fixed() -> None:
+    ctx = GuardContext(allow_documentation=True)
+    ev, terms = _evidence(), _terms()
+    # The reply contact on a domain that names the project would reveal it in every draft.
+    named = check_evidence(
+        ev, ReportSettings(reply_contact="reports@honeypot.example.net"), terms, ctx
+    )
+    assert not named.ok and "project_term" in named.codes
+    assert check_evidence(ev, ReportSettings(reply_contact="reports@example.org"), terms, ctx).ok
+    unset = check_evidence(ev, ReportSettings(), terms, ctx)
+    assert not unset.ok and "settings_incomplete" in unset.codes
+
+
+class _Result:
+    """What the two small queries of ``run_if_changed`` read: the revision and the option hashes."""
+
+    def __init__(self, revision: int | None, options: dict[int, str]) -> None:
+        self.revision = revision
+        self.options = options
+
+    def scalar_one_or_none(self) -> int | None:
+        return self.revision
+
+    def __iter__(self) -> Iterator[SimpleNamespace]:
+        return iter([SimpleNamespace(id=i, h=h) for i, h in self.options.items()])
+
+
+class _FakeSession:
+    def __init__(self, state: dict[str, Any]) -> None:
+        self.state = state
+
+    async def __aenter__(self) -> _FakeSession:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def execute(self, *_args: Any, **_kwargs: Any) -> _Result:
+        return _Result(self.state["revision"], self.state["options"])
+
+
+class _FakeTerms:
+    def __init__(self, terms: SelfTerms | None) -> None:
+        self.terms = terms
+
+    async def get(self) -> SelfTerms | None:
+        return self.terms
+
+
+def _state(revision: int = 1, options: dict[int, str] | None = None) -> dict[str, Any]:
+    return {"revision": revision, "options": {1: "a"} if options is None else options}
+
+
+def _reguard(state: dict[str, Any], terms: _FakeTerms) -> DraftReguard:
+    factory = cast("async_sessionmaker[AsyncSession]", lambda: _FakeSession(state))
+    return DraftReguard(factory, AbuseSettings(), cast(TermsCache, terms))
+
+
+async def test_drafts_are_rechecked_only_when_the_wording_or_the_deny_set_changed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _state()
+    terms = _FakeTerms(_terms())
+    reg = _reguard(state, terms)
+    passes: list[tuple[SelfTerms, frozenset[int] | None]] = []
+
+    async def fake_run(deny: SelfTerms, only: frozenset[int] | None = None) -> ReguardStats:
+        passes.append((deny, only))
+        return ReguardStats(checked=1)
+
+    monkeypatch.setattr(reg, "run", fake_run)
+    assert await reg.run_if_changed() is not None  # the first pass after a start
+    assert await reg.run_if_changed() is None  # nothing changed since
+    state["revision"] = 2
+    assert await reg.run_if_changed() is not None  # the owner saved the settings
+    assert await reg.run_if_changed() is None
+    terms.terms = _terms(SelfTermRow(kind="name", value="srv-own01", source="manual"))
+    assert await reg.run_if_changed() is not None  # the deny set grew
+    terms.terms = None
+    assert await reg.run_if_changed() is None  # no deny set: fail closed, results stay as they are
+    assert len(passes) == 3 and all(only is None for _deny, only in passes)
+
+
+async def test_an_edited_draft_is_rechecked_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = _state(options={1: "a", 2: "b"})
+    reg = _reguard(state, _FakeTerms(_terms()))
+    passes: list[frozenset[int] | None] = []
+
+    async def fake_run(_deny: SelfTerms, only: frozenset[int] | None = None) -> ReguardStats:
+        passes.append(only)
+        return ReguardStats(checked=1)
+
+    monkeypatch.setattr(reg, "run", fake_run)
+    await reg.run_if_changed()  # the first pass covers every draft
+    assert await reg.run_if_changed() is None
+    state["options"] = {1: "a", 2: "changed"}  # the owner's PATCH of one draft's options
+    assert await reg.run_if_changed() is not None
+    assert passes == [None, frozenset({2})]
+    assert await reg.run_if_changed() is None
+    state["options"] = {1: "a", 2: "changed", 3: "c"}  # a draft new to the pass (a fresh build)
+    assert await reg.run_if_changed() is not None
+    assert passes[-1] == frozenset({3})
+
+
+async def test_a_failed_pass_is_tried_again_on_the_next_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reg = _reguard(_state(), _FakeTerms(_terms()))
+    attempts: list[int] = []
+
+    async def flaky(_deny: SelfTerms, only: frozenset[int] | None = None) -> ReguardStats:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("database went away")
+        return ReguardStats()
+
+    monkeypatch.setattr(reg, "run", flaky)
+    with pytest.raises(RuntimeError):
+        await reg.run_if_changed()
+    assert await reg.run_if_changed() is not None
+    assert len(attempts) == 2
+
+
+async def test_the_worker_survives_a_failing_recheck() -> None:
+    class Broken:
+        called = False
+
+        async def run_if_changed(self) -> None:
+            Broken.called = True
+            raise RuntimeError("boom")
+
+    worker = AbuseWorker(FeatureSettings.from_env({}), None)
+    worker.reguard = cast(DraftReguard, Broken())
+    await worker._reguard_cycle()
+    assert Broken.called
+
+
+def test_the_recheck_never_clears_what_the_build_found_in_the_evidence() -> None:
+    cleared = GuardResult(ok=True, codes=())
+    # A build-set evidence code survives a check that cannot see it (no settings fault remains).
+    kept = keep_evidence_codes(cleared, ["internal_id", "project_term"])
+    assert not kept.ok and kept.codes == ("internal_id",)
+    # Codes that depend on the wording or the deny set are the re-check's to clear.
+    assert keep_evidence_codes(cleared, ["project_term", "self_name", "default_wording"]).ok
+    both = keep_evidence_codes(GuardResult(ok=False, codes=("self_name",)), ["private_address"])
+    assert both.codes == ("private_address", "self_name") and not both.ok
+    same = GuardResult(ok=False, codes=("internal_id",))
+    assert keep_evidence_codes(same, ["internal_id"]) is same
+
+
+def test_the_check_covers_the_xarf_and_the_eml_the_send_path_builds() -> None:
+    ctx = GuardContext(allow_documentation=True)
+    ev, terms = _evidence(), _terms()
+    # The X-ARF user agent only shows up in the X-ARF attachment, not in the plain text.
+    agent = ReportSettings(reply_contact="reports@example.org", xarf_user_agent="honeypot-agent/1")
+    assert "honeypot" not in _text_of(ev, agent)
+    blocked = check_evidence(ev, agent, terms, ctx)
+    assert not blocked.ok and "project_term" in blocked.codes
+    # With a reply token and a style the message still passes, and a bad one is a constant code.
+    plain = ReportSettings(reply_contact="reports@example.org")
+    reference = "a" * 12  # twelve hex digits, as the database makes them
+    assert check_evidence(
+        ev, plain, terms, ctx, reply_token=reference, reference_style="subject_and_body"
+    ).ok
+    bad = check_evidence(ev, plain, terms, ctx, reply_token="not-a-token")
+    assert not bad.ok and "bad_reply_token" in bad.codes
+
+
+def _text_of(ev: Evidence, settings: ReportSettings) -> str:
+    msg = render_text(ev, settings)
+    return msg.subject + msg.body

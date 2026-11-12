@@ -4,7 +4,7 @@ import { OutcomeBadge } from "@/components/results/badges"
 import { RelativeTime } from "@/components/relative-time"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { browserTimeZone, formatWindow, plural } from "@/lib/format"
-import { KIND_LABEL, type ReportItem } from "@/lib/abuse"
+import { describeBlockedRow, KIND_LABEL, type ReportItem } from "@/lib/abuse"
 
 /** Identity check state as icon plus word: amber when it is blocked. */
 export function GuardState({ ok }: { ok: boolean }) {
@@ -23,6 +23,7 @@ export function GuardState({ ok }: { ok: boolean }) {
 
 /** One report of a provider: kind, size, window and check state. Opens the report. */
 export function ReportRow({ r }: { r: ReportItem }) {
+  const why = describeBlockedRow(r.guard)
   return (
     <li>
       <Link
@@ -57,6 +58,7 @@ export function ReportRow({ r }: { r: ReportItem }) {
             </span>
           ) : null}
           {r.outcome ? <OutcomeBadge outcome={r.outcome.effective} className="-ml-1" /> : null}
+          {why ? <span className="text-xs text-fg-muted">{why}</span> : null}
         </span>
         <GuardState ok={r.guard.ok} />
         <RelativeTime iso={r.updated_at} className="hidden text-xs sm:inline" />

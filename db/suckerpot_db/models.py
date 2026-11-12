@@ -133,7 +133,7 @@ class SessionRow(Base):
 
 
 class IpReputationRow(Base):
-    """24 h cache of reputation lookups, one row per source IP."""
+    """Last reputation answer per source IP, kept until the next lookup replaces it."""
 
     __tablename__ = "ip_reputation"
 

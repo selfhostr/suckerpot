@@ -12,7 +12,7 @@ background jobs; there is no cron container and no extra service.
 | Compression policy on `events` | Every 12 hours (TimescaleDB default) | Compresses chunks older than 7 days (segmented by `sensor`, ordered by `ts DESC`). Typically a large saving; reads and late inserts keep working. |
 | Refresh policies on the four aggregates | Hourly | Recompute the last 3 days only. The refresh window never reaches dropped chunks. |
 | `suckerpot_indicator_prune` | Hourly | Deletes indicators (with their links and threat-intel answers) not seen for `RETENTION_DAYS`, then enforces `INDICATORS_MAX_ROWS`: the least sighted, oldest single-source indicators go first, and the ceiling is halved while the disk guard is trimming. |
-| `suckerpot_maintenance` | Hourly | Rolls sessions older than `RETENTION_DAYS` (whole UTC days) up into `sessions_daily`, then deletes them. Prunes `ip_reputation` rows not refreshed for 48 hours (the cache lives 24 hours) and `enrichment_quota` rows older than 30 days. |
+| `suckerpot_maintenance` | Hourly | Rolls sessions older than `RETENTION_DAYS` (whole UTC days) up into `sessions_daily`, then deletes them. Prunes `ip_reputation` rows nobody refreshed for the retention window (90 days at least; a known score is kept and used until the worker replaces it) and `enrichment_quota` rows older than 30 days. |
 
 The `migrate` service (re)creates all of these after every upgrade from the current
 `RETENTION_DAYS`, so changing the value and re-running `docker compose up -d` applies it.

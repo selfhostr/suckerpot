@@ -284,3 +284,15 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Why CI missed it: the participant end-to-end job writes the hub address and key into its test `.env`, which a real install never does. Open follow-up: make that job run on defaults only.
 - `./scripts/status.sh` now says that a requested join is pending, with the last problem, instead of telling the owner to join again.
 - Tests: guardrail and unit tests for all of the above, and every CI job green. Limits, stated plainly: none of these fixes was run on a real small server yet, and direct mode is covered by unit tests only until a real participant node updates to this release. The affected install was finished by hand on v0.11.1 (restart `backup`, then `./scripts/install.sh --repair`).
+
+## 2026-11-12: v0.11.3 (network, reputation and reporting fixes)
+
+- Seven pull requests since v0.11.2, one line each. The details are in `CHANGELOG.md`.
+- Dashboard health probe (#122): the final check of `update.sh` and `install.sh` sends a `Host` the API accepts.
+- Network batches (#123): a batch the hub already holds shows the item counts the node sent, not zeros.
+- Hub volume penalty (#124): paused while too few nodes contribute, so a small network is not penalised every day.
+- Campaigns (#125): two campaigns of one actor merge when they share enough source addresses.
+- Abuse drafts (#126): a blocked draft says why and what to do, and open drafts are checked again after a settings change.
+- Reputation lookups (#127): new addresses are looked up first and known answers are kept (migration `0032`).
+- Reconnaissance tags (#128): `service-probe` and `iot-shell-probe` tag common recon that stayed untagged before.
+- Not run on a real node yet: everything in this release except the hub volume penalty (#124), which runs on the hub. Until a real node updates, the other changes are covered by tests only.

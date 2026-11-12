@@ -12,18 +12,20 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_reporting import (
+    REFERENCE_STYLES,
     Evidence,
     GuardContext,
     GuardResult,
     RedactionContext,
     RedactionStats,
+    ReferenceStyle,
     RenderUnavailable,
     ReportOptions,
     ReportSettings,
@@ -34,7 +36,9 @@ from suckerpot_reporting import (
     new_public_id,
     new_seed,
     render_csv,
+    render_eml,
     render_text,
+    render_xarf,
 )
 from suckerpot_reporting.evidence import MAX_SUBJECTS
 from suckerpot_reporting.message import RenderedMessage
@@ -142,6 +146,40 @@ def options_of(stored: Any, fallback: ReportOptions) -> ReportOptions:
     return fallback
 
 
+async def load_report_settings(
+    session: AsyncSession,
+) -> tuple[ReportSettings, dict[str, Any], ReferenceStyle]:
+    """The owner's wording, the defaults for new drafts and where the reply reference is printed
+    (empty wording and the subject style when never saved)."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT reply_contact, signature, intro, outro, note, subject_template, "
+                "xarf_user_agent, defaults, reference_style "
+                "FROM report_settings WHERE id = 1"
+            )
+        )
+    ).first()
+    if row is None:
+        return ReportSettings(), {}, "subject"
+    style: ReferenceStyle = "subject"
+    if row.reference_style in REFERENCE_STYLES:
+        style = row.reference_style
+    return (
+        ReportSettings(
+            reply_contact=row.reply_contact,
+            signature=row.signature,
+            intro=row.intro,
+            outro=row.outro,
+            note=row.note,
+            subject_template=row.subject_template,
+            xarf_user_agent=row.xarf_user_agent,
+        ),
+        dict(row.defaults or {}),
+        style,
+    )
+
+
 class DraftBuilder:
     def __init__(
         self,
@@ -201,30 +239,8 @@ class DraftBuilder:
 
     async def _report_settings(
         self, session: AsyncSession
-    ) -> tuple[ReportSettings, dict[str, Any]]:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT reply_contact, signature, intro, outro, note, subject_template, "
-                    "xarf_user_agent, defaults "
-                    "FROM report_settings WHERE id = 1"
-                )
-            )
-        ).first()
-        if row is None:
-            return ReportSettings(), {}
-        return (
-            ReportSettings(
-                reply_contact=row.reply_contact,
-                signature=row.signature,
-                intro=row.intro,
-                outro=row.outro,
-                note=row.note,
-                subject_template=row.subject_template,
-                xarf_user_agent=row.xarf_user_agent,
-            ),
-            dict(row.defaults or {}),
-        )
+    ) -> tuple[ReportSettings, dict[str, Any], ReferenceStyle]:
+        return await load_report_settings(session)
 
     # -- cycle ---------------------------------------------------------------------------
 
@@ -379,7 +395,7 @@ class DraftBuilder:
                 await session.execute(
                     text(
                         "SELECT id, status, window_start, options, content_sha256, guard_ok, "
-                        "guard_codes, id_seed FROM abuse_reports "
+                        "guard_codes, id_seed, reply_token FROM abuse_reports "
                         "WHERE recipient_id = :r AND kind = :k "
                         "AND status IN ('draft', 'reviewed')"
                     ),
@@ -402,7 +418,7 @@ class DraftBuilder:
                 if count >= s.max_open_drafts:
                     stats.skipped += 1
                     return
-            report_settings, defaults = await self._report_settings(session)
+            report_settings, defaults, style = await self._report_settings(session)
             options = options_of(
                 existing.options if existing else None, default_options(s, defaults)
             )
@@ -470,14 +486,12 @@ class DraftBuilder:
         gctx = GuardContext(
             internal_ids=frozenset(col.session_ids) | {report_seed.hex}, allow_documentation=demo
         )
-        try:
-            result = guard_message(_message(evidence, report_settings), terms, ctx=gctx)
-        except RenderUnavailable as exc:
-            # The owner has not set a reply contact yet: nothing can be rendered. The evidence
-            # itself is still checked, and the draft is stored as blocked with a constant code.
-            checked = guard(evidence.model_dump(mode="json"), terms, fmt="json", ctx=gctx)
-            codes = tuple(sorted({*checked.codes, exc.code}))
-            result = GuardResult(ok=False, codes=codes, counts=dict(checked.counts))
+        # A new draft has no reply token yet (the database makes it on insert): the re-check pass
+        # (``ingest.abuse.reguard``) completes the picture on its next run.
+        token = existing.reply_token if existing is not None else None
+        result = check_evidence(
+            evidence, report_settings, terms, gctx, reply_token=token, reference_style=style
+        )
         if not result.ok:
             stats.guard_failed += 1
             for code in result.codes:
@@ -626,9 +640,57 @@ class DraftBuilder:
         )
 
 
-def _message(evidence: Evidence, settings: ReportSettings) -> RenderedMessage:
-    body = render_text(evidence, settings)
+def _message(
+    evidence: Evidence,
+    settings: ReportSettings,
+    reply_token: str | None = None,
+    reference_style: ReferenceStyle = "subject",
+) -> RenderedMessage:
+    body = render_text(evidence, settings, reply_token=reply_token, reference_style=reference_style)
     return RenderedMessage(body.to, body.subject, body.body, (render_csv(evidence),))
+
+
+def render_mail(
+    evidence: Evidence,
+    settings: ReportSettings,
+    reply_token: str | None = None,
+    style: ReferenceStyle = "subject",
+) -> RenderedMessage:
+    """What the owner would paste or the SMTP path would send: the X-ARF message when possible,
+    else text and evidence CSV. The reply token goes into the subject (and the body for
+    ``subject_and_body``) only."""
+    try:
+        return render_xarf(evidence, settings, reply_token=reply_token, reference_style=style)
+    except RenderUnavailable:
+        body = render_text(evidence, settings, reply_token=reply_token, reference_style=style)
+        return replace(body, attachments=(render_csv(evidence),))
+
+
+def check_evidence(
+    evidence: Evidence,
+    settings: ReportSettings,
+    terms: SelfTerms,
+    ctx: GuardContext,
+    *,
+    reply_token: str | None = None,
+    reference_style: ReferenceStyle = "subject",
+) -> GuardResult:
+    """The identity check of a draft, on every artefact the owner can copy or the send path builds:
+    the plain-text message with its CSV, the X-ARF (or text) message of ``render_mail`` and its
+    ``.eml``. ``xarf_user_agent`` and the reply reference only show up in the later two."""
+    try:
+        result = guard_message(
+            _message(evidence, settings, reply_token, reference_style), terms, ctx=ctx
+        )
+        mail = render_mail(evidence, settings, reply_token, reference_style)
+        result = result.merge(guard_message(mail, terms, ctx=ctx))
+        return result.merge(guard(render_eml(mail), terms, fmt="eml", ctx=ctx))
+    except RenderUnavailable as exc:
+        # The owner has not set a reply contact yet: nothing can be rendered. The evidence
+        # itself is still checked, and the draft is stored as blocked with a constant code.
+        checked = guard(evidence.model_dump(mode="json"), terms, fmt="json", ctx=ctx)
+        codes = tuple(sorted({*checked.codes, exc.code}))
+        return GuardResult(ok=False, codes=codes, counts=dict(checked.counts))
 
 
 def utc_now() -> datetime:

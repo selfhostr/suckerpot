@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0031() -> None:
+def test_the_chain_is_linear_up_to_0032() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0031"}
+    assert heads == {"0032"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -97,6 +97,8 @@ def test_the_chain_is_linear_up_to_0031() -> None:
     assert revs["0030"][0] == "0029"
     # The ingest stall fix (pipeline heartbeat, chunk-pruning retract_benign) follows 0030.
     assert revs["0031"][0] == "0030"
+    # Reputation answers are kept until refreshed (the 48 hour prune is gone) after 0031.
+    assert revs["0032"][0] == "0031"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:

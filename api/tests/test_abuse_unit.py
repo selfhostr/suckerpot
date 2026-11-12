@@ -97,3 +97,43 @@ def test_only_the_reply_contact_is_required() -> None:
     assert abuse_core.missing_for(ReportSettings(), xarf=True) == ("reply_contact",)
     assert abuse_core.missing_for(ReportSettings(reply_contact="reports@example.org")) == ()
     assert abuse_core.missing_for(FULL) == ()
+
+
+def test_settings_are_checked_field_by_field_with_codes_only() -> None:
+    # The reply address on a domain that names the project would reveal it in every report.
+    values: dict[str, str | None] = {
+        "reply_contact": "reports@honeypot.example.net",
+        "signature": "Sent from srv-web01",
+        "intro": "Please investigate and stop this activity.",
+        "outro": "Thank you.",
+        "note": None,
+        "subject_template": "",
+        "xarf_user_agent": "Mozilla/5.0",
+    }
+    issues = abuse_core.settings_issues(values, terms())
+    assert issues == {
+        "reply_contact": ["project_term"],
+        "signature": ["self_name"],
+        "intro": ["default_wording"],
+    }
+    resp = abuse_core.settings_guard_failed_response(issues)
+    body = json.loads(bytes(resp.body))
+    assert resp.status_code == 409 and body["code"] == "identity_guard_failed"
+    assert body["fields"] == issues
+    assert body["reasons"] == ["default_wording", "project_term", "self_name"]
+    flat = bytes(resp.body).decode()
+    assert "honeypot" not in flat and "srv-web01" not in flat and "investigate" not in flat
+
+
+def test_clean_settings_and_an_unknown_self_address_raise_nothing() -> None:
+    clean = {"reply_contact": "reports@example.org", "signature": "--", "intro": "Hi"}
+    assert abuse_core.settings_issues(clean, terms()) == {}
+    # No monitored address known yet: that is not the wording's fault, so it stays savable.
+    unknown = load_self_terms([], {})
+    assert not unknown.has_self_address
+    assert abuse_core.settings_issues(clean, unknown) == {}
+
+
+def test_settings_cannot_be_judged_without_the_deny_set() -> None:
+    issues = abuse_core.settings_issues({"reply_contact": "reports@example.org"}, None)
+    assert issues == {"reply_contact": ["self_terms_unavailable"]}

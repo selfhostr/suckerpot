@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-11-12
+
 ### Added
 
 - Common reconnaissance now carries a tag instead of leaving most Redis, Docker, web, MySQL, ADB
@@ -23,7 +25,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   tags are mapped to MITRE ATT&CK, named in campaigns and insights and explained on the Defend
   page. A homepage, `robots.txt` or favicon request stays untagged.
 
+### Changed
+
+- Abuse reports now say why a draft is blocked and what to do. Settings, Reporting checks each text (reply contact, signature, introduction, closing, note, subject template, X-ARF user agent) on its own: a text that would block every draft, for example a reply address on a domain that names the project, is refused with one sentence under the field and nothing is saved. The same sentences show when a text you saved earlier blocks drafts today, because the rules grow over time. The list of drafts gets a Blocked drafts card (how many, one sentence per reason, what to do, and the setting that causes it) and a few words on each blocked row. The report page gives a next step for every reason instead of a bare description. The API adds `fields` to a refused settings save, `field_issues` to `GET /abuse/settings` and `blocked_drafts` to `GET /abuse/status`.
+
 ### Fixed
+
+- AbuseIPDB lookups no longer go to the same busy addresses every day while new sources stay
+  unscored. The hourly maintenance job deleted every stored answer after 48 hours, so each known
+  address looked new again and the daily quota was spent on re-checks. Answers are now kept and
+  used until they are refreshed, and the migration rebuilds the lost ones from the sessions. The
+  quota goes to addresses never looked up first (busiest first), then to answers older than the
+  new `REPUTATION_RECHECK_DAYS` (default 7, from 1 to 30). A fifth of each day's quota (at least
+  one lookup, at most half) is kept for those refreshes, so old answers are still renewed when
+  new sources arrive all day. Addresses that cannot be looked up no longer hold the first places
+  of the queue.
+- GreyNoise: a "too many requests" answer now stops lookups until the next UTC day and marks the
+  day's counter as full (so the key test in Settings reports "quota exhausted" until then, even
+  after a key change), instead of retrying every hour. The free Community tier allows far fewer
+  lookups than most configured quotas, so the retries only produced more errors.
+- Open drafts are checked again after the reporting settings or the "never in a report" list change. Before, a draft kept the result of its last build for up to an hour (longer for a draft the lookup cap skipped), so a reply contact fixed in Settings left every draft marked blocked. The worker now re-checks the open drafts from their stored evidence, with no lookup and no rebuild, when the settings revision or the deny set changed. The check is the one the build and the send path run (text, X-ARF and `.eml`, with the reply reference), and nothing is ever sent by this pass. It never clears what the build found in the evidence (an internal id, a private or a documentation address): only a rebuild does. The sessions the API and the SMTP sender treat as internal ids now include the attacker sessions behind a payload host, as the build does. A draft whose options the owner edited is re-checked on its own. A draft that carries one of those codes is not rendered, downloaded or exported either, and cannot be marked reviewed, until a rebuild clears it.
 
 - Campaigns of one actor are now merged. The worker only merged two campaigns when a single new
   session carried a key of both, which almost never happens: an actor that does credential
@@ -431,7 +452,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.2...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.3...HEAD
+[0.11.3]: https://github.com/selfhostr/suckerpot/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/selfhostr/suckerpot/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/selfhostr/suckerpot/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/selfhostr/suckerpot/compare/v0.10.0...v0.11.0
