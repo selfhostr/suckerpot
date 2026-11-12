@@ -47,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   group tried. Every count of sessions in the API sums `connections`, so folding changes no
   number, and the value filters of the session list still find a flood. The brute-force
   threshold of the CERT exports is per connection.
+- Flood groups in the dashboard. A flood group reads as one story on the Attacks list ("203.0.113.7
+  opened 812 RDP connections, one login each (812 tried)") with a neutral "flood x812" chip (icon,
+  word and count, never red) and the hours it ran in your time zone. The Attacks headline says how
+  much of the day came in floods, a new **Floods** control (All, Hide, Only) is kept in the URL as
+  `?kind=`, and the end of the list counts connections. A group has its own page: a finding, the
+  window, the connections, the logins tried, a **Credentials tried** card whose rows open the Trends
+  filters, the first 200 events, the other groups of the same hour and a link to every session of
+  the address (no replay, no source port). Links to a session from an event (the Live feed, the
+  latest events) carry `?at=`, so a connection that was folded into a group opens its group. The
+  attacker profile adds "of which N in floods". The mock data and the demo build include flood
+  groups.
 
 ### Fixed
 
