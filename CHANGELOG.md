@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   number, and the value filters of the session list still find a flood. The brute-force
   threshold of the CERT exports is per connection.
 - Flood groups in the dashboard. A flood group reads as one story on the Attacks list ("203.0.113.7
-  opened 812 RDP connections, one login each (812 tried)") with a neutral "flood x812" chip (icon,
+  opened 812 RDP connections, one login each") with a neutral "flood x812" chip (icon,
   word and count, never red) and the hours it ran in your time zone. The Attacks headline says how
   much of the day came in floods, a new **Floods** control (All, Hide, Only) is kept in the URL as
   `?kind=`, and the end of the list counts connections. A group has its own page: a finding, the
