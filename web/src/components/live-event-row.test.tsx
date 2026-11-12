@@ -18,7 +18,8 @@ describe("LiveEventRow", () => {
     renderRow(<LiveEventRow event={liveEvent(1, { session_id: "abc 1", country: "NL" })} />)
     const links = screen.getAllByRole("link")
     const hrefs = links.map((a) => a.getAttribute("href"))
-    expect(hrefs).toContain("/attacks/abc%201")
+    // The event time rides along: a connection folded into a flood group finds its group from it.
+    expect(hrefs).toContain("/attacks/abc%201?at=2026-10-24T18%3A02%3A16Z")
     expect(hrefs).toContain("/attacks?src_ip=192.0.2.45")
   })
 

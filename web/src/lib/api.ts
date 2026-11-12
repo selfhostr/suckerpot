@@ -83,6 +83,44 @@ export interface Session extends Enrichment {
   /** A known research scanner (harmless crawler); only present when scanners are shown. */
   benign?: boolean
   scanner_name?: string | null
+  /**
+   * `burst` is a flood group: one row for `connections` plain connections of one source, sensor
+   * and port in one UTC hour (its `src_port` is 0). Absent on older API versions: a session.
+   */
+  kind?: "session" | "burst"
+  /** How many connections the row stands for: 1 for a session, N for a flood group. */
+  connections?: number
+}
+
+/** One session, or the flood group that holds a folded connection (`?at=`). */
+export interface SessionDetail extends Session {
+  /** Set when the id asked for was folded into this group. */
+  folded_from?: string | null
+}
+
+/** One value of a credential list and how many times it was tried. */
+export interface CredentialCount {
+  value: string
+  count: number
+}
+
+export interface CredentialPair {
+  username: string
+  password: string
+  count: number
+}
+
+/** What a session or a flood group tried to log in with (`GET /sessions/{id}/credentials`). */
+export interface SessionCredentials {
+  attempts: number
+  distinct_usernames: number
+  distinct_passwords: number
+  distinct_pairs: number
+  /** The answer covers the first 50,000 attempts only. */
+  truncated: boolean
+  usernames: CredentialCount[]
+  passwords: CredentialCount[]
+  pairs: CredentialPair[]
 }
 
 export interface SensorEvent extends Enrichment {
@@ -187,6 +225,10 @@ export interface StatsSummary {
   sessions_with_commands: number
   download_attempts: number
   by_sensor: Record<string, SensorCounts>
+  /** Of `sessions`: the connections that sit in a flood group. Absent on older API versions. */
+  flood_sessions?: number
+  /** The addresses that sent them. Absent on older API versions. */
+  flood_sources?: number
 }
 
 export type Bucket = "5m" | "1h" | "1d"
@@ -309,6 +351,8 @@ export interface SessionFilters {
   campaign_id?: string | undefined
   /** How far the session got: looked, guessed, got_in, commands, download or exploit. */
   stage?: string | undefined
+  /** `session` for single connections, `burst` for flood groups; absent for both. */
+  kind?: "session" | "burst" | undefined
 }
 
 export class ApiError extends Error {
@@ -504,7 +548,11 @@ export async function sendJson<T = undefined>(
 export const api = {
   sessions: (filters: SessionFilters, cursor?: string | null, limit = 50) =>
     getJson<Page<Session>>("/sessions", { ...filters, cursor: cursor ?? undefined, limit }),
-  session: (id: string) => getJson<Session>(`/sessions/${encodeURIComponent(id)}`),
+  /** `at` finds the flood group that holds a folded connection (an event's `ts`). */
+  session: (id: string, at?: string | null) =>
+    getJson<SessionDetail>(`/sessions/${encodeURIComponent(id)}`, { at: at ?? undefined }),
+  sessionCredentials: (id: string, limit = 10) =>
+    getJson<SessionCredentials>(`/sessions/${encodeURIComponent(id)}/credentials`, { limit }),
   sessionEvents: (id: string, cursor?: string | null, limit = 200) =>
     getJson<Page<SensorEvent>>(`/sessions/${encodeURIComponent(id)}/events`, {
       cursor: cursor ?? undefined,
@@ -580,8 +628,10 @@ export const api = {
 
 export const queryKeys = {
   sessions: (filters: SessionFilters) => ["sessions", filters] as const,
-  session: (id: string) => ["session", id] as const,
+  session: (id: string, at?: string | null) =>
+    (at ? ["session", id, "at", at] : ["session", id]) as readonly unknown[],
   sessionEvents: (id: string) => ["session", id, "events"] as const,
+  sessionCredentials: (id: string) => ["session", id, "credentials"] as const,
   summary: ["stats", "summary"] as const,
   timeseries: (bucket: Bucket, range: StatsRange) =>
     ["stats", "timeseries", bucket, range] as const,

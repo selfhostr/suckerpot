@@ -194,3 +194,68 @@ describe("describeSession for RDP clients", () => {
     expect(describeSession(rdp({ tags: ["bluekeep"] })).predicate).toBe("probed for BlueKeep")
   })
 })
+
+describe("describeSession for flood groups", () => {
+  const flood = (o: Partial<Session> = {}) =>
+    session({
+      session_id: "burst-3f9c0a77e1d24b58a6c01e92",
+      sensor: "rdp",
+      dst_port: 3389,
+      src_port: 0,
+      kind: "burst",
+      connections: 812,
+      login_attempts: 812,
+      event_count: 2436,
+      ...o,
+    })
+  const predicate = (o: Partial<Session> = {}) => describeSession(flood(o)).predicate
+
+  it("counts the connections instead of telling each one", () => {
+    expect(describeSessionText(flood())).toBe(
+      "203.0.113.9 opened 812 RDP connections, one login each (812 tried)",
+    )
+    expect(
+      describeSessionText(flood({ sensor: "ssh", connections: 1204, login_attempts: 1204 })),
+    ).toBe("203.0.113.9 opened 1,204 SSH connections, one password each (1,204 tried)")
+  })
+
+  it("rounds several attempts per connection", () => {
+    expect(predicate({ login_attempts: 1640 })).toBe(
+      "opened 812 RDP connections, about 2 logins each (1,640 tried)",
+    )
+    // Barely more attempts than connections still reads as one each.
+    expect(predicate({ login_attempts: 830 })).toBe(
+      "opened 812 RDP connections, one login each (830 tried)",
+    )
+  })
+
+  it("names the client tool and the origin", () => {
+    const s = flood({ client_tool: "FreeRDP", country: "NL", org: "Polder Cloud BV" })
+    expect(describeSessionText(s)).toBe(
+      "203.0.113.9 (Netherlands, Polder Cloud BV) opened 812 RDP connections with FreeRDP, one login each (812 tried)",
+    )
+  })
+
+  it("tells a flood that never logged in", () => {
+    expect(predicate({ login_attempts: 0 })).toBe(
+      "opened 812 RDP connections and left without logging in",
+    )
+    expect(predicate({ sensor: "web", connections: 300, login_attempts: 0 })).toBe(
+      "opened 300 HTTP connections without sending a request",
+    )
+    expect(predicate({ sensor: "smb", connections: 40, login_attempts: 0 })).toBe(
+      "opened 40 SMB connections and left",
+    )
+  })
+
+  it("says Synology NAS as a place, not as a protocol", () => {
+    expect(predicate({ sensor: "synology", connections: 40, login_attempts: 40 })).toBe(
+      "opened 40 connections to the Synology NAS, one password each (40 tried)",
+    )
+  })
+
+  it("never turns a single connection into a flood", () => {
+    const one = session({ kind: "session", connections: 1, login_attempts: 3 })
+    expect(describeSession(one).predicate).toBe("tried 3 SSH passwords")
+  })
+})
