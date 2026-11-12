@@ -20,6 +20,12 @@ cd "$(dirname "$0")/.."
 
 [ -f .env ] || { echo "env-migrate: .env not found" >&2; exit 1; }
 
+# This is the first script of the NEW checkout that an update runs, and the update that is running
+# may be an older update.sh whose checkout was made under umask 077 (files 0600, folders 0700: the
+# non-root users inside the containers cannot read them). Make the tracked files readable again.
+# Tracked paths only: .env and the other private files are not touched.
+fix_tracked_modes
+
 stamp="# added by just update $(date -u +%Y-%m-%d)"
 header_done=0
 added=()

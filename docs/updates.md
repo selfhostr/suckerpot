@@ -37,7 +37,7 @@ Flags can be combined, for example `just update v0.9.0 --yes`.
 1. **Check the installation.** `.env` must exist and name the project and the volume prefix. The stack must be up, with the `backup` service healthy. Tracked files must not have local changes (source mode refuses, images mode warns). It then fetches the tags and works out the target.
 2. **Back up the database.** The `backup` service takes a dump named `suckerpot-preupdate-<time>.dump`. If the dump fails, nothing is changed.
 3. **Record how to roll back.** It writes `.suckerpot-state/last-update.json` (mode `0600`, ignored by git). The file holds the versions, the commit, the dump name and the image IDs. It holds no secret.
-4. **Fetch the new code.** It checks out the release tag. In source mode on a branch, it runs `git pull --ff-only` instead.
+4. **Fetch the new code.** It checks out the release tag. In source mode on a branch, it runs `git pull --ff-only` instead. Git runs under `umask 022` and the tracked files are made readable again afterwards, so the containers can read them (see [unreadable files after an update](#unreadable-files-after-an-update)).
 5. **Update `.env`.** `scripts/env-migrate.sh` adds the secrets and defaults that are new, and never changes a line that already exists. See [settings that are added](#settings-that-are-added).
 6. **Get the new images.** Images mode verifies the signatures and pulls exactly the verified images. Source mode rebuilds from the checkout.
 7. **Restart.** `docker compose up` runs. The `migrate` service applies the database changes first.
@@ -388,7 +388,36 @@ If `checkout` and `running` differ, the stack has not been restarted since the u
 | `the dashboard does not answer on .../healthz`. | Run `docker compose logs api`. Then decide: fix and run `just up`, or roll back. |
 | `the api reports version ... but ... was expected`. | The new images did not start. Run `docker compose ps` and `docker compose logs api`. |
 | `could not fetch tags from the remote`. | The update uses the tags already on this host. Check the network, then run `git fetch --tags`. |
+| `Permission denied` on a file of the checkout (for example `/app/migrations/versions/...` in the `migrate` container), or a script that is `0700`. | The files were unreadable for the containers. See [unreadable files after an update](#unreadable-files-after-an-update). |
 | `the dump ... is no longer in the backups volume`. | The rollback cannot run. Only the newest two pre-update dumps are kept. Run `just backups` to see what is left. If you need the data of another dump, restore it by hand with `just restore volume:<name>`. |
+
+### Unreadable files after an update
+
+An update from v0.11.2 to v0.11.3 could leave the files of the checkout with mode `0600` (and scripts with `0700`), because the checkout ran under the update's private `umask 077`. In source mode the images are built from those files, and the non-root user inside a container cannot read them: the `migrate` service failed with `PermissionError: [Errno 13] Permission denied: '/app/migrations/versions/...'`, and the update stopped with `ingest`, `api`, `collector` and `analyzer` down. Scripts that the containers mount, such as `scripts/backup-service.sh`, were affected in both install modes.
+
+From v0.11.4, the update runs git and the build under `umask 022` and makes the files of the committed tree readable again after every checkout. The folders that hold those files are made readable too (`hub/` becomes `0755`), so `hub/.env` is set to `0600` afterwards. Never touched: every `.env*` file (the example files excepted), `hub/.env`, `hub/secrets` and `.suckerpot-state`, any symlink, and anything that resolves outside the checkout. A node that was already hit is repaired by its next update.
+
+To repair a node now, run this in the checkout folder. On a node that already has this release:
+
+```bash
+bash -c '. scripts/lib/env.sh && fix_tracked_modes'
+```
+
+An older checkout does not have that function. Make its files and folders readable by hand, and close `hub/.env` if you use it:
+
+```bash
+git ls-tree -rz --name-only HEAD | xargs -0 chmod go+rX --
+git ls-tree -rdz --name-only HEAD | xargs -0 chmod go+rX --
+[ ! -f hub/.env ] || chmod 600 hub/.env
+```
+
+Then run the update again (`just update`), or start the stack again with the code you have. In source mode:
+
+```bash
+docker compose build && docker compose up -d --wait
+```
+
+In images mode nothing is built, so `docker compose up -d --wait` is enough.
 
 ## Next steps
 

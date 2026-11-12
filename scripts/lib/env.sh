@@ -150,6 +150,76 @@ in_linked_worktree() {
   [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]
 }
 
+# with_public_umask COMMAND [ARG...]: runs COMMAND under umask 022, whatever umask the caller has.
+# update.sh, rollback.sh and install.sh keep a restrictive umask for what is private (the state
+# file, .env), and scripts/auto-update.sh runs under umask 077 as a whole. What git writes into
+# the checkout, and what `docker compose build` reads, must stay readable by the non-root users
+# inside the containers: run those commands through this function.
+with_public_umask() ( umask 022; "$@" )
+
+# fix_tracked_modes_exempt PATH: succeeds for a path that fix_tracked_modes must never touch, even
+# if it is somehow part of the committed tree: every .env* file (the example files excepted),
+# hub/.env, hub/secrets and .suckerpot-state.
+fix_tracked_modes_exempt() {
+  case $1 in hub/.env | hub/secrets | hub/secrets/* | .suckerpot-state | .suckerpot-state/*) return 0 ;; esac
+  case ${1##*/} in .env.example) return 1 ;; .env*) return 0 ;; esac
+  return 1
+}
+
+# fix_tracked_modes: makes every file and folder of the COMMITTED tree (git ls-tree HEAD, not the
+# index) readable by group and others again (go+rX: executables stay executable, nothing is ever
+# removed). A checkout made under umask 077 leaves files 0600 and folders 0700, which the non-root
+# user of a container cannot read (the migrate container fails with "Permission denied" on its
+# migrations). The folders that hold such files are opened too (hub/ becomes 0755), so hub/.env is
+# set to 0600 afterwards. Never touched: .env*, hub/.env, hub/secrets and .suckerpot-state (see
+# fix_tracked_modes_exempt), symlinks, anything under a symlinked folder, and any path whose real
+# path is not inside the repository. Never fatal.
+fix_tracked_modes() {
+  local f p top ok i
+  local paths=() real=() keep=()
+  top=$(git rev-parse --show-toplevel 2> /dev/null) && top=$(realpath -e -- "$top" 2> /dev/null) || {
+    echo "warning: could not find the top of the checkout; file modes were not repaired" >&2
+    return 0
+  }
+  while IFS= read -r -d '' f; do
+    fix_tracked_modes_exempt "$f" && continue
+    { [ -e "$f" ] && [ ! -L "$f" ]; } || continue
+    ok=1
+    p=$f
+    while [[ $p == */* ]]; do
+      p=${p%/*}
+      if [ -L "$p" ]; then ok=0; break; fi
+    done
+    [ "$ok" = 1 ] || continue
+    paths+=("$f")
+    p=$f
+    while [[ $p == */* ]]; do
+      p=${p%/*}
+      paths+=("$p")
+    done
+  done < <(git ls-tree -rz --name-only HEAD 2> /dev/null)
+  if [ "${#paths[@]}" -gt 0 ]; then
+    mapfile -d '' paths < <(printf '%s\0' "${paths[@]}" | sort -zu)
+    # Every path (files and folders) must resolve to a place inside the checkout. -m keeps one
+    # answer per path, so the two lists stay aligned.
+    mapfile -d '' real < <(printf '%s\0' "${paths[@]}" | xargs -0 realpath -m -z -- 2> /dev/null)
+    if [ "${#real[@]}" -ne "${#paths[@]}" ]; then
+      echo "warning: could not resolve the tracked paths; file modes were not repaired" >&2
+    else
+      for i in "${!paths[@]}"; do
+        case ${real[i]} in "$top" | "$top"/*) keep+=("${paths[i]}") ;; esac
+      done
+      if [ "${#keep[@]}" -gt 0 ]; then
+        printf '%s\0' "${keep[@]}" | xargs -0 chmod go+rX -- 2> /dev/null \
+          || echo "warning: could not make every tracked file readable (a file owned by another user?)" >&2
+      fi
+    fi
+  fi
+  # hub/ may have just been opened: its secrets file must stay private.
+  if [ -f hub/.env ] && [ ! -L hub/.env ]; then chmod 600 hub/.env 2> /dev/null || true; fi
+  return 0
+}
+
 # Succeeds for a name that is allowed as compose project or volume prefix.
 valid_project_name() {
   [[ $1 =~ ^[a-z0-9][a-z0-9_-]{0,40}$ ]] || return 1
