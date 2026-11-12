@@ -14,7 +14,13 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { UploadCard } from "@/components/vpn/vpn-tab"
 import { useSetupStatus } from "@/hooks/use-setup-status"
-import { abuseApi, abuseKeys, describeAbuseError } from "@/lib/abuse"
+import {
+  abuseApi,
+  abuseKeys,
+  describeAbuseError,
+  describeSettingsIssue,
+  settingsIssuesOf,
+} from "@/lib/abuse"
 import { alertKeys, alertsApi } from "@/lib/alerts"
 import { plural } from "@/lib/format"
 import { SENSOR_META, SENSORS, type Sensor } from "@/lib/sensors"
@@ -298,7 +304,14 @@ function ReplyContactForm() {
     },
     onError: (e) => {
       setSaved(false)
-      setError(describeAbuseError(e))
+      const found = settingsIssuesOf(e)
+      setError(
+        found
+          ? Object.entries(found)
+              .map(([field, codes]) => describeSettingsIssue(field, codes))
+              .join(" ")
+          : describeAbuseError(e),
+      )
     },
   })
   if (!q.data)
@@ -308,6 +321,8 @@ function ReplyContactForm() {
       <SkeletonText lines={2} />
     )
   const value = draft ?? q.data.reply_contact ?? ""
+  // The saved address may already block every report (the rules grow): say so before a save.
+  const stored = draft === null ? q.data.field_issues?.reply_contact : undefined
   return (
     <form
       noValidate
@@ -321,6 +336,7 @@ function ReplyContactForm() {
         id={id}
         label="Reply contact"
         hint="An address where an abuse desk can answer you. It goes into the reports you choose to send."
+        error={stored ? describeSettingsIssue("reply_contact", stored) : undefined}
       >
         <Input
           id={id}

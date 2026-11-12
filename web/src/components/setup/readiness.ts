@@ -22,7 +22,10 @@ export function useStepReadiness(): Record<string, boolean> {
   return {
     vpn: vpn.data?.gate.state === "open",
     self: (terms.data ?? []).some((t) => t.confirmed),
-    reporting: !!settings.data?.reply_contact?.trim(),
+    // A contact that blocks every report does not count as set up.
+    reporting:
+      !!settings.data?.reply_contact?.trim() &&
+      Object.keys(settings.data.field_issues ?? {}).length === 0,
     alerts: (channels.data ?? []).length > 0,
     network: network.data?.state === "member" || network.data?.state === "enrolling",
   }

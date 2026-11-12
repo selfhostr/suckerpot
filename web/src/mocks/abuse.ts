@@ -7,6 +7,7 @@ import { delay, http, HttpResponse, type RequestHandler } from "msw"
 import type {
   AbuseStatus,
   AsnRef,
+  BlockedDrafts,
   GuardResult,
   Recipient,
   ReportDetail,
@@ -395,6 +396,17 @@ const counts = (): AbuseStatus["counts"] => {
   return c
 }
 
+/** The open drafts held back by the identity check, by reason (as the server counts them). */
+const blockedDrafts = (): BlockedDrafts => {
+  const out: BlockedDrafts = { count: 0, reasons: {} }
+  for (const r of rows) {
+    if (r.status !== "draft" || r.guard.ok) continue
+    out.count++
+    for (const code of r.guard.codes) out.reasons[code] = (out.reasons[code] ?? 0) + 1
+  }
+  return out
+}
+
 const blocked = (r: Row) =>
   HttpResponse.json(
     {
@@ -427,6 +439,7 @@ export const abuseHandlers: RequestHandler[] = [
       counts: counts(),
       waiting_for_contact: waiting.reduce((n, w) => n + w.subject_count, 0),
       replies: repliesStatus(),
+      blocked_drafts: blockedDrafts(),
     }
     return HttpResponse.json(status)
   }),
@@ -593,6 +606,7 @@ export const abuseHandlers: RequestHandler[] = [
           detail: "The reply contact is on a domain that belongs to you.",
           code: "identity_guard_failed",
           reasons: ["owner_domain"],
+          fields: { reply_contact: ["owner_domain"] },
         },
         { status: 409 },
       )

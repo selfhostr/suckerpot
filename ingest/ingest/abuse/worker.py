@@ -30,6 +30,7 @@ from .build import CycleStats, DraftBuilder
 from .config import AbuseSettings
 from .contacts import ContactResolver, make_reserve, quota_providers
 from .rdap import QuotaExhausted, RdapClient, RdapError
+from .reguard import DraftReguard
 from .selfterms import TermsCache
 
 if TYPE_CHECKING:
@@ -70,6 +71,7 @@ class AbuseWorker(FeatureWorker):
         self.terms: TermsCache | None = None
         self.rdap: RdapClient | None = None
         self.builder: DraftBuilder | None = None
+        self.reguard: DraftReguard | None = None
         self.sender: ReportSender | None = None  # M25, set when the worker is enabled
         if self.enabled and factory is not None:
             self.terms = TermsCache(factory, env)
@@ -86,6 +88,7 @@ class AbuseWorker(FeatureWorker):
             resolver = ContactResolver(factory, self.rdap, self.bootstrap)
             self.resolver = resolver
             self.builder = DraftBuilder(factory, self.abuse, self.terms, resolver)
+            self.reguard = DraftReguard(factory, self.abuse, self.terms)
 
     def _open(self) -> bool:
         return gate_open(self._gate or get_gate())
@@ -228,9 +231,19 @@ class AbuseWorker(FeatureWorker):
                 await selfterms.learn(self.factory, now)
             except Exception as exc:
                 log.warning("self-term learning failed (%s)", type(exc).__name__)
+        await self._reguard_cycle()
         if force or mono - self._last_build >= self.abuse.build_interval_s:
             self._last_build = mono
             self.last_stats = await self.builder.run(now, allow_lookups=self._open())
+
+    async def _reguard_cycle(self) -> None:
+        """Re-check the open drafts after a settings or deny-set change, without any lookup."""
+        if self.reguard is None:
+            return
+        try:
+            await self.reguard.run_if_changed()
+        except Exception as exc:
+            log.warning("abuse draft re-check failed (%s)", type(exc).__name__)
 
     async def _send_cycle(self, now: datetime) -> None:
         """Answer the SMTP send requests. A failure here never stops the rest of the cycle."""

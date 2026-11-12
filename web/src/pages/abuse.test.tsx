@@ -95,6 +95,7 @@ function stub(
     report?: ReportDetail
     status?: Partial<AbuseStatus>
     statusAnswer?: Response
+    settings?: Record<string, unknown>
   } = {},
 ) {
   const calls: Call[] = []
@@ -149,7 +150,7 @@ function stub(
       if (url.endsWith(`/abuse/reports/${ID}`)) return Promise.resolve(json(200, r))
       if (url.includes("/abuse/recipients")) return Promise.resolve(json(200, []))
       if (url.endsWith("/abuse/settings"))
-        return Promise.resolve(json(200, { default_tlp: "green" }))
+        return Promise.resolve(json(200, { default_tlp: "green", ...opts.settings }))
       return Promise.resolve(json(404, { detail: "nope" }))
     }),
   )
@@ -201,6 +202,73 @@ describe("AbusePage", () => {
     stub({ status: { self_address_known: false } })
     renderAt("/defend/abuse")
     expect(await screen.findByText(/reports are locked/)).toBeInTheDocument()
+  })
+
+  const BLOCKED = {
+    blocked_drafts: { count: 2, reasons: { project_term: 2, default_wording: 1 } },
+  }
+  const BLOCKED_REPORT = report({
+    guard: { ok: false, codes: ["default_wording", "project_term"] },
+  })
+
+  it("says how many drafts are blocked, why, and what to do about each reason", async () => {
+    stub({
+      report: BLOCKED_REPORT,
+      status: BLOCKED,
+      settings: { field_issues: { reply_contact: ["project_term"] } },
+    })
+    renderAt("/defend/abuse")
+    expect(
+      await screen.findByText(
+        "2 drafts are blocked by the identity check: they cannot be reviewed, copied or sent until the cause is fixed.",
+      ),
+    ).toBeInTheDocument()
+    // One sentence per reason, with its count and its next step.
+    expect(screen.getByText(/The text contains the name of this project/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/2 drafts\. Use a neutral reply address and neutral wording/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/The text contains wording shipped with the software/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/1 draft\. Write the introduction, closing, note/)).toBeInTheDocument()
+    // The cause in the owner's own settings, with a way to fix it.
+    expect(
+      await screen.findByText(
+        "This reply address names the project, so every report would reveal the honeypot. Use a neutral address.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Open Reporting settings" })).toHaveAttribute(
+      "href",
+      "/settings?tab=reporting#reporting-message",
+    )
+    // Each row says why in a few words.
+    expect(screen.getByText("Why: uses old default wording, names the project")).toBeInTheDocument()
+    // No raw code reaches the page.
+    expect(screen.queryByText(/project_term|default_wording/)).toBeNull()
+  })
+
+  it("shows a viewer the reasons but not the owner's settings", async () => {
+    stub({
+      me: VIEWER,
+      report: BLOCKED_REPORT,
+      status: BLOCKED,
+      settings: { field_issues: { reply_contact: ["project_term"] } },
+    })
+    renderAt("/defend/abuse")
+    expect(
+      await screen.findByText(/2 drafts are blocked by the identity check/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/The text contains the name of this project/)).toBeInTheDocument()
+    expect(screen.queryByText(/This reply address/)).toBeNull()
+    expect(screen.queryByRole("link", { name: "Open Reporting settings" })).toBeNull()
+  })
+
+  it("shows no notice when nothing is blocked", async () => {
+    stub({ status: { blocked_drafts: { count: 0, reasons: {} } } })
+    renderAt("/defend/abuse")
+    await screen.findByRole("heading", { name: "Example Hosting B.V." })
+    expect(screen.queryByText(/blocked by the identity check/)).toBeNull()
   })
 })
 
@@ -277,5 +345,40 @@ describe("AbuseDetailPage", () => {
     expect(await screen.findByText(/name of this project/)).toBeInTheDocument()
     expect(screen.queryByLabelText("Body")).not.toBeInTheDocument()
     expect(within(document.body).getByRole("button", { name: "Mark reviewed" })).toBeDisabled()
+  })
+
+  it("tells the owner what to do about each reason and where the cause is", async () => {
+    stub({
+      report: report({ guard: { ok: false, codes: ["project_term", "default_wording"] } }),
+      settings: { field_issues: { reply_contact: ["project_term"] } },
+    })
+    renderAt(`/defend/abuse/${ID}`)
+    expect(
+      await screen.findByText(/Use a neutral reply address and neutral wording/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Write the introduction, closing, note, signature/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        "This reply address names the project, so every report would reveal the honeypot. Use a neutral address.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Fix them in the Reporting settings" }),
+    ).toHaveAttribute("href", "/settings?tab=reporting#reporting-message")
+    expect(screen.getByText(/Nothing is sent while a draft is blocked/)).toBeInTheDocument()
+    expect(screen.queryByText(/project_term|default_wording/)).toBeNull()
+  })
+
+  it("does not show the owner's settings to a viewer", async () => {
+    stub({
+      me: VIEWER,
+      report: report({ guard: { ok: false, codes: ["project_term"] } }),
+      settings: { field_issues: { reply_contact: ["project_term"] } },
+    })
+    renderAt(`/defend/abuse/${ID}`)
+    expect(
+      await screen.findByText(/Use a neutral reply address and neutral wording/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/This reply address/)).toBeNull()
   })
 })

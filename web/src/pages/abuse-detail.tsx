@@ -11,6 +11,7 @@ import {
 import { useId, useState } from "react"
 import { Link, useParams } from "react-router"
 import { useAuth } from "@/app/auth"
+import { SettingsCause } from "@/components/abuse/blocked-drafts"
 import { CopyField } from "@/components/abuse/copy-field"
 import { ExportMenu } from "@/components/abuse/export-menu"
 import { OutcomeCard } from "@/components/abuse/outcome-card"
@@ -39,6 +40,7 @@ import {
   describeReport,
   downloadFile,
   FORMAT_OPTIONS,
+  guardAdvice,
   guardReason,
   guardReasonsOf,
   missingSettingsOf,
@@ -93,14 +95,21 @@ function IdentityCard({ r }: { r: ReportDetail }) {
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
             <div className="space-y-2">
               <span className="font-medium text-fg">Blocked</span>
-              <ul className="list-disc space-y-1 pl-5 text-fg-muted">
-                {r.guard.codes.map((c) => (
-                  <li key={c}>{guardReason(c)}</li>
-                ))}
+              <ul className="list-disc space-y-1.5 pl-5">
+                {(r.guard.codes.length > 0 ? r.guard.codes : ["unknown"]).map((c) => {
+                  const { why, fix } = guardAdvice(c)
+                  return (
+                    <li key={c}>
+                      <span className="text-fg">{why}</span>{" "}
+                      <span className="text-fg-muted">{fix}</span>
+                    </li>
+                  )
+                })}
               </ul>
+              <SettingsCause />
               <p className="text-fg-muted">
-                Regenerate the draft after fixing the cause, or discard it. The words it looks for
-                are listed in{" "}
+                Nothing is sent while a draft is blocked. The words the check looks for are listed
+                in{" "}
                 <Link
                   to="/settings?tab=reporting#reporting-never"
                   className="font-medium text-fg underline underline-offset-4"
