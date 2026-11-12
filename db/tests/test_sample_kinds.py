@@ -5,14 +5,21 @@ from collections.abc import Callable
 import pytest
 
 from suckerpot_db.sample_kinds import (
+    WEB_ASSET,
     WEB_SAMPLE_KINDS,
     attacker_source,
     crawled_from_web,
     is_plain_web_hash,
     plain_web_sample,
-    reopened_web_sample,
+    reopened_sample,
     web_content,
+    web_parent_target,
 )
+
+
+def flat(sql: str) -> str:
+    """The SQL on one line, single spaces."""
+    return " ".join(sql.split())
 
 
 def test_the_web_kinds() -> None:
@@ -34,23 +41,38 @@ def test_a_plain_web_sample_is_web_content_reached_only_through_web_links() -> N
 
 
 def test_what_an_attacker_asked_for_is_never_crawled() -> None:
-    sql = attacker_source("s")
-    # A typed URL, a depth-0 fetch or a link in anything but web content makes it attacker content;
-    # a network verification fetch counts neither way.
-    assert "s_ft.indicator_id IS NULL AND s_ft.depth >= 1" in sql
-    assert web_content("s_pa") in sql
-    assert "s_ft.origin = 'network_verify'" in sql
-    assert "LEFT JOIN samples s_pa ON s_pa.sha256 = s_ft.parent_sha256" in sql
+    sql = flat(attacker_source("s"))
+    # A typed URL (kept when its indicator is pruned), depth 0, or any link that is not a web
+    # asset of web content makes it attacker content; a verification fetch counts neither way.
+    assert "NOT s_ft.typed AND s_ft.indicator_id IS NULL AND s_ft.depth >= 1" in sql
     assert "WHERE s_ss.sha256 = s.sha256" in sql
-    crawled = crawled_from_web("s")
+    assert "s_ft.origin = 'network_verify'" in sql
+    crawled = flat(crawled_from_web("s"))
     assert crawled.startswith("(EXISTS (") and f"AND NOT {sql})" in crawled
 
 
+def test_every_parent_link_counts_not_only_the_first() -> None:
+    sql = flat(crawled_from_web("s"))
+    # The links come from sample_links (one row per parent file), not from parent_sha256.
+    assert "parent_sha256" not in sql
+    assert "FROM sample_links s_ft_l WHERE s_ft_l.target_id = s_ft.id" in sql
+    assert f"NOT (s_ft_l.source = '{WEB_ASSET}' AND {web_content('s_ft_p')})" in sql
+
+
+def test_a_target_is_refused_only_when_every_parent_is_plain_web() -> None:
+    sql = flat(web_parent_target("t"))
+    assert sql.startswith("(NOT t.typed AND t.indicator_id IS NULL AND t.depth >= 1")
+    assert "sample_links t_l WHERE t_l.target_id = t.id" in sql
+    assert "UNION SELECT t.parent_sha256" in sql
+    assert f"WHERE NOT {flat(plain_web_sample('t_ps'))}" in sql
+
+
 def test_a_spared_sample_is_reopened_once_an_attacker_asks_for_it() -> None:
-    sql = reopened_web_sample("s")
-    assert "s.analysis_status = 'done'" in sql
-    assert web_content("s") in sql and attacker_source("s") in sql
-    assert "s_hi.type = 'hash' AND s_hi.value = s.sha256" in sql
+    sql = flat(reopened_sample("s"))
+    # An explicit flag, not the absence of a hash indicator (a typed sha256 or an old one).
+    assert "s.analysis_status = 'done' AND s.spared" in sql
+    assert flat(attacker_source("s")) in sql
+    assert "indicators" not in sql
 
 
 def test_the_hash_condition_looks_the_sample_up_by_its_sha256() -> None:
@@ -62,7 +84,14 @@ def test_the_hash_condition_looks_the_sample_up_by_its_sha256() -> None:
 @pytest.mark.parametrize("alias", ["", "S", "a b", "x; DROP TABLE samples", "a.b", "1a", "a" * 40])
 @pytest.mark.parametrize(
     "build",
-    [web_content, plain_web_sample, crawled_from_web, attacker_source, reopened_web_sample],
+    [
+        web_content,
+        plain_web_sample,
+        crawled_from_web,
+        attacker_source,
+        reopened_sample,
+        web_parent_target,
+    ],
 )
 def test_an_alias_must_be_a_plain_identifier(alias: str, build: Callable[[str], str]) -> None:
     with pytest.raises(ValueError, match="identifier"):

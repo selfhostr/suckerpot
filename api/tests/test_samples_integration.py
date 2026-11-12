@@ -240,6 +240,15 @@ async def test_a_sample_says_whether_it_was_only_crawled(client: httpx.AsyncClie
                 ),
                 {"u": url, "p": parent, "d": depth, "t": NOW, "s": sha},
             )
+        # The page names the style sheet as an asset (a markup attribute).
+        await conn.execute(
+            text(
+                "INSERT INTO sample_links (sha256, kind, value, source, confidence, target_id) "
+                "SELECT :p, 'next_url', url, 'web_asset', 'high', id FROM fetch_targets "
+                "WHERE url = 'http://192.0.2.60/site.css'"
+            ),
+            {"p": page},
+        )
     items = {i["sha256"]: i for i in (await client.get("/api/v1/samples")).json()["items"]}
     assert items[sheet]["crawled"] is True
     assert items[page]["crawled"] is False

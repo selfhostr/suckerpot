@@ -21,9 +21,11 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_analysis import ANALYSIS_VERSION, AnalysisResult, Ioc
+from suckerpot_db.locks import SAMPLE_TYPING
 from suckerpot_db.sample_kinds import plain_web_sample
 
 from collector.config import CollectorSettings
+from collector.reopen import REOPEN_TARGET
 from collector.runner import ChildOutcome, run_child
 from collector.status import beat
 from collector.store import Quarantine, TooLarge
@@ -35,6 +37,14 @@ MAX_NEXT_URLS = 20
 BATCH = 5
 # Read right after the sample row took the new kind, severity and family (same transaction).
 _PLAIN_WEB = f"SELECT {plain_web_sample('s')} FROM samples s WHERE s.sha256 = :sha"  # noqa: S608
+# Labels of the links a spared file keeps from an older analysis, so the files it led to are
+# judged by what this analysis read (an asset of a page, or a link in its text).
+_RELABEL = """
+    UPDATE sample_links l SET source = v.source
+    FROM unnest(CAST(:values AS text[]), CAST(:sources AS text[])) AS v(value, source)
+    WHERE l.sha256 = :sha AND l.kind = 'next_url' AND l.value = v.value
+      AND l.source IS DISTINCT FROM v.source
+"""
 MAX_INPUT = 16 * 1024 * 1024
 Factory = async_sessionmaker[AsyncSession]
 
@@ -135,6 +145,11 @@ class AnalyzerService:
         now = self._clock()
         info = result.file
         async with self.factory() as session, session.begin():
+            # Shared with the other decisions; the collector takes it alone while it records
+            # typed URLs, so this decision never reads a typing that is half written.
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock_shared(:k)"), {"k": SAMPLE_TYPING}
+            )
             await session.execute(
                 text(
                     """
@@ -153,11 +168,16 @@ class AnalyzerService:
                 },
             )  # fmt: skip
             # Plain web content: a page, style sheet, image or web script that no rule matched,
-            # which the collector reached only by following links found in other web content.
-            # Kept and shown, but no threat intelligence: no hash indicator, no link followed, no
-            # deobfuscated text stored. Web content an attacker asked for (a typed URL, depth 0, or
-            # a link in a script or a binary) is attacker content whatever its kind.
+            # which the collector reached only through asset links of other web content. Kept and
+            # shown, but no threat intelligence: no hash indicator, no link followed, no
+            # deobfuscated text stored. Web content an attacker asked for (a typed URL, depth 0, a
+            # link in the text of a page, in a script or in a binary) is attacker content.
             plain = not result.yara and bool(await session.scalar(text(_PLAIN_WEB), {"sha": sha}))
+            verify_only = await self._verify_only(session, sha)
+            await session.execute(
+                text("UPDATE samples SET spared = :sp WHERE sha256 = :sha"),
+                {"sp": plain or verify_only, "sha": sha},
+            )
             yara = [hit.model_dump(mode="json") for hit in result.yara]
             await session.execute(
                 text(
@@ -188,12 +208,13 @@ class AnalyzerService:
                     "errors": list(result.errors),
                 },
             )  # fmt: skip
-            if await self._verify_only(session, sha):
+            if verify_only:
                 # M32: a sample fetched only for the network is described, never acted on: no
                 # local indicator, no child fetch target, no C2 indicator (design 8.6).
                 await self._links(session, sha, result.iocs, now, follow=False)
                 return
             if plain:
+                await self._relabel(session, sha, result.iocs)
                 return
             await self._hash_indicator(session, sha, now)
             await self._links(session, sha, result.iocs, now)
@@ -211,6 +232,15 @@ class AnalyzerService:
                 {"sha": sha},
             )
         )
+
+    @staticmethod
+    async def _relabel(session: AsyncSession, sha: str, iocs: list[Ioc]) -> None:
+        links = [(clean(i.value)[:1024], i.source) for i in iocs if i.kind == "next_url"]
+        if links:
+            await session.execute(
+                text(_RELABEL),
+                {"sha": sha, "values": [v for v, _ in links], "sources": [s for _, s in links]},
+            )
 
     async def _hash_indicator(self, session: AsyncSession, sha: str, now: datetime) -> None:
         await session.execute(
@@ -248,12 +278,17 @@ class AnalyzerService:
         for ioc in iocs:
             target_id: int | None = None
             indicator_id: int | None = None
+            queued = False
             if not follow:
                 pass  # recorded for display only
             elif ioc.kind == "next_url":
-                if depth + 1 <= self.s.max_depth and next_urls < MAX_NEXT_URLS:
-                    target_id = await self._next_target(session, ioc.value, sha, depth + 1, now)
-                    next_urls += target_id is not None
+                queued = depth + 1 <= self.s.max_depth and next_urls < MAX_NEXT_URLS
+                # Past the caps nothing new is queued, but a URL already known still gets this
+                # link: it is how the rule sees every file that leads to it.
+                target_id = await self._next_target(
+                    session, ioc.value, sha, depth + 1, now, insert=queued
+                )
+                next_urls += queued and target_id is not None
             elif ioc.confidence == "high":
                 indicator_id = await self._c2_indicator(session, ioc, now)
             await session.execute(
@@ -273,28 +308,48 @@ class AnalyzerService:
                     "target": target_id, "ind": indicator_id,
                 },
             )  # fmt: skip
+            if target_id is not None:
+                # Attacker content links to this URL: if only plain web content linked to it
+                # before, it goes back in the queue (within the caps), and a file it served that
+                # was spared is analysed again as attacker content.
+                if queued:
+                    await session.execute(
+                        text("SELECT suckerpot_revive_web_target(:t, :now)"),
+                        {"t": target_id, "now": now},
+                    )
+                await session.execute(text(REOPEN_TARGET), {"t": target_id})
 
     async def _next_target(
-        self, session: AsyncSession, raw: str, sha: str, depth: int, now: datetime
+        self,
+        session: AsyncSession,
+        raw: str,
+        sha: str,
+        depth: int,
+        now: datetime,
+        *,
+        insert: bool = True,
     ) -> int | None:
+        """The fetch target of a next URL, queued at `depth` when new (only with `insert`)."""
         try:
             valid = normalize_url(raw, deny_nets=self.s.deny_nets, deny_hosts=self.s.deny_hosts)
         except UrlRefused:
             return None
-        await session.execute(
-            text(
-                """
-                INSERT INTO fetch_targets
-                    (url, scheme, host, parent_sha256, depth, status, first_seen, next_attempt_at)
-                VALUES (:url, :scheme, :host, :sha, :depth, 'pending', :now, :now)
-                ON CONFLICT (url) DO NOTHING
-                """
-            ),
-            {
-                "url": valid.url, "scheme": valid.scheme, "host": valid.host[:255],
-                "sha": sha, "depth": depth, "now": now,
-            },
-        )  # fmt: skip
+        if insert:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO fetch_targets
+                        (url, scheme, host, parent_sha256, depth, status, first_seen,
+                         next_attempt_at)
+                    VALUES (:url, :scheme, :host, :sha, :depth, 'pending', :now, :now)
+                    ON CONFLICT (url) DO NOTHING
+                    """
+                ),
+                {
+                    "url": valid.url, "scheme": valid.scheme, "host": valid.host[:255],
+                    "sha": sha, "depth": depth, "now": now,
+                },
+            )  # fmt: skip
         found = await session.scalar(
             text("SELECT id FROM fetch_targets WHERE url = :url"), {"url": valid.url}
         )

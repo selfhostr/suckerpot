@@ -194,6 +194,8 @@ async def test_collector_and_analyzer_grants(owner: AsyncEngine) -> None:
         assert await _can(ingest, upsert, {"n": "egress"})
         assert not await _can(api, upsert, {"n": "egress"})
         assert not await _can(collector, "SELECT count(*) FROM sample_analysis")
+        assert await _can(collector, "SELECT count(*) FROM sample_links")  # read only
+        assert not await _can(collector, "UPDATE sample_links SET source = 'web_asset'")
         assert not await _can(collector, "SELECT count(*) FROM events")
         assert not await _can(collector, "SELECT count(*) FROM users")
 
@@ -222,6 +224,28 @@ async def test_collector_and_analyzer_grants(owner: AsyncEngine) -> None:
             "VALUES ('ip', '198.51.100.4', 'c2', now(), now())",
         )
         assert not await _can(analyzer, "UPDATE fetch_targets SET status = 'fetched'")
+        # 0033: it may only put a target refused as web_parent back in the queue, nothing else.
+        revive = "SELECT suckerpot_revive_web_target(:t, now())"
+        async with owner.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO fetch_targets (url, scheme, host, first_seen, status, last_error) "
+                    "VALUES ('http://203.0.113.9/w.css', 'http', '203.0.113.9', now(), "
+                    "'refused', 'web_parent'), ('http://203.0.113.9/r.sh', 'http', "
+                    "'203.0.113.9', now(), 'refused', 'private_address')"
+                )
+            )
+            found = await conn.execute(text("SELECT url, id FROM fetch_targets"))
+            ids: dict[str, int] = {str(u): int(i) for u, i in found.tuples().all()}
+        for url in ("http://203.0.113.9/w.css", "http://203.0.113.9/r.sh"):
+            assert await _can(analyzer, revive, {"t": ids[url]})
+        async with owner.connect() as conn:
+            found = await conn.execute(text("SELECT url, status FROM fetch_targets"))
+            after: dict[str, str] = {str(u): str(st) for u, st in found.tuples().all()}
+        assert after["http://203.0.113.9/w.css"] == "pending"
+        assert after["http://203.0.113.9/r.sh"] == "refused"  # any other refusal stays
+        for other in (collector, api, ingest):
+            assert not await _can(other, revive, {"t": ids["http://203.0.113.9/w.css"]})
         assert not await _can(analyzer, "SELECT count(*) FROM fetch_attempts")
         assert not await _can(analyzer, "DELETE FROM sample_analysis")
         assert not await _can(analyzer, "SELECT count(*) FROM events")

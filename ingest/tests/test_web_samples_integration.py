@@ -37,6 +37,7 @@ FLAGGED = "b2" * 32  # an HTML page found the same way that a detection rule mat
 SCRIPT = "c3" * 32  # a shell script an attacker typed the URL of
 STAGE = "f6" * 32  # an HTML page found through a link of SCRIPT: the dropper's next stage
 RAW = "d4" * 32  # not analysed yet (no kind), no source
+TEXT_LINKED = "a7" * 32  # an HTML page named in the text of TYPED (not an asset): evidence
 SOURCE_IP = "198.51.100.7"
 HOST = "dl.example.test"
 TYPED_URL = f"http://{HOST}/index.html"
@@ -67,16 +68,29 @@ async def add_source(
     depth: int,
     parent: str | None = None,
     indicator: int | None = None,
+    via: str = "web_asset",
 ) -> None:
+    """A fetched target that served `sha`, linked from `parent` (a link labelled `via`)."""
     async with engine.begin() as conn:
         tid = await conn.scalar(
             text(
                 "INSERT INTO fetch_targets (url, scheme, host, indicator_id, parent_sha256, depth, "
-                "status, first_seen, last_sha256) VALUES "
-                "(:u, 'http', :h, :i, :p, :d, 'fetched', :t, :sha) RETURNING id"
+                "status, first_seen, last_sha256, typed) VALUES "
+                "(:u, 'http', :h, :i, :p, :d, 'fetched', :t, :sha, :ty) RETURNING id"
             ),
-            {"u": url, "h": HOST, "i": indicator, "p": parent, "d": depth, "t": NOW, "sha": sha},
-        )
+            {
+                "u": url, "h": HOST, "i": indicator, "p": parent, "d": depth, "t": NOW,
+                "sha": sha, "ty": indicator is not None,
+            },
+        )  # fmt: skip
+        if parent is not None:
+            await conn.execute(
+                text(
+                    "INSERT INTO sample_links (sha256, kind, value, source, confidence, "
+                    "target_id) VALUES (:p, 'next_url', :u, :via, 'high', :t)"
+                ),
+                {"p": parent, "u": url, "via": via, "t": tid},
+            )
         await conn.execute(
             text(
                 "INSERT INTO sample_sources (sha256, target_id, first_fetched, last_fetched) "
@@ -128,10 +142,17 @@ async def samples(engine: AsyncEngine) -> None:
     )
     await add_source(engine, PAGE, f"http://{HOST}/about.html", depth=1, parent=TYPED)
     await add_source(engine, FLAGGED, f"http://{HOST}/f.html", depth=1, parent=TYPED)
-    await add_source(engine, STAGE, f"http://{HOST}/stage.html", depth=1, parent=SCRIPT)
+    await add_source(
+        engine, STAGE, f"http://{HOST}/stage.html", depth=1, parent=SCRIPT, via="script_url"
+    )
+    # A page that only names another page in its text: that one is not crawled either.
+    await add_sample(engine, TEXT_LINKED, "html", "info", None)
+    await add_source(
+        engine, TEXT_LINKED, f"http://{HOST}/named.html", depth=1, parent=TYPED, via="script_url"
+    )
 
 
-EVIDENCE = {TYPED, FLAGGED, SCRIPT, STAGE}  # every analysed sample but the plain page
+EVIDENCE = {TYPED, FLAGGED, SCRIPT, STAGE, TEXT_LINKED}  # every analysed sample but the plain page
 ALL = EVIDENCE | {PAGE, RAW}
 
 
@@ -217,7 +238,7 @@ async def test_a_typed_url_makes_a_crawled_page_evidence(
     iid = await typed_url(engine, f"http://{HOST}/about.html")
     async with engine.begin() as conn:
         await conn.execute(
-            text("UPDATE fetch_targets SET indicator_id = :i WHERE url = :u"),
+            text("UPDATE fetch_targets SET indicator_id = :i, typed = true WHERE url = :u"),
             {"i": iid, "u": f"http://{HOST}/about.html"},
         )
     assert PAGE in {f.sha256 for f in await SqlSource(factory).files(DAY)}
