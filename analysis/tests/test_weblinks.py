@@ -64,6 +64,28 @@ def test_the_polyglot_page_names_no_asset() -> None:
     assert asset_links(poly, "html") == frozenset()
 
 
+def test_a_letter_that_grows_when_lowered_does_not_shift_the_scan() -> None:
+    # "İ".lower() is two characters: a lowered copy indexed against the original would land the
+    # scan back inside the script body, and the URL used only by its code would become an asset.
+    page = (
+        "İ" * 100 + f'<script title="</script>">var u="{U}/code.js";</script><img src="{U}/i.png">'
+    )
+    assert names(asset_links(page, "html")) == {"i.png"}
+
+
+def test_plaintext_template_and_unclosed_tags_name_no_asset() -> None:
+    plaintext = f'<p>x</p><plaintext><img src="{U}/after.png">'
+    assert asset_links(plaintext, "html") == frozenset()
+    template = (
+        f'<template><img src="{U}/t1.png"><template><img src="{U}/t2.png"></template>'
+        f'<img src="{U}/t3.png"></template><img src="{U}/out.png">'
+    )
+    assert names(asset_links(template, "html")) == {"out.png"}
+    assert asset_links(f'<template><img src="{U}/never.png">', "html") == frozenset()
+    unclosed = f'<img src="{U}/a.png"><img src="{U}/unclosed.png" alt=x'
+    assert names(asset_links(unclosed, "html")) == {"a.png"}
+
+
 def test_other_kinds_have_no_assets() -> None:
     for kind in ("javascript", "json", "xml", "text", "script"):
         assert asset_links(PAGE, kind) == frozenset(), kind

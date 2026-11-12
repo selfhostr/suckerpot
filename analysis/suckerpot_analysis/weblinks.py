@@ -62,6 +62,7 @@ _ASSET_ATTRS: dict[str, frozenset[str]] = {
 _RAW_TEXT = frozenset(
     {"script", "style", "textarea", "title", "xmp", "noembed", "noframes", "noscript", "iframe"}
 )
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _TAG_NAME = re.compile(r"[a-zA-Z][a-zA-Z0-9:_.-]{0,63}+")
 # One attribute (or a stray `/`) inside a start tag. A quoted value that is never closed runs to
 # the end of the input; the tag then never ends and the scan stops.
@@ -87,9 +88,28 @@ def _css_spans(text: str, start: int, end: int) -> list[tuple[int, int]]:
     return spans
 
 
+def _end_of_template(low: str, pos: int) -> int:
+    """Where the `<template>` opened before `pos` ends (nested ones included), or -1."""
+    depth = 1
+    while depth:
+        close = low.find("</template", pos)
+        if close < 0:
+            return -1
+        inner = low.find("<template", pos, close)
+        if inner >= 0:
+            depth += 1
+            pos = inner + 9
+        else:
+            depth -= 1
+            pos = close + 10
+    return pos - 10
+
+
 def _markup_spans(text: str) -> list[tuple[int, int]]:
     """Value spans of asset attributes of real start tags, and style sheet links."""
-    low = text.lower()
+    # ASCII only: `str.lower` changes the length of some letters ("İ" gives two characters),
+    # which would shift every index found in the copy against the original.
+    low = text.translate(_ASCII_LOWER)
     spans: list[tuple[int, int]] = []
     end = len(text)
     pos = 0
@@ -120,6 +140,7 @@ def _markup_spans(text: str) -> list[tuple[int, int]]:
         wanted = _ASSET_ATTRS.get(name, frozenset())
         p = tag.end()
         closed = False
+        found: list[tuple[int, int]] = []  # kept only if the tag is closed
         while p < end:
             if text.startswith(">", p):
                 closed = True
@@ -140,12 +161,22 @@ def _markup_spans(text: str) -> list[tuple[int, int]]:
                 continue
             value = m.span(group)
             if attr == "style":
-                spans.extend(_css_spans(text, *value))
+                found.extend(_css_spans(text, *value))
             elif attr in wanted:
-                spans.append(value)
+                found.append(value)
         if not closed:
-            break  # the input ends inside a tag
+            break  # the input ends inside a tag: none of its attributes counts
+        spans.extend(found)
         pos = p
+        if name == "plaintext":
+            break  # everything after it is text
+        if name == "template":
+            # Inert content, never loaded: nothing inside names an asset.
+            close = _end_of_template(low, pos)
+            if close < 0:
+                break
+            pos = close
+            continue
         if name in _RAW_TEXT:
             close = low.find("</" + name, pos)
             body_end = close if close >= 0 else end

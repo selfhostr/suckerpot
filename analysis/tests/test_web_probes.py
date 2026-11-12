@@ -164,6 +164,24 @@ REVIEWED_FOURTH = {
     "node by path": b"<p x\nnode /tmp/s\n",
 }
 
+# The fifth review round: interpreters and shells run on a relative or absolute path, and Node or
+# JavaScript that runs text through vm, Reflect.construct, Function.call/apply or a data: import.
+REVIEWED_FIFTH = {
+    "python3 ./": b"<p x\npython3 ./a.py\n",
+    "python ./": b"<p x\ncd /run; python ./a.py\n",
+    "node ./": b"<p x\nnode ./a.js\n",
+    "node /": b"<p x\nnode /run/a.js\n",
+    "ash /": b"<p x\nash /run/a\n",
+    "require vm": b'"use strict";const vm=require("vm");const f=()=>vm;',
+    "runInThisContext": b'"use strict";var f=()=>x.runInThisContext(d);',
+    "runInNewContext": b'"use strict";var f=()=>x.runInNewContext(d);',
+    "Reflect.construct(Function": b'"use strict";var f=Reflect.construct(Function,[d]);f();',
+    "Function.call(": b'"use strict";var f=Function.call(null,d);f();',
+    "Function.apply(": b'"use strict";var f=Function.apply(null,[d]);f();',
+    'import("data:': b'"use strict";var f=()=>import("data:text/javascript,"+d);',
+    "import('data:": b"\"use strict\";var f=()=>import('data:text/javascript;base64,'+d);",
+}
+
 # Payloads that need no particular word in common, wrapped in each disguise below.
 PAYLOADS = {
     "shell dropper": DROPPER,
@@ -245,6 +263,21 @@ def test_third_round_cases_keep_a_non_web_kind(name: str, rules: CompiledRules) 
     assert identify(REVIEWED_THIRD[name]).kind not in WEB_KINDS, name
     result = analyze(REVIEWED_THIRD[name], rules=rules)
     assert result.severity != "info", name
+
+
+@pytest.mark.parametrize("name", sorted(REVIEWED_FIFTH))
+def test_fifth_round_cases_keep_a_non_web_kind(name: str) -> None:
+    assert identify(REVIEWED_FIFTH[name]).kind not in WEB_KINDS, name
+
+
+def test_function_and_vm_words_that_run_nothing() -> None:
+    for js in (
+        b'"use strict";var c=Function.prototype.call;var f=()=>c;',
+        b'"use strict";var f=function(){return 1};f.call(null);f.apply(null,[]);var g=()=>f;',
+        b'"use strict";var vmName="vm";var f=()=>import("./chunk.js");',
+    ):
+        assert identify(js).kind == "javascript", js
+    assert identify(b"<!doctype html><html><body><p>The ash tree.</p></body></html>").kind == "html"
 
 
 @pytest.mark.parametrize("name", sorted(REVIEWED_FOURTH))

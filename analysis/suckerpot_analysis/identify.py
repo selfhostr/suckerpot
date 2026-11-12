@@ -127,18 +127,18 @@ _INTERPRETER = rb"(?:python[23]?(?:\.[0-9]{1,2})?|perl|ruby|node|php|lua)"
 _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     # Shell statements, written the way a shell script writes them.
     _sign(b"export", rb"(?<![\w.$-])export[ \t]++[a-z_]\w*+="),
-    _sign(b"sh", rb"\b(?:ba|da|k|z)?sh[ \t]++-c\b"),
-    _sign(b"|", rb"[ \t\r\n]\|[ \t]*+(?:ba|da|k|z)?sh\b"),
-    _sign(b"/bin/", rb"/bin/(?:ba|da|k|z)?sh\b"),
-    _sign(b"sh", rb"(?m)^[ \t]*+(?:ba|da|k|z)?sh[ \t]++[\w./$-]"),
+    _sign(b"sh", rb"\b(?:ba|da|k|z|a)?sh[ \t]++-c\b"),
+    _sign(b"|", rb"[ \t\r\n]\|[ \t]*+(?:ba|da|k|z|a)?sh\b"),
+    _sign(b"/bin/", rb"/bin/(?:ba|da|k|z|a)?sh\b"),
+    _sign(b"sh", rb"(?m)^[ \t]*+(?:ba|da|k|z|a)?sh[ \t]++[\w./$-]"),
     # A shell fed from a redirection, a here-document or a process substitution (`bash<x`,
     # `sh <<E`, `bash <(...)`), but not a tag after the word (`Bash</b>`, `bash <br>`).
     _sign(
         b"sh",
-        rb"\b(?:ba|da|k|z)?sh[ \t]*+<(?:[<(]|[ \t]*+[\w./$~-]++(?=[ \t\r\n;|&)]|\Z))",
+        rb"\b(?:ba|da|k|z|a)?sh[ \t]*+<(?:[<(]|[ \t]*+[\w./$~-]++(?=[ \t\r\n;|&)]|\Z))",
     ),
     # A shell run through env (`env sh`, `/usr/bin/env bash -s`).
-    _sign(b"env", rb"\benv[ \t]++(?:-[a-z-]{1,16}[ \t]++){0,3}(?:ba|da|k|z)?sh\b"),
+    _sign(b"env", rb"\benv[ \t]++(?:-[a-z-]{1,16}[ \t]++){0,3}(?:ba|da|k|z|a)?sh\b"),
     _sign(b"./", rb"(?m)^[ \t]*+\./[\w.$-]|(?:;|&&)[ \t]*+\./\S"),
     _sign(b"/tmp", rb"\bcd[ \t]++/tmp\b"),
     _sign(b"/dev/shm"),
@@ -202,7 +202,7 @@ _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     # `node <<E`) or runs a file by path at the start of a line (`node /tmp/s`).
     _sign(b"<<", rb"\b" + _INTERPRETER + rb"[ \t]*+<<"),
     _sign(b" -", rb"\b" + _INTERPRETER + rb"[ \t]++-(?=[ \t\r\n;|&<]|\Z)"),
-    _sign(b" ", rb"(?m)^[ \t]*+" + _INTERPRETER + rb"[ \t]++[/~$]"),
+    _sign(b" ", rb"(?m)(?:^|[;&|]|\$\()[ \t]*+" + _INTERPRETER + rb"[ \t]++(?:\.{0,2}/|~|\$)"),
     _sign(b"perl", rb"\bperl[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}[em]"),
     _sign(b"php", rb"\bphp[0-9.]{0,4}[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}r\b"),
     _sign(b"ruby", rb"\bruby[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}e\b"),
@@ -219,6 +219,12 @@ _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     ),
     _sign(b"atob", rb"\b(?:function|eval)\s*+\(\s*+atob\s*+\("),
     _sign(b"function", rb"=\s*+function\s*+[;,)]"),
+    # Node code run from text: the vm module, a data: URL imported as a module.
+    _sign(b"vm", rb"\brequire\s*+\(\s*+[\"'`](?:node:)?vm[\"'`]"),
+    _sign(b"runinthiscontext"),
+    _sign(b"runinnewcontext"),
+    _sign(b"runincontext"),
+    _sign(b"data:", rb"\bimport\s*+\(\s*+[\"'`]data:"),
     # The Function constructor reached through `.constructor` of a function or an arrow:
     # `(()=>0).constructor(code)`, `[]["filter"]["constructor"](code)`, `f.constructor.constructor`.
     _sign(
@@ -280,7 +286,11 @@ _NODE_ACTION = re.compile(
 )
 # The Function constructor builds code from text (case matters: `function(` is a declaration). The
 # one exception is the global object idiom of every polyfill, `Function("return this")`.
-_FUNCTION_CTOR = re.compile(rb"(?<![\w$.])Function\s*+\(\s*+(?![\"']return this[\"']\s*+\))")
+_FUNCTION_CTOR = re.compile(
+    rb"(?<![\w$.])Function\s*+\(\s*+(?![\"']return this[\"']\s*+\))"
+    rb"|\bReflect\s*+\.\s*+construct\s*+\(\s*+Function\b"
+    rb"|(?<![\w$.])Function\s*+\.\s*+(?:call|apply)\s*+\("
+)
 
 
 def _unpack(fmt: str, data: bytes, offset: int) -> tuple[int, ...] | None:
