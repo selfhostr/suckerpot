@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Flood groups in the database. A source that opens many plain connections in one UTC hour (a
+  credential spray, a scanner) no longer leaves one `sessions` row per connection: the new fold
+  function merges them into one group row (`kind = 'burst'`, `connections = N`, id `burst-...`),
+  keeping the sums, and never merges a connection that did something (a successful login, a
+  command, a download, an HTTP request, 20 or more passwords, a campaign, an indicator or demo
+  data). Events are never touched. Counts of sessions now sum `connections`, the hourly roll-up
+  into `sessions_daily` included. Migration 0034; the ingest role gets `EXECUTE` on the function
+  and still has no `DELETE` on `sessions`; going back to 0033 is refused while a group exists.
+  See [Data retention](docs/retention.md#flood-groups).
+
 ## [0.11.5] - 2026-11-12
 
 ### Fixed
