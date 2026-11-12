@@ -34,6 +34,9 @@ Nothing in a request is executed or fetched. Request analysis is passive pattern
 Each request is analysed and gets flags. Examples: `php2shell`, `upload_progress`, `rce`, `php_code`, `rfi`, `lfi`, `log4shell`, `shellshock`, `phpunit_rce`, `laravel_rce`, `router_exploit`, `webshell_probe`, `session_include`, `scanner_ua`, `no_user_agent`, `recon_dotfile`, `config_leak` and `backup_probe`.
 
 - Requests that touch the PHP upload-progress feature are flagged `upload_progress` and tagged `php-upload-progress-probe`. Only the exploit shape is flagged `php2shell` (and tagged `php2shell`, with the CVE ids): the upload-progress field carrying PHP code, or the include of a session file that the sensor saw created through that field. The tagging rules in `ingest/rules/web.yaml` turn the flags into session tags.
+- `env-file-probe` is set for the secret and leftover paths the rule lists (`.env`, `.git/config`, cloud credentials) and for any request the sensor flags `recon_dotfile`, `config_leak` or `backup_probe`: a dot-directory, a config file such as `/admin/config.php`, or a backup or dump name.
+- `service-probe` is set for a `GET`, `HEAD` or `OPTIONS` that the sensor flags as a probe for a specific application or device (`wordpress`, `phpmyadmin`, `phpinfo_probe`, `spring_probe`, `jenkins_probe`, `vpn_probe`, `router_probe`, `recon` and the other `*_probe` flags), unless the same request also carries an exploit flag. A plain homepage, `robots.txt` or favicon request is not tagged.
+- `scanner` is also set when the sensor flags `scanner_ua` (nikto, sqlmap, gobuster and the other scanner names it knows).
 - The **severe** flags (the exploit ones) get a guaranteed share of the event quota, so a flood of noise cannot hide an exploit attempt.
 
 ## Limits and abuse resistance
