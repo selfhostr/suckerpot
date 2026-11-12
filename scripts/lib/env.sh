@@ -150,6 +150,37 @@ in_linked_worktree() {
   [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]
 }
 
+# with_public_umask COMMAND [ARG...]: runs COMMAND under umask 022, whatever umask the caller has.
+# update.sh, rollback.sh and install.sh keep a restrictive umask for what is private (the state
+# file, .env), and scripts/auto-update.sh runs under umask 077 as a whole. What git writes into
+# the checkout, and what `docker compose build` reads, must stay readable by the non-root users
+# inside the containers: run those commands through this function.
+with_public_umask() ( umask 022; "$@" )
+
+# fix_tracked_modes: makes every TRACKED file and folder of the checkout readable by group and
+# others again (go+rX: executables stay executable, nothing is ever removed). A checkout made under
+# umask 077 leaves files 0600 and folders 0700, which the non-root user of a container cannot read
+# (the migrate container fails with "Permission denied" on its migrations). Only the paths git
+# tracks are touched, so .env, hub/.env, hub/secrets and .suckerpot-state keep their mode. Symlinks
+# are skipped (chmod would follow them). Never fatal.
+fix_tracked_modes() {
+  local f p
+  local paths=()
+  while IFS= read -r -d '' f; do
+    { [ -e "$f" ] && [ ! -L "$f" ]; } || continue
+    paths+=("$f")
+    p=$f
+    while [[ $p == */* ]]; do
+      p=${p%/*}
+      paths+=("$p")
+    done
+  done < <(git ls-files -z 2> /dev/null)
+  [ "${#paths[@]}" -gt 0 ] || return 0
+  printf '%s\0' "${paths[@]}" | sort -zu | xargs -0 chmod go+rX -- 2> /dev/null \
+    || echo "warning: could not make every tracked file readable (a file owned by another user?)" >&2
+  return 0
+}
+
 # Succeeds for a name that is allowed as compose project or volume prefix.
 valid_project_name() {
   [[ $1 =~ ^[a-z0-9][a-z0-9_-]{0,40}$ ]] || return 1
