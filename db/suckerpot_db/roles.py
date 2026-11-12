@@ -705,10 +705,9 @@ BEGIN
             pg_get_serial_sequence('public.fetch_targets', 'id'),
             pg_get_serial_sequence('public.indicators', 'id'), r);
     END IF;
-    IF to_regprocedure('public.suckerpot_revive_web_target(bigint, timestamptz)') IS NOT NULL THEN
+    IF to_regprocedure('public.suckerpot_revive_web_target(bigint)') IS NOT NULL THEN
         -- 0033: back in the queue, a target refused as web_parent that attacker content links.
-        EXECUTE format(
-            'GRANT EXECUTE ON FUNCTION suckerpot_revive_web_target(bigint, timestamptz) TO %I', r);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION suckerpot_revive_web_target(bigint) TO %I', r);
     END IF;
 END
 $$

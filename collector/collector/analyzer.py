@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_analysis import ANALYSIS_VERSION, AnalysisResult, Ioc
 from suckerpot_db.locks import SAMPLE_TYPING
-from suckerpot_db.sample_kinds import plain_web_sample
+from suckerpot_db.sample_kinds import attacker_source, plain_web_sample
 
 from collector.config import CollectorSettings
 from collector.reopen import REOPEN_TARGET
@@ -37,6 +37,10 @@ MAX_NEXT_URLS = 20
 BATCH = 5
 # Read right after the sample row took the new kind, severity and family (same transaction).
 _PLAIN_WEB = f"SELECT {plain_web_sample('s')} FROM samples s WHERE s.sha256 = :sha"  # noqa: S608
+# A spared file that an attacker has asked for since (read before its analysis is marked failed).
+_REOPENED = f"""
+    SELECT s.spared AND {attacker_source("s")} FROM samples s WHERE s.sha256 = :sha
+"""  # noqa: S608  (constant fragment only)
 # Labels of the links a spared file keeps from an older analysis, so the files it led to are
 # judged by what this analysis read (an asset of a page, or a link in its text).
 _RELABEL = """
@@ -122,6 +126,13 @@ class AnalyzerService:
         ms = int((time.monotonic() - started) * 1000)
         async with self.factory() as session, session.begin():
             await session.execute(
+                text("SELECT pg_advisory_xact_lock_shared(:k)"), {"k": SAMPLE_TYPING}
+            )
+            # A spared file reopened because an attacker asked for it, whose new analysis failed:
+            # it is attacker content all the same, so it is no longer spared and its hash becomes
+            # an indicator (its links are known only from a successful analysis).
+            reopened = bool(await session.scalar(text(_REOPENED), {"sha": sha}))
+            await session.execute(
                 text(
                     """
                     INSERT INTO sample_analysis (sha256, analyzed_at, elapsed_ms, errors)
@@ -134,11 +145,13 @@ class AnalyzerService:
             )
             await session.execute(
                 text(
-                    "UPDATE samples SET analysis_status = :st, analysis_version = :v "
-                    "WHERE sha256 = :sha"
+                    "UPDATE samples SET analysis_status = :st, analysis_version = :v, "
+                    "spared = false WHERE sha256 = :sha"
                 ),
                 {"st": status, "v": ANALYSIS_VERSION, "sha": sha},
             )
+            if reopened:
+                await self._hash_indicator(session, sha, now)
         return status
 
     async def _store_result(self, sha: str, result: AnalysisResult, ms: int) -> None:
@@ -314,8 +327,7 @@ class AnalyzerService:
                 # was spared is analysed again as attacker content.
                 if queued:
                     await session.execute(
-                        text("SELECT suckerpot_revive_web_target(:t, :now)"),
-                        {"t": target_id, "now": now},
+                        text("SELECT suckerpot_revive_web_target(:t)"), {"t": target_id}
                     )
                 await session.execute(text(REOPEN_TARGET), {"t": target_id})
 

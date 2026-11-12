@@ -17,7 +17,8 @@ analysed again once an attacker asks for it.
 
 ``suckerpot_revive_web_target`` lets the analyzer, which cannot change fetch targets, put back in
 the queue a target refused as ``web_parent`` once a file that is attacker content links to it. It
-changes nothing else.
+changes nothing else, and only when a link other than a web asset already points at the target;
+it sets the time itself.
 """
 
 from collections.abc import Sequence
@@ -40,21 +41,23 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE FUNCTION suckerpot_revive_web_target(target bigint, at timestamptz)
-        RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-            UPDATE public.fetch_targets
-               SET status = 'pending', last_error = NULL, attempts = 0, next_attempt_at = at
-             WHERE id = target AND status = 'refused' AND last_error = 'web_parent'
+        CREATE FUNCTION suckerpot_revive_web_target(target bigint)
+        RETURNS void LANGUAGE sql SECURITY DEFINER
+        SET search_path = pg_catalog, public, pg_temp AS $$
+            UPDATE public.fetch_targets t
+               SET status = 'pending', last_error = NULL, attempts = 0, next_attempt_at = now()
+             WHERE t.id = target AND t.status = 'refused' AND t.last_error = 'web_parent'
+               AND EXISTS (SELECT 1 FROM public.sample_links l
+                           WHERE l.target_id = t.id AND l.kind = 'next_url'
+                             AND l.source <> 'web_asset')
         $$
         """
     )
-    op.execute(
-        "REVOKE ALL ON FUNCTION suckerpot_revive_web_target(bigint, timestamptz) FROM PUBLIC"
-    )
+    op.execute("REVOKE ALL ON FUNCTION suckerpot_revive_web_target(bigint) FROM PUBLIC")
 
 
 def downgrade() -> None:
-    op.execute("DROP FUNCTION IF EXISTS suckerpot_revive_web_target(bigint, timestamptz)")
+    op.execute("DROP FUNCTION IF EXISTS suckerpot_revive_web_target(bigint)")
     op.execute("DROP INDEX IF EXISTS ix_sample_links_target")
     op.execute("ALTER TABLE samples DROP COLUMN IF EXISTS spared")
     op.execute("ALTER TABLE fetch_targets DROP COLUMN IF EXISTS typed")

