@@ -1,9 +1,11 @@
 import { delay, http, HttpResponse } from "msw"
-import type { Page, Session, StatsSummary } from "@/lib/api"
+import type { Page, Session, SessionCredentials, SessionDetail, StatsSummary } from "@/lib/api"
 import { SENSORS } from "@/lib/api"
+import { connectionsOf } from "@/lib/floods"
 import { analyticsHandlers } from "./analytics"
 import { buildBenignFixtures } from "./benign"
 import { buildFixtures } from "./fixtures"
+import { buildFloodFixtures } from "./floods"
 import { buildReplayFixtures } from "./replay-fixture"
 import { liveHandlers, liveWindow, recentEvents } from "./live"
 import { settingsHandlers } from "./settings"
@@ -38,7 +40,56 @@ const fixtures = [...buildReplayFixtures(), ...buildFixtures()].sort((a, b) =>
 )
 // Research-scanner sessions (M19) are listed only when the request asks for them.
 const benignFixtures = buildBenignFixtures()
-const byId = new Map([...fixtures, ...benignFixtures].map((f) => [f.session.session_id, f]))
+// Flood groups (one row for hundreds of plain connections of one address in one hour).
+const floodFixtures = buildFloodFixtures()
+const listed = [...fixtures, ...floodFixtures].sort((a, b) =>
+  b.session.started_at.localeCompare(a.session.started_at),
+)
+const byId = new Map([...listed, ...benignFixtures].map((f) => [f.session.session_id, f] as const))
+
+/** What the API does for `?at=`: the group whose hour holds the connection that was folded. */
+function groupAt(at: string | null): Session | null {
+  const t = at ? Date.parse(at) : Number.NaN
+  if (Number.isNaN(t)) return null
+  const hit = floodFixtures.find(
+    (f) =>
+      t >= Date.parse(f.session.started_at) - 60_000 &&
+      t <= Date.parse(f.session.last_event_at) + 60_000,
+  )
+  return hit?.session ?? null
+}
+
+/** `GET /sessions/{id}/credentials` for a plain session: counted from its events. */
+function credentialsOf(events: readonly { type: string; data: Record<string, unknown> }[]) {
+  const users = new Map<string, number>()
+  const passwords = new Map<string, number>()
+  const pairs = new Map<string, number>()
+  let attempts = 0
+  for (const e of events) {
+    if (e.type !== "login_attempt") continue
+    attempts += 1
+    const u = typeof e.data.username === "string" ? e.data.username : ""
+    const p = typeof e.data.password === "string" ? e.data.password : ""
+    users.set(u, (users.get(u) ?? 0) + 1)
+    passwords.set(p, (passwords.get(p) ?? 0) + 1)
+    pairs.set(`${u}\u0000${p}`, (pairs.get(`${u}\u0000${p}`) ?? 0) + 1)
+  }
+  const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+  const body: SessionCredentials = {
+    attempts,
+    distinct_usernames: users.size,
+    distinct_passwords: passwords.size,
+    distinct_pairs: pairs.size,
+    truncated: false,
+    usernames: top(users).map(([value, count]) => ({ value, count })),
+    passwords: top(passwords).map(([value, count]) => ({ value, count })),
+    pairs: top(pairs).map(([key, count]) => {
+      const [username = "", password = ""] = key.split("\u0000")
+      return { username, password, count }
+    }),
+  }
+  return body
+}
 
 function encodeCursor(offset: number) {
   return btoa(JSON.stringify({ o: offset })).replace(/=+$/, "")
@@ -120,7 +171,7 @@ export const handlers = [
   ...siteHandlers,
   ...settingsHandlers,
   ...pipelineHandlers,
-  ...analyticsHandlers(fixtures),
+  ...analyticsHandlers(listed),
   ...m7Handlers(fixtures.map((f) => f.session)),
   ...cveHandlers(),
   ...intelHandlers(fixtures.map((f) => f.session)),
@@ -150,13 +201,16 @@ export const handlers = [
     const srcIp = url.searchParams.get("src_ip")
     const since = url.searchParams.get("since")
     const until = url.searchParams.get("until")
-    let items: Session[] = fixtures.map((f) => f.session)
+    let items: Session[] = listed.map((f) => f.session)
     // Like the API: scanners show with the switch off, or when one address is asked for by name.
     if (url.searchParams.get("include_benign") === "1" || srcIp) {
       items = [...items, ...benignFixtures.map((f) => f.session)].sort((a, b) =>
         b.started_at.localeCompare(a.started_at),
       )
     }
+    const kind = url.searchParams.get("kind")
+    if (kind === "session" || kind === "burst")
+      items = items.filter((s) => (s.kind ?? "session") === kind)
     if (sensors.length) items = items.filter((s) => sensors.includes(s.sensor))
     if (srcIp) items = items.filter((s) => s.src_ip === srcIp)
     const tag = url.searchParams.get("tag")
@@ -176,11 +230,24 @@ export const handlers = [
     return paginate(items, url, 50)
   }),
 
-  http.get("/api/v1/sessions/:id", async ({ params }) => {
+  http.get("/api/v1/sessions/:id", async ({ params, request }) => {
+    await delay(LATENCY_MS)
+    const id = String(params.id)
+    const f = byId.get(id)
+    if (f) return HttpResponse.json(f.session)
+    // A folded connection has no row of its own: its event time finds the group that holds it.
+    const group = groupAt(new URL(request.url).searchParams.get("at"))
+    if (!group) return HttpResponse.json({ detail: "session not found" }, { status: 404 })
+    const detail: SessionDetail = { ...group, folded_from: id }
+    return HttpResponse.json(detail)
+  }),
+
+  http.get("/api/v1/sessions/:id/credentials", async ({ params }) => {
     await delay(LATENCY_MS)
     const f = byId.get(String(params.id))
     if (!f) return HttpResponse.json({ detail: "session not found" }, { status: 404 })
-    return HttpResponse.json(f.session)
+    const stored = "credentials" in f ? (f.credentials as SessionCredentials) : null
+    return HttpResponse.json(stored ?? credentialsOf(f.events))
   }),
 
   http.get("/api/v1/sessions/:id/events", async ({ params, request }) => {
@@ -193,24 +260,28 @@ export const handlers = [
   http.get("/api/v1/stats/summary", async () => {
     await delay(LATENCY_MS)
     const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
-    const recent = fixtures.filter((f) => f.session.started_at >= cutoff)
+    const recent = listed.filter((f) => f.session.started_at >= cutoff)
     const by_sensor: StatsSummary["by_sensor"] = {}
     for (const s of SENSORS) by_sensor[s] = { events: 0, sessions: 0 }
-    for (const { session, events } of recent) {
+    // Like the API: a session count is the connections behind the rows, so folding changes none.
+    for (const { session } of recent) {
       const c = by_sensor[session.sensor]
       if (c) {
-        c.sessions += 1
-        c.events += events.length
+        c.sessions += connectionsOf(session)
+        c.events += session.event_count
       }
     }
+    const floods = recent.filter((f) => f.session.kind === "burst")
     const summary: StatsSummary = {
       window_hours: 24,
-      events: recent.reduce((n, f) => n + f.events.length, 0),
-      sessions: recent.length,
+      events: recent.reduce((n, f) => n + f.session.event_count, 0),
+      sessions: recent.reduce((n, f) => n + connectionsOf(f.session), 0),
       unique_ips: new Set(recent.map((f) => f.session.src_ip)).size,
       sessions_with_commands: recent.filter((f) => f.session.commands > 0).length,
       download_attempts: recent.reduce((n, f) => n + f.session.downloads, 0),
       by_sensor,
+      flood_sessions: floods.reduce((n, f) => n + connectionsOf(f.session), 0),
+      flood_sources: new Set(floods.map((f) => f.session.src_ip)).size,
     }
     return HttpResponse.json(summary)
   }),

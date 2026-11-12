@@ -17,6 +17,7 @@ import type {
   TopResponse,
 } from "@/lib/api"
 import { SENSORS, TOP_FIELDS } from "@/lib/api"
+import { connectionsOf } from "@/lib/floods"
 import type { Fixture } from "./fixtures"
 
 const LATENCY_MS = 160
@@ -93,8 +94,8 @@ export function analyticsHandlers(fixtures: readonly Fixture[]) {
     if (!e) continue
     const a = e.a
     e.fixtures.push(f)
-    a.sessions += 1
-    a.events += f.events.length
+    a.sessions += connectionsOf(s)
+    a.events += s.event_count
     a.login_attempts += s.login_attempts
     a.login_success += s.login_success ? 1 : 0
     a.commands += s.commands
@@ -159,7 +160,7 @@ export function analyticsHandlers(fixtures: readonly Fixture[]) {
       for (const f of fixtures) {
         const p = at(new Date(f.session.started_at).getTime())
         const s = f.session.sensor
-        if (p && sensor(s)) p.sessions[s] = (p.sessions[s] ?? 0) + 1
+        if (p && sensor(s)) p.sessions[s] = (p.sessions[s] ?? 0) + connectionsOf(f.session)
       }
       // Before the fixtures start there is no data: synthesise a plausible past.
       for (const p of points) {
