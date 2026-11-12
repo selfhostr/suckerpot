@@ -15,9 +15,17 @@ import { SkeletonCard } from "@/components/skeletons"
 import { TagBadge } from "@/components/tag-badge"
 import { TopList, type TopListItem } from "@/components/top-list"
 import { Button } from "@/components/ui/button"
-import { api, ApiError, queryKeys, type Attacker, type CountItem } from "@/lib/api"
+import {
+  api,
+  ApiError,
+  queryKeys,
+  type Attacker,
+  type CountItem,
+  type SessionFilters,
+} from "@/lib/api"
 import { attackerOrigin, describeAttacker } from "@/lib/describe-attacker"
 import { describeTimeline } from "@/lib/findings"
+import { floodSentence, isFlood, totalConnections } from "@/lib/floods"
 import { formatNumber, maskIp, maskIpsInText } from "@/lib/format"
 
 const dayFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
@@ -76,6 +84,16 @@ export function AttackerDetailPage() {
     queryFn: () => api.attacker(ip),
     retry: (n, err) => !(err instanceof ApiError && err.status === 404) && n < 2,
   })
+
+  // How much of it came in floods: the flood groups of this address, summed. One request; more
+  // than one page of groups reads "at least".
+  const floodFilters: SessionFilters = { src_ip: ip, kind: "burst" }
+  const floods = useQuery({
+    queryKey: queryKeys.sessions(floodFilters),
+    queryFn: () => api.sessions(floodFilters, null, 200),
+    enabled: q.isSuccess,
+  })
+  const floodConnections = floods.data ? totalConnections(floods.data.items) : 0
 
   const shownIp = masked ? maskIp(ip) : ip
   const back = (
@@ -141,7 +159,23 @@ export function AttackerDetailPage() {
         <div className="space-y-4">
           <FindingCard
             eyebrow="Profile"
-            finding={`${formatNumber(a.sessions)} ${a.sessions === 1 ? "session" : "sessions"} and ${formatNumber(a.events)} events recorded.`}
+            finding={
+              <>
+                {`${formatNumber(a.sessions)} ${a.sessions === 1 ? "session" : "sessions"} and ${formatNumber(a.events)} events recorded`}
+                {floodConnections > 0 ? (
+                  <>
+                    {", "}
+                    <Link
+                      to={`${sessionsHref}&kind=burst`}
+                      className="underline decoration-border-strong underline-offset-4 transition-colors hover:decoration-fg"
+                    >
+                      {floodSentence(floodConnections, floods.data?.next_cursor != null)}
+                    </Link>
+                  </>
+                ) : null}
+                {"."}
+              </>
+            }
           >
             <dl className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-4">
               <Fact label="First seen">
@@ -256,8 +290,12 @@ export function AttackerDetailPage() {
             eyebrow="Recent sessions"
             finding={
               d.recent_sessions.length === 1
-                ? "Its only session so far."
-                : `Its last ${d.recent_sessions.length} sessions, newest first.`
+                ? d.recent_sessions.some(isFlood)
+                  ? "Its only flood group so far."
+                  : "Its only session so far."
+                : d.recent_sessions.some(isFlood)
+                  ? `Its last ${d.recent_sessions.length} sessions and flood groups, newest first.`
+                  : `Its last ${d.recent_sessions.length} sessions, newest first.`
             }
             action={
               <Button asChild variant="ghost" size="sm">

@@ -7,12 +7,21 @@ import { CampaignName } from "@/components/campaigns/campaign-name"
 import { CountryFlag } from "@/components/country-flag"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
+import { FloodFilter } from "@/components/flood-filter"
 import { PageHeader } from "@/components/page-header"
 import { SessionRow } from "@/components/session-row"
 import { SkeletonList, SkeletonRow } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { api, queryKeys, type SessionFilters } from "@/lib/api"
 import { useIpMask } from "@/app/ip-mask"
+import {
+  FLOOD_PARAM,
+  floodHeadline,
+  floodKindFor,
+  floodViewFromParam,
+  totalConnections,
+  type FloodView,
+} from "@/lib/floods"
 import { formatNumber, maskIp, plural } from "@/lib/format"
 import { STAGE_META, parseInstant, parseStage, windowLabel } from "@/lib/story"
 import { SENSOR_META, parseSensors, sensorSetPhrase } from "@/lib/sensors"
@@ -28,6 +37,7 @@ function useFilters(): SessionFilters {
   const asn = params.get("asn")
   const technique = params.get("technique")
   const campaign = params.get("campaign_id")
+  const kind = floodKindFor(floodViewFromParam(params.get(FLOOD_PARAM)))
   return {
     sensor: sensor.length ? sensor : undefined,
     src_ip: params.get("src_ip") ?? undefined,
@@ -40,10 +50,16 @@ function useFilters(): SessionFilters {
     stage: parseStage(params.get("stage")),
     since: parseInstant(params.get("since")),
     until: parseInstant(params.get("until")),
+    kind,
   }
 }
 
-function useHeadline(filters: SessionFilters, loaded: number, complete: boolean) {
+function useHeadline(
+  filters: SessionFilters,
+  floods: FloodView,
+  loaded: number,
+  complete: boolean,
+) {
   const { masked } = useIpMask()
   const ip = filters.src_ip && masked ? maskIp(filters.src_ip) : filters.src_ip
   const summary = useQuery({ queryKey: queryKeys.summary, queryFn: api.summary })
@@ -68,6 +84,15 @@ function useHeadline(filters: SessionFilters, loaded: number, complete: boolean)
       : "Matching sessions, newest first."
   }
   if (!s) return "Every session the sensors recorded, newest first."
+  if (filters.sensor?.length && floods !== "all") {
+    return floods === "only"
+      ? "Flood groups on the chosen sensors, newest first."
+      : "Sessions on the chosen sensors, without the floods, newest first."
+  }
+  if (!filters.sensor?.length) {
+    const sentence = floodHeadline(floods, s)
+    if (sentence) return sentence
+  }
   if (filters.sensor?.length) {
     const n = filters.sensor.reduce((sum, x) => sum + (s.by_sensor[x]?.sessions ?? 0), 0)
     const sessions = n === 1 ? "session" : "sessions"
@@ -92,7 +117,14 @@ export function AttacksPage() {
   })
 
   const rows = query.data?.pages.flatMap((p) => p.items) ?? []
-  const headline = useHeadline(filters, rows.length, query.isSuccess && !query.hasNextPage)
+  // A flood group is one row for many connections: sentences count connections, not rows.
+  const connections = totalConnections(rows)
+  const headline = useHeadline(
+    filters,
+    floodViewFromParam(params.get(FLOOD_PARAM)),
+    connections,
+    query.isSuccess && !query.hasNextPage,
+  )
 
   const listRef = useRef<HTMLDivElement>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -130,7 +162,7 @@ export function AttacksPage() {
 
       <FilterBar
         className="mb-4"
-        alsoClears={["sensor"]}
+        alsoClears={["sensor", FLOOD_PARAM]}
         chips={[
           {
             param: "src_ip",
@@ -186,6 +218,7 @@ export function AttacksPage() {
         ]}
       >
         <SensorFilter />
+        <FloodFilter />
       </FilterBar>
 
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
@@ -254,7 +287,8 @@ export function AttacksPage() {
 
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {plural(rows.length, "session")}
+          End of the list · {plural(connections, "session")}
+          {connections === rows.length ? "" : ` in ${plural(rows.length, "row")}`}
         </p>
       ) : null}
     </>
