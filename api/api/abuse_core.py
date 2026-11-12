@@ -11,20 +11,22 @@ import logging
 import os
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import (
     AbuseRecipientRow,
     AbuseReportRow,
     EnrichmentStatusRow,
+    IndicatorRow,
+    IndicatorSessionRow,
     ReportSelfTermRow,
     ReportSettingsRow,
     SessionRow,
@@ -56,6 +58,23 @@ log = logging.getLogger("api.abuse")
 
 TERMS_TTL_S: Final = 60.0
 MAX_CONTEXT_SESSIONS: Final = 5000
+CONTEXT_LOOKBACK: Final = timedelta(days=90)  # ABUSE_LOOKBACK_DAYS is at most 90
+# Reason codes that come from the evidence itself. The draft build sets them; a later check
+# (here and in ingest.abuse.reguard) cannot replay the build's reads, so only the build clears them.
+EVIDENCE_CODES: Final = frozenset({"internal_id", "private_address", "documentation_address"})
+
+
+def held_evidence_codes(row: AbuseReportRow) -> tuple[str, ...]:
+    """The evidence codes the build stored on an open draft (sorted), or an empty tuple.
+
+    A draft that carries one is never rendered, downloaded or exported, and never reviewed: the
+    live check works from a capped read of the sessions, so it cannot be trusted to clear them.
+    Only a rebuild that reads the evidence again and finds it clean removes them."""
+    if row.status != "draft":
+        return ()
+    return tuple(sorted(EVIDENCE_CODES.intersection(row.guard_codes or ())))
+
+
 TRUE_VALUES: Final = frozenset({"1", "true", "yes", "on"})
 MAILBOX_RE: Final = re.compile(r"^[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+$")
 
@@ -67,6 +86,16 @@ OPTION_KEYS: Final = (
     "show_redaction_counts",
 )
 DEFAULT_TLP: Final = "green"
+# The owner's own wording. Each part ends up in every report, so each one is guarded on its own.
+SETTINGS_TEXT_FIELDS: Final = (
+    "reply_contact",
+    "signature",
+    "intro",
+    "outro",
+    "note",
+    "subject_template",
+    "xarf_user_agent",
+)
 
 _terms_cache: tuple[float, SelfTerms] | None = None
 
@@ -248,20 +277,37 @@ def build_evidence(
 
 
 async def guard_context(db: AsyncSession, row: AbuseReportRow, evidence: Evidence) -> GuardContext:
-    """Internal identifiers that must not appear: the report's own session ids and its seed."""
+    """Internal identifiers that must not appear: the report's own session ids and its seed.
+
+    The sessions are a superset of what the draft builder read (ingest.abuse.session_ids does the
+    same on the ingest side): the sessions of the source addresses that were active since
+    ``CONTEXT_LOOKBACK`` before the window, and for a payload host the sessions that named it."""
     ips = [s.value for s in evidence.subjects if s.type == "ip"]
     ids: set[str] = {row.id_seed.hex}  # the seed never leaves, and no token is built from it
+    since = evidence.window_start - CONTEXT_LOOKBACK
     if ips:
         found = await db.scalars(
             select(SessionRow.session_id)
-            .where(
-                SessionRow.src_ip.in_(ips),
-                SessionRow.started_at >= evidence.window_start,
-                SessionRow.started_at <= evidence.window_end,
-            )
+            .where(SessionRow.src_ip.in_(ips), SessionRow.last_event_at >= since)
+            .order_by(SessionRow.last_event_at.desc())
             .limit(MAX_CONTEXT_SESSIONS)
         )
         ids.update(found.all())
+    if evidence.kind == "payload_host":
+        hosts = [s.value for s in evidence.subjects]
+        named = await db.scalars(
+            select(IndicatorSessionRow.session_id)
+            .join(IndicatorRow, IndicatorRow.id == IndicatorSessionRow.indicator_id)
+            .where(
+                IndicatorRow.role == "download_host",
+                IndicatorRow.host.in_(hosts),
+                IndicatorSessionRow.seen_at >= since,
+            )
+            .group_by(IndicatorSessionRow.session_id)
+            .order_by(func.max(IndicatorSessionRow.seen_at).desc())
+            .limit(MAX_CONTEXT_SESSIONS)
+        )
+        ids.update(named.all())
     return GuardContext(internal_ids=frozenset(ids), allow_documentation=row.demo)
 
 
@@ -337,6 +383,41 @@ def guard_failed_response(codes: tuple[str, ...]) -> JSONResponse:
             "detail": "The identity check blocked this content.",
             "code": "identity_guard_failed",
             "reasons": sorted(set(codes)),
+        },
+        status_code=409,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def settings_issues(
+    values: Mapping[str, str | None], terms: SelfTerms | None
+) -> dict[str, list[str]]:
+    """Field by field, the guard codes the owner's own wording raises (codes only, never text).
+
+    Anything listed here would block every report written with these settings. The monitored
+    address may be unknown yet (``no_self_address``): that is not the wording's fault, so it is
+    left out and the settings stay savable.
+    """
+    issues: dict[str, list[str]] = {}
+    for name in SETTINGS_TEXT_FIELDS:
+        value = values.get(name)
+        if not value:
+            continue
+        codes = sorted(set(guard(value, terms, fmt="text").codes) - {"no_self_address"})
+        if codes:
+            issues[name] = codes
+    return issues
+
+
+def settings_guard_failed_response(issues: Mapping[str, Sequence[str]]) -> JSONResponse:
+    """409 for a refused settings save: reason codes per field name, never the matched text."""
+    fields = {name: sorted(set(codes)) for name, codes in issues.items()}
+    return JSONResponse(
+        {
+            "detail": "These settings would block every report, so they were not saved.",
+            "code": "identity_guard_failed",
+            "reasons": sorted({c for codes in fields.values() for c in codes}),
+            "fields": fields,
         },
         status_code=409,
         headers={"Cache-Control": "no-store"},

@@ -41,6 +41,7 @@ Rules live in `ingest/rules/services.yaml`. They key on the `flags` set by the s
 | `crypto-miner` | `miner`, `kinsing` |
 | `db-ransom` | `ransom_note` |
 | `malware-drop` | Any `download_attempt` (Redis never fetches files legitimately). |
+| `service-probe` | A read-only command that identifies the server or looks at what it holds: `INFO`, `PING`, `ECHO`, `QUIT`, `GET`, `GETRANGE`, `STRLEN`, `TYPE`, `TTL`, `EXISTS`, `DBSIZE`, `KEYS`, `SCAN`, `COMMAND`, `CLIENT`, `ROLE`, `TIME`, `MEMORY`, `LATENCY`, `SLOWLOG` or `CONFIG GET`. Writes, `CONFIG SET`, replication, modules and unknown commands are never `service-probe`. |
 
 Other flags, such as `config_set`, `flushall`, `eval` and `lua_sandbox_escape`, are kept on the event for the session view. They do not tag by themselves.
 

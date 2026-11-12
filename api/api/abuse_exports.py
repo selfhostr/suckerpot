@@ -57,6 +57,7 @@ from api.abuse_core import (
     error,
     guard_context,
     guard_failed_response,
+    held_evidence_codes,
     include_demo,
     load_settings,
     load_terms,
@@ -322,6 +323,9 @@ async def build_export(
         if loaded is None:
             return error(404, "Report not found", "not_found")
         row, rec = loaded
+        if held := held_evidence_codes(row):
+            log.warning("abuse export held kind=%s reasons=%s", kind, ",".join(held))
+            return guard_failed_response(held)
         try:
             evidence = build_evidence(row, rec, bundle)
         except EvidenceInvalidError:

@@ -358,6 +358,178 @@ async def test_settings_are_guarded_and_audit_has_no_values(client: httpx.AsyncC
     assert rows[0].details["changed"] == ["reply_contact"]
 
 
+async def test_a_refused_save_names_the_fields_and_a_stored_text_is_flagged(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    named = "reports@honeypot.example.net"  # a reply address that names the project
+    with caplog.at_level("DEBUG"):
+        refused = await client.put(
+            "/api/v1/abuse/settings",
+            json=settings_body(
+                0, reply_contact=named, intro="Please investigate and stop this activity."
+            ),
+        )
+    assert refused.status_code == 409
+    body = refused.json()
+    assert body["code"] == "identity_guard_failed"
+    assert body["fields"] == {"reply_contact": ["project_term"], "intro": ["default_wording"]}
+    assert body["reasons"] == ["default_wording", "project_term"]
+    for private in ("honeypot", "investigate"):
+        assert private not in refused.text and private not in caplog.text
+    # nothing was saved
+    got = (await client.get("/api/v1/abuse/settings")).json()
+    assert got["reply_contact"] is None and got["field_issues"] == {}
+
+    # Text saved before a rule existed (or before the deny set grew) is flagged when it is read.
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO report_settings (id, reply_contact, revision) VALUES (1, :c, 3)"),
+            {"c": named},
+        )
+    stored = (await client.get("/api/v1/abuse/settings")).json()
+    assert stored["reply_contact"] == named
+    assert stored["field_issues"] == {"reply_contact": ["project_term"]}
+    # Saving other changes around it is refused too, until the address is neutral.
+    same = await client.put("/api/v1/abuse/settings", json=settings_body(3, reply_contact=named))
+    assert same.status_code == 409 and same.json()["fields"] == {"reply_contact": ["project_term"]}
+    fixed = await client.put(
+        "/api/v1/abuse/settings", json=settings_body(3, reply_contact="reports@example.org")
+    )
+    assert fixed.status_code == 200 and fixed.json()["field_issues"] == {}
+    assert (await client.get("/api/v1/abuse/settings")).json()["field_issues"] == {}
+
+
+async def test_status_counts_the_blocked_drafts_by_reason(client: httpx.AsyncClient) -> None:
+    clear = (await client.get("/api/v1/abuse/status")).json()["blocked_drafts"]
+    assert clear == {"count": 0, "reasons": {}}
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, "
+                "guard_codes = '{project_term,self_name}' WHERE public_id = :p"
+            ),
+            {"p": DEMO_ID},
+        )
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, guard_codes = '{project_term}' "
+                "WHERE public_id = :p"
+            ),
+            {"p": LEAK_ID},
+        )
+        # a reviewed report is not a draft: it is not counted
+        await conn.execute(
+            text("UPDATE abuse_reports SET guard_ok = false WHERE public_id = :p"), {"p": SENT_ID}
+        )
+    blocked = (await client.get("/api/v1/abuse/status")).json()["blocked_drafts"]
+    assert blocked == {"count": 2, "reasons": {"project_term": 2, "self_name": 1}}
+
+
+async def test_the_live_check_keeps_what_the_build_found_in_a_draft(
+    client: httpx.AsyncClient,
+) -> None:
+    await set_intro(client)
+    detail = f"/api/v1/abuse/reports/{DEMO_ID}"
+    assert (await client.get(detail)).json()["guard"] == {"ok": True, "codes": []}
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, guard_codes = '{internal_id}' "
+                "WHERE public_id IN (:d, :s)"
+            ),
+            {"d": DEMO_ID, "s": SENT_ID},
+        )
+    # The live check cannot replay the build's reads, so it never clears an evidence code of a
+    # draft: the owner cannot review it until a rebuild finds the evidence clean.
+    held = (await client.get(detail)).json()
+    assert held["guard"] == {"ok": False, "codes": ["internal_id"]}
+    rev = held["revision"]
+    review = await client.post(f"{detail}/status", json={"to": "reviewed", "revision": rev})
+    assert review.status_code == 409 and review.json()["code"] == "identity_guard_failed"
+    # A reviewed report is no draft: its live result stands, whatever was stored.
+    reviewed = (await client.get(f"/api/v1/abuse/reports/{SENT_ID}")).json()
+    assert "internal_id" not in reviewed["guard"]["codes"]
+
+
+async def test_a_draft_held_by_the_build_is_never_rendered_downloaded_or_exported(
+    client: httpx.AsyncClient,
+) -> None:
+    await set_intro(client)
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, guard_codes = '{internal_id}' "
+                "WHERE public_id IN (:d, :s)"
+            ),
+            {"d": DEMO_ID, "s": SENT_ID},
+        )
+    base = f"/api/v1/abuse/reports/{DEMO_ID}"
+    attempts = [
+        *[
+            await client.get(f"{base}/render", params={"format": f})
+            for f in ("text", "xarf", "eml")
+        ],
+        *[
+            await client.get(f"{base}/download", params={"format": f})
+            for f in ("txt", "eml", "evidence_csv", "xarf_yaml")
+        ],
+        await client.get("/api/v1/abuse/exports/stix", params={"report": str(DEMO_ID)}),
+        await client.get(
+            "/api/v1/abuse/exports/misp",
+            params={"report": str(DEMO_ID), "description": "Own description."},
+        ),
+    ]
+    for r in attempts:
+        assert r.status_code == 409, r.request.url
+        assert r.json()["code"] == "identity_guard_failed" and r.json()["reasons"] == [
+            "internal_id"
+        ]
+        assert "attachment" not in r.headers.get("content-disposition", "")
+    # A reviewed report is no draft: it is not held by what was stored for an earlier draft.
+    reviewed = await client.get(f"/api/v1/abuse/reports/{SENT_ID}/render")
+    assert "internal_id" not in reviewed.json().get("reasons", [])
+    # Once a rebuild finds the evidence clean, the build clears the code and the report opens.
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = true, guard_codes = '{}' WHERE public_id = :d"
+            ),
+            {"d": DEMO_ID},
+        )
+    assert (await client.get(f"{base}/render")).status_code == 200
+
+
+async def test_a_payload_host_draft_knows_the_attacker_sessions_behind_it(
+    client: httpx.AsyncClient,
+) -> None:
+    sid = "attacker-sess-0001"  # an internal id typed into the evidence by an attacker
+    async with owner_engine() as owner, owner.begin() as conn:
+        indicator = (
+            await conn.execute(
+                text(
+                    "INSERT INTO indicators (type, value, role, host, first_seen, last_seen) "
+                    "VALUES ('url', 'http://198.51.100.23/x.sh', 'download_host', "
+                    "'198.51.100.23', :t, :t) RETURNING id"
+                ),
+                {"t": NOW - timedelta(hours=1)},
+            )
+        ).scalar_one()
+        await conn.execute(
+            text(
+                "INSERT INTO indicator_sessions (indicator_id, session_id, src_ip, sensor, "
+                "seen_at) VALUES (:i, :s, '203.0.113.60', 'ssh', :t)"
+            ),
+            {"i": indicator, "s": sid, "t": NOW - timedelta(hours=1)},
+        )
+        await conn.execute(
+            text("UPDATE abuse_reports SET evidence = CAST(:e AS jsonb) WHERE public_id = :p"),
+            {"e": json.dumps(evidence(f"echo {sid}")), "p": LEAK_ID},
+        )
+    await set_intro(client)
+    guard = (await client.get(f"/api/v1/abuse/reports/{LEAK_ID}")).json()["guard"]
+    assert guard == {"ok": False, "codes": ["internal_id"]}
+
+
 async def test_self_terms_recipients_and_regenerate(client: httpx.AsyncClient) -> None:
     listed = (await client.get("/api/v1/abuse/self-terms")).json()
     assert listed[0]["value"] == "203.0.•••.•••" and listed[0]["source"] == "manual"
