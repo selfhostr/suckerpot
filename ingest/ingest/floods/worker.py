@@ -15,6 +15,13 @@ call folds at most a few thousand rows. The function takes an advisory lock with
 tell "nothing left" from "someone else holds the lock" the sweep takes the same lock first (it is
 re-entrant inside one transaction), and when it cannot, it waits a moment and tries again, then
 leaves the window for the next cycle without moving the cursor.
+
+Every statement of the sweep is capped (``SWEEP_TIMEOUT_MS``, under ingest's 30 s). After a timeout
+the window is left for later, the next calls fold fewer rows and fewer buckets, and the sweep sits
+out a few cycles (doubling up to half an hour); a cycle that finishes without one grows them back.
+A connection with no disconnect is idle against how far the consumer has stored the streams
+(``progress``), not the clock: while the consumer lags, or before it caught up once, only
+connections that ended fold.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -35,7 +43,15 @@ from suckerpot_db.locks import SESSION_FOLD
 
 from ingest.features import FeatureSettings, FeatureWorker
 from ingest.floods.config import FoldSettings
-from ingest.floods.fold import MAX_BUCKETS, Bucket, SkipLog, fold_buckets, hour_of
+from ingest.floods.fold import (
+    MAX_BUCKETS,
+    QUERY_CANCELED,
+    Bucket,
+    SkipLog,
+    cap_statements,
+    fold_buckets,
+    hour_of,
+)
 
 log = logging.getLogger(__name__)
 
@@ -45,8 +61,12 @@ STEP_HOURS = 6
 RECENT_BUDGET_S = 20.0
 BACKFILL_BUDGET_S = 20.0
 CALL_LIMIT = 2000  # rows folded per call (the function clamps to 5000)
+MIN_CALL_LIMIT = 50
 BUSY_RETRIES = 5
 BUSY_PAUSE_S = 0.5
+SWEEP_TIMEOUT_MS = 10_000
+BACKOFF_S = 120.0
+BACKOFF_MAX_S = 1800.0
 
 # The buckets of a window that hold a flood (the source has at least ``min`` connections in the
 # hour, folded or not) or continue one (a group of the hour before), and still have a connection
@@ -138,6 +158,9 @@ class FoldWorker(FeatureWorker):
         backfill_budget_s: float = BACKFILL_BUDGET_S,
         step: timedelta = timedelta(hours=STEP_HOURS),
         busy_pause_s: float = BUSY_PAUSE_S,
+        progress: Callable[[], datetime | None] | None = None,
+        timeout_ms: int = SWEEP_TIMEOUT_MS,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.fold = fold or FoldSettings.from_env()
         super().__init__(settings, enabled=self.fold.enabled)
@@ -148,10 +171,19 @@ class FoldWorker(FeatureWorker):
         self._backfill_budget_s = backfill_budget_s
         self._step = step
         self._busy_pause_s = busy_pause_s
+        self._progress = progress
+        self._timeout_ms = timeout_ms
+        self._monotonic = monotonic
         self._skips = SkipLog("session fold sweep")
         self.state = FoldState()
         self.calls = 0
         self.busy = 0
+        self.timeouts = 0
+        self.limit = CALL_LIMIT
+        self.page_size = MAX_BUCKETS
+        self._timed_out = False
+        self._paused_until = -math.inf
+        self._backoff_s = BACKOFF_S
 
     def _db(self) -> AsyncSession:
         if self.factory is None:
@@ -160,18 +192,33 @@ class FoldWorker(FeatureWorker):
 
     # ---- one cycle ---------------------------------------------------------------------------
     async def run_once(self) -> None:
-        if self.factory is None:
+        if self.factory is None or self._monotonic() < self._paused_until:
             return
+        self._timed_out = False
         now = self._clock()
         top = hour_of(now) - timedelta(hours=RECENT_HOURS)
         recent, _ = await self._sweep(top, hour_of(now) + timedelta(hours=1), self._deadline("r"))
         state = await self._load()
         state.recent_folded += recent
-        if not state.done:
+        if not state.done and not self._timed_out:
             await self._backfill(state, top)
         elif recent:
             await self._save(state)
         self.state = state
+        if self._timed_out:
+            self._paused_until = self._monotonic() + self._backoff_s
+            self._backoff_s = min(self._backoff_s * 2, BACKOFF_MAX_S)
+        else:
+            self._backoff_s = BACKOFF_S
+            self.limit = min(self.limit * 2, CALL_LIMIT)
+            self.page_size = min(self.page_size * 2, MAX_BUCKETS)
+
+    def _timeout(self) -> None:
+        """A statement hit the cap: smaller calls from now on, and a pause after this cycle."""
+        self.timeouts += 1
+        self._timed_out = True
+        self.limit = max(self.limit // 2, MIN_CALL_LIMIT)
+        self.page_size = max(self.page_size // 2, 1)
 
     def _deadline(self, which: str) -> float:
         budget = self._recent_budget_s if which == "r" else self._backfill_budget_s
@@ -189,7 +236,7 @@ class FoldWorker(FeatureWorker):
             folded, complete = await self._sweep(lo, cursor, deadline)
             state.folded += folded
             if not complete:
-                break  # out of time, or the lock is busy: the same window again next cycle
+                break  # out of time, the lock is busy or a timeout: the same window next cycle
             cursor = lo
             state.cursor = cursor
             await self._save(state)
@@ -205,8 +252,9 @@ class FoldWorker(FeatureWorker):
         while True:
             if time.monotonic() >= deadline:
                 return total, False
-            async with self._db() as session:
-                page = await self._page(session, lo, hi, after)
+            page = await self._page(lo, hi, after)
+            if page is None:
+                return total, False
             if not page:
                 return total, True
             while True:
@@ -220,26 +268,35 @@ class FoldWorker(FeatureWorker):
                     return total, False
             after = page[-1]
 
-    async def _page(
-        self, session: AsyncSession, lo: datetime, hi: datetime, after: Bucket | None
-    ) -> list[Bucket]:
-        rows = await session.execute(
-            _BUCKETS,
-            {
-                "lo": lo,
-                "hi": hi,
-                "min": self.fold.min_connections,
-                "a_hr": after[2] if after else None,
-                "a_sensor": after[1] if after else None,
-                "a_ip": after[0] if after else None,
-                "n": MAX_BUCKETS,
-            },
-        )
-        return [(r.ip, r.sensor, r.hr) for r in rows]
+    async def _page(self, lo: datetime, hi: datetime, after: Bucket | None) -> list[Bucket] | None:
+        """The next page of buckets, or None when the read hit the cap."""
+        try:
+            async with self._db() as session, session.begin():
+                await cap_statements(session, self._timeout_ms)
+                rows = await session.execute(
+                    _BUCKETS,
+                    {
+                        "lo": lo,
+                        "hi": hi,
+                        "min": self.fold.min_connections,
+                        "a_hr": after[2] if after else None,
+                        "a_sensor": after[1] if after else None,
+                        "a_ip": after[0] if after else None,
+                        "n": self.page_size,
+                    },
+                )
+                return [(r.ip, r.sensor, r.hr) for r in rows]
+        except DBAPIError as exc:
+            if exc.connection_invalidated or _sqlstate(exc) != QUERY_CANCELED:
+                raise
+            self._timeout()
+            self._skips.skipped(QUERY_CANCELED)
+            return None
 
     async def _call(self, page: list[Bucket]) -> int | None:
-        """One fold call in its own transaction. None: the lock stayed busy (or the call failed),
-        so a result of 0 could not be trusted."""
+        """One fold call in its own transaction. None: the lock stayed busy, the call hit the cap
+        or it failed, so a result of 0 could not be trusted."""
+        as_of = self._progress() if self._progress is not None else None
         for attempt in range(BUSY_RETRIES):
             try:
                 async with self._db() as session, session.begin():
@@ -252,14 +309,18 @@ class FoldWorker(FeatureWorker):
                             page,
                             self.fold,
                             self.plain_tags,
-                            limit=CALL_LIMIT,
+                            limit=self.limit,
+                            as_of=as_of,
+                            timeout_ms=self._timeout_ms,
                         )
                         self.calls += 1
                         return n
             except DBAPIError as exc:
                 if exc.connection_invalidated:
                     raise
-                self._skips.skipped(str(getattr(exc.orig, "sqlstate", None) or "unknown"))
+                if _sqlstate(exc) == QUERY_CANCELED:
+                    self._timeout()
+                self._skips.skipped(_sqlstate(exc))
                 return None
             self.busy += 1
             if attempt + 1 < BUSY_RETRIES:
@@ -302,5 +363,10 @@ class FoldWorker(FeatureWorker):
             recent_folded=self.state.recent_folded,
             calls=self.calls,
             busy=self.busy,
+            timeouts=self.timeouts,
         )
         return out
+
+
+def _sqlstate(exc: DBAPIError) -> str:
+    return str(getattr(exc.orig, "sqlstate", None) or "unknown")

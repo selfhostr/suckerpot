@@ -1,5 +1,6 @@
 import contextlib
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -547,6 +548,79 @@ async def test_statement_error_single_event_is_data_error(
     r = FakeRedis()
     await consumer(r, tmp_path).process("events:ssh", [(b"1-0", fields())])
     assert r.acked == [b"1-0"]
+
+
+async def test_the_consumer_reports_how_far_each_stream_is_stored(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The fold sweep's clock: a full batch moves a stream to its last entry only, a read that
+    held everything (or found nothing new) moves it to the time of the read, and a stream that
+    failed or was never read leaves the answer unknown."""
+
+    async def write(_f: Any, events: list[Any], *_a: Any) -> None:
+        if events[0].sensor == "web":
+            raise DBAPIError("stmt", {}, _Orig("57014", "canceling statement due to timeout"))
+
+    monkeypatch.setattr("ingest.consumer.write_batch", write)
+
+    def entry(sensor: str, ms: int) -> tuple[bytes, dict[Any, Any]]:
+        return (f"{ms}-0".encode(), dict(make_event("connect", sensor=sensor).to_stream_fields()))
+
+    r = FakeRedis()
+    r.streams = [
+        [],  # the start: nothing pending
+        [
+            ("events:ssh", [entry("ssh", 1_700_000_000_000), entry("ssh", 1_700_000_001_000)]),
+            ("events:rdp", [entry("rdp", 1_700_000_002_000)]),
+            ("events:web", [entry("web", 1_700_000_003_000)]),
+        ],
+    ]
+    env = {
+        "INGEST_HEARTBEAT_PATH": str(tmp_path / "hb"),
+        "INGEST_STREAMS": "events:ssh,events:rdp,events:web,events:smb",
+        "INGEST_BATCH_SIZE": "2",
+    }
+    c = Consumer(Settings.from_env(env), r, None)  # type: ignore[arg-type]
+    c.ensure_groups = _noop  # type: ignore[method-assign]
+    c.reclaim_stale = _noop  # type: ignore[method-assign,assignment]
+    c._state = _noop  # type: ignore[method-assign]
+    seen: list[dict[str, Any]] = []
+    orig_read = r.xreadgroup
+
+    async def read_then_stop(*a: Any, **k: Any) -> Any:
+        seen.append(dict(c.progress._at))
+        if len(seen) == 3:
+            c.stop.set()
+            return []
+        return await orig_read(*a, **k)
+
+    r.xreadgroup = read_then_stop  # type: ignore[method-assign]
+    before = datetime.now(UTC)
+    await c.run()
+    assert seen[0] == dict.fromkeys(env["INGEST_STREAMS"].split(","))  # nothing known yet
+    assert seen[1] == seen[0]  # reading the pending entries tells nothing
+    after_read = seen[2]
+    assert after_read["events:ssh"] == datetime.fromtimestamp(1_700_000_001, UTC)  # full batch
+    assert after_read["events:rdp"] is not None and after_read["events:rdp"] >= before
+    assert after_read["events:smb"] is not None and after_read["events:smb"] >= before  # empty
+    assert after_read["events:web"] is None  # its batch failed
+    assert c.progress.as_of() is None  # so the sweep folds only what ended
+    c.progress.caught_up("events:web", datetime.now(UTC))
+    got = c.progress.as_of()
+    assert got is not None and got >= before  # the last read found nothing new on the others
+
+
+def test_a_forged_future_entry_id_never_moves_the_progress_past_now(tmp_path: Path) -> None:
+    env = {
+        "INGEST_HEARTBEAT_PATH": str(tmp_path / "hb"),
+        "INGEST_STREAMS": "events:ssh",
+        "INGEST_BATCH_SIZE": "1",
+    }
+    c = Consumer(Settings.from_env(env), FakeRedis(), None)  # type: ignore[arg-type]
+    c._fresh = frozenset({"events:ssh"})
+    c._stored("events:ssh", [(b"99999999999999999-0", fields())])  # never raises
+    got = c.progress.as_of()
+    assert got is not None and got <= datetime.now(UTC)
 
 
 async def test_heartbeat_only_after_successful_work(

@@ -1,8 +1,10 @@
 """Flood groups, ingest side, pure code: the gate, the settings, the plain-tag list, the choice of
 buckets and the sweep's saved state. The database side is in ``test_floods_integration.py``."""
 
+import ast
 import asyncio
 import json
+import re
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,8 +20,20 @@ from ingest.campaigns.naming import SEVERE_TAGS, WARNING_TAGS
 from ingest.enrichment.enricher import Enricher
 from ingest.features import FeatureSettings
 from ingest.floods import FloodFold, FloodGate, FoldSettings, FoldWorker, load_plain_tags
-from ingest.floods.fold import MAX_BUCKETS, hour_of, is_demo, looks_plain
-from ingest.floods.rules import FILE_NAME, SPRAY_TAGS, parse
+from ingest.floods.fold import (
+    BACKOFF_MAX_S,
+    BACKOFF_S,
+    EXTRA_EVENTS,
+    EXTRA_EVENTS_BY_SENSOR,
+    MAX_ASKED,
+    MAX_BUCKETS,
+    hour_of,
+    is_demo,
+    looks_plain,
+    stored_until,
+)
+from ingest.floods.progress import IngestProgress
+from ingest.floods.rules import FILE_NAME, SPRAY_TAGS, parse, refusal
 from ingest.floods.worker import FoldState
 from ingest.scanners import ATTACK_TAGS, BENIGN_TAGS
 from ingest.tagging import RuleError, load_rules
@@ -28,6 +42,13 @@ from ingest.writer import _fold_closed
 from .helpers import make_event
 
 RULES_DIR = Path(__file__).resolve().parents[1] / "rules"
+MIGRATION = (
+    Path(__file__).resolve().parents[2]
+    / "db"
+    / "migrations"
+    / "versions"
+    / "0034_session_floods.py"
+)
 T0 = datetime(2026, 10, 24, 10, 0, 0, tzinfo=UTC)
 PLAIN = frozenset({"credential-stuffing", "weak-credentials", "rdp-cleartext", "scanner"})
 
@@ -215,7 +236,7 @@ def test_unreadable_yaml_is_refused(tmp_path: Path) -> None:
 Row = namedtuple(
     "Row",
     "session_id sensor src_ip started_at ended_at last_event_at login_attempts login_success "
-    "commands downloads http_requests tags benign scanner_name",
+    "commands downloads http_requests tags benign scanner_name event_count inserted",
 )
 
 
@@ -224,14 +245,27 @@ def row(sid: str = "a", ip: str = "192.0.2.1", **kw: Any) -> Row:
         "session_id": sid, "sensor": "rdp", "src_ip": ip, "started_at": T0,
         "ended_at": T0 + timedelta(seconds=3), "last_event_at": T0 + timedelta(seconds=3),
         "login_attempts": 1, "login_success": False, "commands": 0, "downloads": 0,
-        "http_requests": 0, "tags": [], "benign": False, "scanner_name": None,
+        "http_requests": 0, "tags": [], "benign": False, "scanner_name": None, "event_count": 3,
+        "inserted": True,
     }  # fmt: skip
     base.update(kw)
     return Row(**base)
 
 
-def hot_fold(ip: str = "192.0.2.1", sensor: str = "rdp", n: int = 5) -> FloodFold:
-    fold = FloodFold.build(FoldSettings(min_connections=n), PLAIN)
+class Clock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def hot_fold(
+    ip: str = "192.0.2.1", sensor: str = "rdp", n: int = 5, clock: Clock | None = None
+) -> FloodFold:
+    fold = FloodFold.build(FoldSettings(min_connections=n), PLAIN, clock=clock or Clock())
     for i in range(n):
         fold.gate.record(ip, sensor, T0 - timedelta(seconds=n - i))
     return fold
@@ -267,10 +301,124 @@ def test_the_bucket_is_the_hour_the_session_started_in() -> None:
         {"login_attempts": 20},
         {"tags": ["malware-drop"]},
         {"tags": ["credential-stuffing", "php2shell"]},
+        {"event_count": 5},  # one login explains connect, handshake, login and disconnect only
+        {"event_count": 6, "sensor": "sip"},
     ],
 )
 def test_a_row_that_did_anything_is_not_worth_a_call(change: dict[str, Any]) -> None:
-    assert hot_fold().buckets([row(**change)]) == []
+    sensor = change.get("sensor", "rdp")
+    assert hot_fold(sensor=sensor).buckets([row(**change)]) == []
+
+
+def test_the_events_a_plain_connection_may_hold_besides_its_logins() -> None:
+    assert looks_plain(row(event_count=4), PLAIN)
+    assert looks_plain(row(event_count=5, sensor="sip"), PLAIN)
+    assert looks_plain(row(event_count=2, login_attempts=0), PLAIN)
+    assert not looks_plain(row(event_count=4, login_attempts=0), PLAIN)
+    assert looks_plain(row(event_count=22, login_attempts=19), PLAIN)
+
+
+def test_the_extra_events_are_the_ones_the_migration_checks() -> None:
+    script = MIGRATION.read_text(encoding="utf-8")
+    assert f"EXTRA_EVENTS = {EXTRA_EVENTS}\n" in script
+    assert EXTRA_EVENTS_BY_SENSOR == {"sip": 4} and "EXTRA_EVENTS_SIP = 4\n" in script
+    assert "CASE WHEN s.sensor = 'sip' THEN {EXTRA_EVENTS_SIP} ELSE {EXTRA_EVENTS} END" in script
+
+
+def _migration_refused_tags() -> set[str]:
+    script = MIGRATION.read_text(encoding="utf-8")
+    found = re.search(r"^REFUSED_TAGS = (\(.*?\))", script, re.S | re.M)
+    assert found is not None
+    tags = ast.literal_eval(found.group(1))
+    assert isinstance(tags, tuple)
+    return set(tags)
+
+
+def test_the_database_refuses_every_tag_the_loader_refuses() -> None:
+    """The function drops these from any list it is given; it must cover the loader's refusals
+    (cve-* is matched by prefix in SQL)."""
+    in_sql = _migration_refused_tags()
+    known = {r.tag for r in load_rules(RULES_DIR).rules} | set(SEVERE_TAGS) | set(WARNING_TAGS)
+    known |= set(PAYLOAD_TAGS) | set(DEFAULT_SEVERE_TAGS) | {"exploit", "bluekeep", "eternalblue"}
+    refused = {t for t in known if refusal(t) == "a payload or severe tag"}
+    assert refused <= in_sql
+    assert not in_sql & load_plain_tags(RULES_DIR)  # the shipped plain tags still fold
+    assert not in_sql & (SPRAY_TAGS | BENIGN_TAGS)
+
+
+def test_a_bucket_is_asked_about_once_a_minute() -> None:
+    clock = Clock()
+    fold = hot_fold(clock=clock)
+    first = fold.buckets([row()])
+    assert first == fold.buckets([row()]) == [("192.0.2.1", "rdp", T0)]  # choosing marks nothing
+    fold.mark_asked(first)
+    assert fold.buckets([row()]) == []
+    other_hour = row(started_at=T0 + timedelta(hours=1), ended_at=T0 + timedelta(hours=1))
+    assert fold.buckets([other_hour]) == [("192.0.2.1", "rdp", T0 + timedelta(hours=1))]
+    clock.now += 59
+    assert fold.buckets([row()]) == []
+    clock.now += 2
+    assert fold.buckets([row()]) == first
+
+
+def test_the_asked_buckets_are_forgotten_after_a_minute_and_bounded() -> None:
+    clock = Clock()
+    fold = hot_fold(clock=clock)
+    fold.mark_asked([(f"192.0.2.{n}", "rdp", T0) for n in range(100)])
+    assert len(fold._asked) == 100
+    clock.now += 61
+    fold.mark_asked([("192.0.2.200", "rdp", T0)])
+    assert list(fold._asked) == [("192.0.2.200", "rdp", int(T0.timestamp()))]
+    many = [("192.0.2.1", "rdp", T0 + timedelta(hours=n)) for n in range(MAX_ASKED + 10)]
+    fold.mark_asked(many)
+    assert len(fold._asked) == MAX_ASKED
+
+
+def test_a_timeout_pauses_the_writer_with_a_doubling_backoff() -> None:
+    clock = Clock()
+    fold = hot_fold(clock=clock)
+    assert not fold.paused()
+    fold.timed_out()
+    assert fold.paused() and fold.timeouts == 1
+    clock.now += BACKOFF_S + 1
+    assert not fold.paused()
+    fold.timed_out()  # the second one in a row waits twice as long
+    clock.now += BACKOFF_S + 1
+    assert fold.paused()
+    clock.now += BACKOFF_S
+    assert not fold.paused()
+    for _ in range(20):
+        fold.timed_out()
+    assert fold._backoff_s == BACKOFF_MAX_S
+    fold.succeeded()
+    assert fold._backoff_s == BACKOFF_S
+
+
+def test_a_batch_takes_its_stream_to_its_newest_event_never_past_now() -> None:
+    events = [make_event("connect", offset_s=n) for n in (3, 1, 2)]
+    assert stored_until(events) == T0 + timedelta(seconds=3)
+    future = [make_event("connect", base=datetime.now(UTC) + timedelta(days=1))]
+    got = stored_until(future)
+    assert got is not None and got <= datetime.now(UTC)
+    assert stored_until([]) is None
+
+
+def test_progress_is_the_stream_furthest_behind_and_unknown_until_each_reported() -> None:
+    p = IngestProgress(["events:a", "events:b"])
+    assert p.as_of() is None
+    p.caught_up("events:a", T0 + timedelta(minutes=5))
+    assert p.as_of() is None  # b never reported
+    p.stored("events:b", T0)
+    assert p.as_of() == T0
+    p.stored("events:b", T0 - timedelta(hours=1))  # never backwards
+    assert p.as_of() == T0
+    p.caught_up("events:b", T0 + timedelta(minutes=10))
+    assert p.as_of() == T0 + timedelta(minutes=5)
+    p.stored("events:a", datetime.now(UTC) + timedelta(days=3))  # a forged future id
+    got = p.as_of()
+    assert got is not None and got <= datetime.now(UTC)
+    p.caught_up("events:unknown", T0)  # a stream it does not read changes nothing
+    assert IngestProgress([]).as_of() is None
 
 
 def test_plain_tags_and_attempts_below_twenty_are_fine() -> None:
@@ -332,12 +480,12 @@ def test_record_counts_connects_only_and_reports_demo_hours() -> None:
 
 
 class _Boom(DBAPIError):
-    """A database error with a chosen ``connection_invalidated``."""
+    """A database error with a chosen ``connection_invalidated`` and SQLSTATE."""
 
-    def __init__(self, invalidated: bool) -> None:
+    def __init__(self, invalidated: bool, sqlstate: str = "55P03") -> None:
         Exception.__init__(self, "boom")
         self.connection_invalidated = invalidated
-        self.orig = type("Orig", (), {"sqlstate": "55P03"})()
+        self.orig = type("Orig", (), {"sqlstate": sqlstate})()
 
 
 class _Nested:
@@ -371,6 +519,34 @@ async def test_a_failed_fold_never_fails_the_batch(monkeypatch: pytest.MonkeyPat
     session = _Session()
     await call(session, fold, [make_event("connect", ip="192.0.2.1", sensor="rdp")], [row()])
     assert session.nested == 1 and fold.calls == 0 and fold.folded == 0
+    assert fold.timeouts == 0 and not fold.paused()  # only a timeout pauses the writer
+
+
+async def test_a_timeout_pauses_the_fold_and_never_fails_the_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = Clock()
+    fold = hot_fold(clock=clock)
+    seen: list[dict[str, Any]] = []
+
+    async def slow(*_a: Any, **k: Any) -> int:
+        seen.append(k)
+        raise _Boom(False, "57014")
+
+    monkeypatch.setattr("ingest.writer.fold_buckets", slow)
+    events = [make_event("connect", ip="192.0.2.1", sensor="rdp", offset_s=7)]
+    await call(_Session(), fold, events, [row()])
+    assert fold.timeouts == 1 and fold.paused() and fold.calls == 0
+    assert seen[0]["timeout_ms"] == fold.timeout_ms == 2000
+    assert seen[0]["as_of"] == T0 + timedelta(seconds=7)  # the batch, not the clock
+    session = _Session()
+    clock.now += 30  # another bucket is worth a call, but the writer waits out the timeout
+    later = row(started_at=T0 + timedelta(hours=1), ended_at=T0 + timedelta(hours=1))
+    await call(session, fold, events, [later])
+    assert len(seen) == 1 and session.nested == 0
+    clock.now += BACKOFF_S
+    await call(_Session(), fold, events, [row(), later])
+    assert len(seen) == 2
 
 
 async def test_a_lost_connection_is_not_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -404,9 +580,15 @@ async def test_a_call_counts_what_it_folded(monkeypatch: pytest.MonkeyPatch) -> 
         return 7
 
     monkeypatch.setattr("ingest.writer.fold_buckets", folded)
-    fold = hot_fold()
+    clock = Clock()
+    fold = hot_fold(clock=clock)
     await call(_Session(), fold, [make_event("connect", sensor="rdp")], [row()])
     assert (fold.calls, fold.folded) == (1, 7)
+    await call(_Session(), fold, [make_event("connect", sensor="rdp")], [row()])
+    assert fold.calls == 1  # the same bucket again within the minute: no call
+    clock.now += 61
+    await call(_Session(), fold, [make_event("connect", sensor="rdp")], [row()])
+    assert (fold.calls, fold.folded) == (2, 14)
 
 
 def test_the_enricher_has_no_fold_unless_given_one() -> None:

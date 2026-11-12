@@ -236,8 +236,15 @@ async def run() -> None:
         build_network_worker(features, factory),
         build_feed_worker(features, factory),
         # Flood groups (0034): the writer folds as connections close; this sweep does the rest and
-        # the history. On by default, SESSION_FOLD_ENABLED=false switches both off.
-        FoldWorker(features, factory, fold=fold_settings, plain_tags=plain_tags),
+        # the history. On by default, SESSION_FOLD_ENABLED=false switches both off. It measures
+        # idle connections against how far the consumer has stored the streams.
+        FoldWorker(
+            features,
+            factory,
+            fold=fold_settings,
+            plain_tags=plain_tags,
+            progress=consumer.progress.as_of,
+        ),
     ]
     for worker in feature_workers:
         appliers.append(worker.apply_settings)

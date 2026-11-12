@@ -4,7 +4,9 @@ A flood group keeps the tags of the connections it merged, so a connection that 
 which tells a story of its own (a payload, an exploit, a CVE) must keep its row. The list is
 data, but the loader refuses what must never be on it, so a careless edit cannot hide an attack
 inside a group. The database enforces the same list: ``fold_session_buckets`` only merges a row
-whose tags are all in it.
+whose tags are all in it, and it drops from the list it is given every CVE, payload and severe tag
+on its own (``REFUSED_TAGS`` in migration 0034; a test checks that it covers what this loader
+refuses), so even a careless caller cannot fold such a row.
 
 The loader refuses, at start-up, a tag that is
 

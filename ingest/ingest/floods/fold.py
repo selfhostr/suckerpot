@@ -1,16 +1,23 @@
-"""Calling ``fold_session_buckets``: what the writer and the sweep worker share.
+"""Calling ``fold_session_buckets`` and ``restore_folded_sessions``: what the writer and the sweep
+worker share.
 
-The function is created by migration 0034 (see its docstring for what is folded and why it is safe)
-and is the only way ingest merges ``sessions`` rows: ingest holds EXECUTE on it and still has no
-DELETE. This module picks the buckets worth asking about and makes the call; it decides nothing
-about what is plain, the function does.
+The functions are created by migration 0034 (see its comments for what is folded and why it is
+safe) and are the only way ingest merges ``sessions`` rows or gives one back: ingest holds EXECUTE
+on them and still has no DELETE. This module picks the buckets worth asking about and makes the
+calls; it decides nothing about what is plain, the function does.
+
+Folding is housekeeping, so the writer bounds it: each call runs under a short statement timeout
+inside a savepoint, a bucket is asked about at most once a minute, and after a timeout the writer
+stops asking for a while (doubling up to a quarter of an hour).
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import time
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections import OrderedDict
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -26,27 +33,48 @@ log = logging.getLogger(__name__)
 
 #: (source address, sensor, UTC hour): the unit the function folds.
 Bucket = tuple[str, str, datetime]
+BucketKey = tuple[str, str, int]
 
 #: Rows folded per call from the writer. The function clamps any limit to 1..5000.
 WRITER_LIMIT = 1000
 #: Most buckets of one call (the function accepts 5000).
 MAX_BUCKETS = 500
+#: The writer's calls give up after this long; ingest's own statement timeout is 30 s.
+WRITER_TIMEOUT_MS = 2000
+#: The writer asks about one bucket at most once in this many seconds.
+WRITER_EVERY_S = 60.0
+#: Most buckets remembered as asked (older ones are forgotten first).
+MAX_ASKED = 50_000
+#: After a timeout the writer stops folding this long, doubling up to BACKOFF_MAX_S.
+BACKOFF_S = 60.0
+BACKOFF_MAX_S = 900.0
+#: SQLSTATE of a statement cancelled by statement_timeout.
+QUERY_CANCELED = "57014"
 LOG_INTERVAL_S = 60.0
 #: A session with this many login attempts or more is never plain (the credential-list campaign
 #: threshold); the function checks it too.
 MAX_PLAIN_LOGINS = 20
+#: Events a plain connection may hold besides its login attempts (connect, disconnect, the
+#: handshake recorded as a scan; SIP adds its first message and a summary). Migration 0034 checks
+#: the same numbers.
+EXTRA_EVENTS = 3
+EXTRA_EVENTS_BY_SENSOR: Mapping[str, int] = {"sip": 4}
 
 _FOLD = text(
     """
     SELECT fold_session_buckets(
         CAST(CAST(:src AS text[]) AS inet[]), :sensor, :hour, :min, :tags,
-        make_interval(mins => :idle), :lim)
+        make_interval(mins => :idle), :lim, :now)
     """
 ).bindparams(
     bindparam("src", type_=ARRAY(Text)),
     bindparam("sensor", type_=ARRAY(Text)),
     bindparam("hour", type_=ARRAY(DateTime(timezone=True))),
     bindparam("tags", type_=ARRAY(Text)),
+    bindparam("now", type_=DateTime(timezone=True)),
+)
+_RESTORE = text("SELECT restore_folded_sessions(:ids)").bindparams(
+    bindparam("ids", type_=ARRAY(Text))
 )
 
 
@@ -60,24 +88,47 @@ def is_demo(data: Mapping[str, Any]) -> bool:
     return str(data.get("demo")).lower() == "true"
 
 
+def stored_until(events: Iterable[Event]) -> datetime | None:
+    """How far a batch takes its stream: its newest event, never later than now."""
+    newest = max((ev.ts for ev in events), default=None)
+    return None if newest is None else min(newest, datetime.now(UTC))
+
+
+def extra_events(sensor: str) -> int:
+    return EXTRA_EVENTS_BY_SENSOR.get(sensor, EXTRA_EVENTS)
+
+
 @dataclass(slots=True)
 class FloodFold:
-    """The fold settings, the plain tags and the in-memory gate, shared by the writer."""
+    """The fold settings, the plain tags, the in-memory gate and the writer's pacing."""
 
     settings: FoldSettings
     plain_tags: frozenset[str]
     gate: FloodGate = field(default_factory=FloodGate)
     calls: int = 0
     folded: int = 0
+    timeouts: int = 0
+    timeout_ms: int = WRITER_TIMEOUT_MS
+    every_s: float = WRITER_EVERY_S
+    clock: Callable[[], float] = time.monotonic
+    _asked: OrderedDict[BucketKey, float] = field(default_factory=OrderedDict)
+    _paused_until: float = -math.inf
+    _backoff_s: float = BACKOFF_S
 
     @classmethod
-    def build(cls, settings: FoldSettings, plain_tags: frozenset[str]) -> FloodFold:
-        return cls(settings, plain_tags, FloodGate(threshold=settings.min_connections))
+    def build(
+        cls,
+        settings: FoldSettings,
+        plain_tags: frozenset[str],
+        clock: Callable[[], float] = time.monotonic,
+    ) -> FloodFold:
+        return cls(settings, plain_tags, FloodGate(threshold=settings.min_connections), clock=clock)
 
-    def record(self, events: Iterable[Event]) -> set[tuple[str, str, int]]:
+    def record(self, events: Iterable[Event]) -> set[BucketKey]:
         """Count the batch's connections in the gate. Returns the (address, sensor, hour) of every
-        demo event: such an hour never folds, so it is not worth a call."""
-        demo: set[tuple[str, str, int]] = set()
+        demo event: the function leaves a demo connection alone anyway, so such a bucket is not
+        worth a call from this batch."""
+        demo: set[BucketKey] = set()
         for ev in events:
             ip, sensor = str(ev.src_ip), str(ev.sensor)
             if is_demo(ev.data):
@@ -86,27 +137,53 @@ class FloodFold:
                 self.gate.record(ip, sensor, ev.ts)
         return demo
 
-    def buckets(
-        self, rows: Iterable[Any], demo: Collection[tuple[str, str, int]] = ()
-    ) -> list[Bucket]:
+    def buckets(self, rows: Iterable[Any], demo: Collection[BucketKey] = ()) -> list[Bucket]:
         """The buckets of the upserted ``rows`` (the writer's RETURNING rows) worth a call: a
-        closed connection that looks plain, from a source the gate calls hot."""
-        found: dict[tuple[str, str, int], Bucket] = {}
+        closed connection that looks plain, from a source the gate calls hot, in a bucket not
+        asked about in the last ``every_s`` seconds. Does not mark them asked."""
+        found: dict[BucketKey, Bucket] = {}
+        now = self.clock()
         for r in rows:
             if not looks_plain(r, self.plain_tags) or r.ended_at is None:
                 continue
             ip, sensor = str(r.src_ip), str(r.sensor)
             hour = hour_of(r.started_at)
             key = (ip, sensor, int(hour.timestamp()))
-            if key in found or key in demo or not self.gate.is_hot(ip, sensor, r.last_event_at):
+            if key in found or key in demo or now - self._asked.get(key, -math.inf) < self.every_s:
+                continue
+            if not self.gate.is_hot(ip, sensor, r.last_event_at):
                 continue
             found[key] = (ip, sensor, hour)
         return sorted(found.values(), key=lambda b: (b[2], b[0], b[1]))[:MAX_BUCKETS]
 
+    def mark_asked(self, buckets: Iterable[Bucket]) -> None:
+        now = self.clock()
+        for ip, sensor, hour in buckets:
+            key = (ip, sensor, int(hour.timestamp()))
+            self._asked[key] = now
+            self._asked.move_to_end(key)
+        horizon = now - self.every_s
+        while self._asked and (
+            len(self._asked) > MAX_ASKED or next(iter(self._asked.values())) < horizon
+        ):
+            self._asked.popitem(last=False)
+
+    def paused(self) -> bool:
+        """True while the writer waits out a timeout."""
+        return self.clock() < self._paused_until
+
+    def timed_out(self) -> None:
+        self.timeouts += 1
+        self._paused_until = self.clock() + self._backoff_s
+        self._backoff_s = min(self._backoff_s * 2, BACKOFF_MAX_S)
+
+    def succeeded(self) -> None:
+        self._backoff_s = BACKOFF_S
+
 
 def looks_plain(row: Any, plain_tags: frozenset[str]) -> bool:
     """A cheap pre-check of one upserted row, mirroring the function's tests that the row itself
-    answers (the rest, a campaign or an indicator link, is read by the function)."""
+    answers (the rest, a campaign, an indicator link or a demo event, is read by the function)."""
     return (
         not row.benign
         and row.scanner_name is None
@@ -115,8 +192,26 @@ def looks_plain(row: Any, plain_tags: frozenset[str]) -> bool:
         and row.downloads == 0
         and row.http_requests == 0
         and row.login_attempts < MAX_PLAIN_LOGINS
+        and row.event_count <= row.login_attempts + extra_events(str(row.sensor))
         and set(row.tags or ()) <= plain_tags
     )
+
+
+async def cap_statements(session: AsyncSession, timeout_ms: int) -> str:
+    """Cap every statement of this transaction at ``timeout_ms``; returns the cap it replaced.
+
+    Run it inside a savepoint: if a capped statement fails, rolling the savepoint back puts the
+    old cap back too. On success the caller restores it with :func:`restore_cap`.
+    """
+    old = await session.scalar(text("SELECT current_setting('statement_timeout')"))
+    await session.execute(
+        text("SELECT set_config('statement_timeout', :v, true)"), {"v": f"{int(timeout_ms)}ms"}
+    )
+    return str(old)
+
+
+async def restore_cap(session: AsyncSession, old: str) -> None:
+    await session.execute(text("SELECT set_config('statement_timeout', :v, true)"), {"v": old})
 
 
 async def fold_buckets(
@@ -126,11 +221,16 @@ async def fold_buckets(
     plain_tags: Iterable[str],
     *,
     limit: int,
+    as_of: datetime | None,
+    timeout_ms: int | None = None,
 ) -> int:
     """Ask the database to fold ``buckets``; returns the connections folded (0 when the advisory
-    lock is held by another caller)."""
+    lock is held by another caller). ``as_of`` is how far the streams are stored (None: unknown,
+    only connections that ended fold). With ``timeout_ms`` the call is capped and the previous
+    cap restored afterwards; run it in a savepoint."""
     if not buckets:
         return 0
+    old = await cap_statements(session, timeout_ms) if timeout_ms is not None else None
     n = (
         await session.execute(
             _FOLD,
@@ -142,10 +242,26 @@ async def fold_buckets(
                 "tags": sorted(plain_tags),
                 "idle": settings.idle_minutes,
                 "lim": limit,
+                "now": as_of,
             },
         )
     ).scalar_one()
+    if old is not None:
+        await restore_cap(session, old)
     return int(n or 0)
+
+
+async def restore_folded(
+    session: AsyncSession, session_ids: Sequence[str], *, timeout_ms: int
+) -> list[str]:
+    """Give folded connections that just got a late event their row back; returns their ids.
+    Capped at ``timeout_ms``; run it in a savepoint."""
+    if not session_ids:
+        return []
+    old = await cap_statements(session, timeout_ms)
+    ids = list((await session.scalars(_RESTORE, {"ids": list(session_ids)})).all())
+    await restore_cap(session, old)
+    return [str(i) for i in ids]
 
 
 class SkipLog:

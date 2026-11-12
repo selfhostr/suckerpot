@@ -57,5 +57,5 @@ async def fold_hour(
     async with factory() as session, session.begin():
         return await fold_buckets(
             session, [(ip, sensor, hour)], FoldSettings(min_connections=minimum), plain_tags,
-            limit=1000,
+            limit=1000, as_of=datetime.now(UTC),
         )  # fmt: skip
