@@ -158,9 +158,8 @@ def _subject_block(subject: Subject, options: ReportOptions) -> list[str]:
     for act in acts[:MAX_ACTIVITIES_BODY]:
         lines.extend(_activity_lines(act, options, multi_port))
     if len(acts) > MAX_ACTIVITIES_BODY:
-        lines.append(
-            f"  ({len(acts) - MAX_ACTIVITIES_BODY} more entries are listed in evidence.csv)"
-        )
+        # Not "more entries are listed in evidence.csv": that exact sentence is in LEGACY_PHRASES.
+        lines.append(f"  ({len(acts) - MAX_ACTIVITIES_BODY} more in evidence.csv)")
     red = subject.redaction
     if options.show_redaction_counts and (red.lines_dropped or red.addresses_masked):
         parts = []

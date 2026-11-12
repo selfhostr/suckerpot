@@ -40,6 +40,7 @@ from tests.conftest import (
     SELF_ADDRESS,
     SETTINGS,
     SUBJECT_IP,
+    make_activity,
     make_evidence,
     t,
 )
@@ -314,6 +315,22 @@ def test_neutral_defaults_do_not_trip_the_legacy_guard(terms: SelfTerms, ctx: Gu
     # an owner-written text equal to the old shipped wording is still refused
     old = bare.model_copy(update={"subject_template": "Abuse report: {value}"})
     assert "default_wording" in guard_message(render_text(_ev(), old), terms, ctx=ctx).codes
+
+
+def test_the_overflow_line_of_a_long_report_is_not_default_wording(
+    terms: SelfTerms, ctx: GuardContext
+) -> None:
+    # More activities than the body lists: the renderer adds a line that points to evidence.csv.
+    evidence = make_evidence()
+    subject = evidence.subjects[0]
+    many = tuple(make_activity(ts=t(14, i)) for i in range(15))
+    long_one = evidence.model_copy(
+        update={"subjects": (subject.model_copy(update={"activities": many}),)}
+    )
+    msg = render_text(long_one, SETTINGS)
+    assert "5 more in evidence.csv" in msg.body
+    assert not legacy_hit(msg.body)
+    assert "default_wording" not in guard_message(msg, terms, ctx=ctx).codes
 
 
 def test_guard_mime_decoding(terms: SelfTerms, ctx: GuardContext) -> None:
