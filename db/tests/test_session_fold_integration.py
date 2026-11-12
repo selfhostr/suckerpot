@@ -176,10 +176,24 @@ async def fold(
     return int(value)
 
 
-async def restore(engine: AsyncEngine, ids: list[str]) -> list[str]:
+async def restore(
+    engine: AsyncEngine,
+    ids: list[str],
+    tags: list[str] | None = None,
+    *,
+    techniques: list[str] | None = None,
+    tool: str | None = None,
+) -> list[str]:
+    """Call the restore function with the same group key for every id: the tags the connection
+    carried when it was folded (``credential-stuffing``, like ``row()``, unless given)."""
+    conns = [
+        {"id": i, "tags": ["credential-stuffing"] if tags is None else tags,
+         "techniques": techniques or [], "tool": tool}
+        for i in ids
+    ]  # fmt: skip
     async with engine.begin() as conn:
         got = await conn.scalars(
-            text("SELECT restore_folded_sessions(CAST(:ids AS text[]))"), {"ids": ids}
+            text("SELECT restore_folded_sessions(CAST(:c AS jsonb))"), {"c": json.dumps(conns)}
         )
         return sorted(got.all())
 
@@ -574,6 +588,57 @@ async def test_the_group_that_agrees_on_the_login_stage_is_the_one_that_gives_it
     assert after[True]["connections"] == before[True]["connections"] == 15
     assert after[False]["connections"] == 14
     assert await total_connections(owner) == 30
+
+
+async def test_a_restarted_id_counter_never_takes_another_addresses_events(
+    owner: AsyncEngine,
+) -> None:
+    """Some sensors name summary sessions ``sum-<counter>`` and start again at 0 after a restart:
+    the id alone does not say which connection an event belongs to."""
+    a, b = "198.51.100.20", "198.51.100.21"
+    rows = plain_rows(25, "d", ip=a, sensor="docker", dst_port=2375)
+    rows[0]["sid"] = "sum-0"
+    await seed(owner, rows)
+    for r in rows:
+        await add_events(owner, *(dict(ev, ip=a) for ev in story(r)))
+    assert await fold(owner, [(a, "docker", HOUR)]) == 25
+    (before,) = await groups(owner)
+    later = HOUR + timedelta(minutes=40)
+    await seed(owner, [row("sum-0", ip=b, sensor="docker", dst_port=2375, hour=later, ended=None,
+                           last=later, events=1, logins=0)])  # fmt: skip
+    await add_events(owner, {"ts": later, "sid": "sum-0", "ip": b, "sensor": "docker",
+                             "port": 2375, "type": "scan"})  # fmt: skip
+    assert await restore(owner, ["sum-0"]) == []
+    assert await groups(owner) == [before]
+    (fresh,) = await singles(owner)
+    assert (fresh["ip"], fresh["event_count"], fresh["started_at"]) == (b, 1, later)
+    assert await total_connections(owner) == 26
+
+
+async def test_a_restore_touches_only_the_exact_group_of_its_connection(owner: AsyncEngine) -> None:
+    """Two groups of one source, hour and stage that differ only in tags: the group a restored
+    connection leaves is the one whose id its own key gives, never the first sibling."""
+    plain = plain_rows(24, "a")
+    flagged = [row("s000", offset_s=1500, tags=["credential-stuffing", "scanner"])]
+    await seed(owner, plain + flagged)
+    for r in plain + flagged:
+        await add_events(owner, *story(r))  # the events carry no tags: they cannot tell
+    assert await fold(owner) == 25
+    assert sorted(g["connections"] for g in await groups(owner)) == [1, 24]
+
+    await late_row(owner, plain[5])
+    assert await restore(owner, ["a005"]) == ["a005"]
+    assert sorted(g["connections"] for g in await groups(owner)) == [1, 23]
+    await late_row(owner, flagged[0])
+    assert await restore(owner, ["s000"], ["scanner", "credential-stuffing"]) == ["s000"]
+    assert [g["connections"] for g in await groups(owner)] == [23]
+    assert await total_connections(owner) == 25
+
+    # A key that names no group restores the row and touches no group at all.
+    await late_row(owner, plain[6])
+    assert await restore(owner, ["a006"], ["weak-credentials"]) == ["a006"]
+    assert [g["connections"] for g in await groups(owner)] == [23]
+    assert await restore(owner, ["a007"], None) == []  # no row: nothing
 
 
 async def test_restore_leaves_a_row_with_no_earlier_events_alone(owner: AsyncEngine) -> None:

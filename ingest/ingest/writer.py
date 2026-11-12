@@ -40,7 +40,10 @@ from ingest.floods.fold import (
     WRITER_LIMIT,
     FloodFold,
     SkipLog,
+    cap_statements,
     fold_buckets,
+    folded_keys,
+    restore_cap,
     restore_folded,
     stored_until,
 )
@@ -64,7 +67,7 @@ _T = SessionRow.__table__.c
 _UPSERTED = (
     _T.session_id, _T.sensor, _T.event_count, _T.login_attempts, _T.login_success, _T.commands,
     _T.downloads, _T.http_requests, _T.known_scanner, _T.abuse_score, _T.tags, _T.benign,
-    _T.scanner_name, _T.src_ip, _T.started_at, _T.ended_at, _T.last_event_at,
+    _T.scanner_name, _T.src_ip, _T.dst_port, _T.started_at, _T.ended_at, _T.last_event_at,
 )  # fmt: skip
 # True for a row the upsert inserted, false for one it updated.
 _INSERTED: ColumnElement[Any] = literal_column("(xmax = 0)").label("inserted")
@@ -249,7 +252,7 @@ async def write_batch(
         ).returning(*_UPSERTED, _INSERTED)
         result = await session.execute(upsert, [delta_to_row(d) for d in deltas])
         if enricher is not None:
-            upserted = await _restore_folded(session, events, result.all())
+            upserted = await _restore_folded(session, enricher, events, result.all())
             await _apply_session_rules(session, enricher, upserted)
             if enricher.attack is not None:
                 await record_technique_daily(session, events, rows, deltas, prior)
@@ -305,24 +308,30 @@ def _sqlstate(exc: DBAPIError) -> str:
 
 
 async def _restore_folded(
-    session: AsyncSession, events: Sequence[Event], upserted: Sequence[Any]
+    session: AsyncSession, enricher: Enricher, events: Sequence[Event], upserted: Sequence[Any]
 ) -> list[Any]:
     """Give a folded connection that got a late event its row back, in a savepoint.
 
     A row the upsert just inserted for a session whose ``connect`` is not in this batch continues
-    a connection seen before; when that connection was folded, ``restore_folded_sessions`` adds its
-    earlier events back to the row and takes it out of its group, so it is counted once and none of
-    its events is lost from view. Such rows are read again, so the session rules and the fold see
-    the whole connection. A failure here (a timeout, a lock held too long) is logged once a minute
-    at most and never fails the batch: the row keeps the late events only.
+    a connection seen before. When it has events of its own from before (same id, sensor, address
+    and port), it was folded: its group key (the tags, techniques and tool it carried, session
+    rules included, which only ingest can evaluate) is rebuilt from them, and
+    ``restore_folded_sessions`` adds those events back to the row and takes it out of exactly that
+    group, so it is counted once and none of its events is lost from view. Such rows are read
+    again, so the session rules and the fold see the whole connection. A failure here (a timeout,
+    a lock held too long) is logged once a minute at most and never fails the batch: the row keeps
+    the late events only.
     """
     opened = {ev.session_id for ev in events if str(ev.type) == "connect"}
-    ids = [r.session_id for r in upserted if r.inserted and r.session_id not in opened]
-    if not ids:
+    fresh_rows = [r for r in upserted if r.inserted and r.session_id not in opened]
+    if not fresh_rows:
         return list(upserted)
     try:
         async with session.begin_nested():
-            restored = await restore_folded(session, ids, timeout_ms=RESTORE_TIMEOUT_MS)
+            old = await cap_statements(session, RESTORE_TIMEOUT_MS)
+            conns = await folded_keys(session, fresh_rows, enricher.rules, enricher.attack)
+            restored = await restore_folded(session, conns)
+            await restore_cap(session, old)
     except DBAPIError as exc:
         if exc.connection_invalidated:
             raise

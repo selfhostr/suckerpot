@@ -27,6 +27,7 @@ from ingest.floods.fold import (
     EXTRA_EVENTS_BY_SENSOR,
     MAX_ASKED,
     MAX_BUCKETS,
+    folded_key,
     hour_of,
     is_demo,
     looks_plain,
@@ -344,6 +345,25 @@ def test_the_database_refuses_every_tag_the_loader_refuses() -> None:
     assert refused <= in_sql
     assert not in_sql & load_plain_tags(RULES_DIR)  # the shipped plain tags still fold
     assert not in_sql & (SPRAY_TAGS | BENIGN_TAGS)
+
+
+Early = namedtuple("Early", "ts type data tags techniques known_scanner abuse_score")
+
+
+def test_the_group_key_of_a_folded_connection_includes_what_the_session_rules_added() -> None:
+    rules = load_rules(RULES_DIR)
+    early = [
+        Early(T0, "connect", {"client_tool": "mstsc"}, [], None, None, None),
+        Early(T0, "login_attempt", {"client_tool": "Hydra"}, ["rdp-cleartext"], ["T1110"],
+              True, 40),
+        Early(T0, "disconnect", {"client_tool": "unknown"}, [], None, None, None),
+    ]  # fmt: skip
+    key = folded_key("rdp", early, rules, None)
+    # GreyNoise said scanner: the session rule added the tag; the last sane tool wins
+    assert key == {"tags": ["rdp-cleartext", "scanner"], "techniques": ["T1110"], "tool": "Hydra"}
+    plain = folded_key("smb", [Early(T0, "connect", {"client_tool": "x"}, [], [], False, None)],
+                       rules, None)  # fmt: skip
+    assert plain == {"tags": [], "techniques": [], "tool": None}  # a tool only from RDP
 
 
 def test_a_bucket_is_asked_about_once_a_minute() -> None:

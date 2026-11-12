@@ -13,6 +13,7 @@ stops asking for a while (doubling up to a quarter of an hour).
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import time
@@ -20,14 +21,19 @@ from collections import OrderedDict
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import ARRAY, DateTime, Text, bindparam, text
+from sqlalchemy import ARRAY, DateTime, Integer, Text, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_common import Event
 
+from ingest.aggregate import client_tool_of
 from ingest.floods.config import FoldSettings
 from ingest.floods.gate import FloodGate
+
+if TYPE_CHECKING:
+    from ingest.attack.mapping import AttackMap
+    from ingest.tagging import RuleSet
 
 log = logging.getLogger(__name__)
 
@@ -73,8 +79,37 @@ _FOLD = text(
     bindparam("tags", type_=ARRAY(Text)),
     bindparam("now", type_=DateTime(timezone=True)),
 )
-_RESTORE = text("SELECT restore_folded_sessions(:ids)").bindparams(
-    bindparam("ids", type_=ARRAY(Text))
+_RESTORE = text("SELECT restore_folded_sessions(CAST(:conns AS jsonb))")
+#: The events a connection had before its new row started: the same filters and limit as
+#: restore_folded_sessions (one day back, at most 1000), so both read the same events.
+_EARLY = text(
+    """
+    SELECT r.id AS session_id, e.ts, e.type, e.data, e.tags, e.techniques, e.known_scanner,
+           e.abuse_score
+    FROM unnest(CAST(:ids AS text[]), CAST(:sensors AS text[]),
+                CAST(CAST(:ips AS text[]) AS inet[]), CAST(:ports AS integer[]),
+                CAST(:starts AS timestamptz[])) AS r(id, sensor, ip, port, started)
+    CROSS JOIN LATERAL (
+        SELECT ev.ts, ev.type, ev.data, ev.tags, ev.techniques, ev.known_scanner, ev.abuse_score
+        FROM events ev
+        WHERE ev.session_id = r.id AND ev.sensor = r.sensor AND ev.src_ip = r.ip
+          AND ev.dst_port = r.port
+          AND ev.ts >= r.started - interval '1 day' AND ev.ts < r.started
+          AND ev.ts >= CAST(:lo AS timestamptz) - interval '1 day'
+          AND ev.ts < CAST(:hi AS timestamptz)
+        ORDER BY ev.ts
+        LIMIT 1000
+    ) e
+    ORDER BY r.id, e.ts
+    """
+).bindparams(
+    bindparam("ids", type_=ARRAY(Text)),
+    bindparam("sensors", type_=ARRAY(Text)),
+    bindparam("ips", type_=ARRAY(Text)),
+    bindparam("ports", type_=ARRAY(Integer)),
+    bindparam("starts", type_=ARRAY(DateTime(timezone=True))),
+    bindparam("lo", type_=DateTime(timezone=True)),
+    bindparam("hi", type_=DateTime(timezone=True)),
 )
 
 
@@ -251,16 +286,94 @@ async def fold_buckets(
     return int(n or 0)
 
 
+def folded_key(
+    sensor: str, early: Sequence[Any], rules: RuleSet, attack: AttackMap | None
+) -> dict[str, Any]:
+    """The tags, techniques and client tool a connection carried when it was folded, from its
+    earlier events (``early``, oldest first): what its row held, which is part of its group's key.
+
+    The event tags and techniques are stored with the events; the session rules are evaluated again
+    on the counters those events add up to, as the writer did after each batch, and their tags
+    bring their techniques. The client tool is the last one the events named.
+    """
+    tags: set[str] = set()
+    techniques: set[str] = set()
+    tool: str | None = None
+    known: bool | None = None
+    score: int | None = None
+    counts = {"login_attempt": 0, "command": 0, "download_attempt": 0, "http_request": 0}
+    success = False
+    for e in early:
+        tags.update(e.tags or ())
+        techniques.update(e.techniques or ())
+        data = e.data if isinstance(e.data, dict) else {}
+        tool = client_tool_of(sensor, data) or tool
+        known = e.known_scanner if e.known_scanner is not None else known
+        score = e.abuse_score if e.abuse_score is not None else score
+        if e.type in counts:
+            counts[e.type] += 1
+        success = success or (e.type == "login_attempt" and data.get("success") is True)
+    facts = {
+        "session.sensor": sensor,
+        "session.event_count": len(early),
+        "session.login_attempts": counts["login_attempt"],
+        "session.login_success": success,
+        "session.commands": counts["command"],
+        "session.downloads": counts["download_attempt"],
+        "session.http_requests": counts["http_request"],
+        "session.known_scanner": known,
+        "session.abuse_score": score,
+        "session.tags": sorted(tags),
+    }
+    new = set(rules.tag_session(facts)) - tags
+    if new and attack is not None:
+        techniques.update(attack.for_tags(sorted(new)))
+    return {"tags": sorted(tags | new), "techniques": sorted(techniques), "tool": tool}
+
+
+async def folded_keys(
+    session: AsyncSession, rows: Sequence[Any], rules: RuleSet, attack: AttackMap | None
+) -> list[dict[str, Any]]:
+    """For the fresh ``rows`` (upserted, needing session_id, sensor, src_ip, dst_port,
+    started_at) that have events from before their start: the id and the group key of each, for
+    :func:`restore_folded`. A row with no earlier event (the normal case) is left out."""
+    if not rows:
+        return []
+    starts = [r.started_at for r in rows]
+    found = await session.execute(
+        _EARLY,
+        {
+            "ids": [r.session_id for r in rows],
+            "sensors": [str(r.sensor) for r in rows],
+            "ips": [str(r.src_ip) for r in rows],
+            "ports": [int(r.dst_port) for r in rows],
+            "starts": starts,
+            "lo": min(starts),
+            "hi": max(starts),
+        },
+    )
+    early: dict[str, list[Any]] = {}
+    for e in found:
+        early.setdefault(e.session_id, []).append(e)
+    return [
+        {"id": r.session_id, **folded_key(str(r.sensor), early[r.session_id], rules, attack)}
+        for r in rows
+        if r.session_id in early
+    ]
+
+
 async def restore_folded(
-    session: AsyncSession, session_ids: Sequence[str], *, timeout_ms: int
+    session: AsyncSession, conns: Sequence[Mapping[str, Any]], *, timeout_ms: int | None = None
 ) -> list[str]:
     """Give folded connections that just got a late event their row back; returns their ids.
-    Capped at ``timeout_ms``; run it in a savepoint."""
-    if not session_ids:
+    ``conns`` come from :func:`folded_keys`. With ``timeout_ms`` the call is capped; run it in a
+    savepoint."""
+    if not conns:
         return []
-    old = await cap_statements(session, timeout_ms)
-    ids = list((await session.scalars(_RESTORE, {"ids": list(session_ids)})).all())
-    await restore_cap(session, old)
+    old = await cap_statements(session, timeout_ms) if timeout_ms is not None else None
+    ids = list((await session.scalars(_RESTORE, {"conns": json.dumps(list(conns))})).all())
+    if old is not None:
+        await restore_cap(session, old)
     return [str(i) for i in ids]
 
 

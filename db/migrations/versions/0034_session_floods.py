@@ -20,7 +20,7 @@ part of a flood is now merged into one group row (``kind = 'burst'``, ``connecti
   ``suckerpot_db.roles``; nobody else can call it. Its work is bounded whatever a source sent in
   the hour, it measures idle connections against the caller's progress, not the clock, and it
   refuses CVE, payload and severe tags whatever the caller passes.
-* ``restore_folded_sessions(text[])``: same rights. A late event of a folded connection gives
+* ``restore_folded_sessions(jsonb)``: same rights. A late event of a folded connection gives
   it its row back and takes it out of its group, so it is never counted twice.
 * ``suckerpot_maintenance`` rolls up ``sum(connections)`` instead of counting rows, so
   ``sessions_daily.sessions`` is the same with and without folding.
@@ -45,7 +45,7 @@ SIGNATURE = (
     "fold_session_buckets(inet[], text[], timestamptz[], integer, text[], interval, integer, "
     "timestamptz)"
 )
-RESTORE_SIGNATURE = "restore_folded_sessions(text[])"
+RESTORE_SIGNATURE = "restore_folded_sessions(jsonb)"
 
 # Tags that tell a story of their own and therefore never fold, whatever list the caller passes:
 # every attack tag of ``ingest/ingest/scanners.py`` except the three that only describe a spray of
@@ -247,20 +247,25 @@ $$
 # A late event of a folded connection (one more login attempt, a command after a long silence)
 # reaches ingest after its row was merged. The upsert then creates a new row for the id, from the
 # late events only. The writer calls this function for such fresh rows (no ``connect`` in the
-# batch). For each one that has events of its own from before its new start, it gives the
-# connection back its story and takes it out of its group, so it is counted once and every event
-# of it is read from its own row:
+# batch) that have events of their own from before their new start, and gives each one the tags,
+# techniques and client tool the connection carried when it was folded (event tags plus what the
+# session rules added, which only ingest can evaluate). The function gives the connection back its
+# story and takes it out of its group, so it is counted once and every event of it is read from its
+# own row:
 #
-# * the earlier events (same id and sensor, up to one day back, at most 1000) are summed into the
-#   row exactly as the writer sums a batch: start, end, counters, tags, techniques;
-# * the group that counted it (same source, sensor and port, started in that hour and covering
-#   those events, same stage, the one whose tags contain the connection's first) loses one
-#   connection and those counters, or is deleted when it was its only one.
+# * its earlier events are those of the same id, sensor, source address and port, up to one day
+#   before the new start (at most 1000): a sensor that restarts its id counter (``sum-0`` again)
+#   never takes another address's events. They are summed into the row exactly as the writer sums
+#   a batch: start, end, counters, tags, techniques;
+# * its group is the one whose id is the fold's own id of that connection (the same expression as
+#   in fold_session_buckets, from its sensor, address, port, hour, stage, tags, techniques and
+#   tool), never a sibling of the same hour. It loses one connection and those counters, or is
+#   deleted when that was its only one. No group with that id: no group is touched.
 #
 # It returns the ids it restored. Nothing else changes: an id with no earlier events (the normal
 # case) is left alone, a group is never created, events are never touched.
 _RESTORE = """
-CREATE OR REPLACE FUNCTION public.restore_folded_sessions(p_ids text[])
+CREATE OR REPLACE FUNCTION public.restore_folded_sessions(p_conns jsonb)
 RETURNS SETOF text
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
@@ -274,16 +279,17 @@ DECLARE
     v_group text;
     v_connections integer;
 BEGIN
-    IF p_ids IS NULL OR cardinality(p_ids) = 0 THEN
+    IF p_conns IS NULL OR jsonb_typeof(p_conns) <> 'array' OR jsonb_array_length(p_conns) = 0 THEN
         RETURN;
     END IF;
-    IF cardinality(p_ids) > 5000 THEN
+    IF jsonb_array_length(p_conns) > 5000 THEN
         RAISE EXCEPTION 'restore_folded_sessions: too many sessions';
     END IF;
     FOR r IN
-        SELECT s.session_id, s.sensor, s.src_ip, s.dst_port, s.started_at
-        FROM public.sessions s
-        WHERE s.session_id = ANY (p_ids) AND s.kind = 'session'
+        SELECT s.session_id, s.sensor, s.src_ip, s.dst_port, s.started_at,
+               c.tags AS key_tags, c.techniques AS key_techniques, c.tool AS key_tool
+        FROM jsonb_to_recordset(p_conns) AS c(id text, tags text[], techniques text[], tool text)
+        JOIN public.sessions s ON s.session_id = c.id AND s.kind = 'session'
         ORDER BY s.session_id
     LOOP
         SELECT count(*)::integer AS n,
@@ -300,6 +306,7 @@ BEGIN
         FROM (SELECT ev.ts, ev.type, ev.data, ev.benign
               FROM public.events ev
               WHERE ev.session_id = r.session_id AND ev.sensor = r.sensor
+                AND ev.src_ip = r.src_ip AND ev.dst_port = r.dst_port
                 AND ev.ts >= r.started_at - interval '1 day' AND ev.ts < r.started_at
               ORDER BY ev.ts
               LIMIT 1000) x;
@@ -308,6 +315,7 @@ BEGIN
             SELECT DISTINCT t
             FROM public.events ev, unnest(ev.tags) AS t
             WHERE ev.session_id = r.session_id AND ev.sensor = r.sensor
+              AND ev.src_ip = r.src_ip AND ev.dst_port = r.dst_port
               AND ev.ts >= e.first_ts AND ev.ts <= e.last_ts
             ORDER BY t
         );
@@ -315,22 +323,35 @@ BEGIN
             SELECT DISTINCT t
             FROM public.events ev, unnest(coalesce(ev.techniques, ARRAY[]::text[])) AS t
             WHERE ev.session_id = r.session_id AND ev.sensor = r.sensor
+              AND ev.src_ip = r.src_ip AND ev.dst_port = r.dst_port
               AND ev.ts >= e.first_ts AND ev.ts <= e.last_ts
             ORDER BY t LIMIT 64
         );
 
         v_group := NULL;
-        SELECT g.session_id, g.connections INTO v_group, v_connections
-        FROM public.sessions g
-        WHERE g.kind = 'burst' AND g.src_ip = r.src_ip AND g.sensor = r.sensor
-          AND g.dst_port = r.dst_port
-          AND g.started_at >= date_trunc('hour', e.first_ts, 'UTC') AND g.started_at <= e.first_ts
-          AND g.last_event_at >= e.last_ts
-          AND g.event_count >= e.n AND g.login_attempts >= e.logins
-          AND (g.login_attempts > 0) = (e.logins > 0)
-        ORDER BY (g.tags @> v_tags) DESC, g.session_id
-        LIMIT 1
-        FOR UPDATE OF g;
+        IF r.key_tags IS NOT NULL THEN
+            v_group := 'burst-' || left(md5(concat_ws(chr(31), r.sensor, host(r.src_ip),
+                           r.dst_port::text,
+                           extract(epoch FROM date_trunc('hour', e.first_ts, 'UTC'))::bigint::text,
+                           (e.logins > 0)::text,
+                           array_to_string(ARRAY(SELECT DISTINCT t FROM unnest(r.key_tags) AS t
+                                                 ORDER BY t), chr(30)),
+                           array_to_string(ARRAY(
+                               SELECT DISTINCT t
+                               FROM unnest(coalesce(r.key_techniques, ARRAY[]::text[])) AS t
+                               ORDER BY t), chr(30)),
+                           coalesce(r.key_tool, ''))), 24);
+            SELECT g.connections INTO v_connections
+            FROM public.sessions g
+            WHERE g.session_id = v_group AND g.kind = 'burst'
+              AND g.src_ip = r.src_ip AND g.sensor = r.sensor AND g.dst_port = r.dst_port
+              AND g.last_event_at >= e.last_ts
+              AND g.event_count >= e.n AND g.login_attempts >= e.logins
+            FOR UPDATE OF g;
+            IF NOT FOUND THEN
+                v_group := NULL;
+            END IF;
+        END IF;
         IF v_group IS NOT NULL THEN
             IF v_connections > 1 THEN
                 UPDATE public.sessions

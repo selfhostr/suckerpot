@@ -128,7 +128,7 @@ DECLARE
     r text := current_setting('suckerpot.role_name');
     _fold text := 'public.fold_session_buckets(inet[], text[], timestamptz[], integer, '
                   'text[], interval, integer, timestamptz)';
-    _restore text := 'public.restore_folded_sessions(text[])';
+    _restore text := 'public.restore_folded_sessions(jsonb)';
     _tables text := (
         SELECT string_agg(format('%I', c), ', ') FROM unnest(
             ARRAY['events', 'sessions', 'ip_reputation', 'enrichment_quota', 'enrichment_status',

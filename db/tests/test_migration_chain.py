@@ -623,7 +623,7 @@ def test_ingest_may_execute_the_fold_function_but_never_delete_sessions() -> Non
         "_fold text := 'public.fold_session_buckets(inet[], text[], timestamptz[]" in _GRANTS_INGEST
     )
     assert "'text[], interval, integer, timestamptz)'" in _GRANTS_INGEST
-    assert "_restore text := 'public.restore_folded_sessions(text[])'" in _GRANTS_INGEST
+    assert "_restore text := 'public.restore_folded_sessions(jsonb)'" in _GRANTS_INGEST
     assert "IF to_regprocedure(_fold) IS NOT NULL THEN" in _GRANTS_INGEST
     assert "GRANT EXECUTE ON FUNCTION %s TO %I', _fold, r" in _GRANTS_INGEST
     assert "IF to_regprocedure(_restore) IS NOT NULL THEN" in _GRANTS_INGEST

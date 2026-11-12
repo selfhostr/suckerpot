@@ -110,7 +110,9 @@ A late event of a folded connection (one more message after a long silence) stil
 twice: the writer sees a new row for a connection whose `connect` it did not just store, and the
 function `restore_folded_sessions` (same rights as the fold) gives that row its earlier events back
 (start, counters, tags) and takes the connection out of its group, deleting the group if it was
-its last one. Every event of the connection is then read from its own row; if it is still plain
+its last one. Its earlier events are those of the same id, sensor, address and port, and its group
+is the one whose id the fold gives that connection (ingest rebuilds the tags, techniques and tool
+it carried, session rules included), never another group of the same hour. Every event of the connection is then read from its own row; if it is still plain
 and finished, it folds back into its group.
 
 The work is bounded whatever a source sends. A call reads at most `SESSION_FOLD_MIN` rows to

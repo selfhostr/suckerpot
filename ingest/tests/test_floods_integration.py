@@ -411,6 +411,40 @@ async def test_a_late_event_of_a_folded_connection_is_counted_once_and_kept_whol
     assert await totals(engine) == (6, 7, 21)
 
 
+async def test_a_late_event_leaves_the_other_groups_of_its_hour_alone(
+    engine: AsyncEngine, factory: Factory, tmp_path: Path
+) -> None:
+    """The address turns out to be a known scanner after five connections: the sixth carries the
+    session tag ``scanner`` and makes a group of its own in the same hour. A late event of either
+    connection takes it out of its own group only, rebuilt from its events and the session rules."""
+    clock = Clock()
+    enr = enricher(tmp_path, new_fold(clock))
+    for n in range(5):
+        await write_batch(factory, connection(n), enr)
+        clock.tick()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO ip_reputation (ip, gn_noise, updated_at) "
+                "VALUES (CAST(:ip AS inet), true, now())"
+            ),
+            {"ip": IP},
+        )
+    await write_batch(factory, connection(5), enr)
+    clock.tick()
+    found = await rows(engine, "SELECT connections, tags FROM sessions WHERE kind = 'burst'")
+    assert sorted((r.connections, "scanner" in r.tags) for r in found) == [(1, True), (5, False)]
+
+    await write_batch(factory, [rdp("command", "c2", 300, {"input": "id"})], enr)
+    clock.tick()
+    found = await rows(engine, "SELECT connections, tags FROM sessions WHERE kind = 'burst'")
+    assert sorted((r.connections, "scanner" in r.tags) for r in found) == [(1, True), (4, False)]
+    await write_batch(factory, [rdp("command", "c5", 310, {"input": "id"})], enr)
+    found = await rows(engine, "SELECT connections, tags FROM sessions WHERE kind = 'burst'")
+    assert [(r.connections, "scanner" in r.tags) for r in found] == [(4, False)]
+    assert await totals(engine) == (6, 6, 20)
+
+
 async def test_an_event_cannot_reach_a_group(
     engine: AsyncEngine, factory: Factory, tmp_path: Path
 ) -> None:
