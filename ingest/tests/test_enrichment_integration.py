@@ -179,7 +179,9 @@ async def test_quota_priority_cache_and_session_updates(
     await seed_sessions(factory)
     p = Providers()
     w = worker(factory, p, ABUSEIPDB_DAILY_QUOTA="2", GREYNOISE_DAILY_QUOTA="50")
-    made = await w.run_once()
+    # A fifth of the quota (here 1 of 2) is kept for stale answers; none is stale, so the second
+    # lookup follows in the next cycle.
+    made = await w.run_once() + await w.run_once()
     ips = [r.url.params["ipAddress"] for r in p.calls("api.abuseipdb.com")]
     assert ips == [TEST_IPS[3], TEST_IPS[0]]  # most active first (12 events, then 6)
     assert TEST_IPS[2] not in ips  # one idle connect is not worth a lookup
@@ -249,7 +251,13 @@ async def seed_activity(
     """One session per address with that many events."""
     base = RECENT - timedelta(days=age_days)
     events = [
-        _make_event("connect", sid="act-" + ip.replace(".", "_"), ip=ip, offset_s=i, base=base)
+        _make_event(
+            "connect",
+            sid="act-" + ip.replace(".", "_").replace(":", "-"),
+            ip=ip,
+            offset_s=i,
+            base=base,
+        )
         for ip, n in counts.items()
         for i in range(n)
     ]
@@ -279,7 +287,7 @@ async def test_new_addresses_come_before_stale_ones_and_fresh_ones_are_left_alon
     await seed_known(engine)
 
     async def pick(provider: str, **kw: Any) -> list[str]:
-        return await candidate_ips(factory, provider, 10, limit=10, **kw)
+        return [c.ip for c in await candidate_ips(factory, provider, 10, limit=10, **kw)]
 
     # AbuseIPDB: never answered (busiest first), then older than 7 days (busiest first).
     # FRESH was answered an hour ago and is not asked again, however busy it is.
@@ -290,8 +298,36 @@ async def test_new_addresses_come_before_stale_ones_and_fresh_ones_are_left_alon
     assert await pick("abuseipdb", recheck_days=40) == [NEW_BUSY, GN_ONLY]
     assert await pick("abuseipdb", recheck_days=9) == [NEW_BUSY, GN_ONLY, STALE_BUSY]
     # The limit cuts the stale group first, and skipped addresses do not take a place.
-    assert await candidate_ips(factory, "abuseipdb", 10, limit=2) == [NEW_BUSY, GN_ONLY]
+    cut = await candidate_ips(factory, "abuseipdb", 10, limit=2)
+    assert [c.ip for c in cut] == [NEW_BUSY, GN_ONLY]
     assert await pick("abuseipdb", exclude=[NEW_BUSY]) == [GN_ONLY, STALE_BUSY, STALE_QUIET]
+    # Each address says whether it is a refresh, and the refreshes can be asked for alone.
+    both = await candidate_ips(factory, "abuseipdb", 10, limit=10)
+    assert [(c.ip, c.stale) for c in both] == [
+        (NEW_BUSY, False),
+        (GN_ONLY, False),
+        (STALE_BUSY, True),
+        (STALE_QUIET, True),
+    ]
+    assert await pick("abuseipdb", stale_only=True) == [STALE_BUSY, STALE_QUIET]
+    assert await pick("greynoise", stale_only=True) == []  # no GreyNoise answer is old
+
+
+async def test_a_long_skip_list_with_both_address_families_still_filters(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    v6 = "2001:db8::25"
+    await seed_activity(factory, {NEW_BUSY: 12, GN_ONLY: 10, v6: 11})
+    skipped = [f"203.0.113.{i % 250}" for i in range(400)] + [
+        f"2001:db8:1::{i:x}" for i in range(99)
+    ]
+
+    async def pick(*skip: str) -> list[str]:
+        found = await candidate_ips(factory, "abuseipdb", 10, limit=10, exclude=[*skipped, *skip])
+        return [c.ip for c in found]
+
+    assert await pick() == [NEW_BUSY, v6, GN_ONLY]
+    assert await pick(NEW_BUSY, v6) == [GN_ONLY]  # an address of either family is left out
 
 
 async def test_the_quota_goes_to_a_new_address_before_a_stale_one(
@@ -324,6 +360,65 @@ async def test_the_quota_goes_to_a_new_address_before_a_stale_one(
         ip=STALE_BUSY,
     )
     assert new.abuse_score == 88 and new.recent is True
+
+
+async def abuse_calls(p: Providers) -> list[str]:
+    return [r.url.params["ipAddress"] for r in p.calls("api.abuseipdb.com")]
+
+
+async def test_a_share_of_each_day_goes_to_stale_answers(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], routable: None
+) -> None:
+    new_ips = [f"198.51.100.{100 + i}" for i in range(12)]
+    stale_ips = [f"198.51.100.{150 + i}" for i in range(3)]
+    activity = {ip: 10 for ip in new_ips} | {ip: 20 + i for i, ip in enumerate(stale_ips)}
+    await seed_activity(factory, activity)
+    async with engine.begin() as conn:
+        for ip in stale_ips:
+            await conn.execute(
+                text(
+                    "INSERT INTO ip_reputation (ip, abuse_score, abuse_checked_at)"
+                    " VALUES (CAST(:ip AS inet), 30, now() - INTERVAL '30 days')"
+                ),
+                {"ip": ip},
+            )
+    p = Providers()
+    w = worker(factory, p, ABUSEIPDB_DAILY_QUOTA="10", GREYNOISE_API_KEY="")
+    for _ in range(6):
+        await w.run_once()
+    checked = await abuse_calls(p)
+    # Quota 10 keeps 2 for stale answers: new addresses took 8, the busiest 2 stale ones the rest.
+    assert len(checked) == 10
+    assert sum(ip in new_ips for ip in checked) == 8
+    assert [ip for ip in checked if ip in stale_ips] == [stale_ips[2], stale_ips[1]]
+    assert checked[-2:] == [stale_ips[2], stale_ips[1]]  # the new ones came first
+    used = {
+        r.provider: r.used
+        for r in await rows(engine, "SELECT provider, used FROM enrichment_quota")
+    }
+    assert used == {"abuseipdb": 10, "abuseipdb:recheck": 2}
+    refreshed = await rows(
+        engine,
+        "SELECT count(*) AS n FROM ip_reputation WHERE abuse_checked_at > now() - INTERVAL '1 hour'",
+    )
+    assert refreshed[0].n == 10
+
+
+async def test_the_reserved_share_is_not_wasted_when_nothing_is_stale(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], routable: None
+) -> None:
+    new_ips = [f"198.51.100.{100 + i}" for i in range(6)]
+    await seed_activity(factory, {ip: 10 for ip in new_ips})
+    p = Providers()
+    w = worker(factory, p, ABUSEIPDB_DAILY_QUOTA="4", GREYNOISE_API_KEY="")
+    for _ in range(5):
+        await w.run_once()
+    assert len(await abuse_calls(p)) == 4  # the whole quota went to new addresses
+    used = {
+        r.provider: r.used
+        for r in await rows(engine, "SELECT provider, used FROM enrichment_quota")
+    }
+    assert used == {"abuseipdb": 4}
 
 
 async def test_a_stale_score_is_kept_and_used_until_it_is_refreshed(

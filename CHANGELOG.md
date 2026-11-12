@@ -14,10 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   address looked new again and the daily quota was spent on re-checks. Answers are now kept and
   used until they are refreshed, and the migration rebuilds the lost ones from the sessions. The
   quota goes to addresses never looked up first (busiest first), then to answers older than the
-  new `REPUTATION_RECHECK_DAYS` (default 7, from 1 to 30). Addresses that cannot be looked up no
-  longer hold the first places of the queue.
+  new `REPUTATION_RECHECK_DAYS` (default 7, from 1 to 30). A fifth of each day's quota (at least
+  one lookup, at most half) is kept for those refreshes, so old answers are still renewed when
+  new sources arrive all day. Addresses that cannot be looked up no longer hold the first places
+  of the queue.
 - GreyNoise: a "too many requests" answer now stops lookups until the next UTC day and marks the
-  day's counter as full, instead of retrying every hour. The free Community tier allows far fewer
+  day's counter as full (so the key test in Settings reports "quota exhausted" until then, even
+  after a key change), instead of retrying every hour. The free Community tier allows far fewer
   lookups than most configured quotas, so the retries only produced more errors.
 - `update.sh` and `install.sh` no longer report a failed update or install on a healthy node
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final

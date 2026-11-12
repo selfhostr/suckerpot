@@ -6,9 +6,12 @@ address. Only read endpoints are used: nothing is ever reported to AbuseIPDB.
 
 Who is looked up. Addresses a provider has never answered for come first (busiest first), then
 addresses whose answer is older than ``REPUTATION_RECHECK_DAYS`` (busiest first). A recent
-answer is never asked for again. An answer never expires: the row keeps serving lookups (the
-writer reads it for every new event) until a newer one replaces it, and the maintenance job only
-prunes rows nobody refreshed for the whole retention window.
+answer is never asked for again. A fifth of each day's quota (at least one lookup, at most half
+of it, see ``recheck_reserve``) is kept for stale answers, so that new addresses cannot starve
+the refresh of old answers; when nothing is stale, new addresses may use it. An answer never
+expires: the row keeps serving lookups (the writer reads it for every new event) until a newer
+one replaces it, and the maintenance job only prunes rows nobody refreshed for the whole
+retention window.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 from sqlalchemy import ARRAY, Text, bindparam, text
@@ -36,6 +39,8 @@ ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 GREYNOISE_URL = "https://api.greynoise.io/v3/community/{ip}"
 DEFAULT_RECHECK_DAYS = 7
 PER_CYCLE = 5
+MAX_SKIPPED = 500  # most recent backed-off addresses left out of the candidate query
+RECHECK_SHARE = 5  # one lookup in this many is kept for stale answers (a fifth, 20 %)
 RATE_LIMIT_PAUSE_S = 3600.0
 HTTP_TIMEOUT = httpx.Timeout(8.0, connect=4.0)
 TEST_IP = "8.8.8.8"  # a well-known public resolver: any routable address would do
@@ -98,6 +103,36 @@ async def mark_quota_spent(
         await session.execute(stmt, {"p": provider, "d": _quota_day(), "q": limit})
 
 
+def recheck_reserve(quota: int) -> int:
+    """Lookups per day kept for stale answers: a fifth of the quota, at least one, at most half.
+
+    A quota of 1 keeps nothing back: it would leave no lookup for new addresses at all.
+    """
+    return min(max(1, -(-quota // RECHECK_SHARE)), quota // 2)
+
+
+async def quota_usage(factory: async_sessionmaker[AsyncSession], provider: str) -> tuple[int, int]:
+    """Lookups made today with ``provider``: all of them, and those that refreshed an answer."""
+    stmt = text(
+        "SELECT provider, used FROM enrichment_quota WHERE day = :d AND provider IN (:p, :r)"
+    )
+    async with factory() as session:
+        rows = await session.execute(
+            stmt, {"d": _quota_day(), "p": provider, "r": recheck_key(provider)}
+        )
+        used = {r.provider: int(r.used) for r in rows}
+    return used.get(provider, 0), used.get(recheck_key(provider), 0)
+
+
+def recheck_key(provider: str) -> str:
+    return f"{provider}:recheck"
+
+
+class Candidate(NamedTuple):
+    ip: str
+    stale: bool  # it has an answer already, older than the recheck age
+
+
 async def candidate_ips(
     factory: async_sessionmaker[AsyncSession],
     provider: str,
@@ -105,23 +140,27 @@ async def candidate_ips(
     limit: int = PER_CYCLE,
     recheck_days: int = DEFAULT_RECHECK_DAYS,
     exclude: Sequence[str] = (),
-) -> list[str]:
+    stale_only: bool = False,
+) -> list[Candidate]:
     """Recent source IPs to look up with ``provider``: never answered first, then stale.
 
     "Never answered" means no row, or a row without this provider's answer (it may hold the
     other provider's). "Stale" means answered more than ``recheck_days`` ago. Each group is
     ordered busiest first. A recent answer excludes the address, so the quota is spent on
-    addresses we know nothing about before it is spent on refreshing known ones. ``exclude``
-    holds addresses to skip for now (unroutable or failing): they must not fill the limit.
+    addresses we know nothing about before it is spent on refreshing known ones.
+    ``stale_only`` leaves the never answered ones out. ``exclude`` holds addresses to skip for
+    now (unroutable or failing): they must not fill the limit.
     """
     column = "abuse_checked_at" if provider == "abuseipdb" else "gn_checked_at"
+    only_stale = f"AND r.{column} IS NOT NULL" if stale_only else ""
     stmt = text(
         f"""
-        SELECT host(s.src_ip) AS ip, sum(s.event_count) AS activity
+        SELECT host(s.src_ip) AS ip, (r.{column} IS NOT NULL) AS stale
         FROM sessions s LEFT JOIN ip_reputation r ON r.ip = s.src_ip
         WHERE s.last_event_at > now() - interval '7 days'
           AND (r.{column} IS NULL OR r.{column} < now() - make_interval(days => :d))
-          AND NOT (host(s.src_ip) = ANY(:ex))
+          {only_stale}
+          AND s.src_ip <> ALL(CAST(:ex AS inet[]))
         GROUP BY s.src_ip, r.{column}
         HAVING bool_or(s.login_success) OR sum(s.commands) > 0 OR sum(s.downloads) > 0
             OR sum(s.event_count) >= :n
@@ -131,9 +170,10 @@ async def candidate_ips(
     ).bindparams(bindparam("ex", type_=ARRAY(Text)))
     async with factory() as session:
         rows = await session.execute(
-            stmt, {"n": min_events, "k": limit, "d": recheck_days, "ex": list(exclude)}
+            stmt,
+            {"n": min_events, "k": limit, "d": recheck_days, "ex": list(exclude)[-MAX_SKIPPED:]},
         )
-        return [r.ip for r in rows]
+        return [Candidate(r.ip, bool(r.stale)) for r in rows]
 
 
 class ReputationWorker:
@@ -314,11 +354,42 @@ class ReputationWorker:
         await mark_quota_spent(self.factory, provider, self.quota(provider))
 
     def _backed_off(self, provider: str) -> list[str]:
-        """Addresses to leave out of the next candidate query (and forget the expired ones)."""
+        """Addresses to leave out of the next candidate query (and forget the expired ones).
+
+        At most the ``MAX_SKIPPED`` most recent ones: the query stays cheap, and the loop still
+        skips an older one that comes back.
+        """
         now = time.monotonic()
         for pair in [k for k, until in self._retry_after.items() if until <= now]:
             del self._retry_after[pair]
-        return [ip for (p, ip) in self._retry_after if p == provider]
+        return [ip for (p, ip) in self._retry_after if p == provider][-MAX_SKIPPED:]
+
+    async def _pick(self, provider: str) -> list[Candidate]:
+        """The addresses to look up this cycle, keeping a share of the day for stale answers."""
+        quota = self.quota(provider)
+        used, rechecks = await quota_usage(self.factory, provider)
+        owed = max(0, recheck_reserve(quota) - rechecks)  # still reserved for stale answers
+        shared = quota - used - owed  # what new addresses may still take today
+
+        async def query(limit: int, stale_only: bool) -> list[Candidate]:
+            return await candidate_ips(
+                self.factory,
+                provider,
+                self.s.reputation_min_events,
+                limit=limit,
+                recheck_days=self.s.reputation_recheck_days,
+                exclude=self._backed_off(provider),
+                stale_only=stale_only,
+            )
+
+        if shared <= 0:  # only the reserved lookups are left: they go to stale answers
+            stale = await query(PER_CYCLE, True)
+            if stale:
+                return stale
+            shared = quota - used  # nothing is stale: new addresses may use them
+        # New addresses first; the limit stops them at the reserve (stale ones, if any come
+        # after the new ones, spend the reserve itself).
+        return await query(min(PER_CYCLE, max(shared, 1)), False)
 
     async def run_once(self) -> int:
         """One cycle over both providers. Returns how many lookups were made."""
@@ -329,14 +400,9 @@ class ReputationWorker:
             if not self.enabled(provider) or self._paused(provider):
                 continue
             quota = self.quota(provider)
-            candidates = await candidate_ips(
-                self.factory,
-                provider,
-                self.s.reputation_min_events,
-                recheck_days=self.s.reputation_recheck_days,
-                exclude=self._backed_off(provider),
-            )
-            for ip in candidates:
+            for ip, stale in await self._pick(provider):
+                if time.monotonic() < self._retry_after.get((provider, ip), 0.0):
+                    continue
                 try:
                     if not is_routable(ipaddress.ip_address(ip)):
                         self._retry_after[(provider, ip)] = time.monotonic() + 86400
@@ -350,6 +416,8 @@ class ReputationWorker:
                     self._paused_until[provider] = time.monotonic() + 600
                     break
                 made += 1
+                if stale:  # counted apart: the day keeps a share of its quota for these
+                    await reserve_quota(self.factory, recheck_key(provider), quota)
                 try:
                     if provider == "abuseipdb":
                         await self._store_abuse(ip, await self.check_abuseipdb(ip))
@@ -360,7 +428,8 @@ class ReputationWorker:
                     return made  # closed between the check and the request
                 except ProviderError as exc:
                     self.last_error[provider] = exc.kind
-                    self._retry_after[(provider, ip)] = time.monotonic() + 900
+                    if exc.kind != "rate_limited":  # the address is not at fault then
+                        self._retry_after[(provider, ip)] = time.monotonic() + 900
                     if exc.kind == "auth":
                         self._disabled[provider] = "auth"
                         log.error("%s rejected the API key: lookups disabled", provider)

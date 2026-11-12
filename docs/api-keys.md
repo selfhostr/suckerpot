@@ -36,7 +36,7 @@ Adds the abuse score and report count of an attacker's IP address, shown on atta
 3. Choose **Create Key**, give it a name such as `suckerpot`, and copy it.
 4. Set it in Settings, or as `ABUSEIPDB_API_KEY`.
 
-The free tier allows 1,000 checks per day. `ABUSEIPDB_DAILY_QUOTA` (default 1000) caps what SuckerPot uses. Addresses that were never checked go first, busiest first. An address that already has a score is checked again only after `REPUTATION_RECHECK_DAYS` (default 7), and its last score is used until then. SuckerPot only reads from AbuseIPDB. It never reports addresses to it.
+The free tier allows 1,000 checks per day. `ABUSEIPDB_DAILY_QUOTA` (default 1000) caps what SuckerPot uses. Addresses that were never checked go first, busiest first. An address that already has a score is checked again only after `REPUTATION_RECHECK_DAYS` (default 7), and its last score is used until then. A fifth of each day's quota (at least one check, at most half of it) is kept for those refreshes, so a steady stream of new sources cannot keep old scores from being renewed. When no score is old enough, new addresses use that share. SuckerPot only reads from AbuseIPDB. It never reports addresses to it.
 
 ## GreyNoise Community
 
@@ -46,7 +46,7 @@ Adds a label that says whether an address is a known internet scanner, and wheth
 2. Sign in and open your account page. The API key is shown there.
 3. Copy it and set it in Settings, or as `GREYNOISE_API_KEY`.
 
-The Community API allows about 50 lookups per week, not per day. The quota here is counted per day (`GREYNOISE_DAILY_QUOTA`, default 7), and 7 a day is 49 a week, so the node stays inside the allowance. Raising it only gets you errors from GreyNoise once the weekly allowance is spent. When GreyNoise answers "too many requests", SuckerPot treats the allowance as used up: it marks the day's counter as full and stops asking until the next UTC day. Addresses that were never looked up go first here too.
+The Community API allows about 50 lookups per week, not per day. The quota here is counted per day (`GREYNOISE_DAILY_QUOTA`, default 7), and 7 a day is 49 a week, so the node stays inside the allowance. Raising it only gets you errors from GreyNoise once the weekly allowance is spent. When GreyNoise answers "too many requests", SuckerPot treats the allowance as used up: it marks the day's counter as full and stops asking until the next UTC day. That also holds after you change the key: the day still counts as spent, so the key test in Settings answers "quota exhausted" until the next UTC day. Addresses that were never looked up go first here too, and a fifth of the daily quota (at least 2 lookups a day with the default of 7) is kept for refreshing old answers.
 
 ## MaxMind GeoLite2
 
