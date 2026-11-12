@@ -11,7 +11,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Final
@@ -67,6 +67,16 @@ OPTION_KEYS: Final = (
     "show_redaction_counts",
 )
 DEFAULT_TLP: Final = "green"
+# The owner's own wording. Each part ends up in every report, so each one is guarded on its own.
+SETTINGS_TEXT_FIELDS: Final = (
+    "reply_contact",
+    "signature",
+    "intro",
+    "outro",
+    "note",
+    "subject_template",
+    "xarf_user_agent",
+)
 
 _terms_cache: tuple[float, SelfTerms] | None = None
 
@@ -337,6 +347,41 @@ def guard_failed_response(codes: tuple[str, ...]) -> JSONResponse:
             "detail": "The identity check blocked this content.",
             "code": "identity_guard_failed",
             "reasons": sorted(set(codes)),
+        },
+        status_code=409,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def settings_issues(
+    values: Mapping[str, str | None], terms: SelfTerms | None
+) -> dict[str, list[str]]:
+    """Field by field, the guard codes the owner's own wording raises (codes only, never text).
+
+    Anything listed here would block every report written with these settings. The monitored
+    address may be unknown yet (``no_self_address``): that is not the wording's fault, so it is
+    left out and the settings stay savable.
+    """
+    issues: dict[str, list[str]] = {}
+    for name in SETTINGS_TEXT_FIELDS:
+        value = values.get(name)
+        if not value:
+            continue
+        codes = sorted(set(guard(value, terms, fmt="text").codes) - {"no_self_address"})
+        if codes:
+            issues[name] = codes
+    return issues
+
+
+def settings_guard_failed_response(issues: Mapping[str, Sequence[str]]) -> JSONResponse:
+    """409 for a refused settings save: reason codes per field name, never the matched text."""
+    fields = {name: sorted(set(codes)) for name, codes in issues.items()}
+    return JSONResponse(
+        {
+            "detail": "These settings would block every report, so they were not saved.",
+            "code": "identity_guard_failed",
+            "reasons": sorted({c for codes in fields.values() for c in codes}),
+            "fields": fields,
         },
         status_code=409,
         headers={"Cache-Control": "no-store"},

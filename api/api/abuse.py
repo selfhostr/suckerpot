@@ -58,6 +58,7 @@ from suckerpot_reporting import (
 from api import audit as audit_db
 from api.abuse_core import (
     MAILBOX_RE,
+    SETTINGS_TEXT_FIELDS,
     EvidenceInvalidError,
     SettingsBundle,
     build_evidence,
@@ -73,7 +74,9 @@ from api.abuse_core import (
     render_checked,
     reply_args,
     self_address_fresh,
+    settings_guard_failed_response,
     settings_incomplete_response,
+    settings_issues,
 )
 from api.abuse_outcomes import OutcomeOut, outcomes_for
 from api.abuse_replies import ReplyOut, replies_enabled, replies_of_report
@@ -233,6 +236,13 @@ class RepliesStatus(BaseModel):
     needs_review: int
 
 
+class BlockedDrafts(BaseModel):
+    """Open drafts the identity check holds back, and how many carry each reason code."""
+
+    count: int
+    reasons: dict[str, int]
+
+
 class StatusOut(BaseModel):
     enabled: bool
     gate: Literal["open", "closed"]
@@ -242,6 +252,7 @@ class StatusOut(BaseModel):
     counts: dict[str, int]
     waiting_for_contact: int
     replies: RepliesStatus
+    blocked_drafts: BlockedDrafts
 
 
 class WaitingOut(BaseModel):
@@ -290,6 +301,8 @@ class SettingsOut(BaseModel):
     default_tlp: Literal["clear", "green", "amber", "red"]
     reference_style: Literal["subject", "subject_and_body", "off"]
     revision: int
+    # Field name to guard codes: the stored wording that would block every report (codes only).
+    field_issues: dict[str, list[str]] = {}
 
 
 class TermOut(BaseModel):
@@ -579,6 +592,7 @@ async def abuse_status(db: DbSession) -> StatusOut:
         .select_from(AbuseRecipientRow)
         .where(AbuseRecipientRow.mailbox.is_(None), AbuseRecipientRow.override_mailbox.is_(None))
     )
+    blocked = await _blocked_drafts(db)
     terms = await load_terms(db)
     unmatched, needs_review = await reply_counts(db)
     imap = (
@@ -603,7 +617,24 @@ async def abuse_status(db: DbSession) -> StatusOut:
             unmatched=unmatched,
             needs_review=needs_review,
         ),
+        blocked_drafts=blocked,
     )
+
+
+async def _blocked_drafts(db: AsyncSession) -> BlockedDrafts:
+    """The stored identity result of the open drafts (ingest keeps it current), by reason code."""
+    count = await db.scalar(
+        select(func.count())
+        .select_from(AbuseReportRow)
+        .where(AbuseReportRow.status == "draft", AbuseReportRow.guard_ok.is_(False))
+    )
+    rows = await db.execute(
+        text(
+            "SELECT code, count(*) AS n FROM abuse_reports, unnest(guard_codes) AS code "
+            "WHERE status = 'draft' AND NOT guard_ok GROUP BY code"
+        )
+    )
+    return BlockedDrafts(count=int(count or 0), reasons={code: int(n) for code, n in rows})
 
 
 def _int_env(name: str, default: int) -> int:
@@ -1280,7 +1311,9 @@ class SettingsBody(BaseModel):
         return v
 
 
-def _settings_out(bundle: SettingsBundle) -> SettingsOut:
+def _settings_out(
+    bundle: SettingsBundle, issues: dict[str, list[str]] | None = None
+) -> SettingsOut:
     s = bundle.settings
     return SettingsOut(
         reply_contact=s.reply_contact,
@@ -1295,37 +1328,34 @@ def _settings_out(bundle: SettingsBundle) -> SettingsOut:
         default_tlp=bundle.tlp,  # type: ignore[arg-type]
         reference_style=bundle.reference_style,  # type: ignore[arg-type]
         revision=bundle.revision,
+        field_issues=issues or {},
     )
 
 
 @router.get("/abuse/settings", response_model=SettingsOut, dependencies=[AdminOnly])
 async def get_settings(db: DbSession) -> SettingsOut:
-    return _settings_out(await load_settings(db))
+    """The stored settings, and which of the texts would block every report today.
+
+    The deny set grows over time (learned terms, new project words), so wording saved earlier
+    can start to block drafts later. The answer names the fields, never the matched text."""
+    bundle = await load_settings(db)
+    stored = {name: getattr(bundle.settings, name) for name in SETTINGS_TEXT_FIELDS}
+    return _settings_out(bundle, settings_issues(stored, await load_terms(db)))
 
 
 @router.put("/abuse/settings", response_model=SettingsOut)
 async def put_settings(
     body: SettingsBody, request: Request, db: DbSession
 ) -> Response | SettingsOut:
-    """Every text field passes the identity guard first: an alias on an owner domain is refused."""
-    terms = await load_terms(db)
-    codes: set[str] = set()
-    for value in (
-        body.reply_contact,
-        body.signature,
-        body.intro,
-        body.outro,
-        body.note,
-        body.subject_template,
-        body.xarf_user_agent,
-    ):
-        if not value:
-            continue
-        result = guard(value, terms, fmt="text")
-        # The monitored address may be unknown yet; settings must still be savable.
-        codes |= set(result.codes) - {"no_self_address"}
-    if codes:
-        return guard_failed_response(tuple(codes))
+    """Every text field passes the identity guard first, and a refusal names the fields.
+
+    A text that would block every report (an address on an owner domain, a name that gives the
+    project away) is refused, because saving it would only leave every draft stuck."""
+    issues = settings_issues(
+        body.model_dump(include=set(SETTINGS_TEXT_FIELDS)), await load_terms(db)
+    )
+    if issues:
+        return settings_guard_failed_response(issues)
     old = await load_settings(db)
     defaults = {
         **body.default_options.model_dump(),

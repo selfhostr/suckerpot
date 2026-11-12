@@ -358,6 +358,73 @@ async def test_settings_are_guarded_and_audit_has_no_values(client: httpx.AsyncC
     assert rows[0].details["changed"] == ["reply_contact"]
 
 
+async def test_a_refused_save_names_the_fields_and_a_stored_text_is_flagged(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    named = "reports@honeypot.example.net"  # a reply address that names the project
+    with caplog.at_level("DEBUG"):
+        refused = await client.put(
+            "/api/v1/abuse/settings",
+            json=settings_body(
+                0, reply_contact=named, intro="Please investigate and stop this activity."
+            ),
+        )
+    assert refused.status_code == 409
+    body = refused.json()
+    assert body["code"] == "identity_guard_failed"
+    assert body["fields"] == {"reply_contact": ["project_term"], "intro": ["default_wording"]}
+    assert body["reasons"] == ["default_wording", "project_term"]
+    for private in ("honeypot", "investigate"):
+        assert private not in refused.text and private not in caplog.text
+    # nothing was saved
+    got = (await client.get("/api/v1/abuse/settings")).json()
+    assert got["reply_contact"] is None and got["field_issues"] == {}
+
+    # Text saved before a rule existed (or before the deny set grew) is flagged when it is read.
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO report_settings (id, reply_contact, revision) VALUES (1, :c, 3)"),
+            {"c": named},
+        )
+    stored = (await client.get("/api/v1/abuse/settings")).json()
+    assert stored["reply_contact"] == named
+    assert stored["field_issues"] == {"reply_contact": ["project_term"]}
+    # Saving other changes around it is refused too, until the address is neutral.
+    same = await client.put("/api/v1/abuse/settings", json=settings_body(3, reply_contact=named))
+    assert same.status_code == 409 and same.json()["fields"] == {"reply_contact": ["project_term"]}
+    fixed = await client.put(
+        "/api/v1/abuse/settings", json=settings_body(3, reply_contact="reports@example.org")
+    )
+    assert fixed.status_code == 200 and fixed.json()["field_issues"] == {}
+    assert (await client.get("/api/v1/abuse/settings")).json()["field_issues"] == {}
+
+
+async def test_status_counts_the_blocked_drafts_by_reason(client: httpx.AsyncClient) -> None:
+    clear = (await client.get("/api/v1/abuse/status")).json()["blocked_drafts"]
+    assert clear == {"count": 0, "reasons": {}}
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, "
+                "guard_codes = '{project_term,self_name}' WHERE public_id = :p"
+            ),
+            {"p": DEMO_ID},
+        )
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, guard_codes = '{project_term}' "
+                "WHERE public_id = :p"
+            ),
+            {"p": LEAK_ID},
+        )
+        # a reviewed report is not a draft: it is not counted
+        await conn.execute(
+            text("UPDATE abuse_reports SET guard_ok = false WHERE public_id = :p"), {"p": SENT_ID}
+        )
+    blocked = (await client.get("/api/v1/abuse/status")).json()["blocked_drafts"]
+    assert blocked == {"count": 2, "reasons": {"project_term": 2, "self_name": 1}}
+
+
 async def test_self_terms_recipients_and_regenerate(client: httpx.AsyncClient) -> None:
     listed = (await client.get("/api/v1/abuse/self-terms")).json()
     assert listed[0]["value"] == "203.0.•••.•••" and listed[0]["source"] == "manual"
