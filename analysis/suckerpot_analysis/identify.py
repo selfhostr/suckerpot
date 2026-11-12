@@ -73,6 +73,16 @@ _CSS_TOKEN = re.compile(
 )
 # Run over the WHOLE input for every web kind: a command, a downloader or active content anywhere
 # means the file is a program, not a page.
+# Shell statements, written the way a shell script writes them. Narrower than `_SHELL_HINT`, whose
+# single words ("export", "echo", "bash") are in every ES module and in many pages.
+_SHELL_STATEMENT = re.compile(
+    rb"^[ \t]*export[ \t]+[A-Za-z_]\w*="
+    rb"|\b(?:ba)?sh[ \t]+-c\b|[ \t\r\n]\|[ \t]*(?:ba)?sh\b|/bin/(?:ba)?sh\b"
+    rb"|\bcd[ \t]+/tmp\b|/(?:dev/shm|var/tmp)\b|\bnohup[ \t]|\bcrontab\b|\bbusybox\b|\btftp\b"
+    rb"|\brm[ \t]+-[a-zA-Z]*[rf][a-zA-Z]*[ \t]+/|\bnc[ \t]+-e\b|/dev/tcp/"
+    rb"|;[ \t]*\./\S|&&[ \t]*\./\S",
+    re.MULTILINE,
+)
 _DROPPER_HINT = re.compile(
     rb"\b(?:wget|curl|busybox|tftp|nohup|crontab|pkill)\b|chmod|/bin/(?:ba)?sh\b|/dev/tcp/"
     rb"|child[\"'\s+.\[\]()]{0,12}_?process|\b(?:execSync|execFileSync|execFile|spawnSync|spawn\s*\()"
@@ -301,11 +311,11 @@ def _identify_web(data: bytes) -> str | None:
     1. The opening bytes name the format: a document that opens like HTML, SVG or XML (after its
        XML declaration, comments and plain document type), a JSON bracket, JavaScript syntax (two
        markers, none of another language) or a style sheet rule.
-    2. The WHOLE input is scanned, whatever its size, for shell commands and downloaders
-       (`_SHELL_HINT`, `_DROPPER_HINT`) and for active content that a browser or a server would
-       run (`_ACTIVE_CONTENT`: ASP and JSP tags, any `<?` other than the XML declaration, HTA,
-       scriptlets, WSH, PowerShell, `runat="server"` and the like). One hit anywhere refuses
-       every kind.
+    2. The WHOLE input is scanned, whatever its size, for shell statements (`_SHELL_STATEMENT`),
+       downloaders and program calls (`_DROPPER_HINT`) and for active content that a browser or a
+       server would run (`_ACTIVE_CONTENT`: ASP and JSP tags, any `<?` other than the XML
+       declaration, HTA, scriptlets, WSH, PowerShell, `runat="server"` and the like). One hit
+       anywhere refuses every kind. Single words such as "echo", "export" or "bash" do not count.
     3. The format is checked: JSON must parse (up to 2 MiB) and a style sheet must be made only
        of rules and declarations (up to 4 MiB). A larger file of either keeps the text kind.
 
@@ -329,7 +339,7 @@ def _identify_web(data: bytes) -> str | None:
         kind = "css" if _CSS_AT_RULE.match(css) or len(_CSS_BLOCK.findall(css)) >= 3 else None
     if kind is None:
         return None
-    if _SHELL_HINT.search(data) or _DROPPER_HINT.search(data) or _ACTIVE_CONTENT.search(data):
+    if _SHELL_STATEMENT.search(data) or _DROPPER_HINT.search(data) or _ACTIVE_CONTENT.search(data):
         return None
     if kind == "json" and not _parses_as_json(data):
         return None
