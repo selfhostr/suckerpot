@@ -141,6 +141,13 @@ _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     _sign(b"tftp", rb"\btftp\b"),
     _sign(b"rm", rb"\brm[ \t]++-[a-z]{0,8}[rf][a-z]{0,8}[ \t]++/"),
     _sign(b"-e", rb"\bnc[ \t]++-e\b"),
+    _sign(b"/dev/udp/"),
+    _sign(b"/inet/tcp/"),
+    _sign(b"/inet/udp/"),
+    # Process substitution, and a file sourced by path (`. /run/a`, `source ~/x`).
+    _sign(b"<(", rb"(?:\bsource|(?<![\w.])\.|\b(?:ba|da|z)?sh)[ \t]++<\("),
+    _sign(b". ", rb"(?m)(?:^|[;&|])[ \t]*+\.[ \t]++[/~$]"),
+    _sign(b"source", rb"(?m)(?:^|[;&|])[ \t]*+source[ \t]++[/~$]"),
     # Downloaders and program calls.
     _sign(b"wget", rb"\bwget\b"),
     _sign(b"curl", rb"\bcurl\b"),
@@ -183,6 +190,19 @@ _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     _sign(b"eval", rb"\beval[ \t]++[\"'$`]|=\s*+eval\s*+[;,)]"),
     _sign(b"python", rb"\bpython[23]?(?:\.[0-9]{1,2})?[ \t]++-[a-z]{0,4}c\b"),
     _sign(b"perl", rb"\bperl[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}[em]"),
+    _sign(b"php", rb"\bphp[0-9.]{0,4}[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}r\b"),
+    _sign(b"ruby", rb"\bruby[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}e\b"),
+    _sign(b"lua", rb"\blua[0-9.]{0,4}[ \t]++-e\b"),
+    _sign(
+        b"node",
+        rb"\bnode(?:js)?[ \t]++(?:-[a-z-]{1,16}[ \t]++){0,3}-(?:-eval|-print|[a-z]{0,4}[ep]\b)",
+    ),
+    # JavaScript that runs text it was handed: eval of anything but one plain string, an
+    # indirect eval.
+    _sign(
+        b"eval",
+        rb"\beval\s*+\(\s*+(?![\"'][^\"'`\n]{0,200}+[\"']\s*+\))|[(,]\s*+eval\s*+\)\s*+\(",
+    ),
     _sign(b"atob", rb"\b(?:function|eval)\s*+\(\s*+atob\s*+\("),
     _sign(b"function", rb"=\s*+function\s*+[;,)]"),
     # Active content that a browser, Windows or a server would run.
@@ -210,17 +230,29 @@ _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     _sign(b"shell.application"),
     _sign(b"adodb.stream"),
 )
-# `.exec(` runs a command only in Node, after a module was loaded; in a page it is the regular
-# expression method of every bundle. So it counts together with a Node module load: `require` or
-# `import()` of anything but one plain string (a variable, `Buffer.from(...)`, a name built from
-# parts or a template), of a Node module that reaches the system, or the module loader itself.
-_EXEC_CALL = re.compile(rb"\.\s*+exec\s*+\(")
-_NODE_LOAD = re.compile(
-    rb"\b(?:require|import)\s*+\(\s*+(?:(?![\"'][^\"'`\n]{0,200}+[\"']\s*+\))"
-    rb"|[\"'](?:node:|(?:child_process|fs|net|https?|os|vm|worker_threads|cluster|dgram|tls"
-    rb"|module)[\"'/]))"
-    rb"|\bprocess\s*+\.\s*+(?:mainmodule|binding|dlopen)\b|\bmodule\s*+\.\s*+constructor\b"
+# Node that reaches the system: a module load (`require` or `import()` of anything but one plain
+# string, such as a variable, `Buffer.from(...)`, a name built from parts or a template; a Node
+# module that reaches the network, the files or other programs; the module loader itself) used
+# with a write, a pipe, a program run (`.exec(`, `.fork(`, `.spawn(`) or `eval(`. In a page,
+# `.exec(` is the regular expression method of every bundle and `.write(` is `document.write`, so
+# neither counts alone.
+_NODE_MODULES = (
+    rb"(?:node:|(?:child_process|fs|net|https?|os|vm|worker_threads|cluster|dgram|tls|module)"
+    rb"[\"'`/])"
 )
+_NODE_LOAD = re.compile(
+    rb"\b(?:require|import)\s*+\(\s*+(?:(?![\"'][^\"'`\n]{0,200}+[\"']\s*+\))|[\"']"
+    + _NODE_MODULES
+    + rb")|\bfrom\s*+[\"']"
+    + _NODE_MODULES
+    + rb"|\bprocess\s*+\.\s*+(?:mainmodule|binding|dlopen)\b|\bmodule\s*+\.\s*+constructor\b"
+)
+_NODE_ACTION = re.compile(
+    rb"\.\s*+(?:exec|fork|spawn|write|pipe)\w*+\s*+\(|\b(?:writefile|appendfile)\w*+|\beval\s*+\("
+)
+# The Function constructor builds code from text (case matters: `function(` is a declaration). The
+# one exception is the global object idiom of every polyfill, `Function("return this")`.
+_FUNCTION_CTOR = re.compile(rb"(?<![\w$.])Function\s*+\(\s*+(?![\"']return this[\"']\s*+\))")
 
 
 def _unpack(fmt: str, data: bytes, offset: int) -> tuple[int, ...] | None:
@@ -434,12 +466,14 @@ def _css_shaped(data: bytes) -> bool:
 
 def _runs_something(data: bytes) -> bool:
     """True when the input holds a shell statement, a downloader, a code runner or active content
-    (`_SIGNS`), or `.exec(` next to a Node module load."""
+    (`_SIGNS`), the Function constructor, or a Node module load used to write or run something."""
     low = data.lower()
     for literal, pattern in _SIGNS:
         if literal in low and (pattern is None or pattern.search(low)):
             return True
-    return b"exec" in low and bool(_EXEC_CALL.search(low) and _NODE_LOAD.search(low))
+    if b"Function" in data and _FUNCTION_CTOR.search(data):
+        return True
+    return bool(_NODE_ACTION.search(low) and _NODE_LOAD.search(low))
 
 
 def _identify_web(data: bytes) -> str | None:

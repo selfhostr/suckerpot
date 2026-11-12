@@ -9,6 +9,7 @@ from .iocs import extract_iocs, mirai_table_iocs
 from .models import WEB_KINDS, AnalysisResult, Ioc, Limits, Severity
 from .rules import CompiledRules, scan
 from .strings import printable_strings
+from .weblinks import ASSET_KINDS, asset_links
 
 _ORDER: tuple[Severity, ...] = ("info", "notice", "warning", "severe")
 _TEXT_KINDS = frozenset({"script", "text"})
@@ -53,9 +54,10 @@ def analyze(data: bytes, *, rules: CompiledRules, limits: Limits = Limits()) -> 
     deobfuscated: str | None = None
     deob_steps = []
     # Web content (WEB_KINDS) is read like any text: its links are extracted. Whether they are
-    # followed is the collector's decision, which knows how the file was reached: links of a page
-    # that an attacker asked for are followed, links found in a page it reached by following other
-    # web links are not.
+    # followed is the collector's decision, which knows how the file was reached. A link that a
+    # page or a style sheet names only as an asset (a markup attribute, a style sheet url() or
+    # @import) is labelled "web_asset": the file it points at may be plain web content. Any other
+    # link, in the text of a page or in a script, stays "script_url".
     if (info.kind in _TEXT_KINDS or info.kind in WEB_KINDS) and len(data) <= limits.deob_max_input:
         text = data.decode("utf-8", errors="replace")
         result = deobfuscate_shell(
@@ -68,6 +70,14 @@ def analyze(data: bytes, *, rules: CompiledRules, limits: Limits = Limits()) -> 
         if result.truncated:
             errors.append("deob_truncated")
         iocs = extract_iocs([result.text], source="script_url", max_iocs=limits.max_iocs)
+        if info.kind in ASSET_KINDS and iocs:
+            assets = asset_links(text, info.kind)
+            iocs = [
+                i.model_copy(update={"source": "web_asset"})
+                if i.kind == "next_url" and i.value in assets
+                else i
+                for i in iocs
+            ]
     elif info.kind in {"elf", "pe", "macho"}:
         iocs = extract_iocs(
             strings, source="binary_string", trusted=bool(hits), max_iocs=limits.max_iocs

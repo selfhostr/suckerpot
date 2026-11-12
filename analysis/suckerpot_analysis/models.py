@@ -20,7 +20,9 @@ ANALYSIS_VERSION = 2
 WEB_KINDS: frozenset[str] = frozenset({"html", "svg", "xml", "css", "json", "javascript"})
 
 IocKind = Literal["next_url", "c2_ip", "c2_domain", "c2_url"]
-IocSource = Literal["script_url", "binary_ip_port", "binary_string", "mirai_table"]
+# "web_asset": a next URL that a page or a style sheet only names as an asset (a markup attribute
+# such as href or src, a style sheet url() or @import). Every other next URL is "script_url".
+IocSource = Literal["script_url", "web_asset", "binary_ip_port", "binary_string", "mirai_table"]
 Confidence = Literal["high", "low"]
 Severity = Literal["info", "notice", "warning", "severe"]
 

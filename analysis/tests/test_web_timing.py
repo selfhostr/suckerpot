@@ -68,10 +68,19 @@ CASES = {
     "js open function of": fill(STRICT, b"Function( "),
     "js spaces after function": fill(STRICT + b"function", b" "),
     "js open import list": fill(STRICT + b"import{", b"a,"),
+    "js open eval": fill(STRICT, b"eval( "),
+    "js open Function": fill(STRICT, b"Function( "),
+    "js writes without a module": fill(STRICT, b"document.write(a);x.pipe(b);"),
+    "js open require of a string": fill(STRICT, b'require("'),
+    "html node dashes": fill(b"<html>", b"node -x "),
+    "html dot sources": fill(b"<html>\n", b". . "),
+    "html process substitutions": fill(b"<html>", b"source <"),
+    "html open attributes": fill(b"<html><body>", b'<a href="x'),
     "js every literal of a sign": fill(
         STRICT + b"var b=2;",
         b"sh rm perl python eval base64 iex download exec require( import( atob function cmd "
-        b"runat <job <? | ./ /tmp -e process system popen spawn ",
+        b"runat <job <? | ./ /tmp -e process system popen spawn php ruby node lua source . <( "
+        b"Function .write( .pipe( writefile ",
     ),
 }
 
@@ -83,6 +92,16 @@ def test_hostile_input_classifies_in_linear_time(name: str) -> None:
     identify(data)
     elapsed = time.monotonic() - start
     assert elapsed < BUDGET_S, (name, len(data), round(elapsed, 3))
+
+
+def test_asset_links_of_a_large_page_stay_fast() -> None:
+    # The analysis reads the links of up to 1 MiB of a page, asset attributes included.
+    from suckerpot_analysis.weblinks import asset_links
+
+    page = fill(b"<html><body>", b'<a href="x"><img src=y style="u:url(z)">', 1024 * 1024)
+    start = time.monotonic()
+    asset_links(page.decode(), "html")
+    assert time.monotonic() - start < BUDGET_S
 
 
 def test_the_largest_input_stays_fast() -> None:
