@@ -76,10 +76,155 @@ export const GUARD_REASON: Record<string, string> = {
     "The address of the monitored system is not known yet, so nothing can be checked. Reports stay locked until traffic teaches it, or you add it in Settings.",
   self_terms_unavailable:
     "The list of things that must never appear could not be read, so nothing is released.",
+  // Set by the draft builder, not by the guard itself.
+  settings_incomplete: "No reply contact is set, so the report cannot be written.",
+  evidence_invalid: "The stored evidence of this draft is not valid.",
 }
 
 export function guardReason(code: string): string {
   return GUARD_REASON[code] ?? "The identity check refused this text."
+}
+
+/**
+ * What to do about each reason, in plain English. A blocked draft is re-checked on its own about
+ * a minute after the settings are saved, so the settings advice never says "regenerate".
+ */
+export const GUARD_FIX: Record<string, string> = {
+  project_term:
+    "Use a neutral reply address and neutral wording. An address on a domain that names the project counts. Saved changes are checked again within a minute.",
+  self_name:
+    "Use a reply address and texts that do not contain that name. If the name is not yours, delete it under Never in a report.",
+  owner_domain: "Use a reply address on a domain that does not belong to you.",
+  self_address:
+    "Remove it from your texts in the Reporting settings. If it still shows up, the captured traffic contains it: discard the draft.",
+  vpn_address:
+    "Remove it from your texts in the Reporting settings. If it still shows up, discard the draft.",
+  private_address:
+    "Regenerate the draft. If it is blocked again, the captured traffic contains it: discard the draft.",
+  documentation_address:
+    "Regenerate the draft. If it is blocked again, the captured traffic contains it: discard the draft.",
+  dashboard_path: "Remove the link from your texts in the Reporting settings, then regenerate.",
+  internal_id:
+    "Regenerate the draft. If it is blocked again, the captured traffic contains it: discard the draft.",
+  default_wording:
+    "Write the introduction, closing, note, signature and subject template in your own words, or leave them empty. Saved changes are checked again within a minute.",
+  no_self_address: "Wait until traffic teaches the address, or add it under Never in a report.",
+  self_terms_unavailable: "Try again in a minute. If it lasts, check that the database is healthy.",
+  settings_incomplete: "Set a reply contact in the Reporting settings.",
+  evidence_invalid: "Regenerate the draft, or discard it.",
+}
+
+/** A few words for one draft row: why it is held back. */
+export const GUARD_SHORT: Record<string, string> = {
+  self_address: "has your address",
+  self_name: "names your system",
+  owner_domain: "uses your domain",
+  vpn_address: "has your outbound address",
+  project_term: "names the project",
+  private_address: "has a private address",
+  documentation_address: "has an example address",
+  dashboard_path: "links into the dashboard",
+  internal_id: "has an internal identifier",
+  default_wording: "uses old default wording",
+  no_self_address: "your address is not known yet",
+  self_terms_unavailable: "the deny list could not be read",
+  settings_incomplete: "no reply contact is set",
+  evidence_invalid: "its evidence is not valid",
+}
+
+/** One reason as two sentences: what was found, and what to do about it. */
+export function guardAdvice(code: string): { why: string; fix: string } {
+  return {
+    why: guardReason(code),
+    fix: GUARD_FIX[code] ?? "Regenerate the draft, or discard it.",
+  }
+}
+
+/** "Why: names the project, uses old default wording" for a blocked row, or null. */
+export function describeBlockedRow(guard: GuardResult): string | null {
+  if (guard.ok) return null
+  const words = guard.codes.map((c) => GUARD_SHORT[c] ?? "was refused by the check")
+  if (words.length === 0) return "Why: the identity check refused it"
+  const shown = words.slice(0, 2).join(", ")
+  const more = words.length > 2 ? ` and ${words.length - 2} more` : ""
+  return `Why: ${shown}${more}`
+}
+
+/**
+ * The sentence above the blocked drafts: how many, why, and that nothing leaves while they are
+ * blocked. Reasons are sorted by how many drafts they hold back.
+ */
+export function describeBlockedDrafts(blocked: BlockedDrafts): string {
+  const n = blocked.count
+  return `${plural(n, "draft")} ${n === 1 ? "is" : "are"} blocked by the identity check: ${n === 1 ? "it" : "they"} cannot be reviewed, copied or sent until the cause is fixed.`
+}
+
+/** The reasons of the blocked drafts, most common first, each with its fix. */
+export function blockedReasons(
+  blocked: BlockedDrafts,
+): { code: string; drafts: number; why: string; fix: string }[] {
+  return Object.entries(blocked.reasons)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([code, drafts]) => ({ code, drafts, ...guardAdvice(code) }))
+}
+
+// --- The settings texts ------------------------------------------------------------
+
+/** How a sentence about one setting names it. */
+const SETTINGS_SUBJECT: Record<string, string> = {
+  reply_contact: "This reply address",
+  signature: "The signature",
+  intro: "The introduction",
+  outro: "The closing",
+  note: "The note",
+  subject_template: "The subject template",
+  xarf_user_agent: "The X-ARF user agent",
+}
+
+/** What a reason means for a text that ends up in every report. */
+const SETTINGS_CONSEQUENCE: Record<string, string> = {
+  project_term: "names the project, so every report would reveal the honeypot.",
+  self_name: "names your monitored system, so every report would reveal it.",
+  owner_domain: "uses a domain that belongs to you, so every report would point back to you.",
+  self_address:
+    "contains the public address of the monitored system, so every report would reveal it.",
+  vpn_address:
+    "contains the address your outbound traffic leaves from, so every report would reveal it.",
+  private_address: "contains a private or reserved network address, so every report is blocked.",
+  documentation_address:
+    "contains an example address that real reports must not use, so every report is blocked.",
+  dashboard_path: "contains a link into this dashboard, so every report would reveal it.",
+  internal_id: "contains an internal identifier, so every report is blocked.",
+  default_wording:
+    "uses wording that older versions shipped as a default, so every report could be recognised.",
+  self_terms_unavailable:
+    "could not be checked, because the list of things that must never appear could not be read.",
+}
+
+/**
+ * One sentence per field: what is wrong with this text and what to do. It says what blocks every
+ * report, never the matched text (the server sends reason codes only).
+ */
+export function describeSettingsIssue(field: string, codes: string[]): string {
+  const subject = SETTINGS_SUBJECT[field] ?? "This text"
+  const parts = codes.map(
+    (c, i) =>
+      `${i === 0 ? subject : "It also"} ${SETTINGS_CONSEQUENCE[c] ?? "would be refused by the identity check, so every report is blocked."}`,
+  )
+  const fix = field === "reply_contact" ? "Use a neutral address." : "Reword it, or leave it empty."
+  return `${parts.join(" ")} ${fix}`
+}
+
+/** Field name to reason codes of a 409 `identity_guard_failed` answer to a settings save, or null. */
+export function settingsIssuesOf(e: unknown): Record<string, string[]> | null {
+  if (!(e instanceof ApiError) || e.code !== "identity_guard_failed") return null
+  const raw = e.body?.fields
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null
+  const out: Record<string, string[]> = {}
+  for (const [field, codes] of Object.entries(raw)) {
+    if (Array.isArray(codes)) out[field] = codes.filter((c): c is string => typeof c === "string")
+  }
+  return Object.keys(out).length > 0 ? out : null
 }
 
 export interface SendRequestShape {
@@ -208,6 +353,13 @@ export interface AbuseStatus {
   waiting_for_contact: number
   /** The replies mailbox (M26). */
   replies?: RepliesStatus
+  /** Open drafts held back by the identity check, and how many carry each reason. */
+  blocked_drafts?: BlockedDrafts
+}
+
+export interface BlockedDrafts {
+  count: number
+  reasons: Record<string, number>
 }
 
 export interface WaitingRecipient {
@@ -238,6 +390,11 @@ export interface ReportSettings {
   /** Where the reply reference is printed. */
   reference_style: ReferenceStyle
   revision: number
+  /**
+   * Answer only: the saved texts that would block every report today, by field name, as reason
+   * codes. Never sent back.
+   */
+  field_issues?: Record<string, string[]>
 }
 
 export interface SelfTerm {
@@ -426,7 +583,12 @@ export const abuseApi = {
   setMailbox: (recipientId: number, mailbox: string) =>
     sendJson("PATCH", `/abuse/recipients/${recipientId}`, { override_mailbox: mailbox }),
   settings: () => getJson<ReportSettings>("/abuse/settings"),
-  saveSettings: (body: ReportSettings) => sendJson<ReportSettings>("PUT", "/abuse/settings", body),
+  saveSettings: (body: ReportSettings) => {
+    // `field_issues` is an answer, not an input: the server refuses unknown keys.
+    const payload = { ...body }
+    delete payload.field_issues
+    return sendJson<ReportSettings>("PUT", "/abuse/settings", payload)
+  },
   terms: (reveal: boolean) =>
     getJson<SelfTerm[]>("/abuse/self-terms", { reveal: reveal ? "true" : undefined }),
   addTerm: (kind: SelfTerm["kind"], value: string) =>

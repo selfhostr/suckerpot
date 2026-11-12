@@ -16,10 +16,12 @@ import {
   abuseApi,
   abuseKeys,
   describeAbuseError,
+  describeSettingsIssue,
   guardReason,
   guardReasonsOf,
   isStale,
   REFERENCE_STYLE_OPTIONS,
+  settingsIssuesOf,
   TLP_OPTIONS,
   type ReferenceStyle,
   type ReportSettings,
@@ -60,7 +62,8 @@ function SettingsForm({
 }: {
   initial: ReportSettings
   onStale: () => void
-  onSaved: () => void
+  /** `recheck`: texts that blocked every draft were fixed, so the open drafts are checked again. */
+  onSaved: (recheck: boolean) => void
 }) {
   const qc = useQueryClient()
   const ids = {
@@ -84,12 +87,18 @@ function SettingsForm({
       : undefined
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  // The texts that would block every report, by field: the ones already saved, then the ones the
+  // server refused. A field leaves the list as soon as it is edited.
+  const [issues, setIssues] = useState<Record<string, string[]>>(initial.field_issues ?? {})
+  const [refused, setRefused] = useState(false)
   const save = useMutation({
     mutationFn: () => abuseApi.saveSettings(s),
     onSuccess: (d) => {
-      onSaved()
+      onSaved(Object.keys(issues).length > 0)
       markSaved(s)
       setError(null)
+      setIssues({})
+      setRefused(false)
       setSaved(true)
       qc.setQueryData(abuseKeys.settings, d)
       void qc.invalidateQueries({ queryKey: abuseKeys.all })
@@ -98,6 +107,13 @@ function SettingsForm({
       setSaved(false)
       if (isStale(e)) {
         onStale()
+        return
+      }
+      const found = settingsIssuesOf(e)
+      if (found) {
+        setIssues(found)
+        setRefused(true)
+        setError(null)
         return
       }
       const why = guardReasonsOf(e)
@@ -110,8 +126,23 @@ function SettingsForm({
   })
   const set = <K extends keyof ReportSettings>(k: K, v: ReportSettings[K]) => {
     setSaved(false)
+    setIssues((p) =>
+      k in p ? Object.fromEntries(Object.entries(p).filter(([name]) => name !== k)) : p,
+    )
     setS((p) => ({ ...p, [k]: v }))
   }
+  const blocking = Object.keys(issues).length
+  const issueOf = (field: string) => {
+    const codes = issues[field]
+    return codes ? describeSettingsIssue(field, codes) : undefined
+  }
+  const invalid = (field: string, id: string) =>
+    issues[field] ? { "aria-invalid": true, "aria-describedby": `${id}-error` } : {}
+  const summary =
+    error ??
+    (blocking > 0
+      ? `${refused ? "Nothing was saved. " : ""}${blocking === 1 ? "The text marked below blocks" : "The texts marked below block"} every report. Change ${blocking === 1 ? "it" : "them"} and save: your drafts are checked again within a minute.`
+      : null)
   return (
     <form
       className="grid gap-6"
@@ -126,7 +157,7 @@ function SettingsForm({
           id={ids.reply}
           label="Reply contact"
           hint="Required. A mailbox that does not point to you, so the recipient can answer."
-          error={needContact}
+          error={needContact ?? issueOf("reply_contact")}
         >
           <Input
             id={ids.reply}
@@ -136,6 +167,7 @@ function SettingsForm({
             value={s.reply_contact ?? ""}
             placeholder="reports@example.net"
             onChange={(e) => set("reply_contact", blank(e.target.value))}
+            {...invalid("reply_contact", ids.reply)}
           />
         </Field>
         <Field
@@ -143,6 +175,7 @@ function SettingsForm({
           label="Signature"
           optional
           hint="One line at the end of the message. Leave empty to send only the facts."
+          error={issueOf("signature")}
         >
           <Input
             id={ids.sig}
@@ -150,6 +183,7 @@ function SettingsForm({
             autoComplete="off"
             value={s.signature ?? ""}
             onChange={(e) => set("signature", blank(e.target.value))}
+            {...invalid("signature", ids.sig)}
           />
         </Field>
         <Field
@@ -157,6 +191,7 @@ function SettingsForm({
           label="Introduction"
           optional
           hint="Shown before the facts. Leave empty to send only the facts."
+          error={issueOf("intro")}
         >
           <Textarea
             id={ids.intro}
@@ -164,6 +199,7 @@ function SettingsForm({
             maxLength={1000}
             value={s.intro ?? ""}
             onChange={(e) => set("intro", blank(e.target.value))}
+            {...invalid("intro", ids.intro)}
           />
         </Field>
         <Field
@@ -171,6 +207,7 @@ function SettingsForm({
           label="Closing"
           optional
           hint="Shown after the facts. Leave empty to send only the facts."
+          error={issueOf("outro")}
         >
           <Textarea
             id={ids.outro}
@@ -178,6 +215,7 @@ function SettingsForm({
             maxLength={1000}
             value={s.outro ?? ""}
             onChange={(e) => set("outro", blank(e.target.value))}
+            {...invalid("outro", ids.outro)}
           />
         </Field>
         <Field
@@ -185,6 +223,7 @@ function SettingsForm({
           label="X-ARF user agent"
           optional
           hint="Sent in X-ARF reports. Leave empty to use a generic value (Mozilla/5.0)."
+          error={issueOf("xarf_user_agent")}
         >
           <Input
             id={ids.ua}
@@ -193,6 +232,7 @@ function SettingsForm({
             value={s.xarf_user_agent ?? ""}
             className="font-mono"
             onChange={(e) => set("xarf_user_agent", blank(e.target.value))}
+            {...invalid("xarf_user_agent", ids.ua)}
           />
         </Field>
         <Field
@@ -200,6 +240,7 @@ function SettingsForm({
           label="Note about the destination and ports"
           optional
           hint="For example that the destination address is withheld. Leave empty to send only the facts."
+          error={issueOf("note")}
         >
           <Textarea
             id={ids.note}
@@ -207,6 +248,7 @@ function SettingsForm({
             maxLength={1000}
             value={s.note ?? ""}
             onChange={(e) => set("note", blank(e.target.value))}
+            {...invalid("note", ids.note)}
           />
         </Field>
         <Field
@@ -214,6 +256,7 @@ function SettingsForm({
           label="Subject template"
           optional
           hint="Leave empty to use the plain subject Abuse report for {value}."
+          error={issueOf("subject_template")}
         >
           <Input
             id={ids.subj}
@@ -221,6 +264,7 @@ function SettingsForm({
             autoComplete="off"
             value={s.subject_template ?? ""}
             onChange={(e) => set("subject_template", blank(e.target.value))}
+            {...invalid("subject_template", ids.subj)}
           />
         </Field>
         <div className="flex flex-col gap-1.5">
@@ -286,7 +330,7 @@ function SettingsForm({
           }
         />
       </fieldset>
-      <FormError id={ids.err} message={error} />
+      <FormError id={ids.err} message={summary} />
       <div className="flex items-center gap-3">
         <Button type="submit" size="sm" disabled={save.isPending}>
           {save.isPending ? "Saving…" : "Save"}
@@ -455,6 +499,7 @@ export function NeverInReport() {
 export function ReportingCard() {
   const q = useQuery({ queryKey: abuseKeys.settings, queryFn: abuseApi.settings })
   const [stale, setStale] = useState(false)
+  const [recheck, setRecheck] = useState(false)
   return (
     <>
       <section id="reporting-message" className="scroll-mt-16">
@@ -465,9 +510,11 @@ export function ReportingCard() {
               ? "Loading the reporting settings…"
               : q.isError
                 ? "The reporting settings could not be loaded."
-                : q.data.reply_contact
-                  ? "Reports are ready to write. The texts around the facts are optional."
-                  : "Set a reply contact so reports can be answered. The texts are optional."
+                : Object.keys(q.data.field_issues ?? {}).length > 0
+                  ? "Some of these texts block every report until you change them."
+                  : q.data.reply_contact
+                    ? "Reports are ready to write. The texts around the facts are optional."
+                    : "Set a reply contact so reports can be answered. The texts are optional."
           }
           detail="Saving these words sends nothing. By default you copy a draft into your own mailbox; SMTP sending is optional, further down."
         >
@@ -481,10 +528,18 @@ export function ReportingCard() {
                   then save your edit.
                 </p>
               ) : null}
+              {recheck ? (
+                <p role="status" className="mb-4 text-sm text-fg">
+                  Saved. Your open drafts are checked again within a minute.
+                </p>
+              ) : null}
               <SettingsForm
                 key={q.data.revision}
                 initial={q.data}
-                onSaved={() => setStale(false)}
+                onSaved={(r) => {
+                  setStale(false)
+                  setRecheck(r)
+                }}
                 onStale={() => {
                   setStale(true)
                   void q.refetch()

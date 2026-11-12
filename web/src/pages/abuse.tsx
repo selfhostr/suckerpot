@@ -3,6 +3,7 @@ import { Mailbox, MailWarning, Settings2 } from "lucide-react"
 import { useId, useMemo, useState } from "react"
 import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
+import { BlockedDraftsNotice } from "@/components/abuse/blocked-drafts"
 import { RepliesToCheck } from "@/components/abuse/replies-list"
 import { ReportRow } from "@/components/abuse/report-row"
 import { SendQueue } from "@/components/abuse/send-queue"
@@ -306,6 +307,9 @@ export function AbusePage() {
         <SendQueue />
       ) : (
         <div className="space-y-4 normal-nums">
+          {status === "draft" && st.data?.blocked_drafts ? (
+            <BlockedDraftsNotice blocked={st.data.blocked_drafts} />
+          ) : null}
           {list.isPending ? (
             <SkeletonList rows={4} />
           ) : list.isError ? (
