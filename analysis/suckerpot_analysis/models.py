@@ -11,8 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field
 ANALYSIS_VERSION = 2
 
 # File kinds for ordinary web content (pages, images, style sheets, scripts of a web page, data
-# documents). Such a file carries no next stage: its links are never followed and it is not
-# deobfuscated. A script with a shebang or a shell command stays `script`.
+# documents). Unless a detection rule matched it, such a file is not deobfuscated and its links are
+# not followed. A file only gets one of these when it plausibly is that format and its whole input
+# holds no shell command, downloader or active content (see `identify._identify_web`); anything
+# else keeps the `script` or `text` kind.
 WEB_KINDS: frozenset[str] = frozenset({"html", "svg", "xml", "css", "json", "javascript"})
 
 IocKind = Literal["next_url", "c2_ip", "c2_domain", "c2_url"]

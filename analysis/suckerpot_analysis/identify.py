@@ -5,6 +5,7 @@ Only a handful of fields are read with `struct`; every offset is checked against
 
 from __future__ import annotations
 
+import json
 import re
 import struct
 
@@ -34,33 +35,58 @@ _SHELL_HINT = re.compile(
     rb"\b(wget|curl|chmod|busybox|tftp|echo|cd\s+/|rm\s+-|sh\s|bash|export|nohup|crontab|pkill)\b"
 )
 
-# Web content sniffing. Only the first `_SNIFF` bytes are read. A web file is recognised by its own
-# opening (a document type, an XML prolog, a JSON bracket, a style sheet rule, JavaScript syntax),
-# never by a file name or a server header, and only when nothing says it is a program.
+# Web content. A file is given a web kind (see `WEB_KINDS`) only when it plausibly IS that format
+# and nothing in the whole input says it does anything. The format is read from the opening
+# `_SNIFF` bytes, never from a file name or a server header; it is then checked and the whole
+# input is scanned for commands and active content. A file that fails keeps the `script` or
+# `text` kind, whose links are followed.
 _SNIFF = 4096
-_HTML_DOC = re.compile(rb"<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]")
-_HTML_TAG = re.compile(
-    rb"<(?:html|head|body|title|meta|div|script|style|link|h[1-6]|p|a|form|table|iframe|center)"
-    rb"[\s>/]"
+_JSON_PARSE_MAX = 2 * 1024 * 1024
+_CSS_CHECK_MAX = 4 * 1024 * 1024
+_CSS_MAX_DEPTH = 32
+_HTML_OPEN = re.compile(
+    rb"<!doctype\s+html|<(?:html|head|body|title|meta|base|div|span|p|a|b|i|pre|br|hr|img|ul|ol"
+    rb"|nav|header|footer|main|section|article|noscript|script|style|link|h[1-6]|form|table"
+    rb"|iframe|center|font)[\s>/]"
 )
-_PHP_TAG = re.compile(rb"<\?(?:php|=)", re.IGNORECASE)
 _XML_ROOT = re.compile(rb"<(?:svg|rss|feed|urlset|sitemapindex|plist|opml)[\s>]")
 _JSON_START = re.compile(rb'[\[{]\s*(?:"[^"\n]{0,200}"\s*:|[\[{"\]}]|-?\d|true\b|false\b|null\b)')
 _JS_SYNTAX = re.compile(
-    rb"\bfunction\s*[\w$]*\s*\(|\b(?:var|let|const)\s+[\w$]+\s*=|\bimport\s*[\w{*(]"
+    rb"\bfunction\s*[\w$]*\s*\(|\b(?:var|let|const)\s+[\w$]+\s*=|\bimport\s*(?:[{*(]|[\w$]+\s+from\b)"
     rb"|\bexport\s+(?:default|const|function|class|\{)|\bmodule\.exports\b|\brequire\s*\("
     rb"|\b(?:window|document)\.|\bwebpackChunk|[\"']use strict[\"']"
 )
-# Anything that runs commands or fetches a next stage keeps a script out of the web kinds.
-_DROPPER_HINT = re.compile(
-    rb"\b(?:wget|curl|chmod|busybox|tftp|nohup|crontab|pkill|child_process)\b"
-    rb"|/bin/(?:ba)?sh\b|/dev/tcp/"
+# Syntax of other languages, which share a few words with JavaScript.
+_NOT_JS = re.compile(
+    rb"^\s*(?:import\s+[\w.]+\s*(?:,|$)|from\s+[\w.]+\s+import\b|def\s+\w+\s*\(|use\s+[\w:]+\s*;"
+    rb"|my\s+[$@%]|package\s+[\w:]+\s*;)",
+    re.MULTILINE,
 )
 _CSS_AT_RULE = re.compile(
     rb"@(?:charset|import|font-face|media|keyframes|layer|supports|namespace|page|tailwind|property)\b"
 )
 _CSS_BLOCK = re.compile(rb"[^{}]{1,200}\{\s*[a-z-]+\s*:[^{}]{0,200}\}")
-_DROPPER_SCAN = 1024 * 1024
+_CSS_TOKEN = re.compile(
+    rb"/\*.*?\*/|url\((?:[^)\\]|\\.)*\)|\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|[{};]"
+    rb"|(?:(?!url\()[^{};\"'/])+|.",
+    re.DOTALL | re.IGNORECASE,
+)
+# Run over the WHOLE input for every web kind: a command, a downloader or active content anywhere
+# means the file is a program, not a page.
+_DROPPER_HINT = re.compile(
+    rb"\b(?:wget|curl|busybox|tftp|nohup|crontab|pkill)\b|chmod|/bin/(?:ba)?sh\b|/dev/tcp/"
+    rb"|child[\"'\s+.\[\]()]{0,12}_?process|\b(?:execSync|execFileSync|execFile|spawnSync|spawn\s*\()"
+    rb"|\b(?:writeFileSync|appendFileSync)\b|\bos\.(?:system|popen)\b|\bsubprocess\b"
+    rb"|\b(?:system|popen|shell_exec|passthru|proc_open)\s*\(",
+    re.IGNORECASE,
+)
+_ACTIVE_CONTENT = re.compile(
+    rb"<%|<\?(?!xml)|<jsp:|hta:application|<scriptlet|<job\b|<component\b|<registration\b"
+    rb"|msxsl:|activexobject|wscript|vbscript|powershell|mshta|regsvr32|rundll32|cmd\s*/c"
+    rb"|runat\s*=\s*[\"']?server|getruntime|processbuilder|scripting\.filesystemobject"
+    rb"|shell\.application|adodb\.stream",
+    re.IGNORECASE,
+)
 
 
 def _unpack(fmt: str, data: bytes, offset: int) -> tuple[int, ...] | None:
@@ -182,39 +208,134 @@ def _strip_css_comments(head: bytes) -> bytes:
     return head
 
 
+def _skip_markup_prolog(lowered: bytes) -> bytes | None:
+    """The text after any leading XML declaration, comments and plain document type, or None when
+    one of them is unterminated or a document type has an internal subset (entity declarations)."""
+    for _ in range(8):
+        lowered = lowered.lstrip()
+        if lowered.startswith(b"<?xml"):
+            end, skip = lowered.find(b"?>"), 2
+        elif lowered.startswith(b"<!--"):
+            end, skip = lowered.find(b"-->", 4), 3
+        elif lowered.startswith(b"<!doctype") and not lowered.startswith(b"<!doctype html"):
+            end, skip = lowered.find(b">"), 1
+            if end >= 0 and b"[" in lowered[:end]:
+                return None
+        else:
+            return lowered
+        if end < 0:
+            return None
+        lowered = lowered[end + skip :]
+    return None
+
+
+def _markup_kind(lowered: bytes) -> str | None:
+    """`html`, `svg` or `xml` when the document OPENS like one (after its prolog), else None."""
+    body = _skip_markup_prolog(lowered)
+    if body is None:
+        return None
+    if _HTML_OPEN.match(body):
+        return "html"
+    if _XML_ROOT.match(body):
+        return "svg" if body.startswith(b"<svg") else "xml"
+    return None
+
+
+def _parses_as_json(data: bytes) -> bool:
+    if len(data) > _JSON_PARSE_MAX:
+        return False  # too big to check here: it keeps the text kind
+    try:
+        json.loads(data)
+    except ValueError, RecursionError:
+        return False
+    return True
+
+
+def _css_shaped(data: bytes) -> bool:
+    """True when the whole input is made of at-rules, rules and `property: value` declarations.
+
+    One tokenising pass over strings, comments and `url(...)`, with no backtracking. Text outside
+    a block must be an at-rule ending in `;` or a selector ending in `{`; text inside a block must
+    be a declaration (it holds a colon), an at-rule or a nested selector. Shell lines, code in
+    another language and any text after the last rule fail.
+    """
+    if len(data) > _CSS_CHECK_MAX:
+        return False
+    depth = 0
+    has = colon = False
+    first = b""
+    for m in _CSS_TOKEN.finditer(data):
+        tok = m.group()
+        if len(tok) >= 4 and tok.startswith(b"/*") and tok.endswith(b"*/"):
+            continue
+        if tok in (b"{", b"}", b";"):
+            at_rule = first == b"@"
+            if tok == b"{":
+                depth += 1
+                if not has or depth > _CSS_MAX_DEPTH:
+                    return False
+            elif tok == b";":
+                if has and not at_rule and (depth == 0 or not colon):
+                    return False
+            else:  # a closing brace also ends a declaration that has no `;`
+                depth -= 1
+                if depth < 0 or (has and not at_rule and not colon):
+                    return False
+            has = colon = False
+            first = b""
+            continue
+        stripped = tok.strip()
+        if not stripped:
+            continue
+        if not has:
+            first = stripped[:1]
+        has = True
+        if not tok.startswith((b'"', b"'")) and b":" in tok:
+            colon = True
+    return depth == 0 and not has
+
+
 def _identify_web(data: bytes) -> str | None:
-    """The web kind of a file that is plainly a page, an image, a style sheet or a script of a
-    page, or None. Every shell script, every PHP file and every script that runs commands stays
-    out: those keep the `script` and `text` kinds, whose links are followed."""
+    """A web kind (see `WEB_KINDS`), or None to keep the `script` / `text` kind.
+
+    1. The opening bytes name the format: a document that opens like HTML, SVG or XML (after its
+       XML declaration, comments and plain document type), a JSON bracket, JavaScript syntax (two
+       markers, none of another language) or a style sheet rule.
+    2. The WHOLE input is scanned, whatever its size, for shell commands and downloaders
+       (`_SHELL_HINT`, `_DROPPER_HINT`) and for active content that a browser or a server would
+       run (`_ACTIVE_CONTENT`: ASP and JSP tags, any `<?` other than the XML declaration, HTA,
+       scriptlets, WSH, PowerShell, `runat="server"` and the like). One hit anywhere refuses
+       every kind.
+    3. The format is checked: JSON must parse (up to 2 MiB) and a style sheet must be made only
+       of rules and declarations (up to 4 MiB). A larger file of either keeps the text kind.
+
+    A refused file keeps the `script` or `text` kind, so its links are followed.
+    """
     head = data[:_SNIFF]
     if head.startswith(b"\xef\xbb\xbf"):
         head = head[3:]
     head = head.lstrip(b" \t\r\n\x0c")
     if not _looks_textual(head):
         return None
-    lowered = head.lower()
-    if lowered.startswith(b"<"):
-        if _PHP_TAG.search(data):
-            return None  # PHP with HTML around it is still a program
-        if lowered.startswith((b"<?xml", b"<svg", b"<!doctype svg")):
-            if _HTML_DOC.search(lowered):
-                return "html"
-            return "svg" if b"<svg" in lowered else "xml"
-        if _HTML_DOC.match(lowered) or _HTML_TAG.search(lowered):
-            return "html"
-        if _XML_ROOT.match(lowered):
-            return "svg" if lowered.startswith(b"<svg") else "xml"
+    kind: str | None
+    if head.startswith(b"<"):
+        kind = _markup_kind(head.lower())
+    elif _JSON_START.match(head):
+        kind = "json"
+    elif len(_JS_SYNTAX.findall(head)) >= 2 and not _NOT_JS.search(head):
+        kind = "javascript"
+    else:
+        css = _strip_css_comments(head)
+        kind = "css" if _CSS_AT_RULE.match(css) or len(_CSS_BLOCK.findall(css)) >= 3 else None
+    if kind is None:
         return None
-    tail = data[-_SNIFF:].rstrip()[-1:]
-    if _JSON_START.match(head) and tail in (b"]", b"}"):
-        return "json"
-    # Two markers, so one `function f()` in a shell script is not enough.
-    if len(_JS_SYNTAX.findall(head)) >= 2 and not _DROPPER_HINT.search(data[:_DROPPER_SCAN]):
-        return "javascript"
-    css = _strip_css_comments(head)
-    if _CSS_AT_RULE.match(css) or len(_CSS_BLOCK.findall(css)) >= 3:
-        return "css"
-    return None
+    if _SHELL_HINT.search(data) or _DROPPER_HINT.search(data) or _ACTIVE_CONTENT.search(data):
+        return None
+    if kind == "json" and not _parses_as_json(data):
+        return None
+    if kind == "css" and not _css_shaped(data):
+        return None
+    return kind
 
 
 def _identify_text(data: bytes) -> FileInfo:

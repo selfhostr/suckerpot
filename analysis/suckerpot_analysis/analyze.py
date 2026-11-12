@@ -48,9 +48,11 @@ def analyze(data: bytes, *, rules: CompiledRules, limits: Limits = Limits()) -> 
     iocs: list[Ioc] = []
     deobfuscated: str | None = None
     deob_steps = []
-    # Web content (WEB_KINDS) is neither deobfuscated nor mined for links: it cannot carry a next
-    # stage, and its hundreds of asset links would only queue more fetches.
-    if info.kind in {"script", "text"} and len(data) <= limits.deob_max_input:
+    # Web content (WEB_KINDS) is neither deobfuscated nor mined for links: its hundreds of asset
+    # links would only queue more fetches. Unless a detection rule matched it: then it is treated
+    # like any other text, because the rule says it is not an ordinary page.
+    flagged_web = info.kind in WEB_KINDS and bool(hits)
+    if (info.kind in {"script", "text"} or flagged_web) and len(data) <= limits.deob_max_input:
         text = data.decode("utf-8", errors="replace")
         result = deobfuscate_shell(
             text,

