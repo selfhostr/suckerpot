@@ -160,8 +160,9 @@ export function AttackerDetailPage() {
           <FindingCard
             eyebrow="Profile"
             finding={
+              // The flood clause follows the sessions it counts, never the events.
               <>
-                {`${formatNumber(a.sessions)} ${a.sessions === 1 ? "session" : "sessions"} and ${formatNumber(a.events)} events recorded`}
+                {`${formatNumber(a.sessions)} ${a.sessions === 1 ? "session" : "sessions"}`}
                 {floodConnections > 0 ? (
                   <>
                     {", "}
@@ -171,9 +172,10 @@ export function AttackerDetailPage() {
                     >
                       {floodSentence(floodConnections, floods.data?.next_cursor != null)}
                     </Link>
+                    {","}
                   </>
                 ) : null}
-                {"."}
+                {` and ${formatNumber(a.events)} events recorded.`}
               </>
             }
           >

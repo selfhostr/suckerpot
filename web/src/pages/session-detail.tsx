@@ -207,7 +207,8 @@ export function SessionDetailPage() {
         // A group has no single start, port or id worth reading: its figures are the window it
         // covers and the totals of the connections it stands for. The source port is always 0.
         <dl className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border bg-surface p-4 shadow-sm sm:grid-cols-3 sm:p-5 lg:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))]">
-          <Meta label="Window (your time zone)">{floodSpanLong(s)}</Meta>
+          {/* The value names the time zone, so the label does not repeat it. */}
+          <Meta label="Window">{floodSpanLong(s)}</Meta>
           <Meta label="Connections">{formatNumber(connectionsOf(s))}</Meta>
           <Meta label="Logins tried">{formatNumber(s.login_attempts)}</Meta>
           <Meta label="Events">{formatNumber(s.event_count)}</Meta>

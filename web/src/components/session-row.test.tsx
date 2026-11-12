@@ -65,7 +65,7 @@ describe("SessionRow", () => {
     const { container } = renderRow(<SessionRow session={flood()} />)
     // The story counts connections instead of telling each one.
     expect(
-      screen.getAllByText(/opened 812 RDP connections, one login each \(812 tried\)/).length,
+      screen.getAllByText(/opened 812 RDP connections, one login each/).length,
     ).toBeGreaterThan(0)
     // The chip says it with an icon, the word and the count, so colour carries nothing.
     const chip = screen.getAllByTitle(/812 connections from one address in one hour/)[0]

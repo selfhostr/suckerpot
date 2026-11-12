@@ -21,7 +21,19 @@ interface TopListProps {
   loading?: boolean
   rows?: number
   empty?: string
+  /**
+   * What a full bar means. `max` (the default) stretches the bars against the busiest row, so
+   * small shares still show their differences. `total` draws each share as it is printed: use it
+   * when the rows can all be tied (every password of a spray tried once), where `max` would draw
+   * a row of full bars next to "<1%".
+   */
+  scale?: "max" | "total"
   className?: string
+}
+
+/** The printed share: a share that is not zero never reads as "0%". */
+function shareLabel(share: number): string {
+  return share > 0 && share < 0.005 ? "<1%" : formatPercent(share)
 }
 
 /**
@@ -33,6 +45,7 @@ export function TopList({
   loading,
   rows = 5,
   empty = "Nothing yet.",
+  scale = "max",
   className,
 }: TopListProps) {
   if (loading) {
@@ -46,7 +59,7 @@ export function TopList({
   }
   if (items.length === 0)
     return <p className={cn("py-4 text-sm text-fg-muted", className)}>{empty}</p>
-  const max = Math.max(...items.map((i) => i.share), 0.0001)
+  const max = scale === "total" ? 1 : Math.max(...items.map((i) => i.share), 0.0001)
   return (
     <ol className={cn("space-y-1", className)}>
       {items.map((item, idx) => {
@@ -61,7 +74,7 @@ export function TopList({
             <span className="min-w-0 flex-1 truncate text-sm text-fg">{item.label}</span>
             <span className="text-sm text-fg tabular-nums">{formatNumber(item.count)}</span>
             <span className="w-10 text-right text-xs text-fg-muted tabular-nums">
-              {formatPercent(item.share)}
+              {shareLabel(item.share)}
             </span>
             <span
               aria-hidden
@@ -81,7 +94,7 @@ export function TopList({
             {item.href ? (
               <Link
                 to={item.href}
-                aria-label={`${item.name}: ${formatNumber(item.count)}, ${formatPercent(item.share)}. Open filtered view`}
+                aria-label={`${item.name}: ${formatNumber(item.count)}, ${shareLabel(item.share)}. Open filtered view`}
                 className={cn(cls, "hover:bg-surface-hover")}
               >
                 {row}

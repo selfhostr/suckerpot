@@ -49,11 +49,14 @@ export function floodKindFor(view: FloodView): "session" | "burst" | undefined {
 
 // --- Sentences ---------------------------------------------------------------------------
 
-/** "96%": a share that is not zero never reads as 0% (or as 100% unless it is all of them). */
+/**
+ * "96%": a share that is not zero never reads as 0% (or as 100% unless it is all of them).
+ * Lower case: the phrase always sits inside a sentence.
+ */
 function sharePhrase(part: number, whole: number): string {
   const ratio = whole > 0 ? part / whole : 0
-  if (ratio > 0 && ratio < 0.01) return "Less than 1%"
-  if (ratio < 1 && ratio > 0.995) return "More than 99%"
+  if (ratio > 0 && ratio < 0.01) return "less than 1%"
+  if (ratio < 1 && ratio > 0.995) return "more than 99%"
   return formatPercent(ratio)
 }
 

@@ -90,6 +90,7 @@ export function CredentialsCard({
             <TopList
               loading={!c}
               rows={3}
+              scale="total"
               items={c ? toItems(c.usernames, "username", c.attempts, masked) : []}
               empty="No usernames."
             />
@@ -99,6 +100,7 @@ export function CredentialsCard({
             <TopList
               loading={!c}
               rows={3}
+              scale="total"
               items={c ? toItems(c.passwords, "password", c.attempts, masked) : []}
               empty="No passwords."
             />

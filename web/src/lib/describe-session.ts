@@ -110,7 +110,8 @@ function synologyPredicate(s: Session): string {
 
 /**
  * The story of a flood group: one address opened many plain connections in an hour, so the row
- * counts them instead of telling each one. "opened 812 RDP connections, one login each (812 tried)".
+ * counts them instead of telling each one. "opened 812 RDP connections, one login each", or
+ * "opened 438 SSH connections, about 2 passwords each (876 tried)".
  */
 function floodPredicate(s: Session): string {
   const n = connectionsOf(s)
@@ -126,8 +127,10 @@ function floodPredicate(s: Session): string {
     return `${opened} and left without logging in`
   }
   const what = sensorMeta(s.sensor)?.credential ?? "login"
+  // Exactly one each: the count is already said, the row does not repeat it a third time.
+  if (s.login_attempts === n) return `${opened}, one ${what} each`
   const each = Math.round(s.login_attempts / n)
-  const share = each <= 1 ? `one ${what} each` : `about ${plural(each, what)} each`
+  const share = each <= 1 ? `about one ${what} each` : `about ${plural(each, what)} each`
   return `${opened}, ${share} (${formatNumber(s.login_attempts)} tried)`
 }
 

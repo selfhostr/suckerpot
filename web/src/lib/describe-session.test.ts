@@ -212,27 +212,27 @@ describe("describeSession for flood groups", () => {
 
   it("counts the connections instead of telling each one", () => {
     expect(describeSessionText(flood())).toBe(
-      "203.0.113.9 opened 812 RDP connections, one login each (812 tried)",
+      "203.0.113.9 opened 812 RDP connections, one login each",
     )
     expect(
       describeSessionText(flood({ sensor: "ssh", connections: 1204, login_attempts: 1204 })),
-    ).toBe("203.0.113.9 opened 1,204 SSH connections, one password each (1,204 tried)")
+    ).toBe("203.0.113.9 opened 1,204 SSH connections, one password each")
   })
 
   it("rounds several attempts per connection", () => {
     expect(predicate({ login_attempts: 1640 })).toBe(
       "opened 812 RDP connections, about 2 logins each (1,640 tried)",
     )
-    // Barely more attempts than connections still reads as one each.
+    // Barely more attempts than connections reads as about one each, with the total.
     expect(predicate({ login_attempts: 830 })).toBe(
-      "opened 812 RDP connections, one login each (830 tried)",
+      "opened 812 RDP connections, about one login each (830 tried)",
     )
   })
 
   it("names the client tool and the origin", () => {
     const s = flood({ client_tool: "FreeRDP", country: "NL", org: "Polder Cloud BV" })
     expect(describeSessionText(s)).toBe(
-      "203.0.113.9 (Netherlands, Polder Cloud BV) opened 812 RDP connections with FreeRDP, one login each (812 tried)",
+      "203.0.113.9 (Netherlands, Polder Cloud BV) opened 812 RDP connections with FreeRDP, one login each",
     )
   })
 
@@ -250,7 +250,7 @@ describe("describeSession for flood groups", () => {
 
   it("says Synology NAS as a place, not as a protocol", () => {
     expect(predicate({ sensor: "synology", connections: 40, login_attempts: 40 })).toBe(
-      "opened 40 connections to the Synology NAS, one password each (40 tried)",
+      "opened 40 connections to the Synology NAS, one password each",
     )
   })
 

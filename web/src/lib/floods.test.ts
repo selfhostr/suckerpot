@@ -76,10 +76,10 @@ describe("flood sentences", () => {
 
   it("never rounds a small or a nearly total share to 0% or 100%", () => {
     expect(floodShareClause(summary({ flood_sessions: 12 }))).toBe(
-      "Less than 1% of them in floods from 20 addresses",
+      "less than 1% of them in floods from 20 addresses",
     )
     expect(floodShareClause(summary({ sessions: 5_000, flood_sessions: 4_999 }))).toBe(
-      "More than 99% of them in floods from 20 addresses",
+      "more than 99% of them in floods from 20 addresses",
     )
   })
 
