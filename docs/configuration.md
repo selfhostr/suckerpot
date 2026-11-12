@@ -563,7 +563,7 @@ Details in [Architecture](ARCHITECTURE.md#anonymous-egress-m21) and [Deployment]
 | `COLLECTOR_HOST_INTERVAL_S` | `10` | Seconds between two requests to the same host |
 | `COLLECTOR_HOURLY_QUOTA`, `COLLECTOR_DAILY_QUOTA` | `60`, `500` | Fetches per hour and per day |
 | `COLLECTOR_REFETCH_HOURS` | `24` | Minimum age before a URL that was seen again is fetched again |
-| `COLLECTOR_MAX_DEPTH` | `2` | How many levels of next-stage URLs found inside fetched scripts are followed (links inside web pages, style sheets, JSON and web JavaScript are never followed) |
+| `COLLECTOR_MAX_DEPTH` | `2` | How many levels of next-stage URLs found inside fetched files are followed. Links inside plain web content (a page, style sheet, JSON or web script that no rule matched and that was itself reached through the links of other web content) are not followed; links of anything an attacker asked for are |
 | `COLLECTOR_DENY_CIDRS` | empty | Extra networks the collector must never contact (your own ranges), comma-separated |
 | `QUARANTINE_MAX_MB` | `2048` | Size cap of the quarantine volume. At the cap, fetching stops. |
 | `QUARANTINE_RETENTION_DAYS` | `90` | Days to keep a file after it was last seen. Its row and analysis stay. |
