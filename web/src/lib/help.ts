@@ -21,11 +21,11 @@ export const HELP = {
   },
   attacks: {
     title: "Attacks",
-    body: "Every connection to a sensor is a session, told as one line. The sensors record the events and ingest adds the country, network and reputation of each address. Use the filters (sensor, period, tag, country, network) and share the address of the page: the filters live in the URL.",
+    body: "Every connection to a sensor is a session, told as one line; a source that opens hundreds in an hour becomes one flood row. The sensors record the events and ingest adds the country, network and reputation of each address. Use the filters (sensor, floods, period, tag, country, network) and share the address of the page: the filters live in the URL.",
   },
   session: {
     title: "Session",
-    body: "One session as a timeline of what the visitor sent and what the sensor answered. Shell sessions can be replayed in a terminal at real speed, and the side panel shows the source address and its other visits. Click the address, a tag or a country to open every session that matches.",
+    body: "One session as a timeline of what the visitor sent and what the sensor answered, or a flood group with the credentials it tried. Shell sessions can be replayed in a terminal at real speed, and the side panel shows the source address and its other visits. Click the address, a tag or a country to open every session that matches.",
   },
   attackers: {
     title: "Attackers",

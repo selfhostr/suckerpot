@@ -9,6 +9,7 @@ import type { LiveEvent } from "@/lib/api"
 import { useIpMask } from "@/app/ip-mask"
 import { maskIp, maskIpsInText } from "@/lib/format"
 import { isSevereEvent } from "@/lib/severity"
+import { sessionHref } from "@/lib/floods"
 import { sensorMeta } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 
@@ -42,7 +43,7 @@ export function LiveEventRow({
   const summary = masked ? maskIpsInText(event.summary) : event.summary
   const shownIp = masked ? maskIp(event.src_ip) : event.src_ip
   const label = sensorMeta(event.sensor)?.label ?? event.sensor
-  const to = `/attacks/${encodeURIComponent(event.session_id)}`
+  const to = sessionHref(event.session_id, event.ts)
 
   const icon = (
     <span

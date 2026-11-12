@@ -40,8 +40,8 @@ The Styleguide page is routable everywhere but listed in the sidebar only in dev
 | **Observe** | | |
 | Today | `/` | The home page: the last 24 hours as a visual story. A plain headline and five big numbers, a flow diagram (country, door, how far they got), an hour-by-hour strip, a few "stories of the day", then what to do about it. See [Today, search and the glossary](#today-search-and-the-glossary). |
 | Live | `/live` | A flat world map of the last 15 minutes of attacks, with arcs landing at the home point, a stats strip, a ticker of the newest events and rankings of addresses, countries and networks. See [The Live page](#the-live-page). |
-| Attacks | `/attacks` | Sessions, newest first, one line each, as a short story. Filters: sensor, source address, period, tag, country and network. Pages of 50, virtualised. |
-| Session detail | `/attacks/<session id>` | The attack timeline, with long runs of the same event folded, a terminal replay for shell sessions, and a source panel. |
+| Attacks | `/attacks` | Sessions, newest first, one line each, as a short story. Filters: sensor, floods (All, Hide, Only), source address, period, tag, country and network. Pages of 50, virtualised. A source that flooded the sensors is one row per hour (see [Flood groups](#flood-groups)). |
+| Session detail | `/attacks/<session id>` | The attack timeline, with long runs of the same event folded, a terminal replay for shell sessions, and a source panel. A flood group has its own page, with the credentials it tried instead of a replay. |
 | Attackers | `/attackers`, `/attackers/<ip>` | Profiles by address: first and last seen, sensors targeted, reputation. |
 | Networks | `/networks` | The hosting providers and networks (ASNs) the attacks come from. The old `/attackers?view=asns` address redirects here. |
 | Activity | `/overview` | KPIs for the last 24 hours, activity per sensor, the sensor mix, the latest events and up to three insights (see [Insights](#insights)). |
@@ -154,6 +154,16 @@ The tab adds no new colour. Red is kept for severe events, as in the rest of the
 A session row reads like a sentence, for example: "203.0.113.9 tried 37 SSH passwords, then ran 5 commands and tried to download 1 file". The text is written by one pure function in the app and covered by unit tests. The same words are used on the Attacks list, the Live feed and the Session page.
 
 A session is marked severe when it downloaded something or carries a payload tag (such as `php2shell`, `crypto-miner`, `mirai` or `malware-drop`). A single event gets the red icon only when the event itself is severe.
+
+## Flood groups
+
+Some sources open hundreds of plain connections in an hour: a password spray, a scanner. The sensors keep recording every connection, but the sessions list does not show them one by one: the connections of one address, sensor and port in one UTC hour are merged into one **flood group** ([how and when](retention.md#flood-groups)). Nothing that did something is ever merged: a connection that got in, ran a command, sent a request or downloaded a file keeps its own row.
+
+- **The row.** One story that counts the connections, for example "203.0.113.7 opened 812 RDP connections, one login each", a neutral chip with an icon, the word "flood" and the count ("x812"), and the hours the group ran in your time zone ("14:02–14:58", under the start time, with the date and time zone on hover). A flood is volume, not a payload, so the chip is never red and never relies on colour.
+- **The Attacks page.** The headline says how much of the day came in floods ("... 96% of them in floods from 20 addresses."). The **Floods** control has three choices: **All** (the default), **Hide** and **Only**. It is written in the URL as `?kind=session` (Hide) and `?kind=burst` (Only), so a view can be shared. The end of the list counts connections, not rows ("End of the list · 5,432 sessions in 140 rows").
+- **The group page.** A sentence says what the group is (none of its connections got in, ran a command or downloaded a file), then the window it covers, the connections, the logins tried, the events and the target port (there is no single source port to show). A **Credentials tried** card lists the most used usernames and passwords, each opening the matching [Trends](#trends-and-malware) filter. **First events** shows the first 200 events in the usual timeline, with long runs folded. **Same hour** lists the other groups of the same address in that hour, and the source card links to every session of the address. There is no terminal replay.
+- **Links from events.** A link to a session from an event (the Live feed, the latest events of the Activity page) carries the time of the event as `?at=`. A connection that was folded into a group has no page of its own, so the page opens the group that holds it and says so. A link without `?at=` to a folded connection shows "Session not found".
+- **Attacker profile.** The profile sentence adds "of which 1,456 in floods" (a link to that address's flood groups; "at least" when the address has more than 200 groups).
 
 ## The Live page
 

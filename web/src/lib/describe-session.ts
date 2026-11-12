@@ -1,5 +1,6 @@
 import type { Session } from "./api"
-import { countryName, plural } from "./format"
+import { countryName, formatNumber, plural } from "./format"
+import { connectionsOf, isFlood } from "./floods"
 import { sensorMeta } from "./sensors"
 
 /**
@@ -107,8 +108,36 @@ function synologyPredicate(s: Session): string {
   return `probed ${nas} and left`
 }
 
+/**
+ * The story of a flood group: one address opened many plain connections in an hour, so the row
+ * counts them instead of telling each one. "opened 812 RDP connections, one login each", or
+ * "opened 438 SSH connections, about 2 passwords each (876 tried)".
+ */
+function floodPredicate(s: Session): string {
+  const n = connectionsOf(s)
+  const nas = s.sensor === "synology"
+  const noun = sensorMeta(s.sensor)?.noun ?? s.sensor.toUpperCase()
+  const tool = nas ? "" : clientToolClause(s)
+  const opened = nas
+    ? `opened ${plural(n, "connection")} to the Synology NAS`
+    : `opened ${plural(n, `${noun} connection`)}${tool}`
+  if (s.login_attempts <= 0) {
+    if (s.sensor === "web" || s.sensor === "docker") return `${opened} without sending a request`
+    if (s.sensor === "smb" || s.sensor === "sip") return `${opened} and left`
+    return `${opened} and left without logging in`
+  }
+  const what = sensorMeta(s.sensor)?.credential ?? "login"
+  // Exactly one each: the count is already said, the row does not repeat it a third time.
+  if (s.login_attempts === n) return `${opened}, one ${what} each`
+  const each = Math.round(s.login_attempts / n)
+  const share = each <= 1 ? `about one ${what} each` : `about ${plural(each, what)} each`
+  return `${opened}, ${share} (${formatNumber(s.login_attempts)} tried)`
+}
+
 /** Build the plain-English story of a session. Pure: no I/O, no clock. */
 export function describeSession(s: Session): SessionStoryParts {
+  if (isFlood(s))
+    return { subject: s.src_ip, origin: sessionOrigin(s), predicate: floodPredicate(s) }
   if (s.sensor === "synology")
     return { subject: s.src_ip, origin: sessionOrigin(s), predicate: synologyPredicate(s) }
   const noun = sensorMeta(s.sensor)?.noun ?? s.sensor.toUpperCase()

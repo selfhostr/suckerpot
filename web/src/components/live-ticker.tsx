@@ -8,6 +8,7 @@ import type { LiveEvent } from "@/lib/api"
 import { eventTypeMeta } from "@/lib/event-type"
 import { countryName, maskIp, maskIpsInText, plural } from "@/lib/format"
 import { isSevereEvent } from "@/lib/severity"
+import { sessionHref } from "@/lib/floods"
 import { sensorMeta } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 
@@ -183,7 +184,7 @@ function TickerChip({
   const label = meta?.label ?? event.sensor
   return (
     <Link
-      to={`/attacks/${encodeURIComponent(event.session_id)}`}
+      to={sessionHref(event.session_id, event.ts)}
       aria-label={`${label}${severe ? " (severe)" : ""}: ${summary}, from ${ip}${country ? ` (${countryName(country) ?? country})` : ""}. Open session`}
       onPointerEnter={() => country && onFocusChange(country)}
       onPointerLeave={() => onFocusChange(null)}
