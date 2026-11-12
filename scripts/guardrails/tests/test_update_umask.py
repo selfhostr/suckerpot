@@ -11,6 +11,7 @@ the umask of the process that runs them.
 import os
 import re
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -53,10 +54,12 @@ def make(sb: Sandbox, rel: str, perm: int) -> None:
     path.chmod(perm)
 
 
-def stage(sb: Sandbox) -> Path:
+def stage(sb: Sandbox) -> dict[Path, int]:
     """Unreadable tracked files, private untracked ones, and a fake checkout that rewrites files.
 
-    Returns a file outside the checkout that a tracked symlink points to.
+    The committed tree also lists secrets (a .env that was committed by mistake, hub/.env...) and a
+    tracked folder that is now a symlink to a folder outside the checkout. Returns what outside the
+    checkout, with its mode, must never be touched.
     """
     for rel, perm in HIT_FILES.items():
         make(sb, rel, perm)
@@ -70,13 +73,24 @@ def stage(sb: Sandbox) -> Path:
     outside.write_text("secret\n")
     outside.chmod(0o600)
     (sb.root / "link-to-outside").symlink_to(outside)
-    tracked = [r.split()[0] for r in REWRITTEN] + list(HIT_FILES) + ["link-to-outside"]
+    outside_dir = sb.root.parent / "outside-dir"
+    outside_dir.mkdir()
+    (outside_dir / "f.txt").write_text("secret\n")
+    (outside_dir / "f.txt").chmod(0o600)
+    outside_dir.chmod(0o700)
+    (sb.root / "linked-dir").symlink_to(outside_dir, target_is_directory=True)
+    tracked = (
+        [r.split()[0] for r in REWRITTEN]
+        + list(HIT_FILES)
+        + ["link-to-outside", "linked-dir/f.txt", ".env", ".suckerpot-state/last-update.json"]
+        + list(PRIVATE_FILES)
+    )
     sb.git_set("tracked", "".join(f"{p}\0" for p in tracked))
     sb.git_set("rewrites", "\n".join(REWRITTEN) + "\n")
-    return outside
+    return {outside: 0o600, outside_dir: 0o700, outside_dir / "f.txt": 0o600}
 
 
-def check_readable(sb: Sandbox, outside: Path) -> None:
+def check_readable(sb: Sandbox, untouched: dict[Path, int]) -> None:
     root = sb.root
     # What the checkout wrote: readable by everyone, executables too.
     assert mode(root / "scripts/backup-service.sh") == 0o755
@@ -91,13 +105,15 @@ def check_readable(sb: Sandbox, outside: Path) -> None:
     assert mode(root / "deep/nested/f.txt") == 0o644
     for folder in ("config", "deep", "deep/nested", "hub"):
         assert mode(root / folder) & 0o055 == 0o055, folder
-    # Never touched: what git does not track, and the target of a tracked symlink.
+    # Never touched: the secrets of the node, even though the tree lists them...
     assert mode(root / ".env") == 0o600
     for rel, perm in PRIVATE_FILES.items():
         assert mode(root / rel) == perm, rel
     for rel, perm in PRIVATE_DIRS.items():
         assert mode(root / rel) == perm, rel
-    assert mode(outside) == 0o600
+    # ...and whatever a tracked symlink, or a tracked folder that became a symlink, points to.
+    for path, perm in untouched.items():
+        assert mode(path) == perm, path
 
 
 @pytest.mark.parametrize("install_mode", ["images", "source"])
@@ -107,13 +123,13 @@ def test_update_under_umask_077_leaves_a_readable_checkout(
     prepare(sandbox, mode=install_mode, branch="main" if install_mode == "source" else "")
     if install_mode == "source":
         sandbox.env["SHIM_RUNNING_VERSION"] = "v0.8.0"
-    outside = stage(sandbox)
+    untouched = stage(sandbox)
     proc = sandbox.run("scripts/update.sh", "--yes", umask="077")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     calls = sandbox.calls()
     expected = "git pull --ff-only --quiet" if install_mode == "source" else "git checkout"
     assert any(c.startswith(expected) for c in calls)
-    check_readable(sandbox, outside)
+    check_readable(sandbox, untouched)
     # The rollback state stays private.
     state = sandbox.root / ".suckerpot-state"
     assert mode(state) == 0o700
@@ -124,7 +140,7 @@ def test_update_under_umask_077_leaves_a_readable_checkout(
 def test_update_run_by_the_automatic_updater_keeps_the_same_guarantees(sandbox: Sandbox) -> None:
     """auto-update.sh holds the lock, runs under umask 077 and calls update.sh --yes --auto."""
     prepare(sandbox)
-    outside = stage(sandbox)
+    untouched = stage(sandbox)
     proc = sandbox.run(
         "scripts/update.sh",
         "--yes",
@@ -134,16 +150,16 @@ def test_update_run_by_the_automatic_updater_keeps_the_same_guarantees(sandbox: 
         extra_env={"SELFHOSTR_UPDATE_LOCK_HELD": "1"},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    check_readable(sandbox, outside)
+    check_readable(sandbox, untouched)
     assert mode(sandbox.root / ".suckerpot-state/last-update.json") == 0o600
 
 
 def test_update_under_the_usual_umask_changes_nothing_for_the_caller(sandbox: Sandbox) -> None:
     prepare(sandbox)
-    outside = stage(sandbox)
+    untouched = stage(sandbox)
     rc, out = run_update(sandbox, "--yes")
     assert rc == 0, out
-    check_readable(sandbox, outside)
+    check_readable(sandbox, untouched)
     assert mode(sandbox.root / ".suckerpot-state/last-update.json") == 0o600
 
 
@@ -153,11 +169,11 @@ def test_rollback_under_umask_077_leaves_a_readable_checkout(sandbox: Sandbox) -
     write_state(sandbox)
     # restore-db.sh has its own tests; here it is replaced by a recorder.
     (sandbox.root / "scripts" / "restore-db.sh").write_text('echo "restore-db $*" >> "$SHIM_LOG"\n')
-    outside = stage(sandbox)
+    untouched = stage(sandbox)
     proc = sandbox.run("scripts/rollback.sh", "--yes", umask="077")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert f"git checkout --quiet --detach {OLD}" in sandbox.calls()
-    check_readable(sandbox, outside)
+    check_readable(sandbox, untouched)
     assert mode(sandbox.root / ".suckerpot-state/last-update.json") == 0o600
 
 
@@ -166,7 +182,7 @@ def test_env_migrate_repairs_a_checkout_an_older_update_made_under_umask_077(
 ) -> None:
     """The update that is running may be an older update.sh: env-migrate.sh is the first new script."""
     prepare(sandbox)
-    outside = stage(sandbox)
+    untouched = stage(sandbox)
     # The checkout already happened (and left the new files unreadable).
     for rel in ("scripts/backup-service.sh", "db/migrations/versions/0032_reputation_keep.py"):
         make(sandbox, rel, 0o700 if rel.endswith(".sh") else 0o600)
@@ -180,11 +196,12 @@ def test_env_migrate_repairs_a_checkout_an_older_update_made_under_umask_077(
     assert mode(sandbox.root / ".env") == 0o600
     for rel, perm in PRIVATE_FILES.items():
         assert mode(sandbox.root / rel) == perm, rel
-    assert mode(outside) == 0o600
+    for path, perm in untouched.items():
+        assert mode(path) == perm, path
 
 
 def test_install_under_umask_077_repairs_a_clone_and_keeps_env_private(sandbox: Sandbox) -> None:
-    outside = stage(sandbox)
+    untouched = stage(sandbox)
     for rel in ("scripts/backup-service.sh", "db/migrations/versions/0032_reputation_keep.py"):
         make(sandbox, rel, 0o700 if rel.endswith(".sh") else 0o600)
     proc = sandbox.run(
@@ -202,7 +219,110 @@ def test_install_under_umask_077_repairs_a_clone_and_keeps_env_private(sandbox: 
     assert mode(sandbox.root / "scripts/backup-service.sh") == 0o755
     assert mode(sandbox.root / "db/migrations/versions/0032_reputation_keep.py") == 0o644
     assert mode(sandbox.root / "config/old.yaml") == 0o644
-    assert mode(outside) == 0o600
+    for path, perm in untouched.items():
+        assert mode(path) == perm, path
+    assert mode(sandbox.root / "hub/secrets/token") == 0o600
+
+
+# ------------------------------------------------------------ the repair, on its own
+
+
+def repair(sb: Sandbox) -> subprocess.CompletedProcess[str]:
+    """The manual repair of docs/updates.md, for a node that already has this release."""
+    return subprocess.run(
+        ["bash", "-c", ". scripts/lib/env.sh && fix_tracked_modes"],  # noqa: S607
+        cwd=sb.root,
+        env=sb.env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def track(sb: Sandbox, *paths: str) -> None:
+    """Add paths to the committed tree the fake git lists."""
+    current = (sb.shim / "gitstate" / "tracked").read_text()
+    sb.git_set("tracked", current + "".join(f"{p}\0" for p in paths))
+
+
+def test_the_repair_reads_the_committed_tree_not_the_index(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    stage(sandbox)
+    proc = repair(sandbox)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = sandbox.calls()
+    assert "git ls-tree -rz --name-only HEAD" in calls
+    assert not any(c.startswith("git ls-files") for c in calls)
+
+
+def test_the_repair_never_touches_env_files_even_when_the_tree_lists_them(
+    sandbox: Sandbox,
+) -> None:
+    prepare(sandbox)
+    stage(sandbox)
+    # A .env that was force-added, its backups, a nested one, and the example files.
+    for rel in (".env.bak-x", "deep/nested/.env.local", ".env.example", "hub/.env.example"):
+        make(sandbox, rel, 0o600)
+    (sandbox.root / ".suckerpot-state").mkdir(mode=0o700)
+    make(sandbox, ".suckerpot-state/bad-versions", 0o600)
+    (sandbox.root / ".suckerpot-state").chmod(0o700)
+    track(
+        sandbox,
+        ".env.bak-x",
+        "deep/nested/.env.local",
+        ".env.example",
+        "hub/.env.example",
+        ".suckerpot-state/bad-versions",
+    )
+    proc = repair(sandbox)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    for rel in (".env", ".env.bak-x", "deep/nested/.env.local", ".suckerpot-state/bad-versions"):
+        assert mode(sandbox.root / rel) == 0o600, rel
+    assert mode(sandbox.root / ".suckerpot-state") == 0o700
+    # The example files are public: they are repaired like any other tracked file.
+    assert mode(sandbox.root / ".env.example") == 0o644
+    assert mode(sandbox.root / "hub/.env.example") == 0o644
+
+
+def test_the_repair_skips_a_tracked_folder_that_became_a_symlink(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    untouched = stage(sandbox)
+    assert (sandbox.root / "linked-dir").is_symlink()
+    proc = repair(sandbox)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    for path, perm in untouched.items():
+        assert mode(path) == perm, path
+    assert mode(sandbox.root / "linked-dir" / "f.txt") == 0o600
+    # The rest of the tree is repaired as usual.
+    assert mode(sandbox.root / "config/old.yaml") == 0o644
+
+
+def test_the_repair_changes_nothing_that_resolves_outside_the_checkout(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    stage(sandbox)
+    elsewhere = sandbox.root.parent / "elsewhere"
+    elsewhere.mkdir()
+    sandbox.env["SHIM_TOPLEVEL"] = str(elsewhere)
+    proc = repair(sandbox)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert mode(sandbox.root / "config/old.yaml") == 0o600
+    assert mode(sandbox.root / "config") == 0o700
+    sandbox.env["SHIM_TOPLEVEL"] = str(sandbox.root)
+    assert repair(sandbox).returncode == 0
+    assert mode(sandbox.root / "config/old.yaml") == 0o644
+
+
+def test_hub_env_stays_private_when_its_folder_is_opened(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    stage(sandbox)
+    # hub/ holds tracked files, so it becomes readable; its secrets file was loose and is closed.
+    (sandbox.root / "hub/.env").chmod(0o644)
+    proc = repair(sandbox)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert mode(sandbox.root / "hub") & 0o055 == 0o055
+    assert mode(sandbox.root / "hub/.env") == 0o600
+    assert mode(sandbox.root / "hub/secrets") == 0o700
     assert mode(sandbox.root / "hub/secrets/token") == 0o600
 
 

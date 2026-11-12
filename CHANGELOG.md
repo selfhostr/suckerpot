@@ -18,9 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   became `0700`. The checkout, the pull and the build now run under `umask 022`, whatever umask the
   caller has (`scripts/auto-update.sh` runs under `077`), and `scripts/rollback.sh` does the same.
   After every checkout the update, the rollback, the installer and `scripts/env-migrate.sh` make
-  the tracked files readable again (`chmod go+rX`, tracked paths only: `.env`, `hub/.env`,
-  `hub/secrets` and `.suckerpot-state` keep their mode), so a node that was already hit is repaired
-  by its next update. How to repair one by hand: [docs/updates.md](docs/updates.md#unreadable-files-after-an-update).
+  the files of the committed tree readable again (`chmod go+rX`, listed from `HEAD`, not the index).
+  The folders that hold those files are opened too (`hub/` becomes `0755`), so `hub/.env` is set to
+  `0600` afterwards. Never touched: every `.env*` file (the example files excepted), `hub/.env`,
+  `hub/secrets` and `.suckerpot-state`, symlinks, and anything that resolves outside the
+  checkout. A node that was already hit is repaired by its next update. How to repair one by hand:
+  [docs/updates.md](docs/updates.md#unreadable-files-after-an-update).
 
 ## [0.11.3] - 2026-11-12
 

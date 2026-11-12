@@ -114,6 +114,7 @@ case "$*" in
   "rev-parse --absolute-git-dir")
     if [ "$mode" = linked ]; then echo "/shim/main/.git/worktrees/x"; else echo "/shim/main/.git"; fi ;;
   "rev-parse --path-format=absolute --git-common-dir") echo "/shim/main/.git" ;;
+  "rev-parse --show-toplevel") echo "${SHIM_TOPLEVEL:-$(pwd -P)}" ;;
   "rev-parse HEAD") rd head ;;
   "rev-parse --short HEAD") rd head | cut -c1-7 ;;
   "rev-parse -q --verify refs/tags/"*)
@@ -132,7 +133,7 @@ case "$*" in
   "checkout --quiet --detach "*) printf '%s' "$4" > "$SHIM_DIR/gitstate/head"; rewrite ;;
   "checkout "*) rewrite ;;
   "pull "*) rewrite ;;
-  "ls-files -z") cat "$SHIM_DIR/gitstate/tracked" 2>/dev/null || true ;;
+  "ls-tree -rz --name-only HEAD") cat "$SHIM_DIR/gitstate/tracked" 2>/dev/null || true ;;
   *) ;;
 esac
 exit 0

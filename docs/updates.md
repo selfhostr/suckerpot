@@ -395,13 +395,20 @@ If `checkout` and `running` differ, the stack has not been restarted since the u
 
 An update from v0.11.2 to v0.11.3 could leave the files of the checkout with mode `0600` (and scripts with `0700`), because the checkout ran under the update's private `umask 077`. In source mode the images are built from those files, and the non-root user inside a container cannot read them: the `migrate` service failed with `PermissionError: [Errno 13] Permission denied: '/app/migrations/versions/...'`, and the update stopped with `ingest`, `api`, `collector` and `analyzer` down. Scripts that the containers mount, such as `scripts/backup-service.sh`, were affected in both install modes.
 
-From v0.11.4, the update runs git and the build under `umask 022` and makes the tracked files readable again after every checkout. Only the files git tracks are touched: `.env`, `.env.bak-*`, `hub/.env`, `hub/secrets` and `.suckerpot-state` keep their mode. A node that was already hit is repaired by its next update.
+From v0.11.4, the update runs git and the build under `umask 022` and makes the files of the committed tree readable again after every checkout. The folders that hold those files are made readable too (`hub/` becomes `0755`), so `hub/.env` is set to `0600` afterwards. Never touched: every `.env*` file (the example files excepted), `hub/.env`, `hub/secrets` and `.suckerpot-state`, any symlink, and anything that resolves outside the checkout. A node that was already hit is repaired by its next update.
 
-To repair a node now, run this in the checkout folder. The first line fixes the tracked files and the second the folders that hold them:
+To repair a node now, run this in the checkout folder. On a node that already has this release:
 
 ```bash
-git ls-files -z | xargs -0 chmod go+rX
-git ls-files | awk -F/ '{ p = ""; for (i = 1; i < NF; i++) { p = p $i "/"; print p } }' | sort -u | xargs -d '\n' chmod go+rX
+bash -c '. scripts/lib/env.sh && fix_tracked_modes'
+```
+
+An older checkout does not have that function. Make its files and folders readable by hand, and close `hub/.env` if you use it:
+
+```bash
+git ls-tree -rz --name-only HEAD | xargs -0 chmod go+rX --
+git ls-tree -rdz --name-only HEAD | xargs -0 chmod go+rX --
+[ ! -f hub/.env ] || chmod 600 hub/.env
 ```
 
 Then run the update again (`just update`), or start the stack again with the code you have. In source mode:
