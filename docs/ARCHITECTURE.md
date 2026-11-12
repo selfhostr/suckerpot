@@ -322,8 +322,10 @@ Each service connects with its own role. Only the migration step can change the 
 | Role | Used by | Rights | Statement timeout |
 | --- | --- | --- | --- |
 | Owner (`POSTGRES_USER`) | `db`, `migrate` | Owns the schema. Used for migrations only. | Not set |
-| `suckerpot_ingest` | `ingest` | Insert and update on the tables ingest writes. No schema changes, no role changes. It has no `DELETE` on `sessions` and no `UPDATE` on `events`: the only changes it makes there go through two `SECURITY DEFINER` functions it may execute (`retract_benign` and `fold_session_buckets`, which deletes only the plain connections it merges into a flood group). | 30 s |
+| `suckerpot_ingest` | `ingest` | Insert and update on the tables ingest writes. No schema changes, no role changes. It has no `DELETE` on `sessions` and no `UPDATE` on `events`: the only changes it makes there go through `SECURITY DEFINER` functions it may execute (`retract_benign`, `fold_session_buckets`, which deletes only the plain connections it merges into a flood group, and `restore_folded_sessions`, which gives a folded connection that got a late event its row back and deletes only a group it empties). | 30 s |
 | `suckerpot_api` | `api` | `SELECT` on the data tables. It also writes the tables the dashboard manages: users and the audit log (append only), provider keys, overrides, inventory, feed tokens, alert channels, alert rules, watched CVEs and script requests. It cannot write events, sessions, campaigns, blocklist rows or alert outbox rows. | 5 s |
+
+One gap is known: ingest keeps `UPDATE` on `sessions` (it maintains the counters of every row), so a compromised ingest could rewrite a row until it looks plain and then fold it, which amounts to deleting it from `sessions`. The fold function refuses CVE, payload and severe tags itself and never touches `events`, so the raw events of such a row stay; closing the gap fully would mean moving every session update behind a function.
 
 Neither application role is a superuser. Neither can create databases or roles. The `migrate` service sets both role passwords on **every** run, from the environment. The password is sent as a SCRAM-SHA-256 verifier, so it never appears in the database logs. This is how you rotate them: see [Rotating secrets](deployment.md#rotating-secrets).
 

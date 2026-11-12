@@ -335,7 +335,7 @@ Returns one session, with the same fields as a list item (a flood group is retur
 
 | Query parameter | Default | Meaning |
 | --- | --- | --- |
-| `at` | none | When the connection happened (ISO 8601, with a time zone). A connection that was folded into a flood group has no row of its own any more. With `at`, its events are looked up from one hour before to one hour after that time and the group that holds it is returned, with `folded_from` set to the id that was asked for. Without a match the answer is `404`. |
+| `at` | none | When the connection happened (ISO 8601, with a time zone). A connection that was folded into a flood group has no row of its own any more. With `at`, its events are looked up from one hour before to one hour after that time and the group that holds it is returned, with `folded_from` set to the id that was asked for. Without a match the answer is `404`; a time before 1970 or after the year 9000 is `422`. |
 
 When several groups of the same source and hour could hold the connection (the connections of that hour differ in tags or in whether they tried to log in), the one that agrees on whether it tried to log in is returned. Web links to a session from an event carry `at` for this reason.
 

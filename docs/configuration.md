@@ -482,7 +482,7 @@ Ingest merges the plain connections of a flooding source into one row per sensor
 | --- | --- | --- |
 | `SESSION_FOLD_ENABLED` | `true` | Fold as connections close, and sweep the history. `false` switches both off; groups already stored stay |
 | `SESSION_FOLD_MIN` | `20` | Connections of one source on one sensor in one UTC hour that make a flood (5 to 10,000). Lowering it does not re-fold history already swept |
-| `SESSION_FOLD_IDLE_MIN` | `15` | Minutes of silence after which a connection with no disconnect counts as finished (5 to 1,440) |
+| `SESSION_FOLD_IDLE_MIN` | `15` | Minutes of silence after which a connection with no disconnect counts as finished (5 to 1,440). Measured against how far ingest has stored the streams, not the clock, so a backlog never folds a connection early |
 
 The sweep runs every minute: a pass over the last three hours, then, until it has reached the oldest session, a backfill that walks backwards six hours at a time. Its progress is the `session_fold` row of `system_status`.
 

@@ -50,21 +50,25 @@ Ingest now merges such a flood into one **group** row per source and hour.
 What folds. A connection is merged only when all of this holds, checked in SQL by the function
 `fold_session_buckets`, not in application code:
 
-* it is a plain connection: finished (it has an end, or nothing arrived for 15 minutes), no
-  successful login, no command, no download, no HTTP request, fewer than 20 login attempts, no
-  campaign, no research-scanner name, not marked benign, linked to no indicator, and carrying
-  only tags the caller calls plain (credential stuffing, weak credentials and a few more that say
-  nothing beyond "someone tried passwords");
+* it is a plain connection: finished (it has an end, or nothing arrived from it for 15 minutes
+  of what ingest has stored, see below), no successful login, no command, no download, no HTTP
+  request, fewer than 20 login attempts, no more events than those attempts plus a connect, a
+  disconnect and the protocol handshake (three; four on SIP, which also records its first message
+  and a summary), no campaign, no research-scanner name, not marked benign, linked to no
+  indicator, and carrying only tags the caller calls plain (credential stuffing, weak credentials
+  and a few more that say nothing beyond "someone tried passwords"). The function itself drops
+  every CVE, payload and severe tag from the list it is given, so no caller can call one plain;
 * its source is flooding: the rows of one address on one sensor in one UTC hour add up to at least
   `SESSION_FOLD_MIN` connections (default 20, never below 5), or that address and sensor already
   has a group in the hour before;
-* no event of that address, sensor and hour is demo data.
+* none of its own events is demo data (a demo connection keeps its row, so a group never holds
+  one).
 
 Anything else keeps its own row: a login that succeeded, a command, a download, a 20-password
-list, a campaign member, a link to an indicator. A flood therefore never hides an attack inside
-it. Rows are grouped by sensor, source, port, UTC hour, whether a login was tried, the tag set,
-the techniques and the client tool; the group id is `burst-` followed by 24 hex digits derived
-from that key, so merging again adds to the same row.
+list, a payload sent as extra protocol messages, a campaign member, a link to an indicator. A
+flood therefore never hides an attack inside it. Rows are grouped by sensor, source, port, UTC
+hour, whether a login was tried, the tag set, the techniques and the client tool; the group id is
+`burst-` followed by 24 hex digits derived from that key, so merging again adds to the same row.
 
 The effect.
 
@@ -82,16 +86,40 @@ The effect.
 * What is gone is the per-connection row: the exact start and end of each connection, its source
   port and its own tag list. The session page of a group says so and shows the first events.
 * The ingest role cannot delete from `sessions`. The function is `SECURITY DEFINER`, owned by the
-  database owner, with a fixed `search_path`, and `EXECUTE` is granted to the ingest role only
-  (not to `PUBLIC`, not to the API). It deletes only rows that match the conditions above, inside
-  one statement, under an advisory lock so that two callers never merge the same rows, and it
-  skips a row another transaction holds instead of waiting for it.
+  database owner, with a `search_path` of `pg_catalog` only (every table is schema-qualified), and
+  `EXECUTE` is granted to the ingest role only (not to `PUBLIC`, not to the API). It deletes only
+  rows that match the conditions above, inside one statement, under an advisory lock so that two
+  callers never merge the same rows, and it skips a row another transaction holds instead of
+  waiting for it.
 * The migration (0034) adds the two columns, the checks that keep `kind`, the `burst-` id and
   `connections` consistent, an index on `(src_ip, sensor, started_at DESC)` in place of
   `ix_sessions_src_ip`, and lower autovacuum thresholds on `sessions`. Going back to 0033 is
   refused while any group exists, because the connections it stands for cannot be rebuilt. To go
   back anyway, delete the groups first (`DELETE FROM sessions WHERE kind = 'burst'`; the events
   stay) and accept the loss.
+
+Idle is measured against ingest, not the clock. A connection that never sent a disconnect is
+finished once nothing arrived from it for `SESSION_FOLD_IDLE_MIN` minutes of what ingest has
+stored. The writer measures against the newest event of the batch it just stored, and the
+background pass against how far the consumer has read every stream (while it lags, or before it
+has caught up once after a start, only connections that ended fold). After a restart, a
+`VACUUM FULL` or any backlog, a connection whose later events still wait in Redis is never folded
+early.
+
+A late event of a folded connection (one more message after a long silence) still cannot count it
+twice: the writer sees a new row for a connection whose `connect` it did not just store, and the
+function `restore_folded_sessions` (same rights as the fold) gives that row its earlier events back
+(start, counters, tags) and takes the connection out of its group, deleting the group if it was
+its last one. Every event of the connection is then read from its own row; if it is still plain
+and finished, it folds back into its group.
+
+The work is bounded whatever a source sends. A call reads at most `SESSION_FOLD_MIN` rows to
+decide that a bucket floods, stops after the rows it may fold, and checks the demo flag on the
+events of those rows only, never on every event of the hour. The writer caps each call at 2
+seconds, asks about one source, sensor and hour at most once a minute, and after a timeout stops
+folding for a minute (doubling up to a quarter of an hour) while the background pass catches up.
+The background pass caps each statement at 10 seconds and, after a timeout, folds less per call
+and sits out a few minutes. A batch of events never fails or waits because of folding.
 
 Rows already stored are folded too: a background pass in ingest walks back through the history a
 few hours at a time. Deleted rows leave free space inside the table that autovacuum reuses but does
