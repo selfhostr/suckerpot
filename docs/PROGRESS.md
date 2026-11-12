@@ -311,3 +311,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Web content (HTML, SVG and XML, CSS, JSON, web JavaScript) now has its own kinds. It is spared (no link following, no hash indicator, left out of lookups, lists, drafts and the network batch) only when the collector reached it as a page asset of other web content and no attacker typed it; anything an attacker typed or a script linked to stays attacker content. Migration `0033`.
 - Five security review rounds shaped the final rule: droppers dressed as pages, a quadratic CSS scan, link sources and parent order were all found and fixed, with tests for every case.
 - Not run on a real node yet: existing samples are reclassified on their own after the update.
+
+## 2026-11-12: v0.11.6 (flood groups)
+
+- Three pull requests since v0.11.5 (#134, #135, #136). The details are in `CHANGELOG.md`.
+- Flood groups (#134, #136): a source that opens many plain connections to one sensor in one UTC hour (20 or more) has them folded into one group row, with the sums kept and the events untouched. A connection that did anything more (a successful login, a command, a download, an HTTP request, 20 or more passwords, a campaign, an indicator, a severe tag, more events than its logins explain) keeps its own row. Every count of sessions now sums connections, so the dashboard numbers do not change; the Attacks list shows a group as one row with a neutral flood chip and a Floods control, and a group page lists the credentials tried. Migration `0034`. Why: on a busy node one RDP spray left one `sessions` row per connection, and that table, never compressed, outgrew the database ceiling within the retention window.
+- Three security review rounds shaped it: a demo check that read every event of the hour on each batch (fixed: per folded row, bounded by a statement timeout and a back-off, about 80 ms on a 4.8 M event hour), idle measured against the wall clock while ingest lags (fixed: against stream progress, with late events restored to their own row), and smaller gaps in the restore path.
+- Sensor fix (#135): the Docker and Synology sensors reused summary session ids after a restart; they now get random ids.
+- After the update the sweep folds the stored history six hours at a time. `docs/retention.md` describes an optional one-time `VACUUM (FULL, ANALYZE) sessions` to give the space back.
+- Not run on a real node yet.
