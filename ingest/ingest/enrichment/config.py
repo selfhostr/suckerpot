@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PROVIDERS = ("auto", "maxmind", "dbip", "off")
+RECHECK_DAYS_MIN = 1
+RECHECK_DAYS_MAX = 30
 
 
 def _flag(value: str) -> bool:
@@ -39,6 +41,7 @@ class EnrichmentSettings:
     intel_interval_s: float = 30.0
     reputation_min_events: int = 10
     reputation_interval_s: float = 30.0
+    reputation_recheck_days: int = 7
     rules_dir: Path = Path("/app/rules")
 
     @property
@@ -87,5 +90,9 @@ class EnrichmentSettings:
             intel_interval_s=max(5.0, float(e.get("INTEL_INTERVAL_S", "30"))),
             reputation_min_events=max(1, int(e.get("REPUTATION_MIN_EVENTS", "10"))),
             reputation_interval_s=max(5.0, float(e.get("REPUTATION_INTERVAL_S", "30"))),
+            reputation_recheck_days=min(
+                RECHECK_DAYS_MAX,
+                max(RECHECK_DAYS_MIN, int(e.get("REPUTATION_RECHECK_DAYS", "7"))),
+            ),
             rules_dir=Path(e.get("RULES_DIR", str(default_rules))),
         )

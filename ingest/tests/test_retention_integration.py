@@ -274,7 +274,9 @@ async def test_maintenance_rolls_up_and_deletes_old_sessions(auto: AsyncConnecti
         text(
             "INSERT INTO ip_reputation (ip, abuse_score, abuse_checked_at, updated_at) VALUES"
             " ('198.51.100.1', 10, now() - INTERVAL '3 days', now() - INTERVAL '3 days'),"
-            " ('198.51.100.2', 20, now() - INTERVAL '1 hour', now() - INTERVAL '1 hour')"
+            " ('198.51.100.2', 20, now() - INTERVAL '1 hour', now() - INTERVAL '1 hour'),"
+            " ('198.51.100.3', 30, now() - INTERVAL '60 days', now() - INTERVAL '60 days'),"
+            " ('198.51.100.4', 40, now() - INTERVAL '150 days', now() - INTERVAL '150 days')"
         )
     )
     await auto.execute(
@@ -308,7 +310,9 @@ async def test_maintenance_rolls_up_and_deletes_old_sessions(auto: AsyncConnecti
             ("telnet", 1, 2, 1, 0, 0, 0, 1),
         ]
         ips = (await auto.execute(text("SELECT host(ip) FROM ip_reputation"))).scalars().all()
-        assert ips == ["198.51.100.2"]
+        # A known score is kept however stale it is, until nobody refreshed it for the whole
+        # retention window (the 48 hour pruning that starved new addresses is gone).
+        assert sorted(ips) == ["198.51.100.1", "198.51.100.2", "198.51.100.3"]
         quota = (await auto.execute(text("SELECT used FROM enrichment_quota"))).scalars().all()
         assert quota == [1]
 

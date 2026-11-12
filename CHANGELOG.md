@@ -28,6 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- AbuseIPDB lookups no longer go to the same busy addresses every day while new sources stay
+  unscored. The hourly maintenance job deleted every stored answer after 48 hours, so each known
+  address looked new again and the daily quota was spent on re-checks. Answers are now kept and
+  used until they are refreshed, and the migration rebuilds the lost ones from the sessions. The
+  quota goes to addresses never looked up first (busiest first), then to answers older than the
+  new `REPUTATION_RECHECK_DAYS` (default 7, from 1 to 30). A fifth of each day's quota (at least
+  one lookup, at most half) is kept for those refreshes, so old answers are still renewed when
+  new sources arrive all day. Addresses that cannot be looked up no longer hold the first places
+  of the queue.
+- GreyNoise: a "too many requests" answer now stops lookups until the next UTC day and marks the
+  day's counter as full (so the key test in Settings reports "quota exhausted" until then, even
+  after a key change), instead of retrying every hour. The free Community tier allows far fewer
+  lookups than most configured quotas, so the retries only produced more errors.
 - Open drafts are checked again after the reporting settings or the "never in a report" list change. Before, a draft kept the result of its last build for up to an hour (longer for a draft the lookup cap skipped), so a reply contact fixed in Settings left every draft marked blocked. The worker now re-checks the open drafts from their stored evidence, with no lookup and no rebuild, when the settings revision or the deny set changed. The check is the one the build and the send path run (text, X-ARF and `.eml`, with the reply reference), and nothing is ever sent by this pass. It never clears what the build found in the evidence (an internal id, a private or a documentation address): only a rebuild does. The sessions the API and the SMTP sender treat as internal ids now include the attacker sessions behind a payload host, as the build does. A draft whose options the owner edited is re-checked on its own. A draft that carries one of those codes is not rendered, downloaded or exported either, and cannot be marked reviewed, until a rebuild clears it.
 
 - Campaigns of one actor are now merged. The worker only merged two campaigns when a single new
