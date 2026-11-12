@@ -7,9 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Changed
+## [0.11.3] - 2026-11-12
 
-- Abuse reports now say why a draft is blocked and what to do. Settings, Reporting checks each text (reply contact, signature, introduction, closing, note, subject template, X-ARF user agent) on its own: a text that would block every draft, for example a reply address on a domain that names the project, is refused with one sentence under the field and nothing is saved. The same sentences show when a text you saved earlier blocks drafts today, because the rules grow over time. The list of drafts gets a Blocked drafts card (how many, one sentence per reason, what to do, and the setting that causes it) and a few words on each blocked row. The report page gives a next step for every reason instead of a bare description. The API adds `fields` to a refused settings save, `field_issues` to `GET /abuse/settings` and `blocked_drafts` to `GET /abuse/status`.
 ### Added
 
 - Common reconnaissance now carries a tag instead of leaving most Redis, Docker, web, MySQL, ADB
@@ -25,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   user-agent flag, and `recon` includes the Android `getprop` and `screencap` commands. Both new
   tags are mapped to MITRE ATT&CK, named in campaigns and insights and explained on the Defend
   page. A homepage, `robots.txt` or favicon request stays untagged.
+
+### Changed
+
+- Abuse reports now say why a draft is blocked and what to do. Settings, Reporting checks each text (reply contact, signature, introduction, closing, note, subject template, X-ARF user agent) on its own: a text that would block every draft, for example a reply address on a domain that names the project, is refused with one sentence under the field and nothing is saved. The same sentences show when a text you saved earlier blocks drafts today, because the rules grow over time. The list of drafts gets a Blocked drafts card (how many, one sentence per reason, what to do, and the setting that causes it) and a few words on each blocked row. The report page gives a next step for every reason instead of a bare description. The API adds `fields` to a refused settings save, `field_issues` to `GET /abuse/settings` and `blocked_drafts` to `GET /abuse/status`.
 
 ### Fixed
 
@@ -411,7 +414,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.2...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.3...HEAD
+[0.11.3]: https://github.com/selfhostr/suckerpot/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/selfhostr/suckerpot/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/selfhostr/suckerpot/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/selfhostr/suckerpot/compare/v0.10.0...v0.11.0
