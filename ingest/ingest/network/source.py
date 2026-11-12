@@ -15,7 +15,7 @@ from typing import Protocol
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from suckerpot_db.sample_kinds import benign_web_sample, is_benign_web_hash
+from suckerpot_db.sample_kinds import is_plain_web_hash, plain_web_sample
 
 from . import demo
 
@@ -138,19 +138,13 @@ class SqlSource:
         ]
 
     async def payloads(self, day: date) -> list[PayloadFact]:
-        # The address stays (the attacker used it); the hash and file facts of a plain web page
-        # served from it do not: a page is not evidence about the payload.
-        web = benign_web_sample("sm")
         async with self.factory() as session:
             rows = (
                 await session.execute(
                     text(
-                        f"""
-                        SELECT i.value AS url,
-                               CASE WHEN {web} THEN NULL ELSE ft.last_sha256 END AS sha256,
-                               CASE WHEN {web} THEN NULL ELSE sm.family END AS family,
-                               CASE WHEN {web} THEN NULL ELSE sm.kind END AS kind,
-                               CASE WHEN {web} THEN NULL ELSE sm.arch END AS arch
+                        """
+                        SELECT i.value AS url, ft.last_sha256 AS sha256, sm.family AS family,
+                               sm.kind AS kind, sm.arch AS arch
                         FROM indicators i
                         LEFT JOIN fetch_targets ft ON ft.url = i.value AND ft.status = 'fetched'
                         LEFT JOIN samples sm ON sm.sha256 = ft.last_sha256
@@ -162,7 +156,7 @@ class SqlSource:
                               AND s.scanner_name IS NULL
                               AND x.seen_at >= :d0 AND x.seen_at < :d1)
                         ORDER BY i.id LIMIT :lim
-                        """  # noqa: S608  (constant fragments only)
+                        """
                     ),
                     {**_bounds(day), "lim": PAYLOAD_ROWS},
                 )
@@ -189,7 +183,8 @@ class SqlSource:
         return [C2Fact(r.kind, r.value, int(r.port), r.sha256, r.family) for r in rows]
 
     async def files(self, day: date) -> list[FileFact]:
-        """Hashes of stored samples and trusted hash indicators, except plain web pages."""
+        """Hashes of stored samples and trusted hash indicators, except plain web content (see
+        ``suckerpot_db.sample_kinds``)."""
         async with self.factory() as session:
             rows = (
                 await session.execute(
@@ -199,13 +194,13 @@ class SqlSource:
                                sm.arch AS arch
                         FROM samples sm
                         WHERE sm.stored AND sm.last_seen >= :d0 AND sm.last_seen < :d1
-                          AND NOT {benign_web_sample("sm")}
+                          AND NOT {plain_web_sample("sm")}
                         UNION
                         SELECT lower(i.value), NULL, NULL, NULL
                         FROM indicators i
                         WHERE i.type = 'hash' AND i.trusted AND NOT i.demo
                           AND length(i.value) = 64
-                          AND NOT {is_benign_web_hash("i.value")}
+                          AND NOT {is_plain_web_hash("i.value")}
                           AND i.last_seen >= :d0 AND i.last_seen < :d1
                         LIMIT :lim
                         """  # noqa: S608  (constant fragments only)

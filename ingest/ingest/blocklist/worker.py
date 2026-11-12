@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.blocklist_values import is_shared_host, normalize_value
 from suckerpot_db.models import BlocklistEntryRow
 from suckerpot_db.network_names import host_of_target
-from suckerpot_db.sample_kinds import is_benign_web_hash
+from suckerpot_db.sample_kinds import is_plain_web_hash
 
 from ingest.blocklist.scoring import (
     MIN_LISTED_SCORE,
@@ -203,7 +203,7 @@ async def _indicator_candidates(db: AsyncSession, cutoff: datetime) -> list[Cand
                     FROM indicators i
                     LEFT JOIN indicator_sessions l ON l.indicator_id = i.id
                     WHERE i.last_seen >= :cutoff AND i.type IN ('url', 'domain', 'ip', 'hash')
-                      AND (i.type <> 'hash' OR NOT {is_benign_web_hash("i.value")})
+                      AND (i.type <> 'hash' OR NOT {is_plain_web_hash("i.value")})
                     GROUP BY i.id
                     ORDER BY i.last_seen DESC
                     LIMIT :n

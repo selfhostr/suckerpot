@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from suckerpot_db.sample_kinds import benign_web_sample
+from suckerpot_db.sample_kinds import plain_web_sample, reopened_web_sample
 from suckerpot_egress import EgressClosed, EgressGate, egress_client
 
 from collector import fetch as fx
@@ -51,16 +51,23 @@ class Target:
     attempts: int
     fetches: int
     origin: str = "local"  # M32: "network_verify" rows are fetched for the network only
-    # Found inside an ordinary web page (no rule matched it) and never typed by an attacker: not
-    # fetched (see WEB_PARENT).
+    # Found inside plain web content (a page no rule matched, itself reached through the links of
+    # other web content) and never typed by an attacker: not fetched (see WEB_PARENT).
     web_parent: bool = False
 
 
 VERIFY_ORIGIN = "network_verify"
 VERIFY_DISABLED = "verify_disabled"
-# `last_error` of a target that was queued from an ordinary web page (the analyzer no longer does
+# `last_error` of a target that was queued from plain web content (the analyzer no longer does
 # that). An attacker who later types the same URL puts it back in the queue (`_insert_target`).
 WEB_PARENT = "web_parent"
+# Web content the analyzer spared as plain web is analysed again once an attacker asks for it
+# (a typed URL serves it, or an attacker types the URL that served it): it is attacker content.
+_REOPEN = f"""
+    UPDATE samples s SET analysis_status = 'pending'
+    WHERE s.sha256 IN (SELECT x.sha256 FROM sample_sources x WHERE x.target_id = :t)
+      AND {reopened_web_sample("s")}
+"""  # noqa: S608  (constant fragment only)
 # An attacker typed a URL that was only refused as `web_parent`: it goes back in the queue.
 _REVIVE = (
     "(fetch_targets.status = 'refused' AND fetch_targets.last_error = 'web_parent' "
@@ -136,7 +143,7 @@ class CollectorService:
             url = raw[:1024]
             scheme = raw.split(":", 1)[0].lower()[:16] if ":" in raw else "unknown"
             host = raw.split("//", 1)[-1].split("/", 1)[0][:255]
-        await session.execute(
+        target_id = await session.scalar(
             text(
                 f"""
                 INSERT INTO fetch_targets
@@ -154,6 +161,7 @@ class CollectorService:
                         attempts = CASE WHEN {_REVIVE} THEN 0 ELSE fetch_targets.attempts END,
                         next_attempt_at = CASE WHEN {_REVIVE} THEN EXCLUDED.next_attempt_at
                                                ELSE fetch_targets.next_attempt_at END
+                RETURNING id
                 """  # noqa: S608  (constant fragment only)
             ),
             {
@@ -161,6 +169,8 @@ class CollectorService:
                 "error": error, "now": now,
             },
         )  # fmt: skip
+        # A URL the collector reached by following links may have served a file already.
+        await session.execute(text(_REOPEN), {"t": target_id})
 
     async def requeue_refetches(self) -> int:
         """Fetched targets seen again since the last fetch go back in the queue (rate limited)."""
@@ -277,7 +287,7 @@ class CollectorService:
                     text(
                         f"""
                         SELECT t.id, t.url, t.host, t.attempts, t.fetches, t.origin,
-                               (t.indicator_id IS NULL AND {benign_web_sample("p")}) AS web_parent
+                               (t.indicator_id IS NULL AND {plain_web_sample("p")}) AS web_parent
                         FROM fetch_targets t LEFT JOIN samples p ON p.sha256 = t.parent_sha256
                         WHERE t.status = 'pending' AND t.next_attempt_at <= :now
                         ORDER BY t.next_attempt_at, t.id LIMIT :n
@@ -443,6 +453,7 @@ class CollectorService:
             ),
             {"sha": stored.sha256, "t": target.id, "now": now},
         )
+        await session.execute(text(_REOPEN), {"t": target.id})
         await session.execute(
             text(
                 """

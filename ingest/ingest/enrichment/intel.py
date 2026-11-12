@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from suckerpot_db.sample_kinds import is_benign_web_hash
+from suckerpot_db.sample_kinds import is_plain_web_hash
 
 from ingest.egress import EgressClosed, EgressGate, gate_open, get_gate, make_client
 from ingest.enrichment import contacts as contacts_mod
@@ -588,7 +588,7 @@ class IntelWorker:
             LEFT JOIN indicator_intel n ON n.indicator_id = i.id
             WHERE i.last_seen > now() - interval '7 days' AND NOT i.demo {where_type}
               AND (i.type <> 'hash' OR i.trusted OR l.ips >= 2)
-              AND (i.type <> 'hash' OR NOT {is_benign_web_hash("i.value")})
+              AND (i.type <> 'hash' OR NOT {is_plain_web_hash("i.value")})
               AND (i.type <> 'url' OR EXISTS (
                     SELECT 1 FROM indicators h
                     JOIN indicator_intel hn ON hn.indicator_id = h.id

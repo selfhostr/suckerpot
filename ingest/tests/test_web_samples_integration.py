@@ -1,4 +1,9 @@
-"""A plain web page the collector kept is not evidence: it feeds no lookup, list, draft or batch."""
+"""Plain web content the collector kept is not evidence: it feeds no lookup, list, draft or batch.
+
+Plain web means a web kind that no rule matched AND reached only by following links found in other
+web content. A page an attacker asked for (a typed URL, or a link in a script) is attacker content
+whatever its kind, and feeds everything like any other sample.
+"""
 
 from __future__ import annotations
 
@@ -26,12 +31,15 @@ pytestmark = [
 
 NOW = datetime.now(UTC) - timedelta(hours=1)
 DAY = NOW.date()
-PAGE = "a1" * 32  # an HTML page, nothing matched it
-FLAGGED = "b2" * 32  # an HTML page that a detection rule matched
-SCRIPT = "c3" * 32  # a shell script
-RAW = "d4" * 32  # not analysed yet (no kind)
+TYPED = "e5" * 32  # an HTML page an attacker typed the URL of
+PAGE = "a1" * 32  # an HTML page found through a link of TYPED, nothing matched it: plain web
+FLAGGED = "b2" * 32  # an HTML page found the same way that a detection rule matched
+SCRIPT = "c3" * 32  # a shell script an attacker typed the URL of
+STAGE = "f6" * 32  # an HTML page found through a link of SCRIPT: the dropper's next stage
+RAW = "d4" * 32  # not analysed yet (no kind), no source
 SOURCE_IP = "198.51.100.7"
-PAYLOAD_URL = "http://dl.example.test/index.html"
+HOST = "dl.example.test"
+TYPED_URL = f"http://{HOST}/index.html"
 
 
 async def add_sample(
@@ -51,12 +59,80 @@ async def add_sample(
         )  # fmt: skip
 
 
+async def add_source(
+    engine: AsyncEngine,
+    sha: str,
+    url: str,
+    *,
+    depth: int,
+    parent: str | None = None,
+    indicator: int | None = None,
+) -> None:
+    async with engine.begin() as conn:
+        tid = await conn.scalar(
+            text(
+                "INSERT INTO fetch_targets (url, scheme, host, indicator_id, parent_sha256, depth, "
+                "status, first_seen, last_sha256) VALUES "
+                "(:u, 'http', :h, :i, :p, :d, 'fetched', :t, :sha) RETURNING id"
+            ),
+            {"u": url, "h": HOST, "i": indicator, "p": parent, "d": depth, "t": NOW, "sha": sha},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO sample_sources (sha256, target_id, first_fetched, last_fetched) "
+                "VALUES (:sha, :tid, :t, :t)"
+            ),
+            {"sha": sha, "tid": tid, "t": NOW},
+        )
+
+
+async def typed_url(engine: AsyncEngine, url: str) -> int:
+    """A download URL an attacker typed in session s1."""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO sessions (session_id, sensor, src_ip, src_port, dst_port, "
+                "started_at, last_event_at) VALUES ('s1', 'ssh', CAST(:ip AS inet), 40000, 22, "
+                ":t, :t) ON CONFLICT DO NOTHING"
+            ),
+            {"ip": SOURCE_IP, "t": NOW},
+        )
+        iid = await conn.scalar(
+            text(
+                "INSERT INTO indicators (type, value, role, first_seen, last_seen) "
+                "VALUES ('url', :v, 'download_host', :t, :t) RETURNING id"
+            ),
+            {"v": url, "t": NOW},
+        )
+        await conn.execute(
+            text("INSERT INTO indicator_sessions VALUES (:i, 's1', CAST(:ip AS inet), 'ssh', :t)"),
+            {"i": iid, "ip": SOURCE_IP, "t": NOW},
+        )
+    return int(iid)
+
+
 @pytest.fixture
 async def samples(engine: AsyncEngine) -> None:
+    await add_sample(engine, TYPED, "html", "info", None)
     await add_sample(engine, PAGE, "html", "info", None)
     await add_sample(engine, FLAGGED, "html", "severe", "shell-dropper")
     await add_sample(engine, SCRIPT, "script", "notice", None)
+    await add_sample(engine, STAGE, "html", "info", None)
     await add_sample(engine, RAW, None, "notice", None)
+    await add_source(
+        engine, TYPED, TYPED_URL, depth=0, indicator=await typed_url(engine, TYPED_URL)
+    )
+    script_url = f"http://{HOST}/x.sh"
+    await add_source(
+        engine, SCRIPT, script_url, depth=0, indicator=await typed_url(engine, script_url)
+    )
+    await add_source(engine, PAGE, f"http://{HOST}/about.html", depth=1, parent=TYPED)
+    await add_source(engine, FLAGGED, f"http://{HOST}/f.html", depth=1, parent=TYPED)
+    await add_source(engine, STAGE, f"http://{HOST}/stage.html", depth=1, parent=SCRIPT)
+
+
+EVIDENCE = {TYPED, FLAGGED, SCRIPT, STAGE}  # every analysed sample but the plain page
+ALL = EVIDENCE | {PAGE, RAW}
 
 
 async def hash_indicator(engine: AsyncEngine, sha: str) -> int:
@@ -74,100 +150,76 @@ async def hash_indicator(engine: AsyncEngine, sha: str) -> int:
     return iid
 
 
-async def test_the_network_batch_leaves_out_plain_web_pages(
+async def test_the_network_batch_leaves_out_plain_web_content(
     engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], samples: None
 ) -> None:
-    for sha in (PAGE, SCRIPT):
+    for sha in (PAGE, SCRIPT, TYPED):
         await hash_indicator(engine, sha)
-    got = {f.sha256: f for f in await SqlSource(factory).files(DAY)}
-    assert set(got) == {FLAGGED, SCRIPT, RAW}
-    assert got[FLAGGED].kind == "html"  # a rule matched it: it stays evidence
+    files = await SqlSource(factory).files(DAY)  # a stored sample and its hash indicator
+    assert {f.sha256 for f in files} == EVIDENCE | {RAW}
+    kinds = {(f.sha256, f.kind) for f in files}
+    assert (FLAGGED, "html") in kinds  # a rule matched it: it stays evidence
+    assert (TYPED, "html") in kinds  # an attacker asked for it: it is evidence
+    assert (STAGE, "html") in kinds  # a script asked for it: it is evidence
 
 
-async def test_a_payload_url_stays_but_not_the_page_it_served(
+async def test_a_page_served_from_a_typed_url_keeps_its_hash(
     engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], samples: None
 ) -> None:
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO sessions (session_id, sensor, src_ip, src_port, dst_port, "
-                "started_at, last_event_at) VALUES ('s1', 'ssh', CAST(:ip AS inet), 40000, 22, "
-                ":t, :t)"
-            ),
-            {"ip": SOURCE_IP, "t": NOW},
-        )
-        for url, sha in [(PAYLOAD_URL, PAGE), ("http://dl.example.test/x.sh", SCRIPT)]:
-            iid = await conn.scalar(
-                text(
-                    "INSERT INTO indicators (type, value, role, first_seen, last_seen) "
-                    "VALUES ('url', :v, 'download_host', :t, :t) RETURNING id"
-                ),
-                {"v": url, "t": NOW},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO indicator_sessions VALUES (:i, 's1', CAST(:ip AS inet), 'ssh', :t)"
-                ),
-                {"i": iid, "ip": SOURCE_IP, "t": NOW},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO fetch_targets (url, scheme, host, status, first_seen, "
-                    "last_sha256) VALUES (:u, 'http', 'dl.example.test', 'fetched', :t, :sha)"
-                ),
-                {"u": url, "t": NOW, "sha": sha},
-            )
     facts = {p.url: p for p in await SqlSource(factory).payloads(DAY)}
-    assert set(facts) == {PAYLOAD_URL, "http://dl.example.test/x.sh"}
-    page = facts[PAYLOAD_URL]
-    assert (page.sha256, page.kind, page.family, page.arch) == (None, None, None, None)
-    script = facts["http://dl.example.test/x.sh"]
+    assert set(facts) == {TYPED_URL, f"http://{HOST}/x.sh"}
+    page = facts[TYPED_URL]
+    assert (page.sha256, page.kind) == (TYPED, "html")
+    script = facts[f"http://{HOST}/x.sh"]
     assert (script.sha256, script.kind) == (SCRIPT, "script")
 
 
-async def test_no_lookup_is_made_for_the_hash_of_a_plain_web_page(
+async def test_no_lookup_is_made_for_the_hash_of_plain_web_content(
     engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], samples: None
 ) -> None:
-    for sha in (PAGE, FLAGGED, SCRIPT):
+    for sha in (PAGE, *EVIDENCE):
         await hash_indicator(engine, sha)
     for provider in ("virustotal", "abusech"):
-        got = {c.value for c in await worker(Remote(), factory).candidates(provider, limit=10)}
-        assert got == {FLAGGED, SCRIPT}, provider
+        found = await worker(Remote(), factory).candidates(provider, limit=20)
+        assert {c.value for c in found if c.value in ALL} == EVIDENCE, provider
     sources: tuple[Source, ...] = ("virustotal", "threatfox")
-    assert {c.value for c in await contact_candidates(factory, sources, 10)} == {FLAGGED, SCRIPT}
+    assert {c.value for c in await contact_candidates(factory, sources, 10)} == EVIDENCE
 
 
-async def test_the_blocklist_does_not_list_the_hash_of_a_plain_web_page(
+async def test_the_blocklist_does_not_list_the_hash_of_plain_web_content(
     engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], samples: None
 ) -> None:
-    for sha in (PAGE, SCRIPT):
+    for sha in (PAGE, TYPED, SCRIPT):
         await hash_indicator(engine, sha)
-    await add(engine, "dl.example.test", [SOURCE_IP], kind="domain")
+    await add(engine, "other.example.test", [SOURCE_IP], kind="domain")
     async with factory() as db:
         got = await _indicator_candidates(db, NOW - timedelta(days=1))
-    assert {(c.kind, c.value) for c in got} == {("hash", SCRIPT), ("domain", "dl.example.test")}
+    hashes = {c.value for c in got if c.kind == "hash"}
+    assert hashes == {TYPED, SCRIPT}
+    assert ("domain", "other.example.test") in {(c.kind, c.value) for c in got}
 
 
-async def test_an_abuse_draft_does_not_name_the_hash_of_a_plain_web_page(
+async def test_an_abuse_draft_does_not_name_the_hash_of_plain_web_content(
     engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], samples: None
 ) -> None:
-    async with engine.begin() as conn:
-        for n, sha in enumerate((PAGE, FLAGGED, SCRIPT)):
-            await conn.execute(
-                text(
-                    "INSERT INTO fetch_targets (url, scheme, host, status, first_seen, "
-                    "last_sha256) VALUES (:u, 'http', 'dl.example.test', 'fetched', :t, :sha)"
-                ),
-                {"u": f"http://dl.example.test/{n}", "t": NOW, "sha": sha},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO sample_sources (sha256, target_id, first_fetched, last_fetched) "
-                    "SELECT :sha, id, :t, :t FROM fetch_targets WHERE last_sha256 = :sha"
-                ),
-                {"sha": sha, "t": NOW},
-            )
-    seed = Seed("payload_host", "domain", "dl.example.test", NOW, NOW, 1, 1)
+    seed = Seed("payload_host", "domain", HOST, NOW, NOW, 1, 1)
     async with factory() as db:
         refs = await sample_refs(db, seed)
-    assert {r.sha256 for r in refs} == {FLAGGED, SCRIPT}
+    assert {r.sha256 for r in refs} == EVIDENCE
+
+
+async def test_a_typed_url_makes_a_crawled_page_evidence(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession], samples: None
+) -> None:
+    await hash_indicator(engine, PAGE)
+    assert PAGE not in {f.sha256 for f in await SqlSource(factory).files(DAY)}
+    # An attacker types the URL that served the plain page: from now on it is attacker content.
+    iid = await typed_url(engine, f"http://{HOST}/about.html")
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE fetch_targets SET indicator_id = :i WHERE url = :u"),
+            {"i": iid, "u": f"http://{HOST}/about.html"},
+        )
+    assert PAGE in {f.sha256 for f in await SqlSource(factory).files(DAY)}
+    found = await worker(Remote(), factory).candidates("virustotal", limit=20)
+    assert PAGE in {c.value for c in found}

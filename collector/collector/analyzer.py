@@ -20,7 +20,8 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from suckerpot_analysis import ANALYSIS_VERSION, WEB_KINDS, AnalysisResult, Ioc
+from suckerpot_analysis import ANALYSIS_VERSION, AnalysisResult, Ioc
+from suckerpot_db.sample_kinds import plain_web_sample
 
 from collector.config import CollectorSettings
 from collector.runner import ChildOutcome, run_child
@@ -32,6 +33,8 @@ log = logging.getLogger(__name__)
 
 MAX_NEXT_URLS = 20
 BATCH = 5
+# Read right after the sample row took the new kind, severity and family (same transaction).
+_PLAIN_WEB = f"SELECT {plain_web_sample('s')} FROM samples s WHERE s.sha256 = :sha"  # noqa: S608
 MAX_INPUT = 16 * 1024 * 1024
 Factory = async_sessionmaker[AsyncSession]
 
@@ -149,6 +152,12 @@ class AnalyzerService:
                     "tlsh": result.digests.tlsh, "v": result.version, "sha": sha,
                 },
             )  # fmt: skip
+            # Plain web content: a page, style sheet, image or web script that no rule matched,
+            # which the collector reached only by following links found in other web content.
+            # Kept and shown, but no threat intelligence: no hash indicator, no link followed, no
+            # deobfuscated text stored. Web content an attacker asked for (a typed URL, depth 0, or
+            # a link in a script or a binary) is attacker content whatever its kind.
+            plain = not result.yara and bool(await session.scalar(text(_PLAIN_WEB), {"sha": sha}))
             yara = [hit.model_dump(mode="json") for hit in result.yara]
             await session.execute(
                 text(
@@ -168,8 +177,14 @@ class AnalyzerService:
                     "sha": sha, "now": now, "ms": ms,
                     "yara": json.dumps(yara),
                     "strings": [clean(s) for s in result.strings],
-                    "deob": clean(result.deobfuscated) if result.deobfuscated is not None else None,
-                    "steps": json.dumps([s.model_dump(mode="json") for s in result.deob_steps]),
+                    "deob": (
+                        clean(result.deobfuscated)
+                        if result.deobfuscated is not None and not plain
+                        else None
+                    ),
+                    "steps": json.dumps(
+                        [] if plain else [s.model_dump(mode="json") for s in result.deob_steps]
+                    ),
                     "errors": list(result.errors),
                 },
             )  # fmt: skip
@@ -178,10 +193,7 @@ class AnalyzerService:
                 # local indicator, no child fetch target, no C2 indicator (design 8.6).
                 await self._links(session, sha, result.iocs, now, follow=False)
                 return
-            if result.file.kind in WEB_KINDS and result.severity == "info" and not result.yara:
-                # Ordinary web content (a page, an image, a style sheet) that no rule matched:
-                # kept and shown, but it is no threat intelligence, so no hash indicator, and the
-                # analysis extracted no links. One that a rule matched is handled like any text.
+            if plain:
                 return
             await self._hash_indicator(session, sha, now)
             await self._links(session, sha, result.iocs, now)
