@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_analysis import WEB_KINDS
 from suckerpot_egress import EgressClosed, EgressGate, egress_client
 
 from collector import fetch as fx
@@ -50,10 +51,14 @@ class Target:
     attempts: int
     fetches: int
     origin: str = "local"  # M32: "network_verify" rows are fetched for the network only
+    # Found inside a web page and never typed by an attacker: not fetched (see WEB_PARENT).
+    web_parent: bool = False
 
 
 VERIFY_ORIGIN = "network_verify"
 VERIFY_DISABLED = "verify_disabled"
+# `last_error` of a target that was queued from a web page (the analyzer no longer does that).
+WEB_PARENT = "web_parent"
 
 
 def _utcnow() -> datetime:
@@ -258,18 +263,26 @@ class CollectorService:
                 await session.execute(
                     text(
                         """
-                        SELECT id, url, host, attempts, fetches, origin FROM fetch_targets
-                        WHERE status = 'pending' AND next_attempt_at <= :now
-                        ORDER BY next_attempt_at, id LIMIT :n
+                        SELECT t.id, t.url, t.host, t.attempts, t.fetches, t.origin,
+                               (t.indicator_id IS NULL
+                                AND COALESCE(p.kind = ANY(:web), false)) AS web_parent
+                        FROM fetch_targets t LEFT JOIN samples p ON p.sha256 = t.parent_sha256
+                        WHERE t.status = 'pending' AND t.next_attempt_at <= :now
+                        ORDER BY t.next_attempt_at, t.id LIMIT :n
                         """
                     ),
-                    {"now": self._clock(), "n": n},
+                    {"now": self._clock(), "n": n, "web": sorted(WEB_KINDS)},
                 )
             ).all()
         return [Target(*row) for row in rows]
 
     async def _handle(self, target: Target) -> tuple[int, str] | None:
         async with self._sem, self._host_locks[target.host]:
+            if target.web_parent:
+                # Queued before the analyzer stopped following links in web pages: a page links
+                # to the public web, which is not ours to crawl. No fetch, no quota.
+                await self._refuse(target, WEB_PARENT)
+                return target.id, fx.REFUSED
             if target.origin == VERIFY_ORIGIN and not self.s.verify_enabled:
                 # The collector's owner stopped the verifier role: nothing is fetched, no quota.
                 await self._refuse(target, VERIFY_DISABLED)

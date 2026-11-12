@@ -325,6 +325,61 @@ async def test_links_in_a_web_page_are_not_followed(
         assert await analyzer.step() == 0
 
 
+async def test_a_target_queued_from_a_web_page_is_not_fetched(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, _ = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    page, script = "a1" * 32, "b2" * 32
+    async with owner.begin() as conn:
+        for sha, kind in ((page, "html"), (script, "script")):
+            await conn.execute(
+                text(
+                    "INSERT INTO samples (sha256, sha1, md5, size, kind, first_seen, last_seen) "
+                    "VALUES (:sha, :sha1, :md5, 10, :kind, :n, :n)"
+                ),
+                {"sha": sha, "sha1": sha[:40], "md5": sha[:32], "kind": kind, "n": NOW},
+            )
+    typed = await add_indicator(owner, f"{HOST}/typed.sh")  # an attacker also typed this one
+    queued = [
+        (f"{HOST}/page-link.css", page, None),  # found inside a web page
+        (f"{HOST}/typed.sh", page, typed),  # found inside a web page, but also typed
+        (f"{HOST}/script-link.sh", script, None),  # found inside a script
+    ]
+    async with owner.begin() as conn:
+        for url, parent, indicator in queued:
+            await conn.execute(
+                text(
+                    "INSERT INTO fetch_targets (url, scheme, host, indicator_id, parent_sha256, "
+                    "depth, status, first_seen, next_attempt_at) VALUES "
+                    "(:u, 'http', 'files.example.test', :i, :p, 1, 'pending', :n, :n)"
+                ),
+                {"u": url, "i": indicator, "p": parent, "n": NOW},
+            )
+    replies = {
+        f"{HOST}/typed.sh": Reply(body=b"#!/bin/sh\necho typed\n"),
+        f"{HOST}/script-link.sh": Reply(body=b"#!/bin/sh\necho linked\n"),
+    }
+    proxy = FakeProxy(handler_for(replies))
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        svc = CollectorService(s, coll_f, store, gate, clock=Clock())
+        assert len(await svc.step()) == 3
+    assert sorted(u for u, _ in proxy.seen) == sorted(replies)  # the page's link never left
+    by_url = {
+        r.url: r
+        for r in await rows(owner, "SELECT url, status, last_error, attempts FROM fetch_targets")
+    }
+    skipped = by_url[f"{HOST}/page-link.css"]
+    assert (skipped.status, skipped.last_error) == ("refused", "web_parent")
+    assert by_url[f"{HOST}/typed.sh"].status == "fetched"
+    assert by_url[f"{HOST}/script-link.sh"].status == "fetched"
+    quota = await rows(owner, "SELECT used FROM enrichment_quota")
+    assert [r.used for r in quota] == [2]  # the skipped target spent nothing
+
+
 async def test_closed_gate_spends_nothing(
     owner: AsyncEngine, factories: Any, tmp_path: Path
 ) -> None:
