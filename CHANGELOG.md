@@ -19,16 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (JSON must parse, a style sheet must be made of rules, JavaScript needs a token only JavaScript
   has) and its whole input holds no shell command, downloader, code runner or active content (ASP,
   JSP and PHP tags, HTA, scriptlets, WSH, PowerShell, `iex`, `certutil`, `bitsadmin`, `python -c`,
-  `perl -e`, shell `eval`, `base64 -d`, `ftpget`, Node `child_process` and `createWriteStream`,
-  `.exec(` next to a Node module load, `Function(atob(...))`); anything else keeps the `script` or
-  `text` kind. Every one of these checks is linear in the file size (a 4 MiB hostile file
+  `perl -e`, `php -r`, `ruby -e`, `node -e`, shell `eval`, `base64 -d`, `source <(...)`, `. /path`,
+  `/dev/udp/`, gawk `/inet/tcp/`, `ftpget`, Node `child_process`, a Node module load used to write
+  or run something, `eval` of anything but one plain string, the `Function` constructor); anything
+  else keeps the `script` or `text` kind. Every one of these checks is linear in the file size (a 4 MiB hostile file
   classifies in well under a second). Samples already collected are classified again on their own
   after the update (the analysis version went from 1 to 2).
 - The kind alone never spares a file, because a program can be dressed as a page. Web content is
-  "plain web" only when no detection rule matched it AND the collector reached it by following
-  links found in other web content: every one of its sources is a fetch target that no attacker
-  typed (no indicator from a sensor event), at depth 1 or more, whose parent file is web content
-  (network verification fetches count neither way). A plain web sample is kept and shown, but its
+  "plain web" only when no detection rule matched it AND the collector reached it only through the
+  assets of other web content: every one of its sources is a fetch target that no attacker ever
+  typed (an indicator from a sensor event pointed at it; the mark stays when the indicator is
+  pruned), at depth 1 or more, and EVERY file that links to it (not only the first) names it as
+  an asset, in a markup attribute (`href`, `src`, `srcset`, `action`, `poster`, `data`...) or a
+  style sheet `url()` or `@import`, and is itself web content. A link in the text of a page, in a
+  web script, in JSON, in a shell script or in a binary makes the file attacker content (network
+  verification fetches count neither way). A plain web sample is kept and shown, but its
   links are not followed, it gets no hash indicator, and it is left out of the network batch, the
   hash lookups (VirusTotal, abuse.ch and the contact checks), the blocklist candidates and the
   abuse report drafts, whether or not a hash indicator was recorded for it before the update.
@@ -36,13 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (depth 0, or a URL that also has an indicator) or from a link inside a script or a binary has
   its links followed within the existing caps (depth 2, 20 next-stage URLs per file), gets a hash
   indicator and feeds all of the above. So a typed page costs at most 20 fetches for its assets,
-  and those stop there. A spared file is analysed again when an attacker later asks for it (a
-  typed URL serves the same bytes, or an attacker types the URL that served it).
+  and those stop there. A spared file (a `spared` flag on the sample) is analysed again when an
+  attacker later asks for it: a typed URL serves the same bytes, an attacker types the URL that
+  served it, or a script or a binary links to that URL, even long after a page queued it first.
 - The collector skips, when it claims a queued target, any target that no attacker typed and that
-  was found inside a plain web sample. It is marked `refused` with the error `web_parent`, is
-  never fetched and spends no quota, so the targets queued before the update do not drain onto
-  the public web. If an attacker later types the same URL, it goes back in the queue. Links
-  already recorded from old pages stay in their sample's link list.
+  only plain web samples link to. It is marked `refused` with the error `web_parent`, is never
+  fetched and spends no quota, so the targets queued before the update do not drain onto the
+  public web. If an attacker later types the same URL, or attacker content links to it, it goes
+  back in the queue. Links already recorded from old pages stay in their sample's link list.
+  Migration 0033 adds the `typed` and `spared` marks, an index on the links of a target, and the
+  one function that lets the analyzer put such a target back in the queue.
 - The Malware page names plain web content in plain words (Web page, Stylesheet, Script (web),
   Image (SVG), Data (JSON), Data (XML)) instead of "Unknown" and the raw kind, and the "new files
   this week" sentence no longer counts it. Sample items in the API carry a `crawled` flag for
