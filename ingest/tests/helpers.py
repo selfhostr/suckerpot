@@ -1,8 +1,13 @@
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_common import Event
 from suckerpot_egress import EgressGate, EgressSettings, GateStatus
+
+from ingest.floods.config import FoldSettings
+from ingest.floods.fold import fold_buckets
 
 T0 = datetime(2026, 10, 24, 10, 0, 0, tzinfo=UTC)
 
@@ -36,3 +41,21 @@ def fake_gate(*, open_: bool = True, reason: str = "ok") -> EgressGate:
     gate = EgressGate(EgressSettings(proxy_password="t" * 24))
     gate._status = GateStatus(open_, reason, "9.9.9.9" if open_ else None, datetime.now(UTC))
     return gate
+
+
+async def fold_hour(
+    factory: async_sessionmaker[AsyncSession],
+    ip: str,
+    sensor: str,
+    hour: datetime,
+    *,
+    plain_tags: Collection[str] = (),
+    minimum: int = 20,
+) -> int:
+    """Fold one (address, sensor, UTC hour) bucket as the ingest role does; returns the number
+    of connections folded."""
+    async with factory() as session, session.begin():
+        return await fold_buckets(
+            session, [(ip, sensor, hour)], FoldSettings(min_connections=minimum), plain_tags,
+            limit=1000,
+        )  # fmt: skip

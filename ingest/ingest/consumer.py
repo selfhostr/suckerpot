@@ -21,8 +21,10 @@ pending list has been drained, so entries that were never read cannot be trimmed
 exactly one ingest instance.
 
 Defences against a misbehaving producer: an event whose ``sensor`` differs from the stream
-suffix is dropped (counted); entry ids far in the future are reported and never used as a
-trim target (an explicit future id would otherwise make MINID trimming wipe the stream).
+suffix, or whose ``session_id`` starts with ``burst-`` (reserved for flood groups, see
+``db/migrations/versions/0034_session_floods.py``), is dropped (counted); entry ids far in the
+future are reported and never used as a trim target (an explicit future id would otherwise make
+MINID trimming wipe the stream).
 """
 
 from __future__ import annotations
@@ -50,6 +52,9 @@ from ingest.writer import write_batch
 log = logging.getLogger(__name__)
 
 PREVIEW_CHARS = 200
+# Session ids of flood groups (sessions.kind = 'burst'). No sensor produces one, and an event that
+# did would land on, or forge, a group row.
+RESERVED_SESSION_PREFIX = "burst-"
 MAX_ATTEMPTS = 5
 FUTURE_ID_SLACK_MS = 24 * 3600 * 1000
 WARN_INTERVAL_S = 60.0
@@ -84,7 +89,8 @@ def stream_sensor(stream: str) -> str | None:
 def parse_messages(messages: Sequence[Message], expected_sensor: str | None = None) -> Parsed:
     """Validate messages.
 
-    Returns (valid (id, event) pairs, ids to drop, number dropped for a sensor mismatch).
+    Returns (valid (id, event) pairs, ids to drop, number dropped as forged). An event is forged
+    when its sensor differs from the stream's or its session id uses the reserved ``burst-`` prefix.
     """
     good: list[tuple[bytes | str, Event]] = []
     bad: list[Any] = []
@@ -96,7 +102,8 @@ def parse_messages(messages: Sequence[Message], expected_sensor: str | None = No
             log.warning("invalid message %r skipped: %s", msg_id, preview(fields))
             bad.append(msg_id)
             continue
-        if expected_sensor is not None and str(ev.sensor) != expected_sensor:
+        forged_sensor = expected_sensor is not None and str(ev.sensor) != expected_sensor
+        if forged_sensor or ev.session_id.startswith(RESERVED_SESSION_PREFIX):
             mismatched += 1
             bad.append(msg_id)
             continue
@@ -360,7 +367,7 @@ class Consumer:
             self.sensor_mismatches += mismatched
             self._warn(
                 "mismatch:" + stream,
-                "dropped %d event(s) on %s whose sensor differs from the stream (total %d)",
+                "dropped %d event(s) on %s with a forged sensor or session id (total %d)",
                 mismatched,
                 stream,
                 self.sensor_mismatches,

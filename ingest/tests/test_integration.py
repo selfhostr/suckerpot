@@ -137,7 +137,7 @@ async def test_schema(engine: AsyncEngine) -> None:
         "ix_events_tags",
         "ix_sessions_started_at",
         "ix_sessions_sensor_started_at",
-        "ix_sessions_src_ip",
+        "ix_sessions_src_ip_sensor_started_at",
         "ix_sessions_tags",
         "ix_sessions_country",
     } <= idx

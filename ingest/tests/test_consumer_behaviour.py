@@ -14,6 +14,7 @@ from ingest.consumer import (
     Consumer,
     _db_message,
     classify_failure,
+    parse_messages,
 )
 
 from .helpers import make_event
@@ -90,6 +91,67 @@ async def test_trim_failure_is_not_fatal(monkeypatch: pytest.MonkeyPatch, tmp_pa
     r = FakeRedis(trim_error=True)
     await consumer(r, tmp_path).process("events:ssh", [(b"1-0", fields())])
     assert r.acked == [b"1-0"]
+
+
+def burst_fields(sid: str, **kw: Any) -> dict[Any, Any]:
+    return dict(make_event("connect", sid=sid, **kw).to_stream_fields())
+
+
+async def test_reserved_session_ids_are_dropped_counted_and_acknowledged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A flood group id (burst-...) is the database's: an event that names one is forged."""
+    written: list[list[str]] = []
+
+    async def record(_f: Any, events: Any, *_a: Any) -> None:
+        written.append([e.session_id for e in events])
+
+    monkeypatch.setattr("ingest.consumer.write_batch", record)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    messages = [
+        (b"1-0", burst_fields("burst-0123456789abcdef01234567")),
+        (b"2-0", burst_fields("real-1")),
+        (b"3-0", burst_fields("burst-")),  # the bare prefix is reserved too
+        (b"4-0", burst_fields("xburst-1")),  # only a prefix is reserved
+    ]
+    with caplog.at_level("WARNING"):
+        await c.process("events:ssh", messages)
+    assert written == [["real-1", "xburst-1"]]
+    assert sorted(r.acked) == [b"1-0", b"2-0", b"3-0", b"4-0"]  # the forged ones are acked too
+    assert c.sensor_mismatches == 2
+    assert any("forged sensor or session id" in rec.message for rec in caplog.records)
+
+
+def test_parse_messages_drops_reserved_ids_like_a_sensor_mismatch() -> None:
+    msgs = [
+        (b"1-0", burst_fields("burst-a")),
+        (b"2-0", burst_fields("burst-b", sensor="web")),  # both wrong: counted once
+        (b"3-0", burst_fields("ok")),
+    ]
+    good, bad, mismatched = parse_messages(msgs, "ssh")
+    assert [m for m, _ in good] == [b"3-0"]
+    assert bad == [b"1-0", b"2-0"] and mismatched == 2
+    good, bad, mismatched = parse_messages(msgs)  # no stream to compare with: still dropped
+    assert [m for m, _ in good] == [b"3-0"] and mismatched == 2
+
+
+async def test_a_reserved_id_in_a_bisected_batch_is_dropped_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    written: list[list[str]] = []
+
+    async def record(_f: Any, events: Any, *_a: Any) -> None:
+        written.append([e.session_id for e in events])
+
+    monkeypatch.setattr("ingest.consumer.write_batch", record)
+    r = FakeRedis()
+    c = consumer(r, tmp_path)
+    acked = await c._isolate(
+        "events:ssh", [(b"1-0", burst_fields("burst-x")), (b"2-0", burst_fields("fine"))]
+    )
+    assert sorted(acked) == [b"1-0", b"2-0"] and written == [["fine"]]
+    assert c.sensor_mismatches == 1
 
 
 async def test_dead_letter_after_max_attempts(

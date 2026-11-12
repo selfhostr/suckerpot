@@ -127,8 +127,13 @@ def _union(*groups: Iterable[Any], cap: int) -> list[Any]:
 # ---- reading ---------------------------------------------------------------------------------
 
 
-#: A session can only carry a clustering key if it did one of these things.
-_KEYABLE = "(commands >= 2 OR downloads > 0 OR login_attempts >= :logins OR tags && :payload)"
+#: A session can only carry a clustering key if it did one of these things. A flood group
+#: (kind 'burst') never does: it holds plain connections only, fewer than ``:logins`` passwords
+#: each, so there is nothing to key (see fold_session_buckets).
+_KEYABLE = (
+    "(kind = 'session' AND "
+    "(commands >= 2 OR downloads > 0 OR login_attempts >= :logins OR tags && :payload))"
+)
 PER_IP_CAP = 25
 
 
