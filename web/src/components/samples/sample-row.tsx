@@ -26,10 +26,10 @@ export const SAMPLE_GRID_ACTION = "md:grid-cols-[minmax(0,1fr)_6rem_5rem_5rem_6r
  */
 export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNode }) {
   const to = `/malware/samples/${item.sha256}`
-  const family = familyLabel(item.family, item.kind)
   // A plain web page is named once ("Web page"), not "Unknown" plus the kind.
   const plain = isPlainWeb(item)
-  const what = plain ? describeKind(item) : `${family}, ${describeKind(item)}`
+  const family = plain ? describeKind(item) : familyLabel(item.family)
+  const what = plain ? family : `${family}, ${describeKind(item)}`
   return (
     <div
       className={cn(

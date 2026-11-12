@@ -101,9 +101,10 @@ describe("labels", () => {
     expect(familyLabel(null, "elf")).toBe("Unknown")
     expect(familyLabel(null)).toBe("Unknown")
     expect(familyLabel("Mirai", "html")).toBe("Mirai")
-    expect(isPlainWeb({ kind: "css", family: null })).toBe(true)
-    expect(isPlainWeb({ kind: "css", family: "Shell dropper" })).toBe(false)
-    expect(isPlainWeb({ kind: "script", family: null })).toBe(false)
+    expect(isPlainWeb({ kind: "css", family: null, severity: "info" })).toBe(true)
+    expect(isPlainWeb({ kind: "css", family: "Shell dropper", severity: "info" })).toBe(false)
+    expect(isPlainWeb({ kind: "css", family: null, severity: "warning" })).toBe(false)
+    expect(isPlainWeb({ kind: "script", family: null, severity: "info" })).toBe(false)
   })
   it("tells TFTP apart", () => {
     expect(fetchStatusLabel("unsupported", "tftp://192.0.2.9/x")).toBe("Not fetched (TFTP)")

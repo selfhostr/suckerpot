@@ -195,9 +195,12 @@ export function webKindLabel(kind: string | null | undefined): string | null {
   return Object.hasOwn(WEB_KIND_LABEL, key) ? (WEB_KIND_LABEL[key] ?? null) : null
 }
 
-/** Ordinary web content that no detection rule matched. */
-export function isPlainWeb(s: Pick<SampleItem, "kind" | "family">): boolean {
-  return webKindLabel(s.kind) !== null && !s.family
+/**
+ * Ordinary web content that no detection rule matched: a web kind with the lowest severity and no
+ * family. The same condition as the database's "benign web sample" (`suckerpot_db.sample_kinds`).
+ */
+export function isPlainWeb(s: Pick<SampleItem, "kind" | "family" | "severity">): boolean {
+  return webKindLabel(s.kind) !== null && s.severity === "info" && !s.family
 }
 
 /** "ELF ARM 32-bit", "Shell script", "Web page", "Unknown file". */

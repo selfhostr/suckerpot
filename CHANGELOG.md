@@ -29,11 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   attacker queued the page's scripts, style sheets, images and links, and then theirs, down to the
   depth cap, and the Malware page filled with unknown text. The analyzer now recognises HTML, SVG
   and other XML, CSS, JSON and the JavaScript of a web page as their own kinds (`html`, `svg`,
-  `xml`, `css`, `json`, `javascript`) with the lowest severity and no family, and never follows
-  links found in them. Shell scripts, files with a shebang, PHP and Node scripts that run commands
-  are unchanged, and the depth cap, the per-file cap of 20 next-stage URLs and every fetch check
-  are unchanged. Web content is not recorded as a hash indicator unless a detection rule matches
-  it. Samples already collected are classified again on their own after the update (the analysis
+  `xml`, `css`, `json`, `javascript`) with the lowest severity and no family, and does not follow
+  links found in them. A file gets a web kind only when it plausibly is that format (JSON must
+  parse, a style sheet must be made of rules) and its whole input holds no shell command,
+  downloader or active content (ASP, JSP and PHP tags, HTA, scriptlets, WSH, PowerShell, Node
+  `child_process`); anything else keeps the `script` or `text` kind. Web content that a detection
+  rule matched is read like any text, links included. The depth cap, the per-file cap of 20
+  next-stage URLs and every fetch check are unchanged. Web content that no rule matched is not
+  recorded as a hash indicator. Samples already collected are classified again on their own after the update (the analysis
   version went from 1 to 2). Links already recorded from old pages stay in their sample's link
   list.
 - Plain web pages no longer feed the rest of the pipeline. A web sample that no detection rule
@@ -43,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The collector skips, when it claims a queued target, any target that was found inside a web
   page and that no attacker typed. It is marked `refused` with the error `web_parent`, is never
   fetched and spends no quota, so the targets queued before the update do not drain onto the
-  public web.
+  public web. If an attacker later types the same URL, it goes back in the queue.
 - The Malware page names ordinary web content in plain words (Web page, Stylesheet, Script
   (web), Image (SVG), Data (JSON), Data (XML)) instead of "Unknown" and the raw kind, and the
   "new files this week" sentence no longer counts it.
