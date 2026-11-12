@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Common reconnaissance now carries a tag instead of leaving most Redis, Docker, web, MySQL, ADB
+  and Telnet sessions untagged. Two new informational tags (never red, never a malware family):
+  `service-probe` for read-only requests that identify an exposed service (Redis `INFO`, `PING`,
+  `GET` and `CONFIG GET`; the Docker API `/_ping`, `/version`, `/info` and listings; MySQL and SQL
+  Server version and database-list queries; a GET for the signature path of a web application such
+  as WordPress, phpinfo, Jenkins or a VPN portal) and `iot-shell-probe` for the shell-escape and
+  BusyBox probe sequence that loaders type first on a Telnet device shell (`enable`, `system`,
+  `shell`, `sh`, `/bin/busybox <word>`, `cat /proc/self/exe`). Existing tags cover more too:
+  `env-file-probe` now follows the web sensor's dotfile, config-file and backup flags (for example
+  `/admin/config.php` or `/.vscode/sftp.json`), `scanner` follows its scanner and fuzzer
+  user-agent flag, and `recon` includes the Android `getprop` and `screencap` commands. Both new
+  tags are mapped to MITRE ATT&CK, named in campaigns and insights and explained on the Defend
+  page. A homepage, `robots.txt` or favicon request stays untagged.
+
 ### Fixed
 
 - Campaigns of one actor are now merged. The worker only merged two campaigns when a single new

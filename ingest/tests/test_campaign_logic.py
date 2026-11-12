@@ -236,6 +236,22 @@ def test_guessing_passwords_or_looking_around_is_not_a_second_goal() -> None:
     )
 
 
+def test_probe_tags_name_a_campaign_and_are_never_red() -> None:
+    assert (
+        campaign_name([], ["service-probe", "recon"], ["redis"], 3)
+        == "Service fingerprinting over Redis #3"
+    )
+    assert (
+        campaign_name([], ["iot-shell-probe"], ["telnet"], 4) == "IoT shell probing over Telnet #4"
+    )
+    # a tag that names real harm still outranks the informational ones
+    assert campaign_name([], ["service-probe", "persistence"], ["redis"]) == (
+        "Persistence setup over Redis"
+    )
+    for tag in ("service-probe", "iot-shell-probe"):
+        assert severity_of([tag]) == "notice"
+
+
 def test_severity_and_stages() -> None:
     assert severity_of(["php2shell"]) == "severe"
     assert severity_of(["db-ransom"]) == "warning"

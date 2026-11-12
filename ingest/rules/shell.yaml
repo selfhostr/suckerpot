@@ -6,15 +6,37 @@
 rules:
   - id: recon-commands
     tag: recon
-    description: System fingerprinting commands run right after login.
+    description: >-
+      System fingerprinting commands run right after login, including the Android ones
+      (getprop reads the device model and CPU, screencap grabs the screen) on the ADB sensor.
     when:
       all:
         - {field: type, equals: command}
         - any:
             - field: data.input
-              command_any: [uname, nproc, free, lscpu, whoami, id, w, uptime, hostname, ifconfig, lsb_release, arch, getconf, dmidecode]
+              command_any: [uname, nproc, free, lscpu, whoami, id, w, uptime, hostname, ifconfig, lsb_release, arch, getconf, dmidecode, getprop, screencap]
             - field: data.input
               contains_any: [/proc/cpuinfo, /proc/meminfo, /proc/version, /etc/os-release, /etc/issue, /etc/passwd]
+
+  - id: iot-shell-probe
+    tag: iot-shell-probe
+    description: >-
+      The opening moves of a botnet loader on a Telnet device shell: the shell-escape words
+      (enable, system, shell, linuxshell, sh, ping; sh), a BusyBox applet probe (/bin/busybox
+      followed by any word, to see which applets exist) and the architecture check
+      (cat /proc/self/exe). It names no malware family: many loaders send the same sequence, and
+      a known Mirai variant token is tagged mirai on top. BusyBox lines that download or make a
+      file executable are tagged by the rules for those steps, not by this one.
+    when:
+      all:
+        - {field: type, equals: command}
+        - {field: sensor, equals: telnet}
+        - any:
+            - {field: data.input, in: [enable, system, shell, linuxshell, sh, "ping; sh", "ping;sh", "ping ;sh", "ping ; sh"]}
+            - {field: data.input, contains: /proc/self/exe}
+            - all:
+                - {field: data.input, command_any: [busybox]}
+                - not: {field: data.input, contains_any: [wget, tftp, ftpget, curl, "://", chmod]}
 
   - id: mirai-busybox
     tag: mirai

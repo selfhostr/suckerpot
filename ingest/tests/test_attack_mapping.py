@@ -51,6 +51,18 @@ def test_events_get_techniques_from_rules_and_tags() -> None:
     assert attack.for_event("connect", "ssh", {}, []) == []
 
 
+def test_probe_tags_and_android_fingerprinting_map_to_discovery_techniques() -> None:
+    attack = load_attack(RULES)
+    assert attack.for_tags(["service-probe"]) == ["T1595"]
+    assert attack.for_tags(["iot-shell-probe"]) == ["T1059.004"]
+    got = attack.for_event("command", "adb", {"input": "getprop ro.product.model"}, ["recon"])
+    assert {"T1059.004", "T1082"} <= set(got)
+    # every tag the recon rules produce is mapped, so no probe is invisible in the story
+    tags = set(load_rules(RULES).tags)
+    assert {"service-probe", "iot-shell-probe"} <= tags
+    assert {"service-probe", "iot-shell-probe"} <= set(attack.from_tags)
+
+
 def test_login_success_adds_valid_accounts() -> None:
     attack = load_attack(RULES)
     ok = attack.for_event("login_attempt", "ssh", {"success": True}, [])

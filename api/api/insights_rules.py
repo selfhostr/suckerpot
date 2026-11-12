@@ -41,6 +41,8 @@ TAG_LABELS: dict[str, str] = {
     "mirai": "Mirai-style botnet sessions",
     "crypto-miner": "Crypto-miner sessions",
     "recon": "Reconnaissance sessions",
+    "service-probe": "Service fingerprinting sessions",
+    "iot-shell-probe": "IoT shell-probe sessions",
     "brute-force": "Brute-force sessions",
     "container-escape": "Container escape attempts",
     "sql-rce": "Database command-execution attempts",
