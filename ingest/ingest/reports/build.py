@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from suckerpot_db.session_counts import sql_sessions_count
 
 from ingest.alerts.text import clean_text, defang
 
@@ -105,9 +106,10 @@ async def collect(session: AsyncSession, week_start: date, tz_name: str) -> dict
             await session.execute(
                 text(
                     f"""
-                SELECT count(*) AS sessions, count(DISTINCT s.src_ip) AS sources,
-                       count(*) FILTER (WHERE s.commands > 0) AS with_commands,
-                       count(*) FILTER (WHERE 'malware-drop' = ANY(s.tags)) AS malware
+                SELECT {sql_sessions_count("s")} AS sessions,
+                       count(DISTINCT s.src_ip) AS sources,
+                       {sql_sessions_count("s", "s.commands > 0")} AS with_commands,
+                       {sql_sessions_count("s", "'malware-drop' = ANY(s.tags)")} AS malware
                 FROM sessions s WHERE s.started_at >= :s AND s.started_at < :e AND {REAL}
                 """  # noqa: S608 - constant fragments only
                 ),
@@ -120,8 +122,8 @@ async def collect(session: AsyncSession, week_start: date, tz_name: str) -> dict
     before = (
         await session.execute(
             text(
-                f"SELECT count(*) FROM sessions s WHERE s.started_at >= :s "  # noqa: S608
-                f"AND s.started_at < :e AND {REAL}"
+                f"SELECT {sql_sessions_count('s')} FROM sessions s "  # noqa: S608
+                f"WHERE s.started_at >= :s AND s.started_at < :e AND {REAL}"
             ),
             {"s": prev_start, "e": start},
         )
@@ -132,7 +134,7 @@ async def collect(session: AsyncSession, week_start: date, tz_name: str) -> dict
             await session.execute(
                 text(
                     f"""
-                    SELECT s.sensor, count(*) AS n FROM sessions s
+                    SELECT s.sensor, {sql_sessions_count("s")} AS n FROM sessions s
                     WHERE s.started_at >= :s AND s.started_at < :e AND {REAL}
                     GROUP BY s.sensor ORDER BY n DESC, s.sensor LIMIT 12
                     """  # noqa: S608
@@ -147,7 +149,7 @@ async def collect(session: AsyncSession, week_start: date, tz_name: str) -> dict
             await session.execute(
                 text(
                     f"""
-                    SELECT s.country, count(*) AS n FROM sessions s
+                    SELECT s.country, {sql_sessions_count("s")} AS n FROM sessions s
                     WHERE s.started_at >= :s AND s.started_at < :e AND {REAL}
                       AND s.country IS NOT NULL
                     GROUP BY s.country ORDER BY n DESC, s.country LIMIT 5
@@ -163,7 +165,8 @@ async def collect(session: AsyncSession, week_start: date, tz_name: str) -> dict
             await session.execute(
                 text(
                     f"""
-                    SELECT t AS tag, count(*) AS n FROM sessions s, unnest(s.tags) AS t
+                    SELECT t AS tag, {sql_sessions_count("s")} AS n
+                    FROM sessions s, unnest(s.tags) AS t
                     WHERE s.started_at >= :s AND s.started_at < :e AND {REAL}
                     GROUP BY t ORDER BY n DESC, t LIMIT 8
                     """  # noqa: S608
@@ -216,7 +219,7 @@ async def collect(session: AsyncSession, week_start: date, tz_name: str) -> dict
             await session.execute(
                 text(
                     f"""
-                    SELECT c.cve_id, count(*) AS n
+                    SELECT c.cve_id, {sql_sessions_count("s")} AS n
                     FROM watched_cves w
                     JOIN cve c ON c.cve_id = w.cve_id AND cardinality(c.tags) > 0
                     JOIN sessions s ON s.tags && c.tags
