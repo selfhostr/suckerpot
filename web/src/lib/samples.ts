@@ -64,6 +64,11 @@ export interface SampleItem {
   analysis_status: SampleStatus
   /** `network_verify`: fetched only to verify a link other nodes reported, it did not attack this node. */
   origin: SampleOrigin
+  /**
+   * Reached only by following links found in other web content; no attacker asked for it (no
+   * typed URL, not linked from a script or a binary).
+   */
+  crawled: boolean
 }
 
 export type SampleOrigin = "local" | "network_verify"
@@ -176,8 +181,7 @@ export function sampleKey(s: SampleItem): string {
 
 /**
  * Plain-English names of the kinds the analyzer gives to ordinary web content (a page, an image,
- * a style sheet, a data document, the script of a page). Such a file is kept for reference; its
- * links are never followed.
+ * a style sheet, a data document, the script of a page).
  */
 export const WEB_KIND_LABEL: Readonly<Record<string, string>> = {
   html: "Web page",
@@ -196,11 +200,15 @@ export function webKindLabel(kind: string | null | undefined): string | null {
 }
 
 /**
- * Ordinary web content that no detection rule matched: a web kind with the lowest severity and no
- * family. The same condition as the database's "benign web sample" (`suckerpot_db.sample_kinds`).
+ * Plain web content: a web kind that no detection rule matched (the lowest severity, no family)
+ * and that the collector reached only by following links found in other web content. Such a file
+ * is kept for reference; its links are not followed. Web content an attacker asked for is never
+ * plain. The same condition as the database's `plain_web_sample` (`suckerpot_db.sample_kinds`).
  */
-export function isPlainWeb(s: Pick<SampleItem, "kind" | "family" | "severity">): boolean {
-  return webKindLabel(s.kind) !== null && s.severity === "info" && !s.family
+export function isPlainWeb(
+  s: Pick<SampleItem, "kind" | "family" | "severity" | "crawled">,
+): boolean {
+  return webKindLabel(s.kind) !== null && s.severity === "info" && !s.family && s.crawled
 }
 
 /** "ELF ARM 32-bit", "Shell script", "Web page", "Unknown file". */

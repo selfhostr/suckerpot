@@ -215,6 +215,39 @@ async def test_list_filters_and_pagination(client: httpx.AsyncClient) -> None:
     assert seen == [CHILD, SHA, GONE]
 
 
+async def test_a_sample_says_whether_it_was_only_crawled(client: httpx.AsyncClient) -> None:
+    page = hashlib.sha256(b"typed page").hexdigest()
+    sheet = hashlib.sha256(b"style sheet of the page").hexdigest()
+    async with owner_engine() as owner, owner.begin() as conn:
+        for sha, kind, url, depth, parent in (
+            (page, "html", "http://192.0.2.60/index.html", 0, None),  # an attacker typed it
+            (sheet, "css", "http://192.0.2.60/site.css", 1, page),  # a link of that page
+        ):
+            await conn.execute(
+                text(
+                    "INSERT INTO samples (sha256, sha1, md5, size, kind, severity, first_seen, "
+                    "last_seen, stored, analysis_status) VALUES (:s, 'a', 'b', 10, :k, 'info', "
+                    ":t, :t, true, 'done')"
+                ),
+                {"s": sha, "k": kind, "t": NOW},
+            )
+            await conn.execute(
+                text(
+                    "WITH t AS (INSERT INTO fetch_targets (url, scheme, host, parent_sha256, "
+                    "depth, status, first_seen, last_sha256) VALUES (:u, 'http', '192.0.2.60', "
+                    ":p, :d, 'fetched', :t, :s) RETURNING id) "
+                    "INSERT INTO sample_sources SELECT :s, id, :t, :t FROM t"
+                ),
+                {"u": url, "p": parent, "d": depth, "t": NOW, "s": sha},
+            )
+    items = {i["sha256"]: i for i in (await client.get("/api/v1/samples")).json()["items"]}
+    assert items[sheet]["crawled"] is True
+    assert items[page]["crawled"] is False
+    assert items[SHA]["crawled"] is False and items[CHILD]["crawled"] is False
+    detail = (await client.get(f"/api/v1/samples/{sheet}")).json()
+    assert detail["item"]["crawled"] is True
+
+
 async def test_detail_chain_and_malware_join(client: httpx.AsyncClient) -> None:
     d = (await client.get(f"/api/v1/samples/{CHILD}")).json()
     assert d["virustotal_url"].endswith(CHILD)

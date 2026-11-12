@@ -38,6 +38,7 @@ function sample(over: Partial<SampleItem>): SampleItem {
     stored: true,
     analysis_status: "done",
     origin: "local",
+    crawled: false,
     ...over,
   }
 }
@@ -101,10 +102,13 @@ describe("labels", () => {
     expect(familyLabel(null, "elf")).toBe("Unknown")
     expect(familyLabel(null)).toBe("Unknown")
     expect(familyLabel("Mirai", "html")).toBe("Mirai")
-    expect(isPlainWeb({ kind: "css", family: null, severity: "info" })).toBe(true)
-    expect(isPlainWeb({ kind: "css", family: "Shell dropper", severity: "info" })).toBe(false)
-    expect(isPlainWeb({ kind: "css", family: null, severity: "warning" })).toBe(false)
-    expect(isPlainWeb({ kind: "script", family: null, severity: "info" })).toBe(false)
+    const css = { kind: "css", family: null, severity: "info", crawled: true } as const
+    expect(isPlainWeb(css)).toBe(true)
+    expect(isPlainWeb({ ...css, family: "Shell dropper" })).toBe(false)
+    expect(isPlainWeb({ ...css, severity: "warning" })).toBe(false)
+    expect(isPlainWeb({ ...css, kind: "script" })).toBe(false)
+    // An attacker asked for it (a typed URL, a link in a script): attacker content, whatever its kind.
+    expect(isPlainWeb({ ...css, crawled: false })).toBe(false)
   })
   it("tells TFTP apart", () => {
     expect(fetchStatusLabel("unsupported", "tftp://192.0.2.9/x")).toBe("Not fetched (TFTP)")
@@ -113,7 +117,14 @@ describe("labels", () => {
 })
 
 describe("web content in the sentences", () => {
-  const page = sample({ kind: "html", arch: null, bits: null, family: null, severity: "info" })
+  const page = sample({
+    kind: "html",
+    arch: null,
+    bits: null,
+    family: null,
+    severity: "info",
+    crawled: true,
+  })
   it("does not count plain web pages as new files", () => {
     expect(describeSamples([page, page], false, NOW)).toBe(
       "2 samples collected, all ordinary web content (pages, images, style sheets), nothing to flag.",
@@ -121,6 +132,15 @@ describe("web content in the sentences", () => {
     const mixed = [page, sample({})]
     expect(describeSamples(mixed, false, NOW)).toBe(
       "1 new file this week, 1 of them Mirai builds for ARM.",
+    )
+  })
+  it("counts a page an attacker asked for like any other file", () => {
+    const typed = { ...page, crawled: false }
+    expect(describeSamples([typed], false, NOW)).toBe(
+      "1 new file this week, none of them matched a known family.",
+    )
+    expect(describeSample({ item: typed } as SampleDetail)).toBe(
+      "Unclassified file, Web page, 1 KB. Served from 1 address in 1 session.",
     )
   })
   it("says a page is ordinary web content", () => {

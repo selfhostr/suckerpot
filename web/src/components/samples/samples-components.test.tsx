@@ -91,6 +91,7 @@ describe("SampleRow origin badge", () => {
     stored: true,
     analysis_status: "done",
     origin: "local",
+    crawled: false,
   }
   const renderRow = (origin: SampleItem["origin"]) =>
     render(
@@ -128,6 +129,7 @@ describe("SampleRow web content", () => {
     stored: true,
     analysis_status: "done",
     origin: "local",
+    crawled: true,
   }
   const renderRow = (item: SampleItem) =>
     render(
@@ -145,6 +147,12 @@ describe("SampleRow web content", () => {
     expect(
       screen.getByRole("link", { name: /^Web page, 2 KB, hash eeeeeeeeeeee/ }),
     ).toBeInTheDocument()
+  })
+  it("treats a page an attacker asked for like any unclassified file", () => {
+    renderRow({ ...web, crawled: false })
+    expect(screen.getByText("Unknown")).toBeInTheDocument()
+    expect(screen.getByText("Web page")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /^Unknown, Web page, 2 KB/ })).toBeInTheDocument()
   })
   it("keeps the family and adds the kind when a rule matched the page", () => {
     renderRow({ ...web, family: "shell-dropper", severity: "severe" })
