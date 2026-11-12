@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Campaigns of one actor are now merged. The worker only merged two campaigns when a single new
+  session carried a key of both, which almost never happens: an actor that does credential
+  stuffing, then drops a file, then leaves a ransom note produces three keys in separate
+  sessions, so it stayed split into three campaigns by kind (the status showed `"merged": 0`
+  for ever). A new pass compares the source addresses of the campaigns that changed: two live
+  campaigns on a common sensor merge when they share at least 5 addresses and at least 60 % of
+  the smaller campaign's addresses are also in the other one. The oldest campaign keeps its id,
+  so shared links keep working; the others show as merged and point to it, and the page of a
+  merged campaign links to the combined one. It applies to campaigns that already exist, with
+  nothing to run: every campaign is checked once after the update (a few hundred per cycle), then
+  only the ones that change. A merged campaign is named after its two main goals ("Malware
+  dropper and database ransom over MySQL #12"), keeps the highest severity of its parts and
+  counts a shared address once. Credential-only floods (many logins, no commands, few addresses
+  in one network) still do not form campaigns; the limits and what it would take are in
+  [Architecture](docs/ARCHITECTURE.md#how-the-features-fit-together).
 - `update.sh` and `install.sh` no longer report a failed update or install on a healthy node
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final
   dashboard check sent the bind address as `Host`, which the API rejects; it now sends
