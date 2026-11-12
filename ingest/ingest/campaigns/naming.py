@@ -58,6 +58,30 @@ OBJECTIVE_NAMES = {
     "scanner": "Scanning",
     "recon": "Reconnaissance",
 }
+#: What a merged campaign says it also did, in the middle of a sentence. Only attacker goals are
+#: listed: a campaign that also guessed passwords or looked around is not named after that.
+ALSO_NAMES = {
+    "php2shell": "PHP2Shell exploitation",
+    "eternalblue": "EternalBlue exploitation",
+    "sql-rce": "SQL command execution",
+    "container-escape": "container escape",
+    "crypto-miner": "crypto-miner drop",
+    "mirai": "Mirai-style loader",
+    "malware-drop": "malware dropper",
+    "db-ransom": "database ransom",
+    "redis-rogue-master": "Redis rogue master",
+    "sip-fraud": "phone fraud",
+    "synology-exploit": "Synology NAS exploitation",
+    "c3rb3r": "NAS ransomware",
+}
+#: Goals the main one already says: a loader or a miner always drops a file, and the NAS
+#: ransomware always comes with the NAS exploit.
+IMPLIED_BY = {
+    "mirai": frozenset({"malware-drop"}),
+    "crypto-miner": frozenset({"malware-drop"}),
+    "synology-exploit": frozenset({"c3rb3r"}),
+    "c3rb3r": frozenset({"synology-exploit"}),
+}
 FAMILY_NOUNS = {
     "crypto-miner": "miner",
     "mirai": "loader",
@@ -76,6 +100,7 @@ SEVERE_TAGS = frozenset(
     }
 )  # fmt: skip
 WARNING_TAGS = frozenset({"db-ransom", "redis-rogue-master", "sip-fraud", "persistence"})
+SEVERITY_ORDER = ("info", "notice", "warning", "severe")
 NAME_MAX = 100
 
 
@@ -94,13 +119,30 @@ def dominant(tags: Iterable[str]) -> str | None:
     return min(counts, key=lambda t: (-counts[t], rank[t]))
 
 
+def also_goal(tags: Iterable[str], primary: str | None) -> str | None:
+    """A second goal worth naming next to ``primary``, when the campaign did more than one thing
+    (credential stuffing, then a dropper, then a ransom note), in priority order."""
+    if primary is None:
+        return None
+    present = set(tags)
+    rank = {t: i for i, t in enumerate(OBJECTIVE_TAGS)}
+    others = [
+        t
+        for t in present
+        if t in ALSO_NAMES and t != primary and t not in IMPLIED_BY.get(primary, frozenset())
+    ]
+    return min(others, key=lambda t: rank[t]) if others else None
+
+
 def campaign_name(
     families: Iterable[str],
     tags: Iterable[str],
     sensors: Iterable[str],
     campaign_id: int | None = None,
 ) -> str:
-    """``<Family> loader over Telnet #41``: family, else objective, else just the sensor."""
+    """``<Family> loader over Telnet #41``: family, else objective (and a second goal), else
+    just the sensor."""
+    tags = list(tags)
     objective = dominant(tags)
     family = Counter(f for f in (clean_family(x) for x in families) if f)
     sensor_counts = Counter(sensors)
@@ -110,6 +152,9 @@ def campaign_name(
         base = f"{label} {FAMILY_NOUNS.get(objective or '', 'campaign')}"
     elif objective:
         base = OBJECTIVE_NAMES[objective]
+        also = also_goal(tags, objective)
+        if also:
+            base = f"{base} and {ALSO_NAMES[also]}"
     else:
         base = "Shared activity"
     where = f" over {SENSOR_LABELS.get(top_sensor, top_sensor)}" if top_sensor else ""
@@ -127,6 +172,12 @@ def severity_of(tags: Iterable[str], commands: int = 0, login_attempts: int = 0)
     if login_attempts > 0 or tagset:
         return "notice"
     return "info"
+
+
+def max_severity(*levels: str) -> str:
+    """The most serious of several severity levels (unknown values rank lowest)."""
+    rank = {s: i for i, s in enumerate(SEVERITY_ORDER)}
+    return max(levels, key=lambda s: rank.get(s, -1), default="info")
 
 
 def stages_of(technique_ids: Iterable[str], stage_by_technique: Mapping[str, str]) -> list[str]:
