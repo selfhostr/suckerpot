@@ -822,6 +822,8 @@ class FetchTargetRow(Base):
     last_sha256: Mapped[str | None] = mapped_column(Text)
     # local | network_verify (M32, 0030): a verification fetch never spawns child targets.
     origin: Mapped[str] = mapped_column(Text, server_default=text("'local'"), nullable=False)
+    # An attacker typed this URL (0033). Kept when the indicator is pruned.
+    typed: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
 
 
 class FetchAttemptRow(Base):
@@ -868,6 +870,8 @@ class SampleRow(Base):
     analysis_version: Mapped[int] = mapped_column(
         SmallInteger, server_default=text("0"), nullable=False
     )
+    # The analyzer did not act on it: plain web content or a network verification fetch (0033).
+    spared: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
 
 
 class SampleAnalysisRow(Base):

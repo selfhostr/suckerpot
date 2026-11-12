@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from suckerpot_db.sample_kinds import plain_web_sample
 from suckerpot_reporting import (
     Activity,
     RedactionContext,
@@ -273,17 +274,19 @@ def _clip(value: object, limit: int) -> str | None:
 
 
 async def sample_refs(session: AsyncSession, seed: Seed) -> tuple[SampleRef, ...]:
-    """Hashes of payloads the collector fetched from a payload host, or analysed samples that
-    name a C2 address. Metadata only; the files themselves never reach a report."""
+    """Hashes of payloads the collector fetched from a payload host (plain web pages excluded),
+    or analysed samples that name a C2 address. Metadata only; the files themselves never reach a
+    report."""
     if seed.kind == "payload_host":
-        sql = """
+        sql = f"""
             SELECT DISTINCT s.sha256, s.sha1, s.md5, s.tlsh, s.size, s.kind, s.arch, s.family,
                    s.first_seen
             FROM fetch_targets t
             JOIN sample_sources ss ON ss.target_id = t.id
             JOIN samples s ON s.sha256 = ss.sha256
-            WHERE t.host = :v AND t.status = 'fetched' LIMIT 20
-        """
+            WHERE t.host = :v AND t.status = 'fetched' AND NOT {plain_web_sample("s")}
+            LIMIT 20
+        """  # noqa: S608  (constant fragment only)
     elif seed.kind == "c2":
         sql = """
             SELECT DISTINCT s.sha256, s.sha1, s.md5, s.tlsh, s.size, s.kind, s.arch, s.family,

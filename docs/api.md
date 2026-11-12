@@ -678,7 +678,7 @@ Samples are the files the `collector` fetched from captured download URLs and th
 
 ### `GET /api/v1/samples`
 
-Cursor pagination: `cursor` and `limit` (up to 200, default 50). Sorted by `last_seen`, newest first.
+Cursor pagination: `cursor` and `limit` (up to 200, default 50). Sorted by `last_seen`, newest first. Each item also has `origin` (`network_verify` when every source was a network verification fetch, else `local`) and `crawled`: `true` when the collector reached the file only through the assets of other web content (markup attributes, style sheet `url()` and `@import`) and no attacker asked for it (no typed URL, not linked from the text of a page, a script or a binary). A next-stage link has `source` `web_asset` when a page or a style sheet names it only as an asset (an attribute its element loads, in a real start tag, or a style sheet `url()` or `@import`), `script_url` for any other link of a text file. A web `kind` at severity `info` with no family and `crawled: true` is plain web content: its links are not followed and its hash feeds nothing.
 
 | Parameter | Meaning |
 | --- | --- |
@@ -692,7 +692,7 @@ Cursor pagination: `cursor` and `limit` (up to 200, default 50). Sorted by `last
 
 ### `GET /api/v1/samples/{sha256}`
 
-Metadata (kind, architecture, size, sha256, sha1, md5, TLSH, family, severity, whether the file is still stored), the analysis (YARA hits, capped strings, deobfuscated script text and the steps taken), the sources (URLs, first and last fetch, session count, sensors and addresses), the links found inside it (next-stage URLs and C2 addresses), the latest sessions that dropped it, and `virustotal_url`. That is a link only: the API makes no call to VirusTotal. Defang URLs when you paste them anywhere.
+Metadata (kind, architecture, size, sha256, sha1, md5, TLSH, family, severity, whether the file is still stored), the analysis (YARA hits, capped strings, deobfuscated script text and the steps taken), the sources (URLs, first and last fetch, session count, sensors and addresses), the links found inside it (next-stage URLs and C2 addresses; none for plain web content, see `crawled` above; web kinds are `html`, `svg`, `xml`, `css`, `json` and `javascript`), the latest sessions that dropped it, and `virustotal_url`. That is a link only: the API makes no call to VirusTotal. Defang URLs when you paste them anywhere.
 
 ### `GET /api/v1/samples/{sha256}/chain`
 

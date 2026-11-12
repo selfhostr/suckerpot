@@ -652,6 +652,9 @@ BEGIN
             'GRANT SELECT, INSERT, UPDATE ON fetch_targets, fetch_attempts, samples, '
             'sample_sources TO %I', r);
         EXECUTE format('GRANT DELETE ON fetch_attempts TO %I', r);
+        -- The links between files and targets: it reads them to tell which targets and files
+        -- only plain web content leads to (suckerpot_db.sample_kinds), and never writes them.
+        EXECUTE format('GRANT SELECT ON sample_links TO %I', r);
         -- M32: the table grant above already covers fetch_targets.origin (verification rows).
         EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE ON enrichment_quota, enrichment_status TO %I', r);
@@ -701,6 +704,10 @@ BEGIN
             'GRANT USAGE ON SEQUENCE %s, %s TO %I',
             pg_get_serial_sequence('public.fetch_targets', 'id'),
             pg_get_serial_sequence('public.indicators', 'id'), r);
+    END IF;
+    IF to_regprocedure('public.suckerpot_revive_web_target(bigint)') IS NOT NULL THEN
+        -- 0033: back in the queue, a target refused as web_parent that attacker content links.
+        EXECUTE format('GRANT EXECUTE ON FUNCTION suckerpot_revive_web_target(bigint) TO %I', r);
     END IF;
 END
 $$

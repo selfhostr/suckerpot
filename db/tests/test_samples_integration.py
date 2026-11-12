@@ -194,6 +194,8 @@ async def test_collector_and_analyzer_grants(owner: AsyncEngine) -> None:
         assert await _can(ingest, upsert, {"n": "egress"})
         assert not await _can(api, upsert, {"n": "egress"})
         assert not await _can(collector, "SELECT count(*) FROM sample_analysis")
+        assert await _can(collector, "SELECT count(*) FROM sample_links")  # read only
+        assert not await _can(collector, "UPDATE sample_links SET source = 'web_asset'")
         assert not await _can(collector, "SELECT count(*) FROM events")
         assert not await _can(collector, "SELECT count(*) FROM users")
 
@@ -222,6 +224,55 @@ async def test_collector_and_analyzer_grants(owner: AsyncEngine) -> None:
             "VALUES ('ip', '198.51.100.4', 'c2', now(), now())",
         )
         assert not await _can(analyzer, "UPDATE fetch_targets SET status = 'fetched'")
+        # 0033: it may only put a target refused as web_parent back in the queue, once a link
+        # other than a web asset points at it, and the function sets the time itself.
+        revive = "SELECT suckerpot_revive_web_target(:t)"
+        host = "http://203.0.113.9"
+        targets = {
+            f"{host}/w.css": ("web_parent", "script_url"),  # a script links it: revived
+            f"{host}/a.css": ("web_parent", "web_asset"),  # only web assets link it: stays
+            f"{host}/r.sh": ("private_address", "script_url"),  # another refusal: stays
+        }
+        async with owner.begin() as conn:
+            for url, (error, source) in targets.items():
+                tid = await conn.scalar(
+                    text(
+                        "INSERT INTO fetch_targets (url, scheme, host, first_seen, status, "
+                        "last_error) VALUES (:u, 'http', '203.0.113.9', now(), 'refused', :e) "
+                        "RETURNING id"
+                    ),
+                    {"u": url, "e": error},
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO sample_links (sha256, kind, value, source, confidence, "
+                        "target_id) VALUES (:s, 'next_url', :u, :src, 'high', :t) "
+                        "ON CONFLICT (sha256, kind, value) DO UPDATE SET target_id = :t, "
+                        "source = :src"
+                    ),
+                    {"s": SHA, "u": url, "src": source, "t": tid},
+                )
+            found = await conn.execute(text("SELECT url, id FROM fetch_targets"))
+            ids: dict[str, int] = {str(u): int(i) for u, i in found.tuples().all()}
+            config = await conn.scalar(
+                text("SELECT proconfig FROM pg_proc WHERE proname = 'suckerpot_revive_web_target'")
+            )
+        assert config == ["search_path=pg_catalog, public, pg_temp"]
+        for url in targets:
+            assert await _can(analyzer, revive, {"t": ids[url]})
+        async with owner.connect() as conn:
+            found = await conn.execute(
+                text(
+                    "SELECT url, status, next_attempt_at > now() - interval '1 minute' "
+                    "FROM fetch_targets"
+                )
+            )
+            after = {str(u): (str(st), due) for u, st, due in found.tuples().all()}
+        assert after[f"{host}/w.css"] == ("pending", True)
+        assert after[f"{host}/a.css"][0] == "refused"
+        assert after[f"{host}/r.sh"][0] == "refused"
+        for other in (collector, api, ingest):
+            assert not await _can(other, revive, {"t": ids[f"{host}/w.css"]})
         assert not await _can(analyzer, "SELECT count(*) FROM fetch_attempts")
         assert not await _can(analyzer, "DELETE FROM sample_analysis")
         assert not await _can(analyzer, "SELECT count(*) FROM events")

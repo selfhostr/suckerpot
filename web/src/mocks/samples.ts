@@ -264,6 +264,7 @@ const items: SampleItem[] = SEEDS.map((s, i) => {
     stored: true,
     analysis_status: i === 12 ? "pending" : "done",
     origin: netCheck ? "network_verify" : "local",
+    crawled: false,
   }
 })
 

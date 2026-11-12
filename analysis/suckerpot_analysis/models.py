@@ -6,10 +6,23 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ANALYSIS_VERSION = 1
+# Bump it when a change to the analysis should reach samples already analysed: the analyzer
+# re-runs every `done` sample whose stored version is lower. 2: web content kinds.
+ANALYSIS_VERSION = 2
+
+# File kinds for ordinary web content (pages, images, style sheets, scripts of a web page, data
+# documents), with the severity "info" unless a detection rule matched. A file only gets one of
+# these when it plausibly is that format and its whole input holds no shell command, downloader,
+# code runner or active content (see `identify._identify_web`); anything else keeps the `script` or
+# `text` kind. The kind alone never spares a file: the collector skips the links and the hash of a
+# web sample only when no rule matched it AND it was reached by following links found in other
+# web content, never when an attacker asked for it (`suckerpot_db.sample_kinds`).
+WEB_KINDS: frozenset[str] = frozenset({"html", "svg", "xml", "css", "json", "javascript"})
 
 IocKind = Literal["next_url", "c2_ip", "c2_domain", "c2_url"]
-IocSource = Literal["script_url", "binary_ip_port", "binary_string", "mirai_table"]
+# "web_asset": a next URL that a page or a style sheet only names as an asset (a markup attribute
+# such as href or src, a style sheet url() or @import). Every other next URL is "script_url".
+IocSource = Literal["script_url", "web_asset", "binary_ip_port", "binary_string", "mirai_table"]
 Confidence = Literal["high", "low"]
 Severity = Literal["info", "notice", "warning", "severe"]
 
@@ -35,7 +48,8 @@ class Limits(_Model):
 
 
 class FileInfo(_Model):
-    kind: str = "unknown"  # elf, pe, macho, script, gzip, zip, tar, xz, 7z, bzip2, text, data
+    # elf, pe, macho, script, gzip, zip, tar, xz, 7z, bzip2, text, data, or a WEB_KINDS member
+    kind: str = "unknown"
     arch: str | None = None
     bits: int | None = None
     endian: Literal["little", "big"] | None = None

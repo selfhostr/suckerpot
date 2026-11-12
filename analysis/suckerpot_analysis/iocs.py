@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 
 from .models import Confidence, Ioc, IocKind, IocSource
 
@@ -30,6 +30,12 @@ _DOMAIN = re.compile(
 _MIRAI_KEYS = (0x22, 0x37, 0x54)
 _HOSTISH = re.compile(rb"[A-Za-z0-9.\-]{4,253}")
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
+
+def urls_in(text: str) -> Iterator[str]:
+    """The URLs of `text`, cut the way `extract_iocs` cuts them."""
+    for m in _URL.finditer(text[:_SCAN_CAP]):
+        yield m.group().rstrip(".,)")
 
 
 def _useful_ip(text: str) -> bool:

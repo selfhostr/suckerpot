@@ -15,6 +15,7 @@ from typing import Protocol
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_db.sample_kinds import is_plain_web_hash, plain_web_sample
 
 from . import demo
 
@@ -182,23 +183,27 @@ class SqlSource:
         return [C2Fact(r.kind, r.value, int(r.port), r.sha256, r.family) for r in rows]
 
     async def files(self, day: date) -> list[FileFact]:
+        """Hashes of stored samples and trusted hash indicators, except plain web content (see
+        ``suckerpot_db.sample_kinds``)."""
         async with self.factory() as session:
             rows = (
                 await session.execute(
                     text(
-                        """
+                        f"""
                         SELECT sm.sha256 AS sha256, sm.family AS family, sm.kind AS kind,
                                sm.arch AS arch
                         FROM samples sm
                         WHERE sm.stored AND sm.last_seen >= :d0 AND sm.last_seen < :d1
+                          AND NOT {plain_web_sample("sm")}
                         UNION
                         SELECT lower(i.value), NULL, NULL, NULL
                         FROM indicators i
                         WHERE i.type = 'hash' AND i.trusted AND NOT i.demo
                           AND length(i.value) = 64
+                          AND NOT {is_plain_web_hash("i.value")}
                           AND i.last_seen >= :d0 AND i.last_seen < :d1
                         LIMIT :lim
-                        """
+                        """  # noqa: S608  (constant fragments only)
                     ),
                     {**_bounds(day), "lim": FILE_ROWS},
                 )

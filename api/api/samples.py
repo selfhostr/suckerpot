@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import SessionRow
+from suckerpot_db.sample_kinds import crawled_from_web
 from suckerpot_reporting import build_encrypted_zip
 
 from api import audit as audit_db
@@ -77,6 +78,9 @@ class SampleItem(BaseModel):
     analysis_status: str
     # "network_verify" when every source was fetched for the network (M32), else "local".
     origin: str = "local"
+    # True when the collector reached the file only by following links found in other web
+    # content and no attacker asked for it (suckerpot_db.sample_kinds.crawled_from_web).
+    crawled: bool = False
 
 
 class SamplePage(BaseModel):
@@ -154,7 +158,7 @@ class ArchiveBody(BaseModel):
 
 # ---- list ------------------------------------------------------------------------------------
 
-_ITEM_SELECT = """
+_ITEM_SELECT = f"""
 SELECT s.sha256, s.kind, s.arch, s.bits, s.family, s.severity, s.size, s.first_seen, s.last_seen,
        s.stored, s.analysis_status,
        (SELECT count(*) FROM sample_sources x WHERE x.sha256 = s.sha256) AS sources,
@@ -168,10 +172,11 @@ SELECT s.sha256, s.kind, s.arch, s.bits, s.family, s.severity, s.size, s.first_s
                              JOIN fetch_targets t ON t.id = x.target_id
                              WHERE x.sha256 = s.sha256 AND t.origin <> 'network_verify')
             THEN 'network_verify' ELSE 'local' END AS origin,
+       {crawled_from_web("s")} AS crawled,
        COALESCE(jsonb_path_query_array(a.yara, '$[*].rule'), '[]'::jsonb) AS yara
 FROM samples s
 LEFT JOIN sample_analysis a ON a.sha256 = s.sha256
-"""
+"""  # noqa: S608  (constant fragment only)
 
 
 def _item(r: Any) -> SampleItem:
@@ -191,6 +196,7 @@ def _item(r: Any) -> SampleItem:
         stored=r.stored,
         analysis_status=r.analysis_status,
         origin=r.origin,
+        crawled=bool(r.crawled),
     )
 
 

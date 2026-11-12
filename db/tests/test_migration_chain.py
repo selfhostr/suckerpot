@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0032() -> None:
+def test_the_chain_is_linear_up_to_0033() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0032"}
+    assert heads == {"0033"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -99,6 +99,8 @@ def test_the_chain_is_linear_up_to_0032() -> None:
     assert revs["0031"][0] == "0030"
     # Reputation answers are kept until refreshed (the 48 hour prune is gone) after 0031.
     assert revs["0032"][0] == "0031"
+    # How the collector reached each file (typed marker, spared flag, link index) follows 0032.
+    assert revs["0033"][0] == "0032"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -189,7 +191,10 @@ def test_collector_grants() -> None:
     assert g["fetch_attempts"] >= {"DELETE"}
     assert "DELETE" not in g["samples"] | g["fetch_targets"] | g["sample_sources"]
     assert g["enrichment_status"] >= {"SELECT", "INSERT", "UPDATE"}
-    for table in ("sample_analysis", "sample_links", "users", "events", "sessions"):
+    # 0033: it reads the links between files and targets (which targets only plain web content
+    # leads to), and never writes them.
+    assert g["sample_links"] == {"SELECT"}
+    for table in ("sample_analysis", "users", "events", "sessions"):
         assert table not in g, table
 
 

@@ -20,12 +20,15 @@ from typing import Any
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_db.locks import SAMPLE_TYPING
+from suckerpot_db.sample_kinds import web_parent_target
 from suckerpot_egress import EgressClosed, EgressGate, egress_client
 
 from collector import fetch as fx
 from collector.config import CollectorSettings
 from collector.fetch import Fetcher, FetchResult
 from collector.recheck import Rechecker
+from collector.reopen import REOPEN_TARGET
 from collector.status import beat, publish_status
 from collector.store import Quarantine, StoredFile
 from collector.validate import UrlRefused, normalize_url
@@ -50,10 +53,22 @@ class Target:
     attempts: int
     fetches: int
     origin: str = "local"  # M32: "network_verify" rows are fetched for the network only
+    # Never typed by an attacker, and every file that links to it is plain web content: not
+    # fetched (see WEB_PARENT).
+    web_parent: bool = False
 
 
 VERIFY_ORIGIN = "network_verify"
 VERIFY_DISABLED = "verify_disabled"
+# `last_error` of a target that only plain web content links to (the analyzer no longer queues
+# those). An attacker who later types the same URL (`_insert_target`), or attacker content that
+# links to it (the analyzer, `suckerpot_revive_web_target`), puts it back in the queue.
+WEB_PARENT = "web_parent"
+# An attacker typed a URL that was only refused as `web_parent`: it goes back in the queue.
+_REVIVE = (
+    "(fetch_targets.status = 'refused' AND fetch_targets.last_error = 'web_parent' "
+    "AND EXCLUDED.status = 'pending' AND EXCLUDED.indicator_id IS NOT NULL)"
+)
 
 
 def _utcnow() -> datetime:
@@ -106,6 +121,11 @@ class CollectorService:
                     {"cursor": self._cursor, "n": SYNC_BATCH},
                 )
             ).all()
+            if rows:
+                # A typing must never be half seen by the analyzer's plain web decision.
+                await session.execute(
+                    text("SELECT pg_advisory_xact_lock(:k)"), {"k": SAMPLE_TYPING}
+                )
             for ind_id, raw in rows:
                 self._cursor = max(self._cursor, ind_id)
                 await self._insert_target(session, ind_id, raw, now)
@@ -124,25 +144,34 @@ class CollectorService:
             url = raw[:1024]
             scheme = raw.split(":", 1)[0].lower()[:16] if ":" in raw else "unknown"
             host = raw.split("//", 1)[-1].split("/", 1)[0][:255]
-        await session.execute(
+        target_id = await session.scalar(
             text(
-                """
+                f"""
                 INSERT INTO fetch_targets
                     (url, scheme, host, indicator_id, depth, status, last_error, first_seen,
-                     next_attempt_at)
+                     next_attempt_at, typed)
                 VALUES (:url, :scheme, :host, :ind, 0, CAST(:status AS text), :error, :now,
                         CASE WHEN CAST(:status AS text) = 'pending'
-                             THEN CAST(:now AS timestamptz) END)
+                             THEN CAST(:now AS timestamptz) END, true)
                 ON CONFLICT (url) DO UPDATE
                     SET indicator_id = COALESCE(fetch_targets.indicator_id, EXCLUDED.indicator_id),
-                        origin = 'local'
-                """
+                        origin = 'local', typed = true,
+                        status = CASE WHEN {_REVIVE} THEN 'pending' ELSE fetch_targets.status END,
+                        last_error = CASE WHEN {_REVIVE} THEN NULL
+                                          ELSE fetch_targets.last_error END,
+                        attempts = CASE WHEN {_REVIVE} THEN 0 ELSE fetch_targets.attempts END,
+                        next_attempt_at = CASE WHEN {_REVIVE} THEN EXCLUDED.next_attempt_at
+                                               ELSE fetch_targets.next_attempt_at END
+                RETURNING id
+                """  # noqa: S608  (constant fragment only)
             ),
             {
                 "url": url, "scheme": scheme, "host": host, "ind": ind_id, "status": status,
                 "error": error, "now": now,
             },
         )  # fmt: skip
+        # A URL the collector reached by following links may have served a file already.
+        await session.execute(text(REOPEN_TARGET), {"t": target_id})
 
     async def requeue_refetches(self) -> int:
         """Fetched targets seen again since the last fetch go back in the queue (rate limited)."""
@@ -257,11 +286,13 @@ class CollectorService:
             rows = (
                 await session.execute(
                     text(
-                        """
-                        SELECT id, url, host, attempts, fetches, origin FROM fetch_targets
-                        WHERE status = 'pending' AND next_attempt_at <= :now
-                        ORDER BY next_attempt_at, id LIMIT :n
-                        """
+                        f"""
+                        SELECT t.id, t.url, t.host, t.attempts, t.fetches, t.origin,
+                               {web_parent_target("t")} AS web_parent
+                        FROM fetch_targets t
+                        WHERE t.status = 'pending' AND t.next_attempt_at <= :now
+                        ORDER BY t.next_attempt_at, t.id LIMIT :n
+                        """  # noqa: S608  (constant fragment only)
                     ),
                     {"now": self._clock(), "n": n},
                 )
@@ -270,6 +301,11 @@ class CollectorService:
 
     async def _handle(self, target: Target) -> tuple[int, str] | None:
         async with self._sem, self._host_locks[target.host]:
+            if target.web_parent:
+                # Only plain web content links to it (queued before the analyzer stopped following
+                # those links): the public web is not ours to crawl. No fetch, no quota.
+                await self._refuse(target, WEB_PARENT)
+                return target.id, fx.REFUSED
             if target.origin == VERIFY_ORIGIN and not self.s.verify_enabled:
                 # The collector's owner stopped the verifier role: nothing is fetched, no quota.
                 await self._refuse(target, VERIFY_DISABLED)
@@ -418,6 +454,7 @@ class CollectorService:
             ),
             {"sha": stored.sha256, "t": target.id, "now": now},
         )
+        await session.execute(text(REOPEN_TARGET), {"t": target.id})
         await session.execute(
             text(
                 """

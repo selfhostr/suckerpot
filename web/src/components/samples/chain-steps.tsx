@@ -6,6 +6,7 @@ import {
   type ChainNode,
   type ChainNodeKind,
   type SampleChain,
+  webKindLabel,
 } from "@/lib/samples"
 import { cn } from "@/lib/utils"
 
@@ -66,7 +67,9 @@ export function ChainSteps({ chain, current }: { chain: SampleChain; current: st
   return (
     <ol className="relative space-y-4" aria-label="Steps of the chain">
       {nodes.map((n, i) => {
-        const Icon = n.kind === "sample" && n.family ? Bug : ICON[n.kind]
+        // The API names a sample node by its family, else by its file kind ("html").
+        const web = n.kind === "sample" ? webKindLabel(n.family) : null
+        const Icon = n.kind === "sample" && n.family && !web ? Bug : ICON[n.kind]
         const last = i === nodes.length - 1
         return (
           <li
@@ -93,7 +96,7 @@ export function ChainSteps({ chain, current }: { chain: SampleChain; current: st
                 <span className="mr-1.5 text-xs text-fg-subtle tabular-nums">{i + 1}.</span>
                 {KIND_LABEL[n.kind]}
                 {n.kind === "sample" && n.family ? (
-                  <span className="ml-2 font-normal text-fg-muted">{n.family}</span>
+                  <span className="ml-2 font-normal text-fg-muted">{web ?? n.family}</span>
                 ) : null}
               </p>
               <NodeLabel node={n} current={current} />

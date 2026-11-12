@@ -31,7 +31,7 @@ ENV: dict[str, str] = {
     "POSTGRES_ANALYZER_PASSWORD": "analyzer-test-password",
 }
 PRODUCTION = "0029"
-HEAD = "0031"
+HEAD = "0033"
 
 
 def _alembic(*args: str) -> None:
