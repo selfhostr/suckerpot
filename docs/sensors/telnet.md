@@ -36,6 +36,16 @@ A connection that never completes a login attempt produces no `connect` or `disc
 
 Same format as the SSH sensor: `disconnect.data.replay` is a list of `[delta_seconds, "o" | "i", text]` frames, with the newest frames that fit in 12 KiB kept. Passwords are not in the recording (they are in `login_attempt`). It holds attacker-controlled bytes, so the replay must follow the [safety contract](../SECURITY.md#terminal-replay-safety-contract).
 
+## Tags
+
+Rules live in `ingest/rules/shell.yaml`. They are shared with the SSH sensor, with one addition that only applies here.
+
+| Tag | Set when a `command` is |
+| --- | --- |
+| `iot-shell-probe` | One of the shell-escape words loaders send first (`enable`, `system`, `shell`, `linuxshell`, `sh`, `ping; sh`), a BusyBox applet probe (`/bin/busybox` followed by any word) or the architecture check (`cat /proc/self/exe`). It names no malware family. |
+| `mirai` | The BusyBox echo-check with a known Mirai variant token (`/bin/busybox ECCHI`), or a Mirai binary name. Plain BusyBox use is not Mirai. |
+| `recon`, `exec-attempt`, `persistence`, `crypto-miner` | As on the SSH sensor. |
+
 ## Limits and abuse resistance
 
 | Scope | Limit |

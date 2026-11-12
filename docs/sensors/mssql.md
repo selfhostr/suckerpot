@@ -41,6 +41,7 @@ Rules live in `ingest/rules/services.yaml`.
 | `sql-rce` | `xp_cmdshell`, `sp_oacreate`, `ole_automation`, `shell_command` or `lolbin`. |
 | `db-ransom` | `ransom_note` or `drop_database`. |
 | `malware-drop` | Any `download_attempt`. |
+| `service-probe` | A read-only query for the version, server name or database list (`SELECT @@version`, `@@servername`, `sys.databases`), unless the same batch carries a dangerous flag. |
 
 Other flags are shown on the session: `sp_configure`, `reconfigure`, `openrowset`, `bulk_insert`, `xp_dirtree` (a UNC path), `xp_regread`, `add_login`, `sqli_probe` and `time_probe`.
 

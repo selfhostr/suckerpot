@@ -42,7 +42,7 @@ rules:
       all:
         - {field: type, equals: command}
         - any:
-            - {field: data.input, command_any: [uname, lscpu, nproc, free, hostname, arch, lsb_release, dmidecode, uptime]}
+            - {field: data.input, command_any: [uname, lscpu, nproc, free, hostname, arch, lsb_release, dmidecode, uptime, getprop]}
             - {field: data.input, contains_any: [/proc/cpuinfo, /proc/meminfo, /proc/version, /etc/os-release]}
 
   - id: attack-network-config-discovery
@@ -151,6 +151,8 @@ rules:
 from_tags:
   recon: [T1082]
   scanner: [T1595]
+  service-probe: [T1595]
+  iot-shell-probe: [T1059.004]
   env-file-probe: [T1595.002, T1190]
   php2shell: [T1190, T1059, T1505.003]
   wordpress-bruteforce: [T1110.001, T1190]

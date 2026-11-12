@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Abuse reports now say why a draft is blocked and what to do. Settings, Reporting checks each text (reply contact, signature, introduction, closing, note, subject template, X-ARF user agent) on its own: a text that would block every draft, for example a reply address on a domain that names the project, is refused with one sentence under the field and nothing is saved. The same sentences show when a text you saved earlier blocks drafts today, because the rules grow over time. The list of drafts gets a Blocked drafts card (how many, one sentence per reason, what to do, and the setting that causes it) and a few words on each blocked row. The report page gives a next step for every reason instead of a bare description. The API adds `fields` to a refused settings save, `field_issues` to `GET /abuse/settings` and `blocked_drafts` to `GET /abuse/status`.
+### Added
+
+- Common reconnaissance now carries a tag instead of leaving most Redis, Docker, web, MySQL, ADB
+  and Telnet sessions untagged. Two new informational tags (never red, never a malware family):
+  `service-probe` for read-only requests that identify an exposed service (Redis `INFO`, `PING`,
+  `GET` and `CONFIG GET`; the Docker API `/_ping`, `/version`, `/info` and listings; MySQL and SQL
+  Server version and database-list queries; a GET for the signature path of a web application such
+  as WordPress, phpinfo, Jenkins or a VPN portal) and `iot-shell-probe` for the shell-escape and
+  BusyBox probe sequence that loaders type first on a Telnet device shell (`enable`, `system`,
+  `shell`, `sh`, `/bin/busybox <word>`, `cat /proc/self/exe`). Existing tags cover more too:
+  `env-file-probe` now follows the web sensor's dotfile, config-file and backup flags (for example
+  `/admin/config.php` or `/.vscode/sftp.json`), `scanner` follows its scanner and fuzzer
+  user-agent flag, and `recon` includes the Android `getprop` and `screencap` commands. Both new
+  tags are mapped to MITRE ATT&CK, named in campaigns and insights and explained on the Defend
+  page. A homepage, `robots.txt` or favicon request stays untagged.
 
 ### Fixed
 

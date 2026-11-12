@@ -121,6 +121,13 @@ def test_every_rule_tag_is_classified() -> None:
             True,
         ),
         ("http_request", {"method": "HEAD"}, [], True),
+        # a research scanner that fingerprints a web app or the Docker API stays benign
+        ("http_request", {"method": "GET", "flags": ["wordpress"]}, ["service-probe"], True),
+        ("http_request", {"method": "GET", "flags": ["recon"]}, ["service-probe"], True),
+        ("http_request", {"method": "GET", "flags": ["phpinfo_probe"]}, ["service-probe"], True),
+        ("command", {"input": "INFO", "flags": []}, ["service-probe"], False),
+        ("command", {"input": "enable"}, ["iot-shell-probe"], False),
+        ("scan", {}, ["iot-shell-probe"], False),
         ("http_request", {"method": "POST"}, [], False),  # wp-login, phpunit eval-stdin
         ("http_request", {}, [], False),
         ("http_request", {"method": "GET", "flags": ["shellshock"]}, [], False),

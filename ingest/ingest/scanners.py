@@ -41,14 +41,15 @@ BENIGN_TAGS = frozenset(
         "synology-dsm",
         "smb-v1-probe",
         "php-upload-progress-probe",
+        "service-probe",
     }
 )
 ATTACK_TAGS = frozenset(
     {
         "bluekeep", "c3rb3r", "container-escape", "credential-stuffing", "crypto-miner",
-        "db-ransom", "eternalblue", "exec-attempt", "malware-drop", "mirai", "persistence",
-        "php2shell", "phpmyadmin-bruteforce", "rdp-cleartext", "redis-rogue-master", "sip-fraud",
-        "sql-rce", "synology-exploit", "weak-credentials", "wordpress-bruteforce",
+        "db-ransom", "eternalblue", "exec-attempt", "iot-shell-probe", "malware-drop", "mirai",
+        "persistence", "php2shell", "phpmyadmin-bruteforce", "rdp-cleartext", "redis-rogue-master",
+        "sip-fraud", "sql-rce", "synology-exploit", "weak-credentials", "wordpress-bruteforce",
     }
 )  # fmt: skip
 
