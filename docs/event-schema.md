@@ -125,4 +125,6 @@ If the database rejects a batch, ingest retries it with a backoff. A single mess
 
 Ingest groups events by `session_id` into the `sessions` table. A session keeps its first and last times, the number of events, and counters such as `login_attempts`, `login_success`, `commands`, `downloads` and `http_requests`. Enrichment and tags are added to both events and sessions (M4).
 
+A `session_id` that starts with `burst-` is reserved: it names a flood group, a `sessions` row that stands for many plain connections of one source (see [Data retention](retention.md#flood-groups)). A sensor must never produce one, and ingest drops any event that carries one.
+
 A session also has `client_tool`, a best-effort guess at the software that connected (for example `FreeRDP`, `nmap` or `mstsc`). Only the RDP sensor sets it, from the `client_tool` value in its events. `unknown` and other sensors' values are stored as null. The guess is never authoritative. See [Client tool identification](sensors/rdp.md#client-tool-identification).

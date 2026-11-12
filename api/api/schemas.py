@@ -41,6 +41,15 @@ class SessionOut(BaseModel):
     #: A known research scanner (M19); ``scanner_name`` says which one.
     benign: bool = False
     scanner_name: str | None = None
+    #: ``burst`` is a flood group: one row for ``connections`` plain connections of one source on
+    #: one sensor and port in one UTC hour (``src_port`` is 0). A plain row stands for one.
+    kind: Literal["session", "burst"] = "session"
+    connections: int = 1
+
+
+class SessionDetail(SessionOut):
+    #: Set when the id asked for was folded into this group (``?at=`` found it there).
+    folded_from: str | None = None
 
 
 class EventOut(BaseModel):
@@ -62,6 +71,31 @@ class EventOut(BaseModel):
     abuse_score: int | None
     known_scanner: bool | None
     tags: list[str]
+
+
+class CredentialCount(BaseModel):
+    value: str
+    count: int
+
+
+class CredentialPair(BaseModel):
+    username: str
+    password: str
+    count: int
+
+
+class SessionCredentials(BaseModel):
+    """What a session or a flood group tried to log in with (values cut to 256 characters)."""
+
+    attempts: int
+    distinct_usernames: int
+    distinct_passwords: int
+    distinct_pairs: int
+    #: The answer covers the first 50,000 attempts only (a very large group).
+    truncated: bool = False
+    usernames: list[CredentialCount]
+    passwords: list[CredentialCount]
+    pairs: list[CredentialPair]
 
 
 class SessionPage(BaseModel):
@@ -87,6 +121,9 @@ class StatsSummary(BaseModel):
     sessions_with_commands: int
     download_attempts: int
     by_sensor: dict[str, SensorCounts]
+    #: Of ``sessions``: the connections that sit in a flood group, and the sources that sent them.
+    flood_sessions: int = 0
+    flood_sources: int = 0
 
 
 class Health(BaseModel):

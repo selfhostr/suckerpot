@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, BaseModel
 from sqlalchemy import Select, Text, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import EventRow, SessionRow
+from suckerpot_db.session_counts import sessions_count
 
 from api import analytics_queries as q
 from api.analytics_queries import Window, WindowError
@@ -66,24 +67,27 @@ async def new_values(
     if field == "asn":
         value = SessionRow.asn.cast(Text)
         sess_ok = visible_sessions(include_benign)
-        cur_inner = select(value.label("value"), SessionRow.started_at.label("ts")).where(
-            SessionRow.started_at >= since, SessionRow.started_at < until, *sess_ok
-        )
+        cur_inner = select(
+            value.label("value"),
+            SessionRow.started_at.label("ts"),
+            SessionRow.connections.label("w"),
+        ).where(SessionRow.started_at >= since, SessionRow.started_at < until, *sess_ok)
         prev_inner = select(value.label("value")).where(
             SessionRow.started_at >= lookback_start, SessionRow.started_at < since, *sess_ok
         )
     else:
         expr, types = q._event_value(field)
         ev_ok = visible_events(include_benign)
-        cur_inner = select(expr.label("value"), EventRow.ts.label("ts")).where(
-            EventRow.ts >= since, EventRow.ts < until, EventRow.type.in_(types), *ev_ok
-        )
+        cur_inner = select(
+            expr.label("value"), EventRow.ts.label("ts"), literal_column("1").label("w")
+        ).where(EventRow.ts >= since, EventRow.ts < until, EventRow.type.in_(types), *ev_ok)
         prev_inner = select(expr.label("value")).where(
             EventRow.ts >= lookback_start, EventRow.ts < since, EventRow.type.in_(types), *ev_ok
         )
     cur = cur_inner.subquery("cur")
     prev = prev_inner.subquery("prev")
-    n = func.count()
+    # The number of sessions or events: a flood group weighs its connections.
+    n = sessions_count(connections=cur.c.w)
     stmt = (
         select(cur.c.value, n.label("n"), func.min(cur.c.ts).label("first_seen"))
         .where(
@@ -123,6 +127,7 @@ def _tag_stmt(bucket: str, window: Window, include_benign: bool = True) -> Selec
         select(
             func.time_bucket(literal_column(interval), SessionRow.started_at).label("b"),
             func.unnest(SessionRow.tags).label("tag"),
+            SessionRow.connections.label("w"),
         )
         .where(
             SessionRow.started_at >= q.floor_to_bucket(window.since, step),
@@ -131,7 +136,7 @@ def _tag_stmt(bucket: str, window: Window, include_benign: bool = True) -> Selec
         )
         .subquery("t")
     )
-    n = func.count()
+    n = sessions_count(connections=sub.c.w)
     return select(sub.c.b, sub.c.tag, n.label("n")).group_by(sub.c.b, sub.c.tag)
 
 

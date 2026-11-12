@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0033() -> None:
+def test_the_chain_is_linear_up_to_0034() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0033"}
+    assert heads == {"0034"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -101,6 +101,8 @@ def test_the_chain_is_linear_up_to_0033() -> None:
     assert revs["0032"][0] == "0031"
     # How the collector reached each file (typed marker, spared flag, link index) follows 0032.
     assert revs["0033"][0] == "0032"
+    # Flood groups (kind, connections, fold_session_buckets) follow 0033.
+    assert revs["0034"][0] == "0033"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -574,3 +576,59 @@ def test_retract_benign_migration_prunes_chunks() -> None:
     assert "SET search_path = pg_catalog, public, pg_temp" in script
     assert "public.events" in script and "public.sessions" in script
     assert "REVOKE ALL ON FUNCTION retract_benign(text[]) FROM PUBLIC" in script
+
+
+def test_the_flood_migration_text() -> None:
+    from suckerpot_db.locks import SESSION_FOLD
+
+    script = (VERSIONS / "0034_session_floods.py").read_text()
+    # Both functions: owner rights, every name schema-qualified, nothing from public on the path.
+    assert script.count("SET search_path = pg_catalog, pg_temp") == 2
+    assert "search_path = pg_catalog, public" not in script
+    assert script.count("LANGUAGE plpgsql SECURITY DEFINER") == 2
+    assert script.count("SET lock_timeout = '2s'") == 2
+    assert "REVOKE ALL ON FUNCTION {SIGNATURE} FROM PUBLIC" in script
+    assert "REVOKE ALL ON FUNCTION {RESTORE_SIGNATURE} FROM PUBLIC" in script
+    assert "DROP FUNCTION IF EXISTS {RESTORE_SIGNATURE}" in script
+    # The refused tags are checked in SQL, whatever list the caller passes.
+    assert "lower(t) NOT LIKE 'cve-%'" in script and "ARRAY[{_REFUSED_SQL}]" in script
+    # Bounded: the demo test reads only the row's own events, never the source's whole hour.
+    assert "e.session_id = s.session_id" in script
+    assert "e.src_ip = r.src" not in script
+    assert "pg_try_advisory_xact_lock({SESSION_FOLD})" in script  # the key comes from locks.py
+    assert SESSION_FOLD == 34_001
+    assert "FOR UPDATE OF s SKIP LOCKED" in script
+    assert "ON CONFLICT (session_id) DO UPDATE" in script and "WHERE t.kind = 'burst'" in script
+    assert "ix_sessions_src_ip_sensor_started_at" in script
+    assert "coalesce(sum(connections), 0)" in script
+    assert "downgrade refused" in script
+
+
+def test_sessions_model_matches_the_flood_columns() -> None:
+    table = models.Base.metadata.tables["sessions"]
+    assert {"kind", "connections"} <= set(table.columns.keys())
+    assert not table.columns["kind"].nullable and not table.columns["connections"].nullable
+    names = {i.name for i in table.indexes}
+    assert "ix_sessions_src_ip_sensor_started_at" in names and "ix_sessions_src_ip" not in names
+    checks = {c.name for c in table.constraints if c.name}
+    assert {
+        "sessions_kind_check",
+        "sessions_burst_id_check",
+        "sessions_connections_check",
+    } <= checks
+
+
+def test_ingest_may_execute_the_fold_function_but_never_delete_sessions() -> None:
+    assert (
+        "_fold text := 'public.fold_session_buckets(inet[], text[], timestamptz[]" in _GRANTS_INGEST
+    )
+    assert "'text[], interval, integer, timestamptz)'" in _GRANTS_INGEST
+    assert "_restore text := 'public.restore_folded_sessions(jsonb)'" in _GRANTS_INGEST
+    assert "IF to_regprocedure(_fold) IS NOT NULL THEN" in _GRANTS_INGEST
+    assert "GRANT EXECUTE ON FUNCTION %s TO %I', _fold, r" in _GRANTS_INGEST
+    assert "IF to_regprocedure(_restore) IS NOT NULL THEN" in _GRANTS_INGEST
+    assert "GRANT EXECUTE ON FUNCTION %s TO %I', _restore, r" in _GRANTS_INGEST
+    others = _GRANTS_API + _GRANTS_COLLECTOR + _GRANTS_ANALYZER
+    assert "fold_session_buckets" not in others and "restore_folded_sessions" not in others
+    assert _grants(_GRANTS_INGEST)["sessions"] == {"SELECT", "INSERT", "UPDATE"}
+    assert _grants(_GRANTS_API)["sessions"] == {"SELECT"}

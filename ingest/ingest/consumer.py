@@ -21,8 +21,10 @@ pending list has been drained, so entries that were never read cannot be trimmed
 exactly one ingest instance.
 
 Defences against a misbehaving producer: an event whose ``sensor`` differs from the stream
-suffix is dropped (counted); entry ids far in the future are reported and never used as a
-trim target (an explicit future id would otherwise make MINID trimming wipe the stream).
+suffix, or whose ``session_id`` starts with ``burst-`` (reserved for flood groups, see
+``db/migrations/versions/0034_session_floods.py``), is dropped (counted); entry ids far in the
+future are reported and never used as a trim target (an explicit future id would otherwise make
+MINID trimming wipe the stream).
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ import json
 import logging
 import time
 from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from redis.asyncio import Redis
@@ -45,11 +48,15 @@ from suckerpot_common import Event
 from ingest.config import Settings
 from ingest.diskguard import DiskGuard
 from ingest.enrichment.enricher import Enricher
+from ingest.floods.progress import IngestProgress
 from ingest.writer import write_batch
 
 log = logging.getLogger(__name__)
 
 PREVIEW_CHARS = 200
+# Session ids of flood groups (sessions.kind = 'burst'). No sensor produces one, and an event that
+# did would land on, or forge, a group row.
+RESERVED_SESSION_PREFIX = "burst-"
 MAX_ATTEMPTS = 5
 FUTURE_ID_SLACK_MS = 24 * 3600 * 1000
 WARN_INTERVAL_S = 60.0
@@ -84,7 +91,8 @@ def stream_sensor(stream: str) -> str | None:
 def parse_messages(messages: Sequence[Message], expected_sensor: str | None = None) -> Parsed:
     """Validate messages.
 
-    Returns (valid (id, event) pairs, ids to drop, number dropped for a sensor mismatch).
+    Returns (valid (id, event) pairs, ids to drop, number dropped as forged). An event is forged
+    when its sensor differs from the stream's or its session id uses the reserved ``burst-`` prefix.
     """
     good: list[tuple[bytes | str, Event]] = []
     bad: list[Any] = []
@@ -96,7 +104,8 @@ def parse_messages(messages: Sequence[Message], expected_sensor: str | None = No
             log.warning("invalid message %r skipped: %s", msg_id, preview(fields))
             bad.append(msg_id)
             continue
-        if expected_sensor is not None and str(ev.sensor) != expected_sensor:
+        forged_sensor = expected_sensor is not None and str(ev.sensor) != expected_sensor
+        if forged_sensor or ev.session_id.startswith(RESERVED_SESSION_PREFIX):
             mismatched += 1
             bad.append(msg_id)
             continue
@@ -133,6 +142,11 @@ class Consumer:
         self.stream_backoff: dict[str, float] = {}
         self.unhealthy: set[str] = set()
         self._last_state = -STATE_INTERVAL_S
+        # How far each stream is stored, for the fold sweep's idle test (ingest/floods/progress.py).
+        self.progress = IngestProgress(settings.streams)
+        # The streams of the last read that asked for new entries (">"), and when it was made.
+        self._fresh: frozenset[str] = frozenset()
+        self._read_at = datetime.now(UTC)
 
     def heartbeat(self) -> None:
         try:
@@ -360,7 +374,7 @@ class Consumer:
             self.sensor_mismatches += mismatched
             self._warn(
                 "mismatch:" + stream,
-                "dropped %d event(s) on %s whose sensor differs from the stream (total %d)",
+                "dropped %d event(s) on %s with a forged sensor or session id (total %d)",
                 mismatched,
                 stream,
                 self.sensor_mismatches,
@@ -431,6 +445,7 @@ class Consumer:
         Draining streams are read from "0" (their pending entries), not blocking.
         """
         now = time.monotonic()
+        self._fresh = frozenset()
         active = [st for st in self.s.streams if self.cooldown.get(st, 0.0) <= now]
         if not active:
             await self._sleep(min(1.0, min(self.cooldown.values()) - now))
@@ -441,6 +456,8 @@ class Consumer:
             ids = dict.fromkeys(draining, "0")
         else:
             ids = dict.fromkeys(active, ">")
+            # Anything added to these streams before now is returned by this read.
+            self._fresh, self._read_at = frozenset(active), datetime.now(UTC)
         res = await self.redis.xreadgroup(
             self.s.group,
             self.s.consumer,
@@ -481,7 +498,8 @@ class Consumer:
                         if await self.reclaim_stale(stream) > 0:
                             self.draining.add(stream)
                 failed = False
-                for stream, messages in await self._read():
+                batches = await self._read()
+                for stream, messages in batches:
                     try:
                         await self.process(stream, messages)
                     except Exception as exc:
@@ -491,6 +509,9 @@ class Consumer:
                         failed = True
                     else:
                         self._stream_ok(stream)
+                        self._stored(stream, messages)
+                for stream in self._fresh - {stream for stream, _ in batches}:
+                    self.progress.caught_up(stream, self._read_at)
                 # Heartbeat only after a read without a failing batch (and commit, with data).
                 if not failed:
                     self.heartbeat()
@@ -512,6 +533,17 @@ class Consumer:
                 await self._sleep(backoff)
                 backoff = min(backoff * 2, MAX_STREAM_BACKOFF_S)
         log.info("consumer stopped")
+
+    def _stored(self, stream: str, messages: Sequence[Message]) -> None:
+        """A batch of a read for new entries is stored: move the stream's progress on."""
+        if stream not in self._fresh or not messages:
+            return
+        if len(messages) < self.s.batch_size:
+            self.progress.caught_up(stream, self._read_at)  # the read held all there was
+        else:  # a full batch: more may be waiting, so only up to its last entry
+            # An explicit id from the future (a misbehaving producer) counts as now, no later.
+            ms = min(max(_id_key(m[0])[0] for m in messages), int(time.time() * 1000))
+            self.progress.stored(stream, datetime.fromtimestamp(ms / 1000, UTC))
 
     def _stream_failed(self, stream: str, exc: Exception) -> None:
         """Back this stream off alone; its unacknowledged entries are re-read from "0"."""

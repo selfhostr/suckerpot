@@ -23,6 +23,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import AttackTechniqueRow, CampaignRow
+from suckerpot_db.session_counts import sql_sessions_count
 from suckerpot_reporting import (
     BundleLimitError,
     BundleSample,
@@ -80,7 +81,9 @@ BUNDLE_PER_HOUR = 5
 Tlp = Literal["clear", "green", "amber", "red"]
 Sha256Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
-SEVERE = "(s.commands > 0 OR s.downloads > 0 OR s.login_attempts >= 50)"
+# The brute-force threshold is per connection: a flood group sums the attempts of many connections
+# that each stayed below it, so it never counts as severe on that account.
+SEVERE = "(s.commands > 0 OR s.downloads > 0 OR (s.kind = 'session' AND s.login_attempts >= 50))"
 BENIGN = "NOT s.benign AND s.scanner_name IS NULL"
 
 
@@ -119,11 +122,11 @@ async def collect_items(
         await db.execute(
             text(
                 "SELECT host(s.src_ip) AS ip, min(s.started_at) AS first, "  # noqa: S608 (constants only)
-                "max(s.last_event_at) AS last, count(*) AS n, "
+                f"max(s.last_event_at) AS last, {sql_sessions_count('s')} AS n, "
                 "coalesce(array_agg(DISTINCT t) FILTER (WHERE t IS NOT NULL), '{}') AS techs "
                 "FROM sessions s LEFT JOIN LATERAL unnest(s.techniques) AS t ON true "
                 f"WHERE {scope} AND {BENIGN}{severity} "
-                "GROUP BY s.src_ip ORDER BY count(*) DESC LIMIT :lim"
+                "GROUP BY s.src_ip ORDER BY n DESC LIMIT :lim"
             ),
             {**params, "lim": MAX_SOURCES},
         )
@@ -160,12 +163,12 @@ async def collect_items(
         await db.execute(
             text(
                 "SELECT i.value AS value, min(x.seen_at) AS first, max(x.seen_at) AS last, "  # noqa: S608 (constants only)
-                "count(*) AS n FROM indicators i "
+                f"{sql_sessions_count('s')} AS n FROM indicators i "
                 "JOIN indicator_sessions x ON x.indicator_id = i.id "
                 "JOIN sessions s ON s.session_id = x.session_id "
                 "WHERE i.role = 'download_host' AND i.type = 'url' AND (:demo OR NOT i.demo) "
                 f"AND {scope} AND {BENIGN} "
-                "GROUP BY i.value ORDER BY count(*) DESC LIMIT :lim"
+                "GROUP BY i.value ORDER BY n DESC LIMIT :lim"
             ),
             {**params, "lim": MAX_URLS},
         )

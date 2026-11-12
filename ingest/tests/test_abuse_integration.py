@@ -203,6 +203,59 @@ async def add_http(
             )
 
 
+async def test_folding_a_flood_changes_no_attack_source_seed(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    """An attack source is chosen by what its sessions add up to: a spray folded into one group
+    row gives the same seed (sessions, events, first and last time) as the rows it replaced."""
+    from ingest.abuse.candidates import attack_sources
+
+    from .helpers import fold_hour
+
+    now = datetime.now(UTC)
+    started = (now - timedelta(hours=2)).replace(minute=10, second=0, microsecond=0)
+    ip = "198.51.100.30"
+    async with engine.begin() as conn:
+        for n in range(60):
+            await conn.execute(
+                text(
+                    "INSERT INTO sessions (session_id, sensor, src_ip, src_port, dst_port, "
+                    "started_at, last_event_at, event_count, login_attempts) "
+                    "VALUES (:sid, 'rdp', CAST(:ip AS inet), 40000, 3389, :t, :t, 4, 1)"
+                ),
+                {"sid": f"spray-{n}", "ip": ip, "t": started + timedelta(seconds=n)},
+            )
+        await conn.execute(
+            text(
+                "INSERT INTO sessions (session_id, sensor, src_ip, src_port, dst_port, "
+                "started_at, last_event_at, event_count, commands, downloads) "
+                "VALUES ('typed', 'rdp', CAST(:ip AS inet), 40001, 3389, :t, :t, 7, 2, 1)"
+            ),
+            {"ip": ip, "t": started},
+        )
+        await conn.execute(  # below the 50 passwords an attack source needs, with nothing else
+            text(
+                "INSERT INTO sessions (session_id, sensor, src_ip, src_port, dst_port, "
+                "started_at, last_event_at, event_count, login_attempts) "
+                "VALUES ('quiet', 'rdp', CAST('203.0.113.31' AS inet), 40002, 3389, :t, :t, 4, 1)"
+            ),
+            {"t": started},
+        )
+    settings = AbuseSettings(min_login_attempts=50)
+
+    async def seeds() -> list[Any]:
+        async with factory() as session:
+            return await attack_sources(session, settings, now)
+
+    before = await seeds()
+    assert [(s.value, s.sessions, s.events) for s in before] == [(ip, 61, 247)]
+
+    hour = started.replace(minute=0)
+    assert await fold_hour(factory, ip, "rdp", hour) == 60
+    assert await scalar(engine, "SELECT count(*) FROM sessions WHERE kind = 'burst'") == 1
+    assert await seeds() == before
+
+
 async def test_a_learned_address_is_only_a_pending_suggestion_until_confirmed(
     engine: AsyncEngine, factory: Factory
 ) -> None:

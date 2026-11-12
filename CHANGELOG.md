@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Flood groups in the database. A source that opens many plain connections in one UTC hour (a
+  credential spray, a scanner) no longer leaves one `sessions` row per connection: the new fold
+  function merges them into one group row (`kind = 'burst'`, `connections = N`, id `burst-...`),
+  keeping the sums, and never merges a connection that did something (a successful login, a
+  command, a download, an HTTP request, 20 or more passwords, more events than its passwords
+  explain, a campaign, an indicator or a demo event), whatever tag list it is given for CVE,
+  payload and severe tags. Each call reads only the rows it folds and their own events, so its
+  cost does not grow with what a source sent in the hour. A second function gives a folded
+  connection that gets a late event its row back and takes it out of its group, so it is never
+  counted twice. Events are never touched. Counts of sessions now sum `connections`, the hourly
+  roll-up into `sessions_daily` included. Migration 0034; the ingest role gets `EXECUTE` on both
+  functions and still has no `DELETE` on `sessions`; going back to 0033 is refused while a group
+  exists.
+  See [Data retention](docs/retention.md#flood-groups).
+- Flood groups in ingest. The writer folds a connection into its group as soon as it closes, when
+  its source has opened enough connections in the hour (`SESSION_FOLD_MIN`, default 20). A sweep
+  worker (every minute: the last three hours, then the history, six hours at a time, resuming after
+  a restart) folds what the writer did not: connections that never sent a disconnect, a flood
+  already under way when ingest started, and the rows stored before this release. Which tags a
+  plain connection may carry is `ingest/rules/floods.yaml`; ingest refuses to start when it lists a
+  payload or severe tag, a CVE tag, `bluekeep` or `eternalblue`. A failing or slow fold never
+  fails or delays a batch: the writer caps each call at 2 s, asks about a source and hour at most
+  once a minute and pauses after a timeout; the sweep caps its statements at 10 s and backs off. A
+  connection with no disconnect is idle against how far ingest has stored the streams, never the
+  clock, so a backlog (a restart, a maintenance stop) never folds a live connection. An event
+  whose session id starts with `burst-` is dropped and counted like a forged sensor, campaigns
+  never cluster a group, and every count of sessions in ingest (abuse candidates, blocklists,
+  network batches, reports, alerts, takedown sightings) now sums `connections`, so the numbers are
+  the same with and without folding. New settings
+  `SESSION_FOLD_ENABLED`, `SESSION_FOLD_MIN` and `SESSION_FOLD_IDLE_MIN`.
+- Flood groups in the API. Sessions carry `kind` and `connections`; `/api/v1/sessions` takes
+  `kind=session|burst`; `/api/v1/stats/summary` adds `flood_sessions` and `flood_sources`;
+  `/api/v1/sessions/{id}?at=` finds the group a folded connection joined; a group's events
+  are read from its source, sensor and port inside its hour, and the new
+  `/api/v1/sessions/{id}/credentials` lists the usernames, passwords and pairs a session or
+  group tried. Every count of sessions in the API sums `connections`, so folding changes no
+  number, and the value filters of the session list still find a flood. The brute-force
+  threshold of the CERT exports is per connection.
+
 ### Fixed
 
 - The Docker and Synology sensors named their `events_suppressed` summary events `sum-<counter>`,

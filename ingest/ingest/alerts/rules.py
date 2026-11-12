@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from suckerpot_db.session_counts import sql_sessions_count
 
 from ingest.alerts.messages import Candidate
 
@@ -159,7 +160,7 @@ async def watched_cves(
             await session.execute(
                 text(
                     f"""
-                SELECT c.cve_id, c.title, c.in_kev, count(*) AS sessions
+                SELECT c.cve_id, c.title, c.in_kev, {sql_sessions_count("s")} AS sessions
                 FROM watched_cves w
                 JOIN cve c ON c.cve_id = w.cve_id AND cardinality(c.tags) > 0
                 JOIN sessions s ON s.tags && c.tags

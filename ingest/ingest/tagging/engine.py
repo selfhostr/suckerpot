@@ -42,7 +42,7 @@ import yaml
 MAX_TEXT = 4096
 MAX_RULES = 500
 # YAML files in the rules directory that are not tagging rules (loaded by their own module).
-NON_TAG_FILES = frozenset({"scanners.yaml"})
+NON_TAG_FILES = frozenset({"scanners.yaml", "floods.yaml"})
 MAX_DEPTH = 8
 TAG_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
 

@@ -26,6 +26,7 @@ from suckerpot_db.blocklist_values import is_shared_host, normalize_value
 from suckerpot_db.models import BlocklistEntryRow
 from suckerpot_db.network_names import host_of_target
 from suckerpot_db.sample_kinds import is_plain_web_hash
+from suckerpot_db.session_counts import sql_sessions_count
 
 from ingest.blocklist.scoring import (
     MIN_LISTED_SCORE,
@@ -73,8 +74,8 @@ async def _ip_candidates(db: AsyncSession, cutoff: datetime) -> list[Candidate]:
         (
             await db.execute(
                 text(
-                    """
-                    SELECT host(src_ip) AS ip, count(*) AS sessions,
+                    f"""
+                    SELECT host(src_ip) AS ip, {sql_sessions_count()} AS sessions,
                            count(DISTINCT sensor) AS sensors,
                            min(started_at) AS first_seen, max(last_event_at) AS last_seen,
                            coalesce(sum(login_attempts), 0) AS login_attempts,
@@ -85,13 +86,13 @@ async def _ip_candidates(db: AsyncSession, cutoff: datetime) -> list[Candidate]:
                            coalesce(bool_or(known_scanner), false) AS known_scanner,
                            bool_and(benign) AS benign,
                            coalesce(array_agg(DISTINCT campaign_id)
-                                    FILTER (WHERE campaign_id IS NOT NULL), '{}') AS campaigns
+                                    FILTER (WHERE campaign_id IS NOT NULL), '{{}}') AS campaigns
                     FROM sessions
                     WHERE started_at >= :cutoff
                     GROUP BY src_ip
                     ORDER BY max(last_event_at) DESC
                     LIMIT :n
-                    """
+                    """  # noqa: S608 - constant fragments only
                 ),
                 {"cutoff": cutoff, "n": IP_CANDIDATES},
             )

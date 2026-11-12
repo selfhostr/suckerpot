@@ -1,0 +1,18 @@
+# Tags a connection may carry and still be "plain": nothing worth reading on its own.
+#
+# A source that opens many plain connections in one UTC hour (a credential spray, a scanner)
+# gets them merged into one flood group row by the database (see docs/retention.md). A
+# connection that did anything else keeps its own row: a successful login, a command, a download,
+# an HTTP request, twenty or more passwords, a campaign, a link to an indicator, a research
+# scanner, demo data, or a tag that is not listed here.
+#
+# The loader (ingest/ingest/floods/rules.py) refuses payload and severe tags (malware-drop, mirai,
+# crypto-miner, php2shell, container-escape, sql-rce, ...), every cve-* tag, bluekeep, eternalblue
+# and any name that is not a tag of the rules, so an edit here cannot hide an attack in a group.
+# Not a tagging rules file: the rules engine skips it.
+plain_tags:
+  - credential-stuffing
+  - weak-credentials
+  - rdp-cleartext
+  - scanner
+  - smb-v1-probe

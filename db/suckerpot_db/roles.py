@@ -126,6 +126,9 @@ _GRANTS_INGEST = """
 DO $$
 DECLARE
     r text := current_setting('suckerpot.role_name');
+    _fold text := 'public.fold_session_buckets(inet[], text[], timestamptz[], integer, '
+                  'text[], interval, integer, timestamptz)';
+    _restore text := 'public.restore_folded_sessions(jsonb)';
     _tables text := (
         SELECT string_agg(format('%I', c), ', ') FROM unnest(
             ARRAY['events', 'sessions', 'ip_reputation', 'enrichment_quota', 'enrichment_status',
@@ -164,6 +167,16 @@ BEGIN
         EXECUTE format('GRANT EXECUTE ON FUNCTION public.retract_benign(text[]) TO %I', r);
     END IF;
     EXECUTE format('GRANT SELECT, INSERT, UPDATE ON sessions TO %I', r);
+    -- Ingest cannot DELETE sessions either. Merging a flood of plain connections into one group
+    -- row (0034) goes through a SECURITY DEFINER function that only deletes what it merges, and
+    -- giving a folded connection its row back (a late event) through another that only deletes a
+    -- group it empties.
+    IF to_regprocedure(_fold) IS NOT NULL THEN
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO %I', _fold, r);
+    END IF;
+    IF to_regprocedure(_restore) IS NOT NULL THEN
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO %I', _restore, r);
+    END IF;
     IF to_regclass('public.ip_reputation') IS NOT NULL THEN
         EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE ON ip_reputation, enrichment_quota, enrichment_status '

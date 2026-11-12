@@ -34,7 +34,7 @@ ENV: dict[str, str] = {
     "POSTGRES_ANALYZER_PASSWORD": "analyzer-test-password",
 }
 PRODUCTION = "0027"
-HEAD = "0033"
+HEAD = "0034"
 NETWORK_TABLES = ("network_membership", "network_submissions", "network_targets", "network_summary")
 NEW_REPORT = (
     "INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, demo, window_start, "

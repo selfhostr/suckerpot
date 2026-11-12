@@ -16,6 +16,7 @@ from typing import Any, Final
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_db.session_counts import sql_sessions_count
 
 from ingest.takedown.state import (
     Check,
@@ -31,9 +32,9 @@ REFRESH_SEEN: Final = timedelta(hours=24)
 STATE_BATCH: Final = 300
 CHECKS_PER_TARGET: Final = 200
 
-SIGHTINGS = """
+SIGHTINGS = f"""
 SELECT t.id,
-  (SELECT count(*) FROM sessions s
+  (SELECT {sql_sessions_count("s")} FROM sessions s
     WHERE s.src_ip = CAST(t.value AS inet) AND NOT s.benign AND s.scanner_name IS NULL
       AND s.started_at > t.reported_at AND s.started_at > :since) AS n,
   (SELECT c.outcome FROM takedown_checks c
@@ -45,7 +46,7 @@ SELECT t.id,
 FROM takedown_targets t
 WHERE t.role = 'attack_source' AND t.kind = 'ip' AND t.tracking AND NOT t.demo
   AND t.track_until > :now
-"""
+"""  # noqa: S608 - constant fragments only
 
 SAMPLES = """
 SELECT t.id,

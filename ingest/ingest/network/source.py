@@ -16,6 +16,7 @@ from typing import Protocol
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.sample_kinds import is_plain_web_hash, plain_web_sample
+from suckerpot_db.session_counts import sql_sessions_count
 
 from . import demo
 
@@ -96,7 +97,7 @@ class SqlSource:
                         f"""
                         WITH s AS (
                             SELECT src_ip, sensor, login_attempts, login_success, commands,
-                                   downloads, http_requests, tags
+                                   downloads, http_requests, tags, connections
                             FROM sessions se
                             WHERE NOT benign AND scanner_name IS NULL
                               AND started_at >= :d0 AND started_at < :d1
@@ -105,14 +106,15 @@ class SqlSource:
                             SELECT src_ip, sensor, array_agg(DISTINCT tag) AS tags
                             FROM s, unnest(s.tags) AS tag GROUP BY src_ip, sensor
                         )
-                        SELECT host(s.src_ip) AS ip, s.sensor, count(*) AS sessions,
+                        SELECT host(s.src_ip) AS ip, s.sensor,
+                               {sql_sessions_count("s")} AS sessions,
                                sum(s.login_attempts) AS attempts, bool_or(s.login_success) AS ok,
                                sum(s.commands) AS commands, sum(s.downloads) AS downloads,
                                sum(s.http_requests) AS http,
                                COALESCE(t.tags, CAST('{{}}' AS text[])) AS tags
                         FROM s LEFT JOIN t ON t.src_ip = s.src_ip AND t.sensor = s.sensor
                         GROUP BY s.src_ip, s.sensor, t.tags
-                        ORDER BY count(*) DESC LIMIT :lim
+                        ORDER BY {sql_sessions_count("s")} DESC LIMIT :lim
                         """  # noqa: S608  (constant fragments only)
                     ),
                     {

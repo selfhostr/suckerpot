@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, select
+from sqlalchemy import ColumnElement, and_, exists, select
 from sqlalchemy.sql import Select
 
 from suckerpot_db.models import EventRow, SessionRow
@@ -25,6 +25,17 @@ SLACK = timedelta(minutes=1)
 # SQL fragments for raw ``text()`` statements. ``sessions`` must be aliased ``s``
 # and ``events`` ``e``. They carry no bind parameter.
 SQL_EVENT_TS_BOUND = "e.ts >= s.started_at AND e.ts <= s.last_event_at + interval '1 minute'"
+
+# The events of a flood group (``sessions.kind = 'burst'``, aliased ``s``; events aliased ``e``).
+# The connections a group stands for have no row of their own any more, so their events are the
+# ones of the same source, sensor and port inside the group's time range, minus the events of a
+# connection that kept its row (it is told on its own page). The sessions lookup is a primary key
+# probe. A sibling group of the same hour (other tags or stage) shares these events.
+SQL_GROUP_EVENT_BOUND = (
+    "e.src_ip = s.src_ip AND e.sensor = s.sensor AND e.dst_port = s.dst_port "
+    "AND e.ts >= s.started_at AND e.ts <= s.last_event_at + interval '1 minute' "
+    "AND NOT EXISTS (SELECT 1 FROM sessions x WHERE x.session_id = e.session_id)"
+)
 
 
 def session_ts_range(started_at: datetime, last_event_at: datetime) -> tuple[datetime, datetime]:
@@ -60,6 +71,25 @@ def session_events_where(session: SessionRow, *, sensor: bool = True) -> list[Co
 def session_events_select(session: SessionRow, *entities: Any) -> Select[Any]:
     """``SELECT <entities> FROM events`` for one loaded session (all of ``EventRow`` by default)."""
     return select(*(entities or (EventRow,))).where(and_(*session_events_where(session)))
+
+
+def group_events_where(group: SessionRow) -> list[ColumnElement[bool]]:
+    """WHERE terms selecting the events folded into one loaded flood group, bounded on ``ts``."""
+    lo, hi = session_ts_range(group.started_at, group.last_event_at)
+    standalone = exists().where(SessionRow.session_id == EventRow.session_id)
+    return [
+        EventRow.src_ip == group.src_ip,
+        EventRow.sensor == group.sensor,
+        EventRow.dst_port == group.dst_port,
+        EventRow.ts >= lo,
+        EventRow.ts <= hi,
+        ~standalone,
+    ]
+
+
+def group_events_select(group: SessionRow, *entities: Any) -> Select[Any]:
+    """``SELECT <entities> FROM events`` for one loaded flood group (``EventRow`` by default)."""
+    return select(*(entities or (EventRow,))).where(and_(*group_events_where(group)))
 
 
 def bounded_slices[T](

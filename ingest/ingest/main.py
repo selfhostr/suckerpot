@@ -36,6 +36,7 @@ from ingest.enrichment.intel import IntelWorker
 from ingest.enrichment.reputation import ReputationWorker
 from ingest.enrichment.status import publish_status
 from ingest.features import FeatureSettings, FeatureWorker
+from ingest.floods import FloodFold, FoldSettings, FoldWorker, load_plain_tags
 from ingest.indicators import IndicatorExtractor, IndicatorSettings
 from ingest.network import BatchBuilder, NetworkSettings, NetworkWorker
 from ingest.network.feed import FeedWorker, SqlFeedStore
@@ -138,6 +139,16 @@ async def run() -> None:
             len(attack.techniques),
             len(attack.rules),
         )
+    # Flood groups: a bad SESSION_FOLD_* value or a rule file that lists a payload tag stops the
+    # start, like the tagging rules.
+    fold_settings = FoldSettings.from_env()
+    plain_tags = load_plain_tags(enrich.rules_dir)
+    log.info(
+        "flood groups %s (%d plain tags, %d connections an hour)",
+        "on" if fold_settings.enabled else "off",
+        len(plain_tags),
+        fold_settings.min_connections,
+    )
     enricher = Enricher(
         resolver,
         rules,
@@ -145,6 +156,7 @@ async def run() -> None:
         link_cap=indicator_settings.link_cap,
         attack=attack,
         scanners=scanners,
+        fold=FloodFold.build(fold_settings, plain_tags) if fold_settings.enabled else None,
     )
     consumer = Consumer(settings, redis, factory, enricher, guard)
 
@@ -223,6 +235,16 @@ async def run() -> None:
         TakedownWorker(features, factory, intel=intel, reputation=reputation, asn_lookup=exit_asn),
         build_network_worker(features, factory),
         build_feed_worker(features, factory),
+        # Flood groups (0034): the writer folds as connections close; this sweep does the rest and
+        # the history. On by default, SESSION_FOLD_ENABLED=false switches both off. It measures
+        # idle connections against how far the consumer has stored the streams.
+        FoldWorker(
+            features,
+            factory,
+            fold=fold_settings,
+            plain_tags=plain_tags,
+            progress=consumer.progress.as_of,
+        ),
     ]
     for worker in feature_workers:
         appliers.append(worker.apply_settings)

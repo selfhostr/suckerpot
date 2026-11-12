@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 from pydantic import AfterValidator, AwareDatetime
 from sqlalchemy import func, or_, select, text, tuple_
-from suckerpot_db.event_bounds import session_events_select
+from suckerpot_db.event_bounds import group_events_select, session_events_select
 from suckerpot_db.models import (
     CampaignRow,
     EnrichmentQuotaRow,
@@ -19,6 +19,7 @@ from suckerpot_db.models import (
     ProviderTestRequestRow,
     SessionRow,
 )
+from suckerpot_db.session_counts import sessions_count
 
 from api.analytics_queries import session_has_value
 from api.benign import IncludeBenign, visible_events, visible_sessions
@@ -45,11 +46,14 @@ from api.schemas import (
     RecentEvents,
     ReputationProvider,
     SensorCounts,
+    SessionCredentials,
+    SessionDetail,
     SessionOut,
     SessionPage,
     StatsSummary,
 )
 from api.sensors import SensorFilter
+from api.session_floods import AT_MAX, AT_MIN, credentials_of, find_group_of
 from api.story import STATEMENT_TIMEOUT_MS, Stage, stage_expr
 
 router = APIRouter()
@@ -65,6 +69,10 @@ CountryFilter = Annotated[str, Query(pattern=r"^[A-Za-z]{2}$")]
 AsnFilter = Annotated[int, Query(ge=0, le=4294967295)]
 TechniqueFilter = Annotated[str, Query(pattern=r"^T[0-9]{4}(\.[0-9]{3})?$")]
 ValueFilter = Annotated[str, Query(min_length=1, max_length=256)]
+KindFilter = Annotated[
+    Literal["session", "burst"],
+    Query(description="Single connections (session) or flood groups (burst)."),
+]
 
 
 def _normalize_ip(value: str) -> str:
@@ -122,6 +130,7 @@ async def list_sessions(
     technique: TechniqueFilter | None = None,
     campaign_id: Annotated[int | None, Query(ge=1, le=2**62)] = None,
     stage: Annotated[Stage | None, Query(description="The deepest step a session reached.")] = None,
+    kind: KindFilter | None = None,
     include_benign: IncludeBenign = False,
 ) -> SessionPage:
     # Asking for one address by name is on purpose: its sessions are shown whatever the switch says.
@@ -135,6 +144,8 @@ async def list_sessions(
         )
     if stage is not None:
         stmt = stmt.where(stage_expr() == stage)
+    if kind is not None:
+        stmt = stmt.where(SessionRow.kind == kind)
     if sensor is not None:
         stmt = stmt.where(SessionRow.sensor.in_(sensor))
     if src_ip is not None:
@@ -181,12 +192,46 @@ def _session_out(row: SessionRow) -> SessionOut:
     return SessionOut.model_validate(row, from_attributes=True)
 
 
-@router.get("/sessions/{session_id}", response_model=SessionOut)
-async def get_session_detail(session_id: SessionId, session: DbSession) -> SessionOut:
+@router.get("/sessions/{session_id}", response_model=SessionDetail)
+async def get_session_detail(
+    session_id: SessionId,
+    session: DbSession,
+    at: Annotated[
+        AwareDatetime | None,
+        Query(
+            description="When the connection happened. A connection that was folded into a flood "
+            "group has no row of its own: its events are looked up at this time (plus or minus "
+            "one hour) and the group that holds it is returned, with folded_from set."
+        ),
+    ] = None,
+) -> SessionDetail:
+    when = _utc_or_422(at) if at is not None else None
+    if when is not None and not AT_MIN <= when <= AT_MAX:
+        raise HTTPException(status_code=422, detail="timestamp out of range")
+    row = await session.get(SessionRow, session_id)
+    if row is not None:
+        return SessionDetail.model_validate(row, from_attributes=True)
+    if when is not None:
+        group = await find_group_of(session, session_id, when)
+        if group is not None:
+            out = SessionDetail.model_validate(group, from_attributes=True)
+            out.folded_from = session_id
+            return out
+    raise HTTPException(status_code=404, detail="session not found")
+
+
+@router.get("/sessions/{session_id}/credentials", response_model=SessionCredentials)
+async def get_session_credentials(
+    session_id: SessionId,
+    session: DbSession,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> SessionCredentials:
+    """What a session or a flood group tried to log in with: the top usernames, passwords and
+    username/password pairs, and how many distinct ones there were."""
     row = await session.get(SessionRow, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
-    return _session_out(row)
+    return await credentials_of(session, row, limit)
 
 
 @router.get("/sessions/{session_id}/events", response_model=EventPage)
@@ -208,7 +253,9 @@ async def list_session_events(
         if cursor is None:
             raise HTTPException(status_code=404, detail="session not found")
         return EventPage(items=[], next_cursor=None)
-    stmt = session_events_select(row)
+    # A flood group has no events under its own id: they are those of its source, sensor and
+    # port inside its time range, minus the connections that kept a row of their own.
+    stmt = group_events_select(row) if row.kind == "burst" else session_events_select(row)
     if after is not None:
         stmt = stmt.where(tuple_(EventRow.ts, EventRow.id) > after)
     stmt = stmt.order_by(EventRow.ts.asc(), EventRow.id.asc()).limit(limit + 1)
@@ -228,31 +275,34 @@ async def stats_summary(session: DbSession, include_benign: IncludeBenign = Fals
 
     ev_by_sensor = (
         await session.execute(
-            select(EventRow.sensor, func.count())
+            select(EventRow.sensor, func.count(EventRow.id))
             .where(EventRow.ts >= since, *ev_ok)
             .group_by(EventRow.sensor)
         )
     ).all()
     downloads = await session.scalar(
-        select(func.count()).where(
+        select(func.count(EventRow.id)).where(
             EventRow.ts >= since, EventRow.type == "download_attempt", *ev_ok
         )
     )
     ses_by_sensor = (
         await session.execute(
-            select(SessionRow.sensor, func.count())
+            select(SessionRow.sensor, sessions_count())
             .where(SessionRow.started_at >= since, *se_ok)
             .group_by(SessionRow.sensor)
         )
     ).all()
-    unique_ips = await session.scalar(
-        select(func.count(func.distinct(SessionRow.src_ip))).where(
-            SessionRow.started_at >= since, *se_ok
+    flood = SessionRow.kind == "burst"
+    unique_ips, with_cmds, flood_sessions, flood_sources = (
+        await session.execute(
+            select(
+                func.count(func.distinct(SessionRow.src_ip)),
+                sessions_count(SessionRow.commands > 0),
+                sessions_count(flood),
+                func.count(func.distinct(SessionRow.src_ip)).filter(flood),
+            ).where(SessionRow.started_at >= since, *se_ok)
         )
-    )
-    with_cmds = await session.scalar(
-        select(func.count()).where(SessionRow.started_at >= since, SessionRow.commands > 0, *se_ok)
-    )
+    ).one()
 
     by_sensor: dict[str, SensorCounts] = {}
     for name, n in ev_by_sensor:
@@ -263,10 +313,12 @@ async def stats_summary(session: DbSession, include_benign: IncludeBenign = Fals
         window_hours=24,
         events=sum(n for _, n in ev_by_sensor),
         sessions=sum(n for _, n in ses_by_sensor),
-        unique_ips=unique_ips or 0,
-        sessions_with_commands=with_cmds or 0,
+        unique_ips=unique_ips,
+        sessions_with_commands=with_cmds,
         download_attempts=downloads or 0,
         by_sensor=dict(sorted(by_sensor.items())),
+        flood_sessions=flood_sessions,
+        flood_sources=flood_sources,
     )
 
 

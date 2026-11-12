@@ -12,7 +12,7 @@ background jobs; there is no cron container and no extra service.
 | Compression policy on `events` | Every 12 hours (TimescaleDB default) | Compresses chunks older than 7 days (segmented by `sensor`, ordered by `ts DESC`). Typically a large saving; reads and late inserts keep working. |
 | Refresh policies on the four aggregates | Hourly | Recompute the last 3 days only. The refresh window never reaches dropped chunks. |
 | `suckerpot_indicator_prune` | Hourly | Deletes indicators (with their links and threat-intel answers) not seen for `RETENTION_DAYS`, then enforces `INDICATORS_MAX_ROWS`: the least sighted, oldest single-source indicators go first, and the ceiling is halved while the disk guard is trimming. |
-| `suckerpot_maintenance` | Hourly | Rolls sessions older than `RETENTION_DAYS` (whole UTC days) up into `sessions_daily`, then deletes them. Prunes `ip_reputation` rows nobody refreshed for the retention window (90 days at least; a known score is kept and used until the worker replaces it) and `enrichment_quota` rows older than 30 days. |
+| `suckerpot_maintenance` | Hourly | Rolls sessions older than `RETENTION_DAYS` (whole UTC days) up into `sessions_daily`, then deletes them. A flood group counts as the connections it stands for (see [Flood groups](#flood-groups)). Prunes `ip_reputation` rows nobody refreshed for the retention window (90 days at least; a known score is kept and used until the worker replaces it) and `enrichment_quota` rows older than 30 days. |
 
 The `migrate` service (re)creates all of these after every upgrade from the current
 `RETENTION_DAYS`, so changing the value and re-running `docker compose up -d` applies it.
@@ -38,6 +38,104 @@ sensors or days.
 
 The `api` database role has `SELECT` on all five and nothing else; `ingest` has no access to them.
 Grants are re-applied by `migrate` on every run, like the other tables.
+
+## Flood groups
+
+A source that opens thousands of plain connections an hour (a credential spray, a scanner) used to
+leave one `sessions` row per connection: about 1 KB of table plus a dozen indexes, never
+compressed, removed only by `suckerpot_maintenance`. The disk guard drops `events` chunks only, so
+a growing `sessions` table made it eat raw events (the credentials that Trends reads) instead.
+Ingest now merges such a flood into one **group** row per source and hour.
+
+What folds. A connection is merged only when all of this holds, checked in SQL by the function
+`fold_session_buckets`, not in application code:
+
+* it is a plain connection: finished (it has an end, or nothing arrived from it for 15 minutes
+  of what ingest has stored, see below), no successful login, no command, no download, no HTTP
+  request, fewer than 20 login attempts, no more events than those attempts plus a connect, a
+  disconnect and the protocol handshake (three; four on SIP, which also records its first message
+  and a summary), no campaign, no research-scanner name, not marked benign, linked to no
+  indicator, and carrying only tags the caller calls plain (credential stuffing, weak credentials
+  and a few more that say nothing beyond "someone tried passwords"). The function itself drops
+  every CVE, payload and severe tag from the list it is given, so no caller can call one plain;
+* its source is flooding: the rows of one address on one sensor in one UTC hour add up to at least
+  `SESSION_FOLD_MIN` connections (default 20, never below 5), or that address and sensor already
+  has a group in the hour before;
+* none of its own events is demo data (a demo connection keeps its row, so a group never holds
+  one).
+
+Anything else keeps its own row: a login that succeeded, a command, a download, a 20-password
+list, a payload sent as extra protocol messages, a campaign member, a link to an indicator. A
+flood therefore never hides an attack inside it. Rows are grouped by sensor, source, port, UTC
+hour, whether a login was tried, the tag set, the techniques and the client tool; the group id is
+`burst-` followed by 24 hex digits derived from that key, so merging again adds to the same row.
+
+The effect.
+
+* A group row has `kind = 'burst'` and `connections = N`. Its counters (`event_count`,
+  `login_attempts`) are the sums of the rows it replaced, its start is the earliest and its end
+  the latest, and its source port is 0. Every plain row has `kind = 'session'` and
+  `connections = 1`.
+* A count of sessions is `coalesce(sum(connections), 0)`, never `count(*)`. Distinct counts (such
+  as `count(DISTINCT src_ip)`) are unchanged. `sessions_daily.sessions` is the same with or
+  without folding, and so are its other columns.
+* Events are never touched. Every connection of a group keeps its events, so Trends, the
+  aggregates and the credential lists read the same data. The events of a group are the ones of
+  its source, sensor and port inside its time range, minus the events of a connection that kept
+  its own row.
+* What is gone is the per-connection row: the exact start and end of each connection, its source
+  port and its own tag list. The session page of a group says so and shows the first events.
+* The ingest role cannot delete from `sessions`. The function is `SECURITY DEFINER`, owned by the
+  database owner, with a `search_path` of `pg_catalog` only (every table is schema-qualified), and
+  `EXECUTE` is granted to the ingest role only (not to `PUBLIC`, not to the API). It deletes only
+  rows that match the conditions above, inside one statement, under an advisory lock so that two
+  callers never merge the same rows, and it skips a row another transaction holds instead of
+  waiting for it.
+* The migration (0034) adds the two columns, the checks that keep `kind`, the `burst-` id and
+  `connections` consistent, an index on `(src_ip, sensor, started_at DESC)` in place of
+  `ix_sessions_src_ip`, and lower autovacuum thresholds on `sessions`. Going back to 0033 is
+  refused while any group exists, because the connections it stands for cannot be rebuilt. To go
+  back anyway, delete the groups first (`DELETE FROM sessions WHERE kind = 'burst'`; the events
+  stay) and accept the loss.
+
+Idle is measured against ingest, not the clock. A connection that never sent a disconnect is
+finished once nothing arrived from it for `SESSION_FOLD_IDLE_MIN` minutes of what ingest has
+stored. The writer measures against the newest event of the batch it just stored, and the
+background pass against how far the consumer has read every stream (while it lags, or before it
+has caught up once after a start, only connections that ended fold). After a restart, a
+`VACUUM FULL` or any backlog, a connection whose later events still wait in Redis is never folded
+early.
+
+A late event of a folded connection (one more message after a long silence) still cannot count it
+twice: the writer sees a new row for a connection whose `connect` it did not just store, and the
+function `restore_folded_sessions` (same rights as the fold) gives that row its earlier events back
+(start, counters, tags) and takes the connection out of its group, deleting the group if it was
+its last one. Its earlier events are those of the same id, sensor, address and port, and its group
+is the one whose id the fold gives that connection (ingest rebuilds the tags, techniques and tool
+it carried, session rules included), never another group of the same hour. Every event of the connection is then read from its own row; if it is still plain
+and finished, it folds back into its group.
+
+The work is bounded whatever a source sends. A call reads at most `SESSION_FOLD_MIN` rows to
+decide that a bucket floods, stops after the rows it may fold, and checks the demo flag on the
+events of those rows only, never on every event of the hour. The writer caps each call at 2
+seconds, asks about one source, sensor and hour at most once a minute, and after a timeout stops
+folding for a minute (doubling up to a quarter of an hour) while the background pass catches up.
+The background pass caps each statement at 10 seconds and, after a timeout, folds less per call
+and sits out a few minutes. A batch of events never fails or waits because of folding.
+
+Rows already stored are folded too: a background pass in ingest walks back through the history a
+few hours at a time. Deleted rows leave free space inside the table that autovacuum reuses but does
+not give back to the system. That is enough for the disk guard, because the table stops growing.
+To return the space once, after the history has been folded, rewrite the table as the database
+owner (`just psql`):
+
+```sql
+VACUUM (FULL, ANALYZE) sessions;
+```
+
+This locks `sessions` for the whole rewrite (it needs free space about the size of the table) and
+is optional. Stop `ingest` first (`docker compose stop ingest`; the sensors keep writing to Redis,
+which holds the events) and start it again afterwards.
 
 ## Reading beyond the raw window
 

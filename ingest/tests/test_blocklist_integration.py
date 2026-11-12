@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from ingest.blocklist import BlocklistWorker
 from ingest.features import FeatureSettings
 
+from .helpers import fold_hour
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(not os.environ.get("POSTGRES_HOST"), reason="POSTGRES_HOST not set"),
@@ -169,6 +171,43 @@ async def test_the_row_cap_keeps_the_best_scores(
     await add_session(engine, "c4", "203.0.113.4", commands=1, downloads=1, attempts=30)
     await worker(factory, blocklist_max_rows=2).run_once()
     assert {v for _, v in await entries(engine)} == {"203.0.113.2", "203.0.113.4"}
+
+
+async def test_folding_a_flood_changes_no_score(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The scores read the number of sessions and the sums of what they did: a flood folded into
+    one group row scores exactly as the rows it replaced."""
+    await clean(engine)
+    ip = "203.0.113.90"
+    for n in range(30):  # plain: one password each, no tag
+        await add_session(engine, f"spray-{n}", ip, 2, sensor="rdp", attempts=1)
+    await add_session(engine, "typed", ip, 2, sensor="rdp", commands=3, downloads=1)
+    await add_session(engine, "lone", "198.51.100.77", 2, sensor="rdp", attempts=1)
+
+    def numbers(got: dict[tuple[str, str], Any]) -> dict[tuple[str, str], tuple[Any, ...]]:
+        return {
+            key: (
+                r["score"], r["reasons"], r["first_seen"], r["last_seen"], r["sessions"],
+                r["sources"], r["campaign_ids"], r["benign"], r["demo"],
+            )
+            for key, r in got.items()
+        }  # fmt: skip
+
+    await worker(factory).run_once()
+    before = numbers(await entries(engine))
+    assert before[("ip", ip)][4] == 31  # sessions: the 30 and the one that typed
+
+    hour = (NOW - timedelta(hours=2)).replace(minute=0, second=0, microsecond=0)
+    assert await fold_hour(factory, ip, "rdp", hour) == 30
+    async with engine.connect() as conn:
+        groups = (
+            await conn.execute(text("SELECT count(*) FROM sessions WHERE kind = 'burst'"))
+        ).scalar()
+    assert groups == 1
+
+    await worker(factory).run_once()
+    assert numbers(await entries(engine)) == before
 
 
 async def test_ingest_cannot_touch_feed_tokens(

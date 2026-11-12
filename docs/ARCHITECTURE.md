@@ -275,7 +275,7 @@ PostgreSQL 17 with TimescaleDB, managed by Alembic migrations in `db/`.
 | Object | Kind | Content |
 | --- | --- | --- |
 | `events` | Hypertable on `ts`, one chunk per day | One row per event, with enrichment columns and `tags` |
-| `sessions` | Regular table | One row per session, with counters, first and last times, enrichment and tags |
+| `sessions` | Regular table | One row per session, with counters, first and last times, enrichment and tags. A flood of plain connections from one source and hour is one group row (`kind = 'burst'`, `connections = N`, id `burst-...`); a count of sessions sums `connections` |
 | `ip_reputation` | Regular table | Last AbuseIPDB and GreyNoise answer per IP. A row is kept and used until a newer answer replaces it; the maintenance job drops only rows nobody refreshed for the whole retention window (90 days at least) |
 | `enrichment_quota` | Regular table | Lookups used per provider and day |
 | `enrichment_status` | Regular table | Status of the GeoIP database, the reputation and intel providers and the CVE feeds, shown in Settings |
@@ -309,7 +309,7 @@ PostgreSQL 17 with TimescaleDB, managed by Alembic migrations in `db/`.
 
 Migration 0017 widens the check on `inventory_services.service` so that it accepts `synology`. No other table lists sensor names.
 
-Migration 0015 adds columns rather than a table: `events.benign`, `sessions.benign` and `sessions.scanner_name` (research-scanner labels). Migration 0011 adds `events.techniques`, `sessions.techniques`, `sessions.campaign_id` and `sessions.clustered_at`.
+Migration 0034 adds `sessions.kind` and `sessions.connections` and the function `fold_session_buckets`, which merges a flood of plain connections into one group row (see [Data retention](retention.md#flood-groups)). Migration 0015 adds columns rather than a table: `events.benign`, `sessions.benign` and `sessions.scanner_name` (research-scanner labels). Migration 0011 adds `events.techniques`, `sessions.techniques`, `sessions.campaign_id` and `sessions.clustered_at`.
 
 The row limits `CAMPAIGNS_MAX_ROWS` and `SCRIPTS_MAX_ROWS` apply to the campaign and script tables. The retention job prunes them, the oldest and least seen first. See [Configuration](configuration.md).
 
@@ -322,8 +322,10 @@ Each service connects with its own role. Only the migration step can change the 
 | Role | Used by | Rights | Statement timeout |
 | --- | --- | --- | --- |
 | Owner (`POSTGRES_USER`) | `db`, `migrate` | Owns the schema. Used for migrations only. | Not set |
-| `suckerpot_ingest` | `ingest` | Insert and update on the tables ingest writes. No schema changes, no role changes. | 30 s |
+| `suckerpot_ingest` | `ingest` | Insert and update on the tables ingest writes. No schema changes, no role changes. It has no `DELETE` on `sessions` and no `UPDATE` on `events`: the only changes it makes there go through `SECURITY DEFINER` functions it may execute (`retract_benign`, `fold_session_buckets`, which deletes only the plain connections it merges into a flood group, and `restore_folded_sessions`, which gives a folded connection that got a late event its row back and deletes only a group it empties). | 30 s |
 | `suckerpot_api` | `api` | `SELECT` on the data tables. It also writes the tables the dashboard manages: users and the audit log (append only), provider keys, overrides, inventory, feed tokens, alert channels, alert rules, watched CVEs and script requests. It cannot write events, sessions, campaigns, blocklist rows or alert outbox rows. | 5 s |
+
+One gap is known: ingest keeps `UPDATE` on `sessions` (it maintains the counters of every row), so a compromised ingest could rewrite a row until it looks plain and then fold it, which amounts to deleting it from `sessions`. The fold function refuses CVE, payload and severe tags itself and never touches `events`, so the raw events of such a row stay; closing the gap fully would mean moving every session update behind a function.
 
 Neither application role is a superuser. Neither can create databases or roles. The `migrate` service sets both role passwords on **every** run, from the environment. The password is sent as a SCRAM-SHA-256 verifier, so it never appears in the database logs. This is how you rotate them: see [Rotating secrets](deployment.md#rotating-secrets).
 

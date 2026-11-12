@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Computed,
     Date,
     DateTime,
@@ -73,7 +74,13 @@ class EventRow(Base):
 
 
 class SessionRow(Base):
-    """One attacker connection (a story made of events)."""
+    """One attacker connection (a story made of events), or a flood group.
+
+    A group (``kind = 'burst'``, id ``burst-<24 hex>``) stands for ``connections`` plain
+    connections of one source on one sensor and port in one UTC hour that ``fold_session_buckets``
+    merged. Its counters are the sums of the folded rows and ``src_port`` is 0. Everything that
+    counts sessions sums ``connections`` (see ``suckerpot_db.session_counts``).
+    """
 
     __tablename__ = "sessions"
 
@@ -110,11 +117,21 @@ class SessionRow(Base):
     clustered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     benign: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
     scanner_name: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text, server_default=text("'session'"), nullable=False)
+    connections: Mapped[int] = mapped_column(Integer, server_default=text("1"), nullable=False)
 
     __table_args__ = (
+        CheckConstraint("kind IN ('session', 'burst')", name="sessions_kind_check"),
+        CheckConstraint(
+            "(kind = 'burst') = (session_id LIKE 'burst-%')", name="sessions_burst_id_check"
+        ),
+        CheckConstraint(
+            "connections >= 1 AND (kind = 'burst' OR connections = 1)",
+            name="sessions_connections_check",
+        ),
         Index("ix_sessions_started_at", text("started_at DESC")),
         Index("ix_sessions_sensor_started_at", "sensor", text("started_at DESC")),
-        Index("ix_sessions_src_ip", "src_ip"),
+        Index("ix_sessions_src_ip_sensor_started_at", "src_ip", "sensor", text("started_at DESC")),
         Index("ix_sessions_tags", "tags", postgresql_using="gin"),
         Index("ix_sessions_country", "country"),
         Index("ix_sessions_last_event_at", text("last_event_at DESC")),

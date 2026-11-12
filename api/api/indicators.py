@@ -490,6 +490,7 @@ async def _detail(db: AsyncSession, indicator_id: int) -> IndicatorDetail:
             {"id": indicator_id, "n": DETAIL_SESSIONS},
         )
     ).all()
+    # session-rows-ok: counts indicator_sessions links, and a flood group never has one
     sources = (
         await db.execute(
             text(

@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import Text, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import EventRow, SessionRow
+from suckerpot_db.session_counts import sessions_count
 
 from api.benign import visible_events, visible_sessions
 from api.insights_rules import EXPLOIT_TAGS, Counts, Facts, NewValue
@@ -28,7 +29,9 @@ async def _counts(
 ) -> Counts:
     """Sessions per key in the current and the previous window (one pass)."""
     inner = (
-        select(expr.label("k"), SessionRow.started_at.label("ts"))
+        select(
+            expr.label("k"), SessionRow.started_at.label("ts"), SessionRow.connections.label("w")
+        )
         .where(
             SessionRow.started_at >= prev_since,
             SessionRow.started_at < until,
@@ -36,8 +39,8 @@ async def _counts(
         )
         .subquery("c")
     )
-    cur = func.count().filter(inner.c.ts >= since)
-    prev = func.count().filter(inner.c.ts < since)
+    cur = sessions_count(inner.c.ts >= since, connections=inner.c.w)
+    prev = sessions_count(inner.c.ts < since, connections=inner.c.w)
     stmt = (
         select(inner.c.k, cur.label("cur"), prev.label("prev"))
         .where(inner.c.k.is_not(None))
@@ -71,8 +74,8 @@ async def gather_facts(
     )
 
     success = (
-        func.count().filter(SessionRow.started_at >= since),
-        func.count().filter(SessionRow.started_at < since),
+        sessions_count(SessionRow.started_at >= since),
+        sessions_count(SessionRow.started_at < since),
     )
     row = (
         await db.execute(
@@ -88,10 +91,10 @@ async def gather_facts(
 
     top_ip = (
         await db.execute(
-            select(func.host(SessionRow.src_ip).label("ip"), func.count().label("n"))
+            select(func.host(SessionRow.src_ip).label("ip"), sessions_count().label("n"))
             .where(SessionRow.started_at >= since, SessionRow.started_at < until, *ses_ok)
             .group_by(SessionRow.src_ip)
-            .order_by(func.count().desc(), func.host(SessionRow.src_ip))
+            .order_by(sessions_count().desc(), func.host(SessionRow.src_ip))
             .limit(1)
         )
     ).first()
@@ -99,7 +102,11 @@ async def gather_facts(
         facts.top_ip = (top_ip.ip, top_ip.n)
 
     brute = await db.execute(
-        select(func.host(EventRow.src_ip).label("ip"), EventRow.sensor, func.count().label("n"))
+        select(
+            func.host(EventRow.src_ip).label("ip"),
+            EventRow.sensor,
+            func.count(EventRow.id).label("n"),
+        )
         .where(
             EventRow.type == "login_attempt",
             EventRow.ts >= since,
@@ -107,13 +114,13 @@ async def gather_facts(
             *ev_ok,
         )
         .group_by(EventRow.src_ip, EventRow.sensor)
-        .order_by(func.count().desc(), func.host(EventRow.src_ip), EventRow.sensor)
+        .order_by(func.count(EventRow.id).desc(), func.host(EventRow.src_ip), EventRow.sensor)
         .limit(BRUTE_FETCH)
     )
     facts.brute_force = [(r.ip, r.sensor, r.n) for r in brute]
     facts.brute_total = int(
         await db.scalar(
-            select(func.count()).where(
+            select(func.count(EventRow.id)).where(
                 EventRow.type == "login_attempt", EventRow.ts >= since, EventRow.ts < until, *ev_ok
             )
         )

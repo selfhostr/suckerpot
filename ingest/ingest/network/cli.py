@@ -47,6 +47,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db import create_engine, create_session_factory
+from suckerpot_db.session_counts import sql_sessions_count
 from suckerpot_netproto import defaults
 
 from ingest.abuse.selfterms import auto_confirm_enabled, parse_self_address
@@ -138,7 +139,7 @@ async def build_status(
         sensors = (
             await session.execute(
                 text(
-                    "SELECT sensor, count(*) AS n FROM sessions "
+                    f"SELECT sensor, {sql_sessions_count()} AS n FROM sessions "  # noqa: S608
                     "WHERE started_at >= now() - interval '24 hours' GROUP BY sensor"
                 )
             )

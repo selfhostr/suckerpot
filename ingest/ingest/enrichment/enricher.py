@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from ingest.attack.mapping import AttackMap
 from ingest.bruteforce import BruteForceTracker
 from ingest.enrichment.geo import GeoResolver
+from ingest.floods.fold import FloodFold
 from ingest.indicators import IndicatorExtractor
 from ingest.scanners import ScannerSet
 from ingest.tagging import RuleSet
@@ -21,3 +22,5 @@ class Enricher:
     link_cap: int = 500
     attack: AttackMap | None = None
     scanners: ScannerSet = field(default_factory=ScannerSet)
+    # Flood groups; None (tests, SESSION_FOLD_ENABLED=false) leaves every connection its own row.
+    fold: FloodFold | None = None

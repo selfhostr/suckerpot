@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.blocklist_values import is_never_host, valid_domain
 from suckerpot_db.network_names import host_of_target
+from suckerpot_db.session_counts import sql_sessions_count
 from suckerpot_reporting import SelfTerms
 from suckerpot_reporting.normalize import is_documentation, is_forbidden_range
 
@@ -118,10 +119,10 @@ async def attack_sources(
     session: AsyncSession, settings: AbuseSettings, now: datetime, limit: int = 500
 ) -> list[Seed]:
     sql = text(
-        """
+        f"""
         WITH s AS (
             SELECT src_ip, asn, country, started_at, last_event_at, event_count,
-                   login_attempts, login_success, commands, downloads,
+                   login_attempts, login_success, commands, downloads, connections,
                    (tags && CAST(:severe AS text[])
                     OR EXISTS (SELECT 1 FROM unnest(tags) AS t WHERE t LIKE 'cve-%')) AS severe
             FROM sessions
@@ -130,14 +131,14 @@ async def attack_sources(
         )
         SELECT host(src_ip) AS ip, max(asn) AS asn, max(country) AS country,
                min(started_at) AS first_ts, max(last_event_at) AS last_ts,
-               count(*) AS sessions, sum(event_count)::int AS events
+               {sql_sessions_count()} AS sessions, sum(event_count)::int AS events
         FROM s GROUP BY src_ip
         HAVING sum(login_attempts) >= :min_logins
             OR bool_or(login_success AND commands > 0)
             OR sum(downloads) > 0
             OR bool_or(severe)
         ORDER BY sum(event_count) DESC LIMIT :lim
-        """
+        """  # noqa: S608 - constant fragments only
     )
     rows = (
         await session.execute(

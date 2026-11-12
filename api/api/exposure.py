@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 from suckerpot_db.models import InventoryServiceRow as Inv
+from suckerpot_db.session_counts import sql_sessions_count
 
 from api import audit, guidance
 from api.audit import actor_id_of
@@ -28,6 +29,7 @@ from api.cursor import InvalidCursorError, decode_cursor, encode_cursor
 from api.deps import DbSession
 from api.reauth import error, guard
 from api.sensors import SENSOR_LABELS, SENSORS, SensorName
+from api.session_floods import SQL_LAST_SEEN
 
 router = APIRouter(tags=["exposure"])
 
@@ -278,14 +280,15 @@ async def _attack_counts(
     rows = (
         await db.execute(
             text(
-                """
-                SELECT sensor, count(*) AS sessions, count(DISTINCT src_ip) AS sources,
-                       count(*) FILTER (WHERE commands > 0 OR downloads > 0) AS deep,
-                       max(started_at) AS last_at
+                f"""
+                SELECT sensor, {sql_sessions_count()} AS sessions,
+                       count(DISTINCT src_ip) AS sources,
+                       {sql_sessions_count("", "(commands > 0 OR downloads > 0)")} AS deep,
+                       {SQL_LAST_SEEN} AS last_at
                 FROM sessions
                 WHERE started_at >= :since AND started_at < :until AND NOT benign
                 GROUP BY sensor
-                """
+                """  # noqa: S608 (constants only)
             ),
             {"since": since, "until": until},
         )
@@ -297,12 +300,12 @@ async def _top_tags(db: Any, since: datetime) -> dict[str, list[TagCount]]:
     rows = (
         await db.execute(
             text(
-                """
-                SELECT sensor, t AS tag, count(*) AS n
+                f"""
+                SELECT sensor, t AS tag, {sql_sessions_count()} AS n
                 FROM sessions CROSS JOIN LATERAL unnest(tags) AS t
                 WHERE started_at >= :since AND NOT benign
                 GROUP BY sensor, t
-                """
+                """  # noqa: S608 (constants only)
             ),
             {"since": since},
         )

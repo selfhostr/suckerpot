@@ -1,0 +1,5 @@
+# Sites of api/api that count sessions rows (count(*)) instead of summing
+# connections. Each one must be fixed with suckerpot_db.session_counts, or marked as a
+# deliberate row count with '# session-rows-ok: <why>'. A fixed site is removed from
+# this list. The list never grows. See db/tests/test_session_lint.py.
+# ceiling: 0
