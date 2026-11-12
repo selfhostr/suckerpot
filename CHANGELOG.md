@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-11-12
+
 ### Fixed
 
 - The collector no longer wanders the public web. It used to read every URL inside a fetched HTML
@@ -491,7 +493,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.4...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.5...HEAD
+[0.11.5]: https://github.com/selfhostr/suckerpot/compare/v0.11.4...v0.11.5
 [0.11.4]: https://github.com/selfhostr/suckerpot/compare/v0.11.3...v0.11.4
 [0.11.3]: https://github.com/selfhostr/suckerpot/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/selfhostr/suckerpot/compare/v0.11.1...v0.11.2
