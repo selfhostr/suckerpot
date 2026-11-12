@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An update no longer leaves the checkout unreadable by the containers. `scripts/update.sh` keeps
+  `umask 077` for its state file, but it ran the checkout (and, in source mode, the image build)
+  under it too, so every file git rewrote became `0600` (`0700` for executables). In source mode the
+  images are built from those files and the non-root user inside a container could not read them:
+  the `migrate` container failed with `Permission denied` on its migrations and the update stopped
+  with ingest, api, collector and analyzer down. Scripts such as `scripts/backup-service.sh` also
+  became `0700`. The checkout, the pull and the build now run under `umask 022`, whatever umask the
+  caller has (`scripts/auto-update.sh` runs under `077`), and `scripts/rollback.sh` does the same.
+  After every checkout the update, the rollback, the installer and `scripts/env-migrate.sh` make
+  the tracked files readable again (`chmod go+rX`, tracked paths only: `.env`, `hub/.env`,
+  `hub/secrets` and `.suckerpot-state` keep their mode), so a node that was already hit is repaired
+  by its next update. How to repair one by hand: [docs/updates.md](docs/updates.md#unreadable-files-after-an-update).
+
 ## [0.11.3] - 2026-11-12
 
 ### Added
