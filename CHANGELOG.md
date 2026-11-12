@@ -19,10 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (JSON must parse, a style sheet must be made of rules, JavaScript needs a token only JavaScript
   has) and its whole input holds no shell command, downloader, code runner or active content (ASP,
   JSP and PHP tags, HTA, scriptlets, WSH, PowerShell, `iex`, `certutil`, `bitsadmin`, `python -c`,
-  `perl -e`, `php -r`, `ruby -e`, `node -e`, shell `eval`, `base64 -d`, `source <(...)`, `. /path`,
+  `perl -e`, `php -r`, `ruby -e`, `node -e`, an interpreter fed by its input (`python3 -`,
+  `perl -`, `python3 <<E`) or run on a path, `sh`/`bash`/`dash`/`ksh`/`zsh` as commands, through
+  `env` or fed by a redirection, shell `eval`, `base64 -d`, `source <(...)`, `. /path`,
   `/dev/udp/`, gawk `/inet/tcp/`, `ftpget`, Node `child_process`, a Node module load used to write
-  or run something, `eval` of anything but one plain string, the `Function` constructor); anything
-  else keeps the `script` or `text` kind. Every one of these checks is linear in the file size (a 4 MiB hostile file
+  or run something, `eval` of anything but one plain string, the `Function` constructor directly
+  or through `.constructor`, a global looked up by a built name such as `window["ev"+"al"]`);
+  anything else keeps the `script` or `text` kind. Every one of these checks is linear in the file size (a 4 MiB hostile file
   classifies in well under a second). Samples already collected are classified again on their own
   after the update (the analysis version went from 1 to 2).
 - The kind alone never spares a file, because a program can be dressed as a page. Web content is
@@ -30,8 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   assets of other web content: every one of its sources is a fetch target that no attacker ever
   typed (an indicator from a sensor event pointed at it; the mark stays when the indicator is
   pruned), at depth 1 or more, and EVERY file that links to it (not only the first) names it as
-  an asset, in a markup attribute (`href`, `src`, `srcset`, `action`, `poster`, `data`...) or a
-  style sheet `url()` or `@import`, and is itself web content. A link in the text of a page, in a
+  an asset and is itself web content. An asset is an attribute that the element loads, in a real
+  start tag (`<img src>`, `<link href>`, `<form action>`, `<video poster>`, `<object data>`...),
+  or a style sheet `url()` or `@import` outside comments and strings; text such as `src=...`, a
+  comment, the body of a `<script>` or an attribute the element does not load (`<b src>`) is not. A link in the text of a page, in a
   web script, in JSON, in a shell script or in a binary makes the file attacker content (network
   verification fetches count neither way). A plain web sample is kept and shown, but its
   links are not followed, it gets no hash indicator, and it is left out of the network batch, the
@@ -44,13 +49,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and those stop there. A spared file (a `spared` flag on the sample) is analysed again when an
   attacker later asks for it: a typed URL serves the same bytes, an attacker types the URL that
   served it, or a script or a binary links to that URL, even long after a page queued it first.
+  If that new analysis fails or times out, the file is no longer spared and its hash becomes an
+  indicator.
 - The collector skips, when it claims a queued target, any target that no attacker typed and that
   only plain web samples link to. It is marked `refused` with the error `web_parent`, is never
   fetched and spends no quota, so the targets queued before the update do not drain onto the
   public web. If an attacker later types the same URL, or attacker content links to it, it goes
   back in the queue. Links already recorded from old pages stay in their sample's link list.
   Migration 0033 adds the `typed` and `spared` marks, an index on the links of a target, and the
-  one function that lets the analyzer put such a target back in the queue.
+  one function that lets the analyzer put such a target back in the queue: only when a link that
+  is not a web asset points at it, and with the time set by the database.
 - The Malware page names plain web content in plain words (Web page, Stylesheet, Script (web),
   Image (SVG), Data (JSON), Data (XML)) instead of "Unknown" and the raw kind, and the "new files
   this week" sentence no longer counts it. Sample items in the API carry a `crawled` flag for
