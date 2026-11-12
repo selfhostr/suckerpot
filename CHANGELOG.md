@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The collector no longer wanders the public web. It used to read every URL inside a fetched HTML
+  page (and any other text file) as a possible next stage, so one connectivity check typed by an
+  attacker queued the page's scripts, style sheets, images and links, and then theirs, down to the
+  depth cap, and the Malware page filled with unknown text. The analyzer now recognises HTML, SVG
+  and other XML, CSS, JSON and the JavaScript of a web page as their own kinds (`html`, `svg`,
+  `xml`, `css`, `json`, `javascript`), at the lowest severity with no family unless a detection
+  rule matched (any match raises it). A file gets a web kind only when it plausibly is that format
+  (JSON must parse, a style sheet must be made of rules, JavaScript needs a token only JavaScript
+  has) and its whole input holds no shell command, downloader, code runner or active content (ASP,
+  JSP and PHP tags, HTA, scriptlets, WSH, PowerShell, `iex`, `certutil`, `bitsadmin`, `python -c`,
+  `perl -e`, shell `eval`, `base64 -d`, `ftpget`, Node `child_process` and `createWriteStream`,
+  `.exec(` next to a Node module load, `Function(atob(...))`); anything else keeps the `script` or
+  `text` kind. Every one of these checks is linear in the file size (a 4 MiB hostile file
+  classifies in well under a second). Samples already collected are classified again on their own
+  after the update (the analysis version went from 1 to 2).
+- The kind alone never spares a file, because a program can be dressed as a page. Web content is
+  "plain web" only when no detection rule matched it AND the collector reached it by following
+  links found in other web content: every one of its sources is a fetch target that no attacker
+  typed (no indicator from a sensor event), at depth 1 or more, whose parent file is web content
+  (network verification fetches count neither way). A plain web sample is kept and shown, but its
+  links are not followed, it gets no hash indicator, and it is left out of the network batch, the
+  hash lookups (VirusTotal, abuse.ch and the contact checks), the blocklist candidates and the
+  abuse report drafts, whether or not a hash indicator was recorded for it before the update.
+  Anything an attacker asked for is attacker content whatever its kind: a file from a typed URL
+  (depth 0, or a URL that also has an indicator) or from a link inside a script or a binary has
+  its links followed within the existing caps (depth 2, 20 next-stage URLs per file), gets a hash
+  indicator and feeds all of the above. So a typed page costs at most 20 fetches for its assets,
+  and those stop there. A spared file is analysed again when an attacker later asks for it (a
+  typed URL serves the same bytes, or an attacker types the URL that served it).
+- The collector skips, when it claims a queued target, any target that no attacker typed and that
+  was found inside a plain web sample. It is marked `refused` with the error `web_parent`, is
+  never fetched and spends no quota, so the targets queued before the update do not drain onto
+  the public web. If an attacker later types the same URL, it goes back in the queue. Links
+  already recorded from old pages stay in their sample's link list.
+- The Malware page names plain web content in plain words (Web page, Stylesheet, Script (web),
+  Image (SVG), Data (JSON), Data (XML)) instead of "Unknown" and the raw kind, and the "new files
+  this week" sentence no longer counts it. Sample items in the API carry a `crawled` flag for
+  this.
+
 ## [0.11.3] - 2026-11-12
 
 ### Added
@@ -61,44 +102,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   counts a shared address once. Credential-only floods (many logins, no commands, few addresses
   in one network) still do not form campaigns; the limits and what it would take are in
   [Architecture](docs/ARCHITECTURE.md#how-the-features-fit-together).
-- The collector no longer wanders the public web. It used to read every URL inside a fetched HTML
-  page (and any other text file) as a possible next stage, so one connectivity check typed by an
-  attacker queued the page's scripts, style sheets, images and links, and then theirs, down to the
-  depth cap, and the Malware page filled with unknown text. The analyzer now recognises HTML, SVG
-  and other XML, CSS, JSON and the JavaScript of a web page as their own kinds (`html`, `svg`,
-  `xml`, `css`, `json`, `javascript`), at the lowest severity with no family unless a detection
-  rule matched (any match raises it). A file gets a web kind only when it plausibly is that format
-  (JSON must parse, a style sheet must be made of rules, JavaScript needs a token only JavaScript
-  has) and its whole input holds no shell command, downloader, code runner or active content (ASP,
-  JSP and PHP tags, HTA, scriptlets, WSH, PowerShell, `iex`, `certutil`, `bitsadmin`, `python -c`,
-  `perl -e`, shell `eval`, `base64 -d`, `ftpget`, Node `child_process` and `createWriteStream`,
-  `.exec(` next to a Node module load, `Function(atob(...))`); anything else keeps the `script` or
-  `text` kind. Every one of these checks is linear in the file size (a 4 MiB hostile file
-  classifies in well under a second). Samples already collected are classified again on their own
-  after the update (the analysis version went from 1 to 2).
-- The kind alone never spares a file, because a program can be dressed as a page. Web content is
-  "plain web" only when no detection rule matched it AND the collector reached it by following
-  links found in other web content: every one of its sources is a fetch target that no attacker
-  typed (no indicator from a sensor event), at depth 1 or more, whose parent file is web content
-  (network verification fetches count neither way). A plain web sample is kept and shown, but its
-  links are not followed, it gets no hash indicator, and it is left out of the network batch, the
-  hash lookups (VirusTotal, abuse.ch and the contact checks), the blocklist candidates and the
-  abuse report drafts, whether or not a hash indicator was recorded for it before the update.
-  Anything an attacker asked for is attacker content whatever its kind: a file from a typed URL
-  (depth 0, or a URL that also has an indicator) or from a link inside a script or a binary has
-  its links followed within the existing caps (depth 2, 20 next-stage URLs per file), gets a hash
-  indicator and feeds all of the above. So a typed page costs at most 20 fetches for its assets,
-  and those stop there. A spared file is analysed again when an attacker later asks for it (a
-  typed URL serves the same bytes, or an attacker types the URL that served it).
-- The collector skips, when it claims a queued target, any target that no attacker typed and that
-  was found inside a plain web sample. It is marked `refused` with the error `web_parent`, is
-  never fetched and spends no quota, so the targets queued before the update do not drain onto
-  the public web. If an attacker later types the same URL, it goes back in the queue. Links
-  already recorded from old pages stay in their sample's link list.
-- The Malware page names plain web content in plain words (Web page, Stylesheet, Script (web),
-  Image (SVG), Data (JSON), Data (XML)) instead of "Unknown" and the raw kind, and the "new files
-  this week" sentence no longer counts it. Sample items in the API carry a `crawled` flag for
-  this.
 - `update.sh` and `install.sh` no longer report a failed update or install on a healthy node
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final
   dashboard check sent the bind address as `Host`, which the API rejects; it now sends
