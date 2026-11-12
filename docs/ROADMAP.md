@@ -367,6 +367,8 @@ Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all servic
 ## Later (not part of the loop)
 
 - Per-/24 or per-ASN daily cap on new campaigns, so one network cannot create many campaigns in a day.
+- Campaigns for credential-only floods (many login-only sessions from a few addresses in one network): a roll-up per sensor and network owner instead of a per-session key, counters on the campaign, no `campaign_id` written on each session. See [Architecture](ARCHITECTURE.md#how-the-features-fit-together).
+- An index on `campaign_sessions (src_ip)`, if the table grows large enough for the address-merge check to slow down.
 - ATT&CK per-event mapping: compute the lower-case form of each event field once and share it between rules.
 - Campaign clustering: commit per chunk instead of one transaction per cycle, so a long cycle does not hold locks.
 - Provider keys: sealed-box (public-key) encryption so the API can store a key but never read it back, only ingest can.

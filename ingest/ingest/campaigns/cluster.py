@@ -1,9 +1,10 @@
 """One clustering cycle: unclustered sessions in, campaigns and links out.
 
 Everything here is bounded: at most ``batch`` sessions per cycle, at most 64 commands and 256
-login attempts read per session, at most 16 keys per session, ``merge_budget`` merges. The
-whole cycle runs in one transaction; the role's ``statement_timeout`` caps every statement.
-Nothing touches the network.
+login attempts read per session, at most 16 keys per session, ``merge_budget`` merges per rule.
+The clustering runs in one transaction, then the actor-merge pass (campaigns whose source
+addresses overlap, see ``overlap.py``) in a second one that can fail without costing the
+clustering; the role's ``statement_timeout`` caps every statement. Nothing touches the network.
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import ARRAY, Integer, Text, bindparam, text
+from sqlalchemy import ARRAY, BigInteger, Integer, Text, bindparam, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.event_bounds import bounded_slices, events_ts_range
 
@@ -30,7 +32,8 @@ from ingest.campaigns.keys import (
     is_benign_host,
     script_key,
 )
-from ingest.campaigns.naming import campaign_name, severity_of, stages_of
+from ingest.campaigns.naming import campaign_name, max_severity, severity_of, stages_of
+from ingest.campaigns.overlap import MIN_OVERLAP, MIN_SHARED, Overlap, overlap_merges
 from ingest.campaigns.plan import Cand, build_plan, net_of
 
 log = logging.getLogger(__name__)
@@ -60,6 +63,11 @@ class ClusterConfig:
     keyless_hours: int = 24
     keyed_days: int = 30
     active_days: int = 7
+    #: The actor-merge rule: shared addresses, and the share of the smaller campaign's addresses.
+    merge_min_shared: int = MIN_SHARED
+    merge_overlap: float = MIN_OVERLAP
+    #: Campaigns checked per cycle (the ones changed since the last check, oldest change first).
+    overlap_batch: int = 200
 
 
 @dataclass(slots=True)
@@ -67,8 +75,22 @@ class CycleStats:
     examined: int = 0
     joined: int = 0
     created: int = 0
-    merged: int = 0
+    merged: int = 0  # by shared key and by shared addresses together
     deferred: int = 0
+    overlap_checked: int = 0
+
+
+_EPOCH = datetime.min.replace(tzinfo=UTC)
+
+
+@dataclass(slots=True)
+class MergeCursor:
+    """Where the actor-merge pass stopped: campaigns are checked in ``(updated_at, id)`` order,
+    and a campaign is checked again only after it changed. Kept in memory: after a restart
+    every campaign is checked once more, a few hundred per cycle."""
+
+    updated_at: datetime = _EPOCH
+    id: int = 0
 
 
 @dataclass(slots=True)
@@ -364,6 +386,7 @@ class State:
     demo: bool
     commands: int = 0
     logins: int = 0
+    severity: str = "info"  # never lowered by a rewrite, whatever the new sessions say
 
     def add(self, cands: Sequence[Cand], families: Iterable[str]) -> None:
         self.first_seen = min([self.first_seen, *(c.started_at for c in cands)])
@@ -389,11 +412,16 @@ class State:
             )
             self.rep_session_id = best.session_id
 
-    def absorb(self, other: State) -> None:
+    def absorb(self, other: State, *, same_sources: bool = False) -> None:
+        """Take over ``other``. Merged by a shared key, their sources are different networks and
+        add up; merged by shared addresses (``same_sources``) they overlap, so the count is
+        raised from the links afterwards instead."""
         self.first_seen = min(self.first_seen, other.first_seen)
         self.last_seen = max(self.last_seen, other.last_seen)
         self.sessions += other.sessions
-        self.sources += other.sources
+        self.sources = (
+            max(self.sources, other.sources) if same_sources else (self.sources + other.sources)
+        )
         self.countries = _union(self.countries, other.countries, cap=CAP_COUNTRIES)
         self.asns = _union(self.asns, other.asns, cap=CAP_ASNS)
         self.sensors = _union(self.sensors, other.sensors, cap=CAP_SENSORS)
@@ -403,6 +431,9 @@ class State:
         self.commands += other.commands
         self.logins += other.logins
         self.demo = self.demo and other.demo
+        self.severity = max_severity(self.severity, other.severity)
+        if self.rep_session_id is None:
+            self.rep_session_id = other.rep_session_id
 
 
 def _new_state(cands: Sequence[Cand], families: Iterable[str]) -> State:
@@ -420,7 +451,8 @@ async def _load_state(s: AsyncSession, cid: int) -> State:
         await s.execute(
             text(
                 "SELECT id, first_seen, last_seen, sessions, sources, countries, asns, sensors, "
-                "techniques, tags, families, rep_session_id, demo FROM campaigns WHERE id = :id"
+                "techniques, tags, families, rep_session_id, demo, severity "
+                "FROM campaigns WHERE id = :id"
             ),
             {"id": cid},
         )
@@ -430,6 +462,7 @@ async def _load_state(s: AsyncSession, cid: int) -> State:
         sources=r.sources, countries=list(r.countries), asns=list(r.asns),
         sensors=list(r.sensors), techniques=list(r.techniques), tags=list(r.tags),
         families=list(r.families), rep_session_id=r.rep_session_id, demo=r.demo,
+        severity=r.severity,
     )  # fmt: skip
 
 
@@ -464,7 +497,8 @@ async def _write_state(
             "fs": st.first_seen, "ls": st.last_seen, "n": st.sessions, "src": st.sources,
             "c": st.countries, "a": st.asns, "se": st.sensors, "t": st.techniques,
             "st": stages_of(st.techniques, stages_by_technique), "tg": st.tags,
-            "f": st.families, "sev": severity_of(st.tags, st.commands, st.logins),
+            "f": st.families,
+            "sev": max_severity(severity_of(st.tags, st.commands, st.logins), st.severity),
             "rep": st.rep_session_id, "demo": st.demo,
             "status": "active" if active else "quiet",
         },
@@ -480,7 +514,10 @@ async def run_cycle(
     cfg: ClusterConfig,
     cache: ContentCache,
     now: datetime | None = None,
+    cursor: MergeCursor | None = None,
 ) -> CycleStats:
+    """One cycle. ``cursor`` is the actor-merge pass's memory: pass the same object every cycle
+    (a fresh one starts from the oldest campaign again)."""
     now = now or datetime.now(UTC)
     stages_by_technique = (
         {t.id: t.stage for t in attack.techniques.values()} if attack is not None else {}
@@ -543,7 +580,138 @@ async def run_cycle(
             ),
             {"cut": now - timedelta(days=cfg.active_days)},
         )
+    await _merge_actors(factory, stages_by_technique, cfg, now, cursor or MergeCursor(), stats)
     return stats
+
+
+# ---- merging campaigns that are one actor ----------------------------------------------------
+
+#: Pairs of live campaigns that have linked sessions from the same addresses, for the campaigns
+#: in ``:dirty``. Each side is reduced to distinct (campaign, address) rows first, so a campaign
+#: with many sessions from one address does not multiply the join.
+_OVERLAP_PAIRS = (
+    "WITH mine AS ("
+    " SELECT DISTINCT campaign_id, src_ip FROM campaign_sessions WHERE campaign_id = ANY(:dirty)"
+    "), theirs AS ("
+    " SELECT DISTINCT campaign_id, src_ip FROM campaign_sessions"
+    " WHERE src_ip IN (SELECT src_ip FROM mine)"
+    ") "
+    "SELECT mine.campaign_id AS x, theirs.campaign_id AS y, count(*) AS shared "
+    "FROM mine JOIN theirs ON theirs.src_ip = mine.src_ip "
+    "AND theirs.campaign_id <> mine.campaign_id "
+    "JOIN campaigns cx ON cx.id = mine.campaign_id "
+    "JOIN campaigns cy ON cy.id = theirs.campaign_id "
+    "WHERE cy.status <> 'merged' AND cx.demo = cy.demo AND cx.sensors && cy.sensors "
+    "GROUP BY mine.campaign_id, theirs.campaign_id "
+    "HAVING count(*) >= :min_shared "
+    "ORDER BY count(*) DESC, mine.campaign_id, theirs.campaign_id LIMIT :cap"
+)
+MAX_OVERLAP_PAIRS = 2000
+
+
+async def _merge_actors(
+    factory: async_sessionmaker[AsyncSession],
+    stages_by_technique: dict[str, str],
+    cfg: ClusterConfig,
+    now: datetime,
+    cursor: MergeCursor,
+    stats: CycleStats,
+) -> None:
+    """Merge the changed campaigns whose addresses overlap strongly with another live campaign.
+
+    Runs in its own transaction: if it fails (a timeout on a very large table, say) the cycle's
+    clustering is already committed and the same batch is simply tried again next cycle."""
+    try:
+        async with factory() as s, s.begin():
+            batch = (
+                await s.execute(
+                    text(
+                        "SELECT id, updated_at FROM campaigns WHERE status <> 'merged' "
+                        "AND (updated_at, id) > (:ts, :id) ORDER BY updated_at, id LIMIT :n"
+                    ),
+                    {"ts": cursor.updated_at, "id": cursor.id, "n": cfg.overlap_batch},
+                )
+            ).all()
+            if not batch:
+                return
+            pairs = await _overlaps(s, [r.id for r in batch], cfg)
+            merges = await _plan_overlap_merges(s, pairs, cfg)
+            await _run_merges(s, merges, stages_by_technique, cfg, now)
+        stats.overlap_checked = len(batch)
+        stats.merged += len(merges)
+        # Move on only once the batch is committed, and not while the budget cut the merges
+        # short: the same batch then comes up again, minus the campaigns just merged away. The
+        # survivors were rewritten, so they are checked again next cycle against the rest,
+        # which is what lets a chain of merges settle.
+        if len(merges) < cfg.merge_budget or not merges:
+            cursor.updated_at, cursor.id = batch[-1].updated_at, batch[-1].id
+    except SQLAlchemyError as exc:
+        log.warning("campaign actor merge failed (%s)", type(exc).__name__)
+
+
+async def _overlaps(s: AsyncSession, dirty: Sequence[int], cfg: ClusterConfig) -> list[Overlap]:
+    rows = (
+        await s.execute(
+            text(_OVERLAP_PAIRS).bindparams(bindparam("dirty", type_=ARRAY(BigInteger))),
+            {"dirty": list(dirty), "min_shared": cfg.merge_min_shared, "cap": MAX_OVERLAP_PAIRS},
+        )
+    ).all()
+    if not rows:
+        return []
+    ids = sorted({i for r in rows for i in (r.x, r.y)})
+    sizes = {
+        r.id: r.n
+        for r in await s.execute(
+            text(
+                "SELECT c.id, (SELECT count(DISTINCT src_ip) FROM campaign_sessions "
+                "WHERE campaign_id = c.id) AS n FROM campaigns c WHERE c.id = ANY(:ids)"
+            ).bindparams(bindparam("ids", type_=ARRAY(BigInteger))),
+            {"ids": ids},
+        )
+    }
+    return [Overlap(r.x, r.y, r.shared, sizes.get(r.x, 0), sizes.get(r.y, 0)) for r in rows]
+
+
+async def _plan_overlap_merges(
+    s: AsyncSession, pairs: Sequence[Overlap], cfg: ClusterConfig
+) -> list[tuple[int, int]]:
+    ids = sorted({i for o in pairs for i in (o.a, o.b)})
+    if not ids:
+        return []
+    order = {
+        r.id: (r.first_seen, r.id)
+        for r in await s.execute(
+            text("SELECT id, first_seen FROM campaigns WHERE id = ANY(:ids)").bindparams(
+                bindparam("ids", type_=ARRAY(BigInteger))
+            ),
+            {"ids": ids},
+        )
+    }
+    return overlap_merges(
+        pairs,
+        order,
+        min_shared=cfg.merge_min_shared,
+        min_overlap=cfg.merge_overlap,
+        budget=cfg.merge_budget,
+    )
+
+
+async def _run_merges(
+    s: AsyncSession,
+    merges: Sequence[tuple[int, int]],
+    stages_by_technique: dict[str, str],
+    cfg: ClusterConfig,
+    now: datetime,
+) -> None:
+    states: dict[int, State] = {}
+    for loser, winner in merges:
+        for cid in (loser, winner):
+            if cid not in states:
+                states[cid] = await _load_state(s, cid)
+        states[winner].absorb(states.pop(loser), same_sources=True)
+        await _move_campaign(s, loser, winner, cfg.link_cap)
+    for st in states.values():
+        await _write_state(s, st, stages_by_technique, cfg, now)
 
 
 async def _cluster(
@@ -627,6 +795,12 @@ async def _cluster(
 async def _move_campaign(s: AsyncSession, loser: int, winner: int, link_cap: int) -> None:
     await s.execute(
         text("UPDATE campaign_keys SET campaign_id = :w WHERE campaign_id = :l"),
+        {"w": winner, "l": loser},
+    )
+    # Campaigns that were merged into the loser earlier now point at the survivor: readers
+    # follow ``merged_into`` one hop, so a chain must never form.
+    await s.execute(
+        text("UPDATE campaigns SET merged_into = :w WHERE merged_into = :l"),
         {"w": winner, "l": loser},
     )
     # Bounded: the sessions beyond this batch keep pointing at the loser, and readers follow
