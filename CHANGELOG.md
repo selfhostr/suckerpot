@@ -34,8 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   are unchanged, and the depth cap, the per-file cap of 20 next-stage URLs and every fetch check
   are unchanged. Web content is not recorded as a hash indicator unless a detection rule matches
   it. Samples already collected are classified again on their own after the update (the analysis
-  version went from 1 to 2). Targets queued from a page before the update are still fetched, and
-  links already recorded from old pages stay in their sample's link list.
+  version went from 1 to 2). Links already recorded from old pages stay in their sample's link
+  list.
+- Plain web pages no longer feed the rest of the pipeline. A web sample that no detection rule
+  matched is left out of the network batch (file list and payload facts), the hash lookups
+  (VirusTotal, abuse.ch and the contact checks), the blocklist candidates and the abuse report
+  drafts, whether or not a hash indicator was already recorded for it before the update.
+- The collector skips, when it claims a queued target, any target that was found inside a web
+  page and that no attacker typed. It is marked `refused` with the error `web_parent`, is never
+  fetched and spends no quota, so the targets queued before the update do not drain onto the
+  public web.
+- The Malware page names ordinary web content in plain words (Web page, Stylesheet, Script
+  (web), Image (SVG), Data (JSON), Data (XML)) instead of "Unknown" and the raw kind, and the
+  "new files this week" sentence no longer counts it.
 - `update.sh` and `install.sh` no longer report a failed update or install on a healthy node
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final
   dashboard check sent the bind address as `Host`, which the API rejects; it now sends

@@ -174,16 +174,45 @@ export function sampleKey(s: SampleItem): string {
   return s.sha256
 }
 
-/** "ELF ARM 32-bit", "Shell script", "Unknown file". */
+/**
+ * Plain-English names of the kinds the analyzer gives to ordinary web content (a page, an image,
+ * a style sheet, a data document, the script of a page). Such a file is kept for reference; its
+ * links are never followed.
+ */
+export const WEB_KIND_LABEL: Readonly<Record<string, string>> = {
+  html: "Web page",
+  svg: "Image (SVG)",
+  xml: "Data (XML)",
+  css: "Stylesheet",
+  json: "Data (JSON)",
+  javascript: "Script (web)",
+}
+
+/** The label of a web kind, or null for any other kind (including null). */
+export function webKindLabel(kind: string | null | undefined): string | null {
+  if (!kind) return null
+  const key = kind.toLowerCase()
+  return Object.hasOwn(WEB_KIND_LABEL, key) ? (WEB_KIND_LABEL[key] ?? null) : null
+}
+
+/** Ordinary web content that no detection rule matched. */
+export function isPlainWeb(s: Pick<SampleItem, "kind" | "family">): boolean {
+  return webKindLabel(s.kind) !== null && !s.family
+}
+
+/** "ELF ARM 32-bit", "Shell script", "Web page", "Unknown file". */
 export function describeKind(s: Pick<SampleItem, "kind" | "arch" | "bits">): string {
+  const web = webKindLabel(s.kind)
+  if (web) return web
   const kind = s.kind ?? "Unknown file"
   const arch = s.arch ? ` ${s.arch}` : ""
   const bits = s.bits ? ` ${s.bits}-bit` : ""
   return `${kind}${arch}${bits}`
 }
 
-export function familyLabel(family: string | null): string {
-  return family ?? "Unknown"
+/** The family, else the plain name of a web kind, else "Unknown". */
+export function familyLabel(family: string | null, kind?: string | null): string {
+  return family ?? webKindLabel(kind) ?? "Unknown"
 }
 
 export function shortHash(sha256: string): string {
@@ -210,9 +239,13 @@ export function describeSamples(
 ): string {
   if (items.length === 0) return "No samples collected yet."
   const lead = more ? "At least " : ""
-  const fresh = items.filter((s) => now - Date.parse(s.first_seen) < 7 * DAY)
+  const web = items.filter(isPlainWeb).length
+  if (web > 0 && web === items.length)
+    return `${lead}${plural(web, "sample")} collected, all ordinary web content (pages, images, style sheets), nothing to flag.`
+  const files = items.filter((s) => !isPlainWeb(s))
+  const fresh = files.filter((s) => now - Date.parse(s.first_seen) < 7 * DAY)
   if (fresh.length === 0)
-    return `${lead}${plural(items.length, "sample")} collected, none of them new this week.`
+    return `${lead}${plural(files.length, "sample")} collected, none of them new this week.`
   const byFamily = new Map<string, SampleItem[]>()
   for (const s of fresh) {
     if (!s.family) continue
@@ -230,9 +263,12 @@ export function describeSamples(
 /** Header sentence of a sample page. */
 export function describeSample(d: SampleDetail): string {
   const s = d.item
-  const what = s.family ? `${s.family} sample` : "Unclassified file"
   const where = plural(s.sources, "address", "addresses")
-  return `${what}, ${describeKind(s)}, ${formatBytes(s.size)}. Served from ${where} in ${plural(s.sessions, "session")}.`
+  const served = `Served from ${where} in ${plural(s.sessions, "session")}.`
+  if (isPlainWeb(s))
+    return `Ordinary web content, ${formatBytes(s.size)}. ${served} It is kept for reference and its links are not followed.`
+  const what = s.family ? `${s.family} sample` : "Unclassified file"
+  return `${what}, ${describeKind(s)}, ${formatBytes(s.size)}. ${served}`
 }
 
 export function describeYara(hits: readonly YaraHit[], status: SampleStatus): string {

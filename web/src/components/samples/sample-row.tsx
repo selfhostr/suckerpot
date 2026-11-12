@@ -6,7 +6,14 @@ import { Badge } from "@/components/ui/badge"
 import { SeverityBadge } from "@/components/severity-badge"
 import { TagBadge } from "@/components/tag-badge"
 import { formatBytes, formatNumber } from "@/lib/format"
-import { describeKind, familyLabel, NETWORK_CHECK, shortHash, type SampleItem } from "@/lib/samples"
+import {
+  describeKind,
+  familyLabel,
+  isPlainWeb,
+  NETWORK_CHECK,
+  shortHash,
+  type SampleItem,
+} from "@/lib/samples"
 import { cn } from "@/lib/utils"
 
 export const SAMPLE_GRID = "md:grid-cols-[minmax(0,1fr)_6rem_5rem_5rem_6rem] md:gap-x-4"
@@ -19,7 +26,10 @@ export const SAMPLE_GRID_ACTION = "md:grid-cols-[minmax(0,1fr)_6rem_5rem_5rem_6r
  */
 export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNode }) {
   const to = `/malware/samples/${item.sha256}`
-  const family = familyLabel(item.family)
+  const family = familyLabel(item.family, item.kind)
+  // A plain web page is named once ("Web page"), not "Unknown" plus the kind.
+  const plain = isPlainWeb(item)
+  const what = plain ? describeKind(item) : `${family}, ${describeKind(item)}`
   return (
     <div
       className={cn(
@@ -29,7 +39,7 @@ export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNo
     >
       <Link
         to={to}
-        aria-label={`${family}, ${describeKind(item)}, ${formatBytes(item.size)}, hash ${shortHash(item.sha256)}`}
+        aria-label={`${what}, ${formatBytes(item.size)}, hash ${shortHash(item.sha256)}`}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
       />
       <div className="min-w-0 space-y-1">
@@ -45,7 +55,7 @@ export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNo
           ) : (
             <span className="font-medium text-fg-muted">{family}</span>
           )}
-          <span className="text-fg-muted">{describeKind(item)}</span>
+          {plain ? null : <span className="text-fg-muted">{describeKind(item)}</span>}
           {item.origin === "network_verify" ? (
             <Badge
               variant="outline"

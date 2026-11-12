@@ -233,7 +233,7 @@ export function SampleDetailPage() {
     <>
       <PageHeader
         help="sample"
-        title={familyLabel(item.family)}
+        title={familyLabel(item.family, item.kind)}
         eyebrow={back}
         description={<span className="normal-nums">{describeSample(d)}</span>}
         actions={
