@@ -150,7 +150,7 @@ async def fold(owner: AsyncEngine, buckets: list[tuple[str, str, datetime]]) -> 
             text(
                 "SELECT fold_session_buckets(CAST(CAST(:ips AS text[]) AS inet[]), "
                 "CAST(:sensors AS text[]), CAST(:hours AS timestamptz[]), 20, "
-                "CAST(:tags AS text[]), interval '15 minutes', 1000)"
+                "CAST(:tags AS text[]), interval '15 minutes', 1000, now())"
             ),
             {
                 "ips": [b[0] for b in buckets],

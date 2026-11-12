@@ -26,7 +26,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from suckerpot_db import database_url_from_env
-from suckerpot_db.event_bounds import group_events_select
+from suckerpot_db.event_bounds import group_events_select, session_events_select
 from suckerpot_db.locks import SESSION_FOLD
 from suckerpot_db.models import SessionRow
 from suckerpot_db.roles import apply_roles
@@ -139,6 +139,9 @@ async def seed(engine: AsyncEngine, rows: list[dict[str, Any]]) -> None:
         await conn.execute(INSERT_SESSION, rows)
 
 
+CLOCK = object()  # ``as_of`` default: the caller has stored everything up to now
+
+
 async def fold(
     engine: AsyncEngine,
     buckets: list[tuple[str, str, datetime]] | None = None,
@@ -147,6 +150,7 @@ async def fold(
     tags: list[str] | None = None,
     idle: timedelta | None = IDLE,
     limit: int | None = 1000,
+    as_of: datetime | object | None = CLOCK,
 ) -> int:
     """Call the function with one bucket (SRC, rdp, HOUR) unless ``buckets`` is given."""
     given = buckets if buckets is not None else [(SRC, "rdp", HOUR)]
@@ -155,7 +159,8 @@ async def fold(
             text(
                 "SELECT fold_session_buckets(CAST(CAST(:ips AS text[]) AS inet[]), "
                 "CAST(:sensors AS text[]), CAST(:hours AS timestamptz[]), CAST(:m AS integer), "
-                "CAST(:tags AS text[]), CAST(:idle AS interval), CAST(:lim AS integer))"
+                "CAST(:tags AS text[]), CAST(:idle AS interval), CAST(:lim AS integer), "
+                "CAST(:now AS timestamptz))"
             ),
             {
                 "ips": [b[0] for b in given],
@@ -165,9 +170,44 @@ async def fold(
                 "tags": PLAIN if tags is None else tags,
                 "idle": idle,
                 "lim": limit,
+                "now": datetime.now(UTC) if as_of is CLOCK else as_of,
             },
         )
     return int(value)
+
+
+async def restore(engine: AsyncEngine, ids: list[str]) -> list[str]:
+    async with engine.begin() as conn:
+        got = await conn.scalars(
+            text("SELECT restore_folded_sessions(CAST(:ids AS text[]))"), {"ids": ids}
+        )
+        return sorted(got.all())
+
+
+EVENT = text(
+    "INSERT INTO events (ts, sensor, session_id, type, src_ip, src_port, dst_port, data, tags)"
+    " VALUES (:ts, :sensor, :sid, :type, CAST(CAST(:ip AS text) AS inet), 1, :port,"
+    " CAST(:data AS jsonb), CAST(:tags AS text[]))"
+)
+
+
+async def add_events(engine: AsyncEngine, *events: dict[str, Any]) -> None:
+    """Events with defaults: an RDP connect of SRC on port 3389, no data, no tags."""
+    base = {"sensor": "rdp", "type": "connect", "ip": SRC, "port": 3389, "data": {}, "tags": []}
+    async with engine.begin() as conn:
+        for ev in events:
+            values = {**base, **ev}
+            await conn.execute(EVENT, {**values, "data": json.dumps(values["data"])})
+
+
+def story(r: dict[str, Any], *, logins: int = 1) -> list[dict[str, Any]]:
+    """The events of one seeded row: a connect, ``logins`` login attempts and a disconnect."""
+    at = r["started"]
+    out = [{"ts": at, "sid": r["sid"], "sensor": r["sensor"], "port": r["dst_port"]}]
+    for k in range(logins):
+        out.append({**out[0], "ts": at + timedelta(milliseconds=500 + k), "type": "login_attempt"})
+    out.append({**out[0], "ts": r["ended"] or r["last"], "type": "disconnect"})
+    return out
 
 
 async def table(engine: AsyncEngine, where: str = "true") -> list[dict[str, Any]]:
@@ -336,33 +376,28 @@ async def test_a_closed_connection_folds_at_once(owner: AsyncEngine) -> None:
 # ---- what never folds -----------------------------------------------------------------------
 
 
-async def test_an_hour_with_a_demo_event_never_folds(owner: AsyncEngine) -> None:
-    await seed(owner, plain_rows(25))
-    event = text(
-        "INSERT INTO events (ts, sensor, session_id, type, src_ip, src_port, dst_port, data)"
-        " VALUES (:ts, :sensor, 'x', 'connect', CAST(CAST(:ip AS text) AS inet), 1, 3389,"
-        " CAST(:data AS jsonb))"
-    )
-    async with owner.begin() as conn:  # none of these is a demo event of this bucket
-        for ts, sensor, ip, data in (
-            (HOUR + timedelta(hours=1, minutes=1), "rdp", SRC, {"demo": True}),
-            (HOUR + timedelta(minutes=1), "ssh", SRC, {"demo": True}),
-            (HOUR + timedelta(minutes=1), "rdp", "203.0.113.99", {"demo": True}),
-            (HOUR + timedelta(minutes=1), "rdp", SRC, {"demo": False}),
-        ):
-            await conn.execute(
-                event, {"ts": ts, "sensor": sensor, "ip": ip, "data": json.dumps(data)}
-            )
-    assert await fold(owner) == 25
-    await seed(owner, plain_rows(25, "d", hour=PREV))
-    async with owner.begin() as conn:
-        await conn.execute(
-            event,
-            {"ts": PREV + timedelta(minutes=5), "sensor": "rdp", "ip": SRC,
-             "data": json.dumps({"demo": True})},
-        )  # fmt: skip
-    assert await fold(owner, [(SRC, "rdp", PREV)]) == 0
-    assert len(await singles(owner)) == 25
+async def test_a_connection_with_a_demo_event_never_folds(owner: AsyncEngine) -> None:
+    """Demo data must never end up inside a group (the network node checks demo per session).
+    The test reads the events of the row itself, not every event of the source's hour."""
+    rows = plain_rows(25)
+    await seed(owner, rows)
+    for r in rows:
+        await add_events(owner, *story(r))
+    demo = {"data": {"demo": True}, "type": "scan"}
+    await add_events(
+        owner,
+        # inside the rows' own time: these two keep their row
+        {**demo, "ts": rows[3]["started"] + timedelta(seconds=1), "sid": rows[3]["sid"]},
+        {**demo, "ts": rows[9]["started"] + timedelta(seconds=1), "sid": rows[9]["sid"],
+         "data": {"demo": "true"}},
+        # another session of the same source and hour, and a demo flag set to false
+        {**demo, "ts": HOUR + timedelta(minutes=1), "sid": "someone-else"},
+        {**demo, "ts": rows[5]["started"], "sid": rows[5]["sid"], "data": {"demo": False}},
+        # the same id, but outside the row's own time
+        {**demo, "ts": rows[7]["started"] - timedelta(minutes=5), "sid": rows[7]["sid"]},
+    )  # fmt: skip
+    assert await fold(owner) == 23
+    assert [r["session_id"] for r in await singles(owner)] == ["p003", "p009"]
 
 
 async def test_a_connection_with_an_indicator_keeps_its_row(owner: AsyncEngine) -> None:
@@ -396,6 +431,162 @@ async def test_tags_other_than_the_plain_ones_never_fold(owner: AsyncEngine) -> 
     assert await fold(owner, tags=None) == 0  # the first 25 still carry a tag outside the set
 
 
+async def test_the_function_refuses_cve_payload_and_severe_tags_whatever_it_is_given(
+    owner: AsyncEngine,
+) -> None:
+    """A careless (or compromised) caller cannot call a payload tag plain."""
+    for prefix, tag in (("m", "malware-drop"), ("c", "CVE-2026-0001"), ("x", "exploit"),
+                        ("b", "bluekeep"), ("e", "eternalblue")):  # fmt: skip
+        await seed(owner, plain_rows(22, prefix, tags=[tag]))
+        assert await fold(owner, tags=[*PLAIN, tag]) == 0
+    assert len(await singles(owner)) == 5 * 22 and await groups(owner) == []
+    await seed(owner, plain_rows(22, "ok"))  # the plain ones of the same list still fold
+    assert await fold(owner, tags=[*PLAIN, "malware-drop", "cve-2026-0001"]) == 22
+
+
+@pytest.mark.parametrize(
+    ("sensor", "extra", "folds"),
+    [("rdp", 3, True), ("rdp", 4, False), ("smb", 4, False), ("sip", 4, True), ("sip", 5, False)],
+)
+async def test_a_connection_with_more_events_than_its_logins_explain_keeps_its_row(
+    owner: AsyncEngine, sensor: str, extra: int, folds: bool
+) -> None:
+    """A payload sent as a scan event, untagged, is still more than a plain connection holds:
+    connect, disconnect, the handshake (and on SIP its first message and summary)."""
+    await seed(owner, plain_rows(24, sensor=sensor))
+    await seed(owner, [row("odd", offset_s=2000, sensor=sensor, logins=2, events=2 + extra)])
+    assert await fold(owner, [(SRC, sensor, HOUR)]) == (25 if folds else 24)
+    assert [r["session_id"] for r in await singles(owner)] == ([] if folds else ["odd"])
+
+
+async def test_idle_is_measured_against_the_callers_progress_not_the_clock(
+    owner: AsyncEngine,
+) -> None:
+    """A connection with no disconnect, silent for 20 minutes in the database, is not idle when
+    the caller has stored the streams only up to 10 minutes ago: its later events may be queued."""
+    now = datetime.now(UTC)
+    started = now - timedelta(minutes=21)
+    hour = started.replace(minute=0, second=0, microsecond=0)
+    last = started + timedelta(minutes=1)
+    rows = [row(f"o{i:02d}", hour=started, ended=None, last=last) for i in range(25)]
+    await seed(owner, rows)
+    lagging = last + timedelta(minutes=10)
+    assert await fold(owner, [(SRC, "rdp", hour)], as_of=lagging) == 0
+    assert await fold(owner, [(SRC, "rdp", hour)], as_of=None) == 0  # unknown: only ended rows
+    # A progress in the future counts as now, never later.
+    young = [row(f"y{i:02d}", hour=started, ended=None, last=now - timedelta(minutes=3))
+             for i in range(5)]  # fmt: skip
+    await seed(owner, young)
+    assert await fold(owner, [(SRC, "rdp", hour)], as_of=now + timedelta(hours=2)) == 25
+    assert sorted(r["session_id"] for r in await singles(owner)) == [f"y{i:02d}" for i in range(5)]
+
+
+async def test_a_connection_that_ended_folds_whatever_the_progress(owner: AsyncEngine) -> None:
+    await seed(owner, plain_rows(25))
+    assert await fold(owner, as_of=None) == 25
+
+
+# ---- a late event of a folded connection ----------------------------------------------------
+
+
+async def folded_flood(owner: AsyncEngine, n: int = 25) -> list[dict[str, Any]]:
+    """``n`` plain connections with their events, folded into one group."""
+    rows = plain_rows(n)
+    await seed(owner, rows)
+    for r in rows:
+        await add_events(owner, *story(r))
+    assert await fold(owner) == n
+    return rows
+
+
+async def late_row(owner: AsyncEngine, r: dict[str, Any], **over: Any) -> None:
+    """What the writer's upsert leaves for a late event of ``r``: a fresh row from it alone."""
+    late = r["started"] + timedelta(minutes=30)
+    fields = {
+        "started": late, "ended": None, "last": late, "events": 1, "logins": 0, "tags": [],
+        "abuse": None, "scanner": None, **over,
+    }  # fmt: skip
+    await seed(owner, [row(r["sid"], **fields)])
+    await add_events(owner, {"ts": late, "sid": r["sid"], "type": "command",
+                             "data": {"input": "uname -a"}})  # fmt: skip
+
+
+async def test_a_late_event_gives_a_folded_connection_its_row_back(owner: AsyncEngine) -> None:
+    rows = await folded_flood(owner)
+    (before,) = await groups(owner)
+    await late_row(owner, rows[4], cmds=1)
+
+    assert await restore(owner, [rows[4]["sid"], "unknown-id", before["session_id"]]) == ["p004"]
+
+    (g,) = await groups(owner)
+    assert g["session_id"] == before["session_id"]
+    assert (g["connections"], g["event_count"], g["login_attempts"]) == (
+        24, before["event_count"] - 3, before["login_attempts"] - 1,
+    )  # fmt: skip
+    (r,) = await singles(owner)
+    assert r["session_id"] == "p004" and r["started_at"] == rows[4]["started"]  # its first event
+    assert (r["event_count"], r["login_attempts"], r["commands"]) == (4, 1, 1)
+    assert r["ended_at"] == rows[4]["ended"] and r["last_event_at"] > rows[4]["ended"]
+    assert r["benign"] is False
+    assert await total_connections(owner) == 25  # counted once
+    async with AsyncSession(owner) as session:  # every event is read from one place
+        group = await session.get(SessionRow, g["session_id"])
+        own = await session.get(SessionRow, "p004")
+        assert group is not None and own is not None
+        in_group = (await session.execute(group_events_select(group))).scalars().all()
+        assert "p004" not in {e.session_id for e in in_group} and len(in_group) == 24 * 3
+        mine = (await session.execute(session_events_select(own))).scalars().all()
+        assert len(mine) == 4
+
+    assert await restore(owner, ["p004"]) == []  # once is enough
+
+
+async def test_restoring_the_last_connection_of_a_group_removes_the_group(
+    owner: AsyncEngine,
+) -> None:
+    """A group of the next hour can hold a single connection (it continues the hour before)."""
+    first = plain_rows(25, "a", hour=PREV)
+    await seed(owner, first)
+    assert await fold(owner, [(SRC, "rdp", PREV)]) == 25
+    (alone,) = plain_rows(1, "b")
+    await seed(owner, [alone])
+    await add_events(owner, *story(alone))
+    assert await fold(owner) == 1
+    assert sorted(g["connections"] for g in await groups(owner)) == [1, 25]
+    await late_row(owner, alone)
+    assert await restore(owner, ["b000"]) == ["b000"]
+    assert [g["connections"] for g in await groups(owner)] == [25]
+    assert await total_connections(owner) == 26
+
+
+async def test_the_group_that_agrees_on_the_login_stage_is_the_one_that_gives_it_back(
+    owner: AsyncEngine,
+) -> None:
+    rows = plain_rows(15, "t") + plain_rows(15, "n", logins=0, events=2)
+    await seed(owner, rows)
+    for r in rows:
+        await add_events(owner, *story(r, logins=r["logins"]))
+    assert await fold(owner) == 30
+    before = {g["login_attempts"] > 0: g for g in await groups(owner)}
+    await late_row(owner, rows[20])  # n005: never tried a password
+    assert await restore(owner, ["n005"]) == ["n005"]
+    after = {g["login_attempts"] > 0: g for g in await groups(owner)}
+    assert after[True]["connections"] == before[True]["connections"] == 15
+    assert after[False]["connections"] == 14
+    assert await total_connections(owner) == 30
+
+
+async def test_restore_leaves_a_row_with_no_earlier_events_alone(owner: AsyncEngine) -> None:
+    await seed(owner, [row("fresh")])
+    await add_events(owner, {"ts": HOUR, "sid": "fresh"})
+    before = await table(owner)
+    assert await restore(owner, ["fresh"]) == []
+    assert await restore(owner, []) == []
+    assert await table(owner) == before
+    with pytest.raises(DBAPIError, match="too many sessions"):
+        await restore(owner, [f"x{i}" for i in range(5001)])
+
+
 async def test_a_group_row_is_never_folded_again_and_the_call_is_idempotent(
     owner: AsyncEngine,
 ) -> None:
@@ -405,11 +596,11 @@ async def test_a_group_row_is_never_folded_again_and_the_call_is_idempotent(
     assert await fold(owner) == 0
     assert await table(owner) == before
     # Late rows of the same hour join the existing group, whatever their number.
-    await seed(owner, [row("late1", offset_s=3000), row("late2", offset_s=3010, events=7)])
+    await seed(owner, [row("late1", offset_s=3000), row("late2", offset_s=3010, events=4)])
     assert await fold(owner) == 2
     (g,) = await groups(owner)
     assert (g["session_id"], g["connections"]) == (before[0]["session_id"], 32)
-    assert g["event_count"] == before[0]["event_count"] + 3 + 7
+    assert g["event_count"] == before[0]["event_count"] + 3 + 4
     assert g["last_event_at"] == HOUR + timedelta(seconds=3010 + 2)
 
 
@@ -476,7 +667,7 @@ async def test_malformed_buckets(owner: AsyncEngine) -> None:
     async with owner.begin() as conn:
         assert (
             await conn.scalar(
-                text("SELECT fold_session_buckets(NULL, NULL, NULL, 20, NULL, NULL, 10)")
+                text("SELECT fold_session_buckets(NULL, NULL, NULL, 20, NULL, NULL, 10, NULL)")
             )
             == 0
         )
@@ -485,7 +676,7 @@ async def test_malformed_buckets(owner: AsyncEngine) -> None:
                 text(
                     "SELECT fold_session_buckets(ARRAY[CAST('203.0.113.1' AS inet)], "
                     "ARRAY['rdp', 'ssh'], ARRAY[now()], 20, ARRAY['scanner'], "
-                    "interval '15 minutes', 10)"
+                    "interval '15 minutes', 10, now())"
                 )
             )
     async with owner.begin() as conn:
@@ -495,7 +686,7 @@ async def test_malformed_buckets(owner: AsyncEngine) -> None:
                     "SELECT fold_session_buckets("
                     "array_fill(CAST('203.0.113.1' AS inet), ARRAY[5001]), "
                     "array_fill('rdp'::text, ARRAY[5001]), array_fill(now(), ARRAY[5001]), 20, "
-                    "ARRAY['scanner'], interval '15 minutes', 10)"
+                    "ARRAY['scanner'], interval '15 minutes', 10, now())"
                 )
             )
 
@@ -548,12 +739,17 @@ async def test_ingest_can_execute_the_function_but_not_delete_sessions(owner: As
             await conn.execute(text("CREATE TEMP TABLE sessions (session_id text)"))
         assert await fold(ingest) == 25
         assert len(await groups(owner)) == 1
+        assert await restore(ingest, ["p000"]) == []  # ingest may call it too
+        with pytest.raises(DBAPIError) as refused:
+            await restore(api, ["p000"])
+        assert getattr(refused.value.orig, "sqlstate", None) == "42501"
     finally:
         await ingest.dispose()
         await api.dispose()
 
 
-async def test_the_function_is_owned_and_locked_down(owner: AsyncEngine) -> None:
+@pytest.mark.parametrize("name", ["fold_session_buckets", "restore_folded_sessions"])
+async def test_the_function_is_owned_and_locked_down(owner: AsyncEngine, name: str) -> None:
     async with owner.connect() as conn:
         info = (
             await conn.execute(
@@ -564,16 +760,14 @@ async def test_the_function_is_owned_and_locked_down(owner: AsyncEngine) -> None
                     " AS ingest_exec,"
                     " has_function_privilege(CAST(CAST(:api AS text) AS name), oid, 'EXECUTE')"
                     " AS api_exec"
-                    " FROM pg_proc WHERE proname = 'fold_session_buckets'"
+                    " FROM pg_proc WHERE proname = :name"
                 ),
-                {"ingest": ENV["POSTGRES_INGEST_USER"], "api": ENV["POSTGRES_API_USER"]},
+                {"ingest": ENV["POSTGRES_INGEST_USER"], "api": ENV["POSTGRES_API_USER"],
+                 "name": name},
             )
         ).mappings().one()  # fmt: skip
         assert info["prosecdef"] is True
-        assert set(info["proconfig"]) == {
-            "search_path=pg_catalog, public, pg_temp",
-            "lock_timeout=2s",
-        }
+        assert set(info["proconfig"]) == {"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}
         assert info["owner"] == ENV.get("POSTGRES_USER", "suckerpot")
         assert (info["public_exec"], info["ingest_exec"], info["api_exec"]) == (False, True, False)
         can_delete = await conn.scalar(
@@ -675,7 +869,7 @@ async def test_sessions_daily_is_the_same_with_and_without_folding(owner: AsyncE
     def day_rows(sensor: str) -> list[dict[str, Any]]:
         rows = plain_rows(30, f"{sensor}-", hour=OLD_DAY, sensor=sensor)
         for i, r in enumerate(rows):
-            r.update(events=2 + i % 4, logins=1 + i % 3)
+            r.update(logins=1 + i % 3, events=2 + i % 3 + i % 2)
         win = row(f"{sensor}-win", 1900, hour=OLD_DAY, sensor=sensor, ok=True, cmds=3, dl=1, http=2)
         return [*rows, win]
 
@@ -733,6 +927,9 @@ async def test_the_downgrade_refuses_while_groups_exist_and_round_trips_otherwis
             await conn.scalar(text("SELECT to_regclass('ix_sessions_src_ip') IS NOT NULL")) is True
         )
         assert await conn.scalar(text("SELECT to_regproc('fold_session_buckets') IS NULL")) is True
+        assert (
+            await conn.scalar(text("SELECT to_regproc('restore_folded_sessions') IS NULL")) is True
+        )
         assert await conn.scalar(text("SELECT count(*) FROM sessions")) == 1  # the row it kept
         # The old maintenance body runs on the old table.
         await conn.execute(text("CALL suckerpot_maintenance(0, CAST('{}' AS jsonb))"))

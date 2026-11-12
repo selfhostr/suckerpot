@@ -582,9 +582,19 @@ def test_the_flood_migration_text() -> None:
     from suckerpot_db.locks import SESSION_FOLD
 
     script = (VERSIONS / "0034_session_floods.py").read_text()
-    assert "SET search_path = pg_catalog, public, pg_temp" in script
-    assert "SECURITY DEFINER" in script and "SET lock_timeout = '2s'" in script
+    # Both functions: owner rights, every name schema-qualified, nothing from public on the path.
+    assert script.count("SET search_path = pg_catalog, pg_temp") == 2
+    assert "search_path = pg_catalog, public" not in script
+    assert script.count("LANGUAGE plpgsql SECURITY DEFINER") == 2
+    assert script.count("SET lock_timeout = '2s'") == 2
     assert "REVOKE ALL ON FUNCTION {SIGNATURE} FROM PUBLIC" in script
+    assert "REVOKE ALL ON FUNCTION {RESTORE_SIGNATURE} FROM PUBLIC" in script
+    assert "DROP FUNCTION IF EXISTS {RESTORE_SIGNATURE}" in script
+    # The refused tags are checked in SQL, whatever list the caller passes.
+    assert "lower(t) NOT LIKE 'cve-%'" in script and "ARRAY[{_REFUSED_SQL}]" in script
+    # Bounded: the demo test reads only the row's own events, never the source's whole hour.
+    assert "e.session_id = s.session_id" in script
+    assert "e.src_ip = r.src" not in script
     assert "pg_try_advisory_xact_lock({SESSION_FOLD})" in script  # the key comes from locks.py
     assert SESSION_FOLD == 34_001
     assert "FOR UPDATE OF s SKIP LOCKED" in script
@@ -612,8 +622,13 @@ def test_ingest_may_execute_the_fold_function_but_never_delete_sessions() -> Non
     assert (
         "_fold text := 'public.fold_session_buckets(inet[], text[], timestamptz[]" in _GRANTS_INGEST
     )
+    assert "'text[], interval, integer, timestamptz)'" in _GRANTS_INGEST
+    assert "_restore text := 'public.restore_folded_sessions(text[])'" in _GRANTS_INGEST
     assert "IF to_regprocedure(_fold) IS NOT NULL THEN" in _GRANTS_INGEST
     assert "GRANT EXECUTE ON FUNCTION %s TO %I', _fold, r" in _GRANTS_INGEST
-    assert "fold_session_buckets" not in _GRANTS_API + _GRANTS_COLLECTOR + _GRANTS_ANALYZER
+    assert "IF to_regprocedure(_restore) IS NOT NULL THEN" in _GRANTS_INGEST
+    assert "GRANT EXECUTE ON FUNCTION %s TO %I', _restore, r" in _GRANTS_INGEST
+    others = _GRANTS_API + _GRANTS_COLLECTOR + _GRANTS_ANALYZER
+    assert "fold_session_buckets" not in others and "restore_folded_sessions" not in others
     assert _grants(_GRANTS_INGEST)["sessions"] == {"SELECT", "INSERT", "UPDATE"}
     assert _grants(_GRANTS_API)["sessions"] == {"SELECT"}
