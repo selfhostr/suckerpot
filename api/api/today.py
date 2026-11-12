@@ -31,6 +31,7 @@ from suckerpot_db.models import (
     InventoryServiceRow,
     SessionRow,
 )
+from suckerpot_db.session_counts import sessions_count
 
 from api.benign import IncludeBenign, visible_sessions
 from api.deps import DbSession
@@ -202,15 +203,17 @@ async def _happened(db: AsyncSession, now: datetime, include_benign: bool) -> To
     row = (
         await db.execute(
             select(
-                func.count().label("n"),
+                sessions_count().label("n"),
                 func.count(func.distinct(s.src_ip)).label("ips"),
-                func.count().filter(s.commands > 0).label("cmds"),
+                sessions_count(s.commands > 0).label("cmds"),
             ).where(s.started_at >= since, *vis)
         )
     ).one()
     previous = int(
         await db.scalar(
-            select(func.count()).where(s.started_at >= since - WINDOW, s.started_at < since, *vis)
+            select(sessions_count()).where(
+                s.started_at >= since - WINDOW, s.started_at < since, *vis
+            )
         )
         or 0
     )
@@ -218,28 +221,28 @@ async def _happened(db: AsyncSession, now: datetime, include_benign: bool) -> To
     if row.n:
         sensor = (
             await db.execute(
-                select(s.sensor, func.count().label("n"))
+                select(s.sensor, sessions_count().label("n"))
                 .where(s.started_at >= since, *vis)
                 .group_by(s.sensor)
-                .order_by(func.count().desc(), s.sensor)
+                .order_by(sessions_count().desc(), s.sensor)
                 .limit(1)
             )
         ).first()
         country = (
             await db.execute(
-                select(s.country, func.count().label("n"))
+                select(s.country, sessions_count().label("n"))
                 .where(s.started_at >= since, s.country.is_not(None), *vis)
                 .group_by(s.country)
-                .order_by(func.count().desc(), s.country)
+                .order_by(sessions_count().desc(), s.country)
                 .limit(1)
             )
         ).first()
         tag = (
             await db.execute(
-                select(func.unnest(s.tags).label("tag_name"), func.count().label("n"))
+                select(func.unnest(s.tags).label("tag_name"), sessions_count().label("n"))
                 .where(s.started_at >= since, *vis)
                 .group_by(func.unnest(s.tags))
-                .order_by(func.count().desc(), func.unnest(s.tags))
+                .order_by(sessions_count().desc(), func.unnest(s.tags))
                 .limit(1)
             )
         ).first()
@@ -325,10 +328,10 @@ async def _act(db: AsyncSession, now: datetime, include_benign: bool) -> TodayCa
     i, s = IndicatorRow, SessionRow
     since = now - WINDOW
     host_where = (i.role == "download_host", i.type.in_(("domain", "ip")), i.last_seen >= since)
-    hosts = int(await db.scalar(select(func.count()).where(*host_where)) or 0)
+    hosts = int(await db.scalar(select(func.count(i.id)).where(*host_where)) or 0)
     blocklist_ips = int(
         await db.scalar(
-            select(func.count()).where(
+            select(func.count(BlocklistEntryRow.value)).where(
                 BlocklistEntryRow.kind == "ip",
                 BlocklistEntryRow.score >= BLOCK_SCORE,
                 BlocklistEntryRow.benign.is_(False),
@@ -342,7 +345,7 @@ async def _act(db: AsyncSession, now: datetime, include_benign: bool) -> TodayCa
         (s.downloads > 0) | s.tags.overlap(SEVERE_TAGS),
         *visible_sessions(include_benign),
     )
-    severe = int(await db.scalar(select(func.count()).where(*severe_where)) or 0)
+    severe = int(await db.scalar(select(sessions_count()).where(*severe_where)) or 0)
     items: list[TodayItem] = []
     if hosts:
         for r in (
@@ -439,7 +442,7 @@ async def _exposure(db: AsyncSession, now: datetime, include_benign: bool) -> To
         r.sensor: r.n
         for r in (
             await db.execute(
-                select(s.sensor, func.count().label("n"))
+                select(s.sensor, sessions_count().label("n"))
                 .where(s.started_at >= now - WINDOW, *visible_sessions(include_benign))
                 .group_by(s.sensor)
             )
@@ -482,7 +485,9 @@ async def build_today(db: AsyncSession, now: datetime, *, include_benign: bool) 
     if not include_benign:
         hidden = int(
             await db.scalar(
-                select(func.count()).where(SessionRow.started_at >= now - WINDOW, SessionRow.benign)
+                select(sessions_count()).where(
+                    SessionRow.started_at >= now - WINDOW, SessionRow.benign
+                )
             )
             or 0
         )
@@ -523,7 +528,7 @@ async def benign_count(db: DbSession) -> BenignCount:
     s = SessionRow
     row = (
         await db.execute(
-            select(func.count(), func.count(func.distinct(s.src_ip))).where(
+            select(sessions_count(), func.count(func.distinct(s.src_ip))).where(
                 s.started_at >= datetime.now(UTC) - WINDOW, s.benign
             )
         )

@@ -33,6 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.models import EventRow, SessionRow
+from suckerpot_db.session_counts import sessions_count
 
 from api.benign import visible_events, visible_sessions
 from api.schemas import LiveEvent, LiveStats, SensorCounts
@@ -417,14 +418,14 @@ async def fetch_stats(session: AsyncSession, *, include_benign: bool = True) -> 
     since = datetime.now(UTC) - timedelta(seconds=60)
     ev = (
         await session.execute(
-            select(EventRow.sensor, func.count())
+            select(EventRow.sensor, func.count(EventRow.id))
             .where(EventRow.ts >= since, *visible_events(include_benign))
             .group_by(EventRow.sensor)
         )
     ).all()
     ses = (
         await session.execute(
-            select(SessionRow.sensor, func.count())
+            select(SessionRow.sensor, sessions_count())
             .where(SessionRow.started_at >= since, *visible_sessions(include_benign))
             .group_by(SessionRow.sensor)
         )

@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.sqltypes import Text
 from suckerpot_db.event_bounds import SLACK
 from suckerpot_db.models import AttackTechniqueRow, CampaignRow, EventRow, SessionRow
+from suckerpot_db.session_counts import sessions_count
 
 from api.benign import IncludeBenign, visible_sessions
 from api.country_names import country_name
@@ -695,14 +696,14 @@ async def _compute(session: AsyncSession, hours: int, include_benign: bool) -> S
     t = (
         await session.execute(
             select(
-                func.count(),
+                sessions_count(),
                 func.count(func.distinct(s.src_ip)),
                 func.count(func.distinct(s.country)),
-                func.count().filter(s.login_attempts > 0),
-                func.count().filter(s.login_success),
-                func.count().filter(s.commands > 0),
-                func.count().filter(download_expr()),
-                func.count().filter(exploit_expr()),
+                sessions_count(s.login_attempts > 0),
+                sessions_count(s.login_success),
+                sessions_count(s.commands > 0),
+                sessions_count(download_expr()),
+                sessions_count(exploit_expr()),
             ).where(*where)
         )
     ).one()
@@ -720,7 +721,7 @@ async def _compute(session: AsyncSession, hours: int, include_benign: bool) -> S
     # --- funnel rows: (country, sensor, stage) -> sessions
     groups = (
         await session.execute(
-            select(country, s.sensor, stage, func.count())
+            select(country, s.sensor, stage, sessions_count())
             .where(*where)
             .group_by(country, s.sensor, stage)
             .limit(MAX_GROUP_ROWS)
@@ -786,7 +787,7 @@ async def _flow(
                     s.country,
                     s.asn,
                     func.count(func.distinct(s.src_ip)),
-                    func.count(),
+                    sessions_count(),
                     func.max(s.org),
                 )
                 .where(*where, s.country.in_(top))
@@ -875,7 +876,7 @@ async def _timeline(
     )
     rows = (
         await session.execute(
-            select(bucket, s.sensor, stage_expr().label("stage"), func.count())
+            select(bucket, s.sensor, stage_expr().label("stage"), sessions_count())
             .where(*where)
             .group_by(bucket, s.sensor, text("stage"))
             .limit(MAX_GROUP_ROWS)
@@ -932,7 +933,9 @@ async def _stories(session: AsyncSession, where: list[Any], now: datetime) -> li
             )
             .label("k"),
         )
-        .where(*where)
+        # A flood group has no story of its own: it stands for connections that never did
+        # anything beyond what its row says, and the funnel above already counts them.
+        .where(*where, s.kind == "session")
         .subquery()
     )
     rows = (

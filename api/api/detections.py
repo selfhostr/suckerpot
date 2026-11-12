@@ -19,10 +19,12 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from suckerpot_db.session_counts import sql_sessions_count
 
 from api import guidance, rulegen
 from api.cursor import InvalidCursorError, decode_cursor, encode_cursor
 from api.deps import DbSession
+from api.session_floods import SQL_LAST_SEEN
 
 router = APIRouter(tags=["detections"])
 
@@ -297,8 +299,10 @@ async def check_at_work(db: DbSession, days: Days = 30) -> GuidancePage:
     rows = (
         await db.execute(
             text(
-                "SELECT t AS tag, count(*) AS sessions, count(DISTINCT src_ip) AS sources, "
-                "max(started_at) AS last_seen FROM sessions CROSS JOIN LATERAL unnest(tags) AS t "
+                f"SELECT t AS tag, {sql_sessions_count()} AS sessions, "  # noqa: S608 (constants only)
+                "count(DISTINCT src_ip) AS sources, "
+                f"{SQL_LAST_SEEN} AS last_seen "
+                "FROM sessions CROSS JOIN LATERAL unnest(tags) AS t "
                 "WHERE started_at >= :since AND NOT benign GROUP BY t"
             ),
             {"since": since},
