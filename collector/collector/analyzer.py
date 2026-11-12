@@ -178,14 +178,13 @@ class AnalyzerService:
                 # local indicator, no child fetch target, no C2 indicator (design 8.6).
                 await self._links(session, sha, result.iocs, now, follow=False)
                 return
-            web = result.file.kind in WEB_KINDS
-            if web and result.severity == "info" and not result.yara:
-                # Ordinary web content (a page, an image, a style sheet): kept and shown, but it
-                # is no threat intelligence, so no hash indicator, and it has no next stage.
+            if result.file.kind in WEB_KINDS and result.severity == "info" and not result.yara:
+                # Ordinary web content (a page, an image, a style sheet) that no rule matched:
+                # kept and shown, but it is no threat intelligence, so no hash indicator, and the
+                # analysis extracted no links. One that a rule matched is handled like any text.
                 return
             await self._hash_indicator(session, sha, now)
-            # Whatever a rule found in web content, its links are never followed.
-            await self._links(session, sha, result.iocs, now, follow=not web)
+            await self._links(session, sha, result.iocs, now)
 
     @staticmethod
     async def _verify_only(session: AsyncSession, sha: str) -> bool:

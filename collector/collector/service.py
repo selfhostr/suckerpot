@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from suckerpot_analysis import WEB_KINDS
+from suckerpot_db.sample_kinds import benign_web_sample
 from suckerpot_egress import EgressClosed, EgressGate, egress_client
 
 from collector import fetch as fx
@@ -51,14 +51,21 @@ class Target:
     attempts: int
     fetches: int
     origin: str = "local"  # M32: "network_verify" rows are fetched for the network only
-    # Found inside a web page and never typed by an attacker: not fetched (see WEB_PARENT).
+    # Found inside an ordinary web page (no rule matched it) and never typed by an attacker: not
+    # fetched (see WEB_PARENT).
     web_parent: bool = False
 
 
 VERIFY_ORIGIN = "network_verify"
 VERIFY_DISABLED = "verify_disabled"
-# `last_error` of a target that was queued from a web page (the analyzer no longer does that).
+# `last_error` of a target that was queued from an ordinary web page (the analyzer no longer does
+# that). An attacker who later types the same URL puts it back in the queue (`_insert_target`).
 WEB_PARENT = "web_parent"
+# An attacker typed a URL that was only refused as `web_parent`: it goes back in the queue.
+_REVIVE = (
+    "(fetch_targets.status = 'refused' AND fetch_targets.last_error = 'web_parent' "
+    "AND EXCLUDED.status = 'pending' AND EXCLUDED.indicator_id IS NOT NULL)"
+)
 
 
 def _utcnow() -> datetime:
@@ -131,7 +138,7 @@ class CollectorService:
             host = raw.split("//", 1)[-1].split("/", 1)[0][:255]
         await session.execute(
             text(
-                """
+                f"""
                 INSERT INTO fetch_targets
                     (url, scheme, host, indicator_id, depth, status, last_error, first_seen,
                      next_attempt_at)
@@ -140,8 +147,14 @@ class CollectorService:
                              THEN CAST(:now AS timestamptz) END)
                 ON CONFLICT (url) DO UPDATE
                     SET indicator_id = COALESCE(fetch_targets.indicator_id, EXCLUDED.indicator_id),
-                        origin = 'local'
-                """
+                        origin = 'local',
+                        status = CASE WHEN {_REVIVE} THEN 'pending' ELSE fetch_targets.status END,
+                        last_error = CASE WHEN {_REVIVE} THEN NULL
+                                          ELSE fetch_targets.last_error END,
+                        attempts = CASE WHEN {_REVIVE} THEN 0 ELSE fetch_targets.attempts END,
+                        next_attempt_at = CASE WHEN {_REVIVE} THEN EXCLUDED.next_attempt_at
+                                               ELSE fetch_targets.next_attempt_at END
+                """  # noqa: S608  (constant fragment only)
             ),
             {
                 "url": url, "scheme": scheme, "host": host, "ind": ind_id, "status": status,
@@ -262,16 +275,15 @@ class CollectorService:
             rows = (
                 await session.execute(
                     text(
-                        """
+                        f"""
                         SELECT t.id, t.url, t.host, t.attempts, t.fetches, t.origin,
-                               (t.indicator_id IS NULL
-                                AND COALESCE(p.kind = ANY(:web), false)) AS web_parent
+                               (t.indicator_id IS NULL AND {benign_web_sample("p")}) AS web_parent
                         FROM fetch_targets t LEFT JOIN samples p ON p.sha256 = t.parent_sha256
                         WHERE t.status = 'pending' AND t.next_attempt_at <= :now
                         ORDER BY t.next_attempt_at, t.id LIMIT :n
-                        """
+                        """  # noqa: S608  (constant fragment only)
                     ),
-                    {"now": self._clock(), "n": n, "web": sorted(WEB_KINDS)},
+                    {"now": self._clock(), "n": n},
                 )
             ).all()
         return [Target(*row) for row in rows]

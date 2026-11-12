@@ -334,14 +334,17 @@ async def test_a_target_queued_from_a_web_page_is_not_fetched(
     store.prepare()
     page, script = "a1" * 32, "b2" * 32
     async with owner.begin() as conn:
-        for sha, kind in ((page, "html"), (script, "script")):
+        for sha, kind, severity in ((page, "html", "info"), (script, "script", "notice")):
             await conn.execute(
                 text(
-                    "INSERT INTO samples (sha256, sha1, md5, size, kind, first_seen, last_seen) "
-                    "VALUES (:sha, :sha1, :md5, 10, :kind, :n, :n)"
+                    "INSERT INTO samples (sha256, sha1, md5, size, kind, severity, first_seen, "
+                    "last_seen) VALUES (:sha, :sha1, :md5, 10, :kind, :sev, :n, :n)"
                 ),
-                {"sha": sha, "sha1": sha[:40], "md5": sha[:32], "kind": kind, "n": NOW},
-            )
+                {
+                    "sha": sha, "sha1": sha[:40], "md5": sha[:32], "kind": kind, "sev": severity,
+                    "n": NOW,
+                },
+            )  # fmt: skip
     typed = await add_indicator(owner, f"{HOST}/typed.sh")  # an attacker also typed this one
     queued = [
         (f"{HOST}/page-link.css", page, None),  # found inside a web page
@@ -378,6 +381,58 @@ async def test_a_target_queued_from_a_web_page_is_not_fetched(
     assert by_url[f"{HOST}/script-link.sh"].status == "fetched"
     quota = await rows(owner, "SELECT used FROM enrichment_quota")
     assert [r.used for r in quota] == [2]  # the skipped target spent nothing
+
+
+async def test_a_refused_web_link_is_fetched_once_an_attacker_types_it(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, _ = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    page, flagged = "a1" * 32, "b2" * 32
+    async with owner.begin() as conn:
+        for sha, severity, family in ((page, "info", None), (flagged, "severe", "shell-dropper")):
+            await conn.execute(
+                text(
+                    "INSERT INTO samples (sha256, sha1, md5, size, kind, severity, family, "
+                    "first_seen, last_seen) VALUES "
+                    "(:sha, :sha1, :md5, 10, 'html', :sev, :fam, :n, :n)"
+                ),
+                {
+                    "sha": sha, "sha1": sha[:40], "md5": sha[:32], "sev": severity,
+                    "fam": family, "n": NOW,
+                },
+            )  # fmt: skip
+        for url, parent in ((f"{HOST}/a.css", page), (f"{HOST}/from-flagged.sh", flagged)):
+            await conn.execute(
+                text(
+                    "INSERT INTO fetch_targets (url, scheme, host, parent_sha256, depth, status, "
+                    "first_seen, next_attempt_at) VALUES "
+                    "(:u, 'http', 'files.example.test', :p, 1, 'pending', :n, :n)"
+                ),
+                {"u": url, "p": parent, "n": NOW},
+            )
+    replies = {
+        f"{HOST}/a.css": Reply(body=b"body{margin:0}"),
+        f"{HOST}/from-flagged.sh": Reply(body=b"#!/bin/sh\necho flagged\n"),
+    }
+    proxy = FakeProxy(handler_for(replies))
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        svc = CollectorService(s, coll_f, store, gate, clock=Clock())
+        assert len(await svc.step()) == 2
+        # Only the link of the page no rule matched is skipped; the flagged page's is fetched.
+        assert [u for u, _ in proxy.seen] == [f"{HOST}/from-flagged.sh"]
+        sql = "SELECT status, last_error, attempts FROM fetch_targets WHERE url = :u"
+        skipped = (await rows(owner, sql, u=f"{HOST}/a.css"))[0]
+        assert (skipped.status, skipped.last_error) == ("refused", "web_parent")
+
+        await add_indicator(owner, f"{HOST}/a.css")  # an attacker types the same URL
+        assert len(await svc.step()) == 1
+        assert [u for u, _ in proxy.seen] == [f"{HOST}/from-flagged.sh", f"{HOST}/a.css"]
+        done = (await rows(owner, sql, u=f"{HOST}/a.css"))[0]
+        assert (done.status, done.last_error) == ("fetched", None)
 
 
 async def test_closed_gate_spends_nothing(
