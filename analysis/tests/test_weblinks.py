@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from suckerpot_analysis import CompiledRules, analyze
 from suckerpot_analysis.weblinks import asset_links
 
@@ -41,6 +43,27 @@ def test_style_sheet_assets() -> None:
     assert names(asset_links(svg, "svg")) == {"i.png", "l.svg"}
 
 
+def test_only_real_start_tags_name_assets() -> None:
+    page = (
+        f'<!doctype html><html><body><p>src="{U}/text.js" href={U}/t2.js</p>'
+        f'<!-- <img src="{U}/comment.png"> -->'
+        f"<script>var h='<a href=\"{U}/in-script.js\">';</script>"
+        f'<b src="{U}/not-loaded.js">x</b><span href="{U}/span.js">y</span>'
+        f'<textarea><img src="{U}/textarea.png"></textarea>'
+        f'<noscript><img src="{U}/noscript.png"></noscript>'
+        f'<style>/* url({U}/css-comment.png) */ a{{content:"url({U}/css-string.png)";'
+        f"background:url({U}/real.png)}}</style>"
+        f"<img src=\"{U}/ok.png\"><a href='{U}/next.html'>n</a></body></html>"
+    )
+    assert names(asset_links(page, "html")) == {"real.png", "ok.png", "next.html"}
+
+
+def test_the_polyglot_page_names_no_asset() -> None:
+    # The first line opens a <b> tag; `src` is not an attribute a <b> loads.
+    poly = f'<b x\nsrc="{U}/s2.js"\npython3 - "$src" <<\'E\'\nimport sys\nE\nnode /tmp/s\n'
+    assert asset_links(poly, "html") == frozenset()
+
+
 def test_other_kinds_have_no_assets() -> None:
     for kind in ("javascript", "json", "xml", "text", "script"):
         assert asset_links(PAGE, kind) == frozenset(), kind
@@ -50,6 +73,18 @@ def test_unterminated_markup_and_styles_stay_linear_and_safe() -> None:
     hostile = '<a href="' + "x" * 300_000 + "<style>" + "url(" * 50_000
     assert asset_links(hostile, "html") == frozenset()
     assert asset_links("url(" * 200_000, "css") == frozenset()
+    for text, kind in (
+        ("<a " + "x " * 500_000, "html"),  # one tag, many attributes, never closed
+        ("<" * 1_000_000, "html"),
+        ("<a href=x>" * 100_000, "html"),
+        ("<style>" + '"x' * 400_000, "html"),
+        ("<!--" * 250_000, "html"),
+        ('"x\\' * 300_000, "css"),
+        ("/*x" * 300_000, "css"),
+    ):
+        start = time.monotonic()
+        asset_links(text, kind)
+        assert time.monotonic() - start < 2.0, (text[:20], kind)
 
 
 def test_the_analysis_labels_each_next_url(rules: CompiledRules) -> None:
