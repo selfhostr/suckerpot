@@ -39,8 +39,9 @@ Rules live in `ingest/rules/services.yaml`.
 | `sql-rce` | `udf` (for example `CREATE FUNCTION ... SONAME` or `sys_exec`). |
 | `db-ransom` | `ransom_note` (a write that mentions bitcoin, wallet or a recovery message) or `drop_database`. |
 | `malware-drop` | Any `download_attempt`. |
+| `service-probe` | A read-only query for the version, host or user, or the list of databases and tables (`SELECT @@version`, `SHOW DATABASES`, `information_schema`: the flags `schema_recon` and `show_databases`). A statement that also writes a file, loads a library, changes privileges or delays is not a fingerprint. |
 
-Other flags are shown on the session: `into_outfile`, `load_file`, `load_data_infile`, `log_file_write`, `sql_delay` (`sleep()` and `benchmark()`), `user_dump`, `schema_recon`, `show_databases` and `privilege_change`.
+Other flags are shown on the session: `into_outfile`, `load_file`, `load_data_infile`, `log_file_write`, `sql_delay` (`sleep()` and `benchmark()`), `user_dump` and `privilege_change`. `schema_recon` and `show_databases` tag `service-probe`, as above.
 
 ## Limits
 

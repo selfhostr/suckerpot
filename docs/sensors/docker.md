@@ -42,8 +42,9 @@ Rules live in `ingest/rules/services.yaml`.
 | `container-escape` | `privileged`, `host_mount` (a bind from `/`, `/etc`, `/root`, `/proc`, `/sys`, `/home` and similar), or `docker_sock_mount`. |
 | `crypto-miner` | `miner` (an image, command or environment that names a known miner, such as xmrig or kinsing). |
 | `malware-drop` | Any `download_attempt`. |
+| `service-probe` | A `GET` or `HEAD` that identifies the daemon or lists what it runs: `/_ping`, or any request the sensor flags `recon` (`/version`, `/info`, `/containers/json`, `/images/json`, networks, volumes). Creating or running a container never matches. |
 
-Other flags, such as `pid_host`, `net_host`, `cap_add`, `image_build`, `swarm_join` and `recon`, are shown on the session.
+Other flags, such as `pid_host`, `net_host`, `cap_add`, `image_build` and `swarm_join`, are shown on the session.
 
 ## Limits
 

@@ -19,6 +19,12 @@ describe("tag severity", () => {
     expect(tagSeverity("rdp-cleartext")).toBeNull()
     expect(tagSeverity("recon")).toBeNull()
   })
+  it("keeps the reconnaissance tags informational: never red, never orange", () => {
+    for (const t of ["service-probe", "iot-shell-probe", "env-file-probe", "scanner", "recon"])
+      expect(tagSeverity(t)).toBeNull()
+    expect(isSevereEvent("command", ["iot-shell-probe"])).toBe(false)
+    expect(isSevereEvent("http_request", ["service-probe"])).toBe(false)
+  })
   it("reds only the event that carries the exploit", () => {
     expect(isSevereEvent("download_attempt", [])).toBe(true)
     expect(isSevereEvent("http_request", ["php2shell"])).toBe(true)

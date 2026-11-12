@@ -43,6 +43,7 @@ Rules live in `ingest/rules/services.yaml`.
 | --- | --- |
 | `malware-drop` | `adb_push` or `adb_install`, or any `download_attempt`. |
 | `mirai` | A Mirai-family indicator in a shell command or a recorded download: the BusyBox echo-check with a variant token (`busybox ECCHI`, `busybox MIRAI`, ...) or a Mirai binary name. Plain `busybox` use is not tagged. |
+| `recon` | A device fingerprinting command in a shell: `getprop` (model, CPU and Android version), `screencap`, `id`, `uname` and the like. |
 
 Other flags on the session: `adb_shell`, `adb_pull`, `adb_reboot` and `adb_service`.
 
