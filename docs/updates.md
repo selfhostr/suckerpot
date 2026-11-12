@@ -395,7 +395,7 @@ If `checkout` and `running` differ, the stack has not been restarted since the u
 
 An update from v0.11.2 to v0.11.3 could leave the files of the checkout with mode `0600` (and scripts with `0700`), because the checkout ran under the update's private `umask 077`. In source mode the images are built from those files, and the non-root user inside a container cannot read them: the `migrate` service failed with `PermissionError: [Errno 13] Permission denied: '/app/migrations/versions/...'`, and the update stopped with `ingest`, `api`, `collector` and `analyzer` down. Scripts that the containers mount, such as `scripts/backup-service.sh`, were affected in both install modes.
 
-From the release that follows v0.11.3, the update runs git and the build under `umask 022` and makes the tracked files readable again after every checkout. Only the files git tracks are touched: `.env`, `.env.bak-*`, `hub/.env`, `hub/secrets` and `.suckerpot-state` keep their mode. A node that was already hit is repaired by its next update.
+From v0.11.4, the update runs git and the build under `umask 022` and makes the tracked files readable again after every checkout. Only the files git tracks are touched: `.env`, `.env.bak-*`, `hub/.env`, `hub/secrets` and `.suckerpot-state` keep their mode. A node that was already hit is repaired by its next update.
 
 To repair a node now, run this in the checkout folder. The first line fixes the tracked files and the second the folders that hold them:
 
