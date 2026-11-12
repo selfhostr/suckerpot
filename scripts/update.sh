@@ -19,6 +19,11 @@
 # regression: a service that was healthy (or had no healthcheck) and is not healthy after
 # UPDATE_HEALTH_WAIT_SECONDS (default 180). A service that was already unhealthy is only reported.
 #
+# The state file and .env are private (umask 077 around them), but the checkout and the build are
+# not: whatever umask the caller has (scripts/auto-update.sh runs under 077), git and `docker
+# compose build` run under umask 022 and the tracked files are made readable again afterwards, so
+# the non-root users inside the containers can read them.
+#
 # Exit codes: 0 done, 1 failed, 2 bad usage, 10 failed because of the release itself (a
 # regression, a failed migration, a wrong running version). scripts/auto-update.sh blacklists a version
 # only on 10.
@@ -252,6 +257,7 @@ fi
 
 # ---------------------------------------------------------------- 3. state file
 step 3 "Recording how to roll back"
+caller_umask=$(umask)
 umask 077
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
@@ -282,6 +288,7 @@ ${images_json}
 EOF
 chmod 600 "$tmp"
 mv "$tmp" "$STATE"
+umask "$caller_umask"
 
 changed=0
 on_exit() {
@@ -305,16 +312,19 @@ trap on_exit EXIT
 step 4 "Fetching the new code"
 changed=1
 if [ "$pull_branch" = 1 ]; then
-  git pull --ff-only --quiet || die "git pull --ff-only failed"
+  with_public_umask git pull --ff-only --quiet || die "git pull --ff-only failed"
 else
   # By commit, never by name: a local branch of the same name or a re-pointed tag must not win.
-  git checkout --quiet --detach "$target_commit" || die "could not check out $target"
+  with_public_umask git checkout --quiet --detach "$target_commit" || die "could not check out $target"
 fi
 new_ref=$(git rev-parse HEAD)
 if [ "$pull_branch" = 0 ] && [ "$new_ref" != "$target_commit" ]; then
   die "the checkout is at ${new_ref:0:12}, not the verified ${target_commit:0:12}"
 fi
 [ -f scripts/lib/env.sh ] && . scripts/lib/env.sh
+# A node hit by an earlier update.sh (checkout under umask 077) has unreadable files: repair them
+# now, before the images are built or the services recreated. Tracked paths only.
+fix_tracked_modes
 
 # ---------------------------------------------------------------- 5. environment
 step 5 "Updating .env"
@@ -340,7 +350,7 @@ else
   SUCKERPOT_BUILD_VERSION=$expected
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
-  docker compose build
+  with_public_umask docker compose build
 fi
 
 # ---------------------------------------------------------------- 7. start

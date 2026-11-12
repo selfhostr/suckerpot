@@ -124,10 +124,13 @@ fi
 
 echo "[1/4] Restoring the previous code"
 if [ -n "$from_branch" ] && [ "$(git rev-parse -q --verify "refs/heads/$from_branch" 2> /dev/null || true)" = "$(git rev-parse "$from_ref^{commit}")" ]; then
-  git checkout --quiet "$from_branch"
+  with_public_umask git checkout --quiet "$from_branch"
 else
-  git checkout --quiet --detach "$from_ref"
+  with_public_umask git checkout --quiet --detach "$from_ref"
 fi
+# Whatever umask the caller has (the automatic updater runs under 077), the files of the
+# checkout must be readable by the users inside the containers.
+fix_tracked_modes
 
 echo "[2/4] Restoring the images"
 if [ "$mode" = images ]; then
@@ -141,7 +144,7 @@ else
   SUCKERPOT_BUILD_VERSION=$(git describe --tags --always --dirty 2> /dev/null || echo dev)
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
-  docker compose build
+  with_public_umask docker compose build
 fi
 
 if [ "$restore_db" = 1 ]; then

@@ -94,6 +94,19 @@ GIT_SHIM = r"""#!/bin/sh
 echo "git $*" >> "$SHIM_LOG"
 mode=$(cat "$SHIM_DIR/gitstate/mode" 2>/dev/null || echo none)
 rd() { cat "$SHIM_DIR/gitstate/$1" 2>/dev/null || true; }
+# A checkout or a pull rewrites the files listed in gitstate/rewrites ("path" or "path x" for an
+# executable) the way git does: created under the umask of this process (0666 or 0777 minus the
+# umask), folders included.
+rewrite() {
+  [ -f "$SHIM_DIR/gitstate/rewrites" ] || return 0
+  while read -r path kind; do
+    [ -n "$path" ] || continue
+    mkdir -p "$(dirname "$path")"
+    rm -f "$path"
+    echo "content" > "$path"
+    if [ "$kind" = x ]; then chmod "$(printf '%o' $((0777 & ~0$(umask))))" "$path"; fi
+  done < "$SHIM_DIR/gitstate/rewrites"
+}
 case "$*" in
   "rev-parse --git-dir")
     [ "$mode" = none ] && exit 128
@@ -101,6 +114,7 @@ case "$*" in
   "rev-parse --absolute-git-dir")
     if [ "$mode" = linked ]; then echo "/shim/main/.git/worktrees/x"; else echo "/shim/main/.git"; fi ;;
   "rev-parse --path-format=absolute --git-common-dir") echo "/shim/main/.git" ;;
+  "rev-parse --show-toplevel") echo "${SHIM_TOPLEVEL:-$(pwd -P)}" ;;
   "rev-parse HEAD") rd head ;;
   "rev-parse --short HEAD") rd head | cut -c1-7 ;;
   "rev-parse -q --verify refs/tags/"*)
@@ -116,9 +130,10 @@ case "$*" in
   "fetch "*) ;;
   "tag -l v*.*.* --sort"*) rd tags | sort -rV ;;
   "tag -l --format="*) rd notes ;;
-  "checkout --quiet --detach "*) printf '%s' "$4" > "$SHIM_DIR/gitstate/head" ;;
-  "checkout "*) ;;
-  "pull "*) ;;
+  "checkout --quiet --detach "*) printf '%s' "$4" > "$SHIM_DIR/gitstate/head"; rewrite ;;
+  "checkout "*) rewrite ;;
+  "pull "*) rewrite ;;
+  "ls-tree -rz --name-only HEAD") cat "$SHIM_DIR/gitstate/tracked" 2>/dev/null || true ;;
   *) ;;
 esac
 exit 0
@@ -173,10 +188,15 @@ class Sandbox:
         *args: str,
         stdin: str | None = None,
         extra_env: dict[str, str] | None = None,
+        umask: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        """Run a script. `umask` is the umask of the caller (the automatic updater uses 077)."""
         env = {**self.env, **(extra_env or {})}
+        cmd = ["bash", str(self.root / script), *args]
+        if umask is not None:
+            cmd = ["bash", "-c", f'umask {umask}; exec bash "$0" "$@"', *cmd[1:]]
         return subprocess.run(  # noqa: S603
-            ["bash", str(self.root / script), *args],  # noqa: S607
+            cmd,
             cwd=self.root,
             env=env,
             input=stdin if stdin is not None else "",

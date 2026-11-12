@@ -296,3 +296,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Reputation lookups (#127): new addresses are looked up first and known answers are kept (migration `0032`).
 - Reconnaissance tags (#128): `service-probe` and `iot-shell-probe` tag common recon that stayed untagged before.
 - Not run on a real node yet: everything in this release except the hub volume penalty (#124), which runs on the hub. Until a real node updates, the other changes are covered by tests only.
+
+## 2026-11-12: v0.11.4 (update permissions fix)
+
+- One pull request since v0.11.3 (#131). The details are in `CHANGELOG.md`.
+- Found while updating a real source-mode node from v0.11.2 to v0.11.3: `update.sh` ran the checkout and the image build under `umask 077`, so rewritten files became unreadable inside the containers and `migrate` stopped the update. That node was repaired by hand (files made readable, images rebuilt, stack restarted) and runs v0.11.3.
+- The update, rollback, installer and `env-migrate.sh` now run git and the build under `umask 022` and make the committed files readable after every checkout, never touching `.env*`, `hub/.env`, `hub/secrets` or `.suckerpot-state`. A node updating from an older release is repaired by the new `env-migrate.sh` it runs after the checkout.
+- Tests: guardrail tests under `umask 077` for every path, and every CI job green. Not run on a real node yet.

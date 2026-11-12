@@ -43,6 +43,10 @@ BAD=$STATE_DIR/bad-versions
 LOCK=$STATE_DIR/update.lock
 ATTEMPTS=$STATE_DIR/update-attempts
 
+# Private by default: the state, the log, the result and the temp files of this script. This script
+# writes no tracked file itself; update.sh and rollback.sh, which run under this umask, force
+# umask 022 around the checkout and the build and make the tracked files readable again
+# (with_public_umask and fix_tracked_modes in scripts/lib/env.sh).
 umask 077
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"

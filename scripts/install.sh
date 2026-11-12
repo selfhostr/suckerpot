@@ -791,6 +791,9 @@ if [ "$repair" = 1 ]; then
   step 6 "Keeping .env as it is"
 else
   step 6 "Writing $target"
+  # Private only while the secrets are being written: the build and the start below must not run
+  # under it (see with_public_umask in scripts/lib/env.sh).
+  caller_umask=$(umask)
   umask 077
   tmp="${target}.tmp"
   rm -f "$tmp"
@@ -971,6 +974,7 @@ else
   trap - EXIT
   chmod 600 "$target"
   note "wrote $target (mode 0600)"
+  umask "$caller_umask"
 fi
 
 if [ "$dry_run" = 1 ]; then
@@ -1004,6 +1008,9 @@ fi
 
 # ---------------------------------------------------------------- 9. start
 step 9 "Starting SuckerPot (this can take several minutes)"
+# A clone made under a restrictive umask (077) has files the non-root users inside the containers
+# cannot read. Tracked paths only, so .env and the other private files keep their mode.
+fix_tracked_modes
 up_extra=()
 if [ "$switching" = 1 ]; then
   # hubproxy goes away, api and vpn start. A service of a profile that is no longer on is not an
@@ -1025,7 +1032,7 @@ else
   SUCKERPOT_BUILD_VERSION=$(git describe --tags --always --dirty 2> /dev/null || echo dev)
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
-  docker compose up -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
+  with_public_umask docker compose up -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 fi
 if [ "$stack" = full ]; then
   if [ "$repair" = 1 ]; then
