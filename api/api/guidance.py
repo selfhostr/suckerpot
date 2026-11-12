@@ -205,6 +205,27 @@ TAG_ADVICE: dict[str, TagAdvice] = {
             "Treat such a session as a sign that a password or key is already known to an attacker."
         ],
     },
+    "service-probe": {
+        "title": "Services being identified",
+        "what": "Scanners ask exposed services (Redis, Docker, databases, Android Debug Bridge, web applications) what they are and which version they run. A probe only asks questions and changes nothing, but it is how attackers choose what to try next.",
+        "look": [
+            "Service and firewall logs: addresses you do not know that run INFO, version or listing requests and then leave.",
+        ],
+        "fix": [
+            "Do not expose these services to the internet; allow only the hosts that need them, and keep the software patched.",
+        ],
+    },
+    "iot-shell-probe": {
+        "title": "Botnet loaders on Telnet",
+        "what": "After guessing a Telnet password, botnet loaders type a fixed list of words (enable, system, shell, sh) and BusyBox probes to find a shell and see which tools the device has. This alone does not say which botnet it is.",
+        "look": [
+            "Router, camera and DVR logs: Telnet logins from the internet followed by short busybox commands.",
+            "Firewall logs: connections to TCP port 23.",
+        ],
+        "fix": [
+            "Turn Telnet off on every device, change default passwords and do not forward port 23 from the internet.",
+        ],
+    },
     "eternalblue": {
         "title": "SMB worm exploits",
         "what": "Attackers try the EternalBlue vulnerability in old Windows file sharing.",
