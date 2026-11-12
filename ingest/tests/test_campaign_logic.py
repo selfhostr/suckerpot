@@ -12,7 +12,8 @@ from ingest.campaigns.keys import (
     is_benign_host,
     script_key,
 )
-from ingest.campaigns.naming import campaign_name, severity_of, stages_of
+from ingest.campaigns.naming import campaign_name, max_severity, severity_of, stages_of
+from ingest.campaigns.overlap import Overlap, overlap_merges, qualifies
 from ingest.campaigns.plan import Cand, build_plan
 
 T0 = datetime(2026, 10, 24, 10, 0, tzinfo=UTC)
@@ -204,12 +205,46 @@ def test_names_follow_family_then_objective_then_sensor() -> None:
     assert campaign_name(["Evil<script>"], [], [], 1) == "Evilscript campaign #1"
 
 
+def test_a_campaign_that_did_several_things_names_the_two_goals() -> None:
+    # Credential stuffing, then a dropper, then a ransom note: the story is not just the dropper.
+    tags = ["credential-stuffing", "malware-drop", "db-ransom", "recon"]
+    assert (
+        campaign_name([], tags, ["mysql"], 3) == "Malware dropper and database ransom over MySQL #3"
+    )
+    assert campaign_name([], ["php2shell", "malware-drop"], ["web"], 5) == (
+        "PHP2Shell exploitation and malware dropper over HTTP #5"
+    )
+
+
+def test_a_goal_the_main_one_implies_is_not_named_twice() -> None:
+    assert campaign_name([], ["mirai", "malware-drop"], ["telnet"], 4) == (
+        "Mirai-style loader over Telnet #4"
+    )
+    assert campaign_name([], ["crypto-miner", "malware-drop"], ["ssh"], 6) == (
+        "Crypto-miner drop over SSH #6"
+    )
+    assert campaign_name([], ["synology-exploit", "c3rb3r"], ["synology"], 8) == (
+        "Synology NAS exploitation over Synology NAS #8"
+    )
+
+
+def test_guessing_passwords_or_looking_around_is_not_a_second_goal() -> None:
+    tags = ["credential-stuffing", "weak-credentials", "recon", "scanner"]
+    assert campaign_name([], tags, ["ssh"], 2) == "Credential stuffing over SSH #2"
+    assert campaign_name(["Gafgyt"], ["mirai", "db-ransom"], ["telnet"], 9) == (
+        "Gafgyt loader over Telnet #9"
+    )
+
+
 def test_severity_and_stages() -> None:
     assert severity_of(["php2shell"]) == "severe"
     assert severity_of(["db-ransom"]) == "warning"
     assert severity_of([], commands=2) == "warning"
     assert severity_of([], login_attempts=3) == "notice"
     assert severity_of([]) == "info"
+    assert max_severity("notice", "severe", "warning") == "severe"
+    assert max_severity("warning", "notice") == "warning"
+    assert max_severity() == "info"
     stages = {"T1105": "tool_transfer", "T1082": "recon", "T1496": "objective"}
     assert stages_of(["T1496", "T1082", "T1105", "T0000"], stages) == [
         "recon",
@@ -228,3 +263,88 @@ def test_a_session_carries_a_bounded_number_of_keys_per_kind() -> None:
 
     assert (count("payload_host"), count("script"), count("exploit")) == (4, 1, 3)
     assert cap_keys(many) == kept  # deterministic
+
+
+# ---- merging by shared source addresses -------------------------------------------------------
+
+
+def pool(n: int) -> list[str]:
+    """``n`` distinct addresses from the three documentation networks."""
+    return [f"{NETS[i % 3]}.{i // 3 + 1}" for i in range(n)]
+
+
+def overlaps(sets: dict[int, set[str]]) -> list[Overlap]:
+    ids = sorted(sets)
+    return [
+        Overlap(a, b, len(sets[a] & sets[b]), len(sets[a]), len(sets[b]))
+        for i, a in enumerate(ids)
+        for b in ids[i + 1 :]
+        if sets[a] & sets[b]
+    ]
+
+
+def test_one_actor_split_by_kind_merges_into_the_oldest_campaign() -> None:
+    # Credential stuffing, a dropper, a ransom note and more: seven campaigns, the same 31 or 32
+    # addresses, and no session that carries two of their keys.
+    actor = pool(32)
+    sets = {cid: set(actor if cid % 2 else actor[:31]) for cid in range(3, 10)}
+    merges = overlap_merges(overlaps(sets), order(*sets))
+    assert sorted(merges) == [(cid, 3) for cid in range(4, 10)]
+
+
+def test_loader_clusters_with_heavy_overlap_merge_even_when_the_ends_barely_touch() -> None:
+    addresses = pool(80)
+    sets = {
+        1: set(addresses[0:36]),
+        2: set(addresses[0:44]),
+        3: set(addresses[10:62]),
+        4: set(addresses[19:80]),  # 61 addresses
+    }
+    assert not qualifies(Overlap(1, 4, 17, 36, 61))  # 17 of 36: the two ends alone do not merge
+    merges = overlap_merges(overlaps(sets), order(1, 2, 3, 4))
+    assert {loser for loser, _ in merges} == {2, 3, 4}
+    parent = dict(merges)  # loser -> winner: a winner may lose later, the oldest never does
+    survivors = set()
+    for cid in sets:
+        while cid in parent:
+            cid = parent[cid]
+        survivors.add(cid)
+    assert survivors == {1}
+
+
+def test_unrelated_actors_do_not_merge() -> None:
+    a, b, c = pool(90)[:40], pool(90)[40:90], pool(90)[36:76]
+    few = overlaps({1: set(a), 2: set(b)})
+    assert few == []  # no address in common
+    assert overlap_merges(few, order(1, 2)) == []
+    # Four addresses in common: a shared jump host, not one actor.
+    four = overlaps({1: set(a), 3: set(c)})
+    assert [o.shared for o in four] == [4]
+    assert overlap_merges(four, order(1, 3)) == []
+    # Many addresses in common, but half of the smaller campaign only: still not one actor.
+    assert overlap_merges([Overlap(1, 2, 20, 40, 100)], order(1, 2)) == []
+    assert overlap_merges([Overlap(1, 2, 24, 40, 100)], order(1, 2)) == [(2, 1)]
+
+
+def test_a_handful_of_addresses_is_not_enough_evidence() -> None:
+    assert not qualifies(Overlap(1, 2, 4, 5, 5))  # all of the smaller one, but only four
+    assert qualifies(Overlap(1, 2, 5, 6, 90))  # five addresses, 5/6 of the smaller campaign
+    assert not qualifies(Overlap(1, 2, 5, 12, 12))  # five, but under 60 %
+    assert not qualifies(Overlap(1, 1, 50, 50, 50))  # never with itself
+    assert overlap_merges([Overlap(1, 2, 5, 6, 90)], order(1, 2)) == [(2, 1)]
+
+
+def test_the_oldest_survives_and_a_merged_winner_can_lose_later() -> None:
+    # Campaign 5 is the oldest, 2 the youngest. The strongest pair goes first.
+    ages = {5: (T0 - timedelta(days=9), 5), 3: (T0 - timedelta(days=5), 3), 2: (T0, 2)}
+    pairs = [Overlap(2, 3, 10, 10, 10), Overlap(3, 5, 8, 10, 10)]
+    assert overlap_merges(pairs, ages) == [(2, 3), (3, 5)]
+    # Both directions of one pair count once.
+    assert overlap_merges([Overlap(5, 3, 8, 10, 10), Overlap(3, 5, 8, 10, 10)], ages) == [(3, 5)]
+
+
+def test_the_merge_budget_and_unknown_campaigns() -> None:
+    pairs = [Overlap(1, cid, 9, 10, 10) for cid in (2, 3, 4)]
+    assert len(overlap_merges(pairs, order(1, 2, 3, 4), budget=2)) == 2
+    assert overlap_merges(pairs, order(1, 2), budget=5) == [(2, 1)]  # 3 and 4 are not live
+    assert overlap_merges([], {}) == []
