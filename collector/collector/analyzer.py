@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from suckerpot_analysis import ANALYSIS_VERSION, AnalysisResult, Ioc
+from suckerpot_analysis import ANALYSIS_VERSION, WEB_KINDS, AnalysisResult, Ioc
 
 from collector.config import CollectorSettings
 from collector.runner import ChildOutcome, run_child
@@ -178,8 +178,14 @@ class AnalyzerService:
                 # local indicator, no child fetch target, no C2 indicator (design 8.6).
                 await self._links(session, sha, result.iocs, now, follow=False)
                 return
+            web = result.file.kind in WEB_KINDS
+            if web and result.severity == "info" and not result.yara:
+                # Ordinary web content (a page, an image, a style sheet): kept and shown, but it
+                # is no threat intelligence, so no hash indicator, and it has no next stage.
+                return
             await self._hash_indicator(session, sha, now)
-            await self._links(session, sha, result.iocs, now)
+            # Whatever a rule found in web content, its links are never followed.
+            await self._links(session, sha, result.iocs, now, follow=not web)
 
     @staticmethod
     async def _verify_only(session: AsyncSession, sha: str) -> bool:

@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   counts a shared address once. Credential-only floods (many logins, no commands, few addresses
   in one network) still do not form campaigns; the limits and what it would take are in
   [Architecture](docs/ARCHITECTURE.md#how-the-features-fit-together).
+- The collector no longer wanders the public web. It used to read every URL inside a fetched HTML
+  page (and any other text file) as a possible next stage, so one connectivity check typed by an
+  attacker queued the page's scripts, style sheets, images and links, and then theirs, down to the
+  depth cap, and the Malware page filled with unknown text. The analyzer now recognises HTML, SVG
+  and other XML, CSS, JSON and the JavaScript of a web page as their own kinds (`html`, `svg`,
+  `xml`, `css`, `json`, `javascript`) with the lowest severity and no family, and never follows
+  links found in them. Shell scripts, files with a shebang, PHP and Node scripts that run commands
+  are unchanged, and the depth cap, the per-file cap of 20 next-stage URLs and every fetch check
+  are unchanged. Web content is not recorded as a hash indicator unless a detection rule matches
+  it. Samples already collected are classified again on their own after the update (the analysis
+  version went from 1 to 2). Targets queued from a page before the update are still fetched, and
+  links already recorded from old pages stay in their sample's link list.
 - `update.sh` and `install.sh` no longer report a failed update or install on a healthy node
   whose dashboard is bound to a LAN address while `API_ALLOWED_ORIGINS` is set. Their final
   dashboard check sent the bind address as `Host`, which the API rejects; it now sends

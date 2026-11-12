@@ -6,7 +6,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ANALYSIS_VERSION = 1
+# Bump it when a change to the analysis should reach samples already analysed: the analyzer
+# re-runs every `done` sample whose stored version is lower. 2: web content kinds.
+ANALYSIS_VERSION = 2
+
+# File kinds for ordinary web content (pages, images, style sheets, scripts of a web page, data
+# documents). Such a file carries no next stage: its links are never followed and it is not
+# deobfuscated. A script with a shebang or a shell command stays `script`.
+WEB_KINDS: frozenset[str] = frozenset({"html", "svg", "xml", "css", "json", "javascript"})
 
 IocKind = Literal["next_url", "c2_ip", "c2_domain", "c2_url"]
 IocSource = Literal["script_url", "binary_ip_port", "binary_string", "mirai_table"]
@@ -35,7 +42,8 @@ class Limits(_Model):
 
 
 class FileInfo(_Model):
-    kind: str = "unknown"  # elf, pe, macho, script, gzip, zip, tar, xz, 7z, bzip2, text, data
+    # elf, pe, macho, script, gzip, zip, tar, xz, 7z, bzip2, text, data, or a WEB_KINDS member
+    kind: str = "unknown"
     arch: str | None = None
     bits: int | None = None
     endian: Literal["little", "big"] | None = None

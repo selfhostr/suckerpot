@@ -6,7 +6,7 @@ from .deob import deobfuscate_shell
 from .digests import digests
 from .identify import identify
 from .iocs import extract_iocs, mirai_table_iocs
-from .models import AnalysisResult, Ioc, Limits, Severity
+from .models import WEB_KINDS, AnalysisResult, Ioc, Limits, Severity
 from .rules import CompiledRules, scan
 from .strings import printable_strings
 
@@ -30,7 +30,8 @@ def analyze(data: bytes, *, rules: CompiledRules, limits: Limits = Limits()) -> 
     errors.extend(scan_errors)
 
     family: str | None = None
-    severity: Severity = "notice"
+    # Ordinary web content is harmless until a rule says otherwise (the lowest level, no family).
+    severity: Severity = "info" if info.kind in WEB_KINDS else "notice"
     tags: list[str] = []
     for hit in hits:
         fam = hit.meta.get("family")
@@ -47,6 +48,8 @@ def analyze(data: bytes, *, rules: CompiledRules, limits: Limits = Limits()) -> 
     iocs: list[Ioc] = []
     deobfuscated: str | None = None
     deob_steps = []
+    # Web content (WEB_KINDS) is neither deobfuscated nor mined for links: it cannot carry a next
+    # stage, and its hundreds of asset links would only queue more fetches.
     if info.kind in {"script", "text"} and len(data) <= limits.deob_max_input:
         text = data.decode("utf-8", errors="replace")
         result = deobfuscate_shell(

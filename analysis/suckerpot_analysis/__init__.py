@@ -7,6 +7,7 @@ from .identify import identify
 from .iocs import extract_iocs, mirai_table_iocs
 from .models import (
     ANALYSIS_VERSION,
+    WEB_KINDS,
     AnalysisResult,
     Deobfuscation,
     DeobStep,
@@ -21,6 +22,7 @@ from .strings import printable_strings
 
 __all__ = [
     "ANALYSIS_VERSION",
+    "WEB_KINDS",
     "AnalysisResult",
     "CompiledRules",
     "DeobStep",

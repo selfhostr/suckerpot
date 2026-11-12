@@ -34,6 +34,34 @@ _SHELL_HINT = re.compile(
     rb"\b(wget|curl|chmod|busybox|tftp|echo|cd\s+/|rm\s+-|sh\s|bash|export|nohup|crontab|pkill)\b"
 )
 
+# Web content sniffing. Only the first `_SNIFF` bytes are read. A web file is recognised by its own
+# opening (a document type, an XML prolog, a JSON bracket, a style sheet rule, JavaScript syntax),
+# never by a file name or a server header, and only when nothing says it is a program.
+_SNIFF = 4096
+_HTML_DOC = re.compile(rb"<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]")
+_HTML_TAG = re.compile(
+    rb"<(?:html|head|body|title|meta|div|script|style|link|h[1-6]|p|a|form|table|iframe|center)"
+    rb"[\s>/]"
+)
+_PHP_TAG = re.compile(rb"<\?(?:php|=)", re.IGNORECASE)
+_XML_ROOT = re.compile(rb"<(?:svg|rss|feed|urlset|sitemapindex|plist|opml)[\s>]")
+_JSON_START = re.compile(rb'[\[{]\s*(?:"[^"\n]{0,200}"\s*:|[\[{"\]}]|-?\d|true\b|false\b|null\b)')
+_JS_SYNTAX = re.compile(
+    rb"\bfunction\s*[\w$]*\s*\(|\b(?:var|let|const)\s+[\w$]+\s*=|\bimport\s*[\w{*(]"
+    rb"|\bexport\s+(?:default|const|function|class|\{)|\bmodule\.exports\b|\brequire\s*\("
+    rb"|\b(?:window|document)\.|\bwebpackChunk|[\"']use strict[\"']"
+)
+# Anything that runs commands or fetches a next stage keeps a script out of the web kinds.
+_DROPPER_HINT = re.compile(
+    rb"\b(?:wget|curl|chmod|busybox|tftp|nohup|crontab|pkill|child_process)\b"
+    rb"|/bin/(?:ba)?sh\b|/dev/tcp/"
+)
+_CSS_AT_RULE = re.compile(
+    rb"@(?:charset|import|font-face|media|keyframes|layer|supports|namespace|page|tailwind|property)\b"
+)
+_CSS_BLOCK = re.compile(rb"[^{}]{1,200}\{\s*[a-z-]+\s*:[^{}]{0,200}\}")
+_DROPPER_SCAN = 1024 * 1024
+
 
 def _unpack(fmt: str, data: bytes, offset: int) -> tuple[int, ...] | None:
     size = struct.calcsize(fmt)
@@ -137,6 +165,58 @@ def _packer(data: bytes) -> str | None:
     return None
 
 
+def _looks_textual(head: bytes) -> bool:
+    """No NUL and almost no control characters (any encoding with ASCII markup passes)."""
+    if not head or b"\x00" in head:
+        return False
+    controls = sum(1 for b in head if (b < 32 and b not in (9, 10, 12, 13)) or b == 127)
+    return controls / len(head) < 0.01
+
+
+def _strip_css_comments(head: bytes) -> bytes:
+    while head.startswith(b"/*"):
+        end = head.find(b"*/", 2)
+        if end < 0:
+            return b""
+        head = head[end + 2 :].lstrip()
+    return head
+
+
+def _identify_web(data: bytes) -> str | None:
+    """The web kind of a file that is plainly a page, an image, a style sheet or a script of a
+    page, or None. Every shell script, every PHP file and every script that runs commands stays
+    out: those keep the `script` and `text` kinds, whose links are followed."""
+    head = data[:_SNIFF]
+    if head.startswith(b"\xef\xbb\xbf"):
+        head = head[3:]
+    head = head.lstrip(b" \t\r\n\x0c")
+    if not _looks_textual(head):
+        return None
+    lowered = head.lower()
+    if lowered.startswith(b"<"):
+        if _PHP_TAG.search(data):
+            return None  # PHP with HTML around it is still a program
+        if lowered.startswith((b"<?xml", b"<svg", b"<!doctype svg")):
+            if _HTML_DOC.search(lowered):
+                return "html"
+            return "svg" if b"<svg" in lowered else "xml"
+        if _HTML_DOC.match(lowered) or _HTML_TAG.search(lowered):
+            return "html"
+        if _XML_ROOT.match(lowered):
+            return "svg" if lowered.startswith(b"<svg") else "xml"
+        return None
+    tail = data[-_SNIFF:].rstrip()[-1:]
+    if _JSON_START.match(head) and tail in (b"]", b"}"):
+        return "json"
+    # Two markers, so one `function f()` in a shell script is not enough.
+    if len(_JS_SYNTAX.findall(head)) >= 2 and not _DROPPER_HINT.search(data[:_DROPPER_SCAN]):
+        return "javascript"
+    css = _strip_css_comments(head)
+    if _CSS_AT_RULE.match(css) or len(_CSS_BLOCK.findall(css)) >= 3:
+        return "css"
+    return None
+
+
 def _identify_text(data: bytes) -> FileInfo:
     head = data[:4096]
     if head.startswith(b"#!"):
@@ -148,6 +228,9 @@ def _identify_text(data: bytes) -> FileInfo:
         return FileInfo(kind="script", interpreter=interp or None)
     if not head or b"\x00" in head:
         return FileInfo(kind="data")
+    web = _identify_web(data)
+    if web is not None:
+        return FileInfo(kind=web)
     printable = sum(1 for b in head if 32 <= b < 127 or b in (9, 10, 13))
     if printable / len(head) < 0.95:
         return FileInfo(kind="data")
