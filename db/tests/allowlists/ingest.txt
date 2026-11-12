@@ -1,0 +1,12 @@
+# Sites of ingest/ingest that count sessions rows (count(*)) instead of summing
+# connections. Each one must be fixed with suckerpot_db.session_counts, or marked as a
+# deliberate row count with '# session-rows-ok: <why>'. A fixed site is removed from
+# this list. The list never grows. See db/tests/test_session_lint.py.
+# ceiling: 7
+ingest/ingest/abuse/candidates.py::attack_sources
+ingest/ingest/alerts/rules.py::watched_cves
+ingest/ingest/blocklist/worker.py::_ip_candidates
+ingest/ingest/network/cli.py::build_status
+ingest/ingest/network/source.py::SqlSource.sessions
+ingest/ingest/reports/build.py::collect
+ingest/ingest/takedown/passive.py::SIGHTINGS

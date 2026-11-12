@@ -1,0 +1,31 @@
+# Sites of api/api that count sessions rows (count(*)) instead of summing
+# connections. Each one must be fixed with suckerpot_db.session_counts, or marked as a
+# deliberate row count with '# session-rows-ok: <why>'. A fixed site is removed from
+# this list. The list never grows. See db/tests/test_session_lint.py.
+# ceiling: 26
+api/api/abuse_exports.py::collect_items
+api/api/analytics_queries.py::_sort_keys
+api/api/analytics_queries.py::asns_stmt
+api/api/analytics_queries.py::attackers_stmt
+api/api/analytics_queries.py::top_stmt
+api/api/cves.py::_SEEN
+api/api/cves.py::cve_detail
+api/api/detections.py::check_at_work
+api/api/exposure.py::_attack_counts
+api/api/exposure.py::_top_tags
+api/api/indicators.py::_detail
+api/api/insights_queries.py::_counts
+api/api/insights_queries.py::gather_facts
+api/api/live.py::fetch_stats
+api/api/routes.py::stats_summary
+api/api/search.py::_ips
+api/api/story.py::_compute
+api/api/story.py::_flow
+api/api/story.py::_timeline
+api/api/today.py::_act
+api/api/today.py::_exposure
+api/api/today.py::_happened
+api/api/today.py::benign_count
+api/api/today.py::build_today
+api/api/trends.py::_tag_stmt
+api/api/trends.py::new_values
