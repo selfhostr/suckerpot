@@ -62,6 +62,19 @@ CONTEXT_LOOKBACK: Final = timedelta(days=90)  # ABUSE_LOOKBACK_DAYS is at most 9
 # Reason codes that come from the evidence itself. The draft build sets them; a later check
 # (here and in ingest.abuse.reguard) cannot replay the build's reads, so only the build clears them.
 EVIDENCE_CODES: Final = frozenset({"internal_id", "private_address", "documentation_address"})
+
+
+def held_evidence_codes(row: AbuseReportRow) -> tuple[str, ...]:
+    """The evidence codes the build stored on an open draft (sorted), or an empty tuple.
+
+    A draft that carries one is never rendered, downloaded or exported, and never reviewed: the
+    live check works from a capped read of the sessions, so it cannot be trusted to clear them.
+    Only a rebuild that reads the evidence again and finds it clean removes them."""
+    if row.status != "draft":
+        return ()
+    return tuple(sorted(EVIDENCE_CODES.intersection(row.guard_codes or ())))
+
+
 TRUE_VALUES: Final = frozenset({"1", "true", "yes", "on"})
 MAILBOX_RE: Final = re.compile(r"^[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+$")
 

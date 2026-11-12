@@ -451,6 +451,54 @@ async def test_the_live_check_keeps_what_the_build_found_in_a_draft(
     assert "internal_id" not in reviewed["guard"]["codes"]
 
 
+async def test_a_draft_held_by_the_build_is_never_rendered_downloaded_or_exported(
+    client: httpx.AsyncClient,
+) -> None:
+    await set_intro(client)
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = false, guard_codes = '{internal_id}' "
+                "WHERE public_id IN (:d, :s)"
+            ),
+            {"d": DEMO_ID, "s": SENT_ID},
+        )
+    base = f"/api/v1/abuse/reports/{DEMO_ID}"
+    attempts = [
+        *[
+            await client.get(f"{base}/render", params={"format": f})
+            for f in ("text", "xarf", "eml")
+        ],
+        *[
+            await client.get(f"{base}/download", params={"format": f})
+            for f in ("txt", "eml", "evidence_csv", "xarf_yaml")
+        ],
+        await client.get("/api/v1/abuse/exports/stix", params={"report": str(DEMO_ID)}),
+        await client.get(
+            "/api/v1/abuse/exports/misp",
+            params={"report": str(DEMO_ID), "description": "Own description."},
+        ),
+    ]
+    for r in attempts:
+        assert r.status_code == 409, r.request.url
+        assert r.json()["code"] == "identity_guard_failed" and r.json()["reasons"] == [
+            "internal_id"
+        ]
+        assert "attachment" not in r.headers.get("content-disposition", "")
+    # A reviewed report is no draft: it is not held by what was stored for an earlier draft.
+    reviewed = await client.get(f"/api/v1/abuse/reports/{SENT_ID}/render")
+    assert "internal_id" not in reviewed.json().get("reasons", [])
+    # Once a rebuild finds the evidence clean, the build clears the code and the report opens.
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET guard_ok = true, guard_codes = '{}' WHERE public_id = :d"
+            ),
+            {"d": DEMO_ID},
+        )
+    assert (await client.get(f"{base}/render")).status_code == 200
+
+
 async def test_a_payload_host_draft_knows_the_attacker_sessions_behind_it(
     client: httpx.AsyncClient,
 ) -> None:

@@ -57,7 +57,6 @@ from suckerpot_reporting import (
 
 from api import audit as audit_db
 from api.abuse_core import (
-    EVIDENCE_CODES,
     MAILBOX_RE,
     SETTINGS_TEXT_FIELDS,
     EvidenceInvalidError,
@@ -67,6 +66,7 @@ from api.abuse_core import (
     error,
     guard_context,
     guard_failed_response,
+    held_evidence_codes,
     invalidate_terms,
     load_settings,
     load_terms,
@@ -467,12 +467,11 @@ async def _live_guard(
     except RenderUnavailable:
         return GuardOut(ok=row.guard_ok, codes=list(row.guard_codes))
     ok, codes = rendered.guard.ok, set(rendered.guard.codes)
-    if row.status == "draft":
-        # What the build found in the evidence stays until a rebuild finds it gone: this check
-        # cannot replay the build's reads, so it never clears those codes.
-        kept = EVIDENCE_CODES.intersection(row.guard_codes or ())
-        if kept - codes:
-            ok, codes = False, codes | kept
+    # What the build found in the evidence stays until a rebuild finds it gone: this check
+    # cannot replay the build's reads, so it never clears those codes.
+    held = held_evidence_codes(row)
+    if set(held) - codes:
+        ok, codes = False, codes | set(held)
     return GuardOut(ok=ok, codes=sorted(codes))
 
 
@@ -728,6 +727,9 @@ async def render_report(
     missing = missing_for(bundle.settings, xarf=format == "xarf")
     if missing:
         return settings_incomplete_response(missing)
+    if held := held_evidence_codes(row):
+        log.warning("abuse render held report=%s reasons=%s", row.id, ",".join(held))
+        return guard_failed_response(held)
     try:
         evidence = build_evidence(row, rec, bundle)
         ctx = await guard_context(db, row, evidence)
@@ -788,6 +790,9 @@ async def download_report(
     missing = missing_for(bundle.settings, xarf=format == "xarf_yaml")
     if missing:
         return settings_incomplete_response(missing)
+    if held := held_evidence_codes(row):
+        log.warning("abuse download held report=%s reasons=%s", row.id, ",".join(held))
+        return guard_failed_response(held)
     stem = report_stem(row.public_id)
     try:
         evidence = build_evidence(row, rec, bundle)
