@@ -1,4 +1,5 @@
-# Rules for the fake web stack. Matching is on method, path, query and user-agent only.
+# Rules for the fake web stack. Matching is on method, path, query and user-agent, and on the
+# ``data.flags`` the web sensor sets from the request.
 #
 # Evidence rule: a tag that names a specific CVE needs evidence specific to it. php2shell needs the
 # exploit shape that the web sensor sets from the request itself (the upload-progress field plus
@@ -50,16 +51,49 @@ rules:
 
   - id: env-file-probe
     tag: env-file-probe
-    description: Requests for secrets that are often left in web roots.
+    description: >-
+      Requests for secrets and leftovers that are often found in web roots: .env and .git files,
+      cloud credentials, a config file, a backup or dump. A fixed list of paths is matched
+      directly, and so is any request the web sensor flags as a dot-directory, config file or
+      backup name from its path, which catches the many spellings the list does not have.
     when:
       all:
         - {field: type, equals: http_request}
-        - field: data.path
-          glob: ["*/.env", "*/.env.*", "*/.git/config", "*/.git/head", "*/.aws/credentials", "*/.ds_store", "*/.htpasswd"]
+        - any:
+            - field: data.path
+              glob: ["*/.env", "*/.env.*", "*/.git/config", "*/.git/head", "*/.aws/credentials", "*/.ds_store", "*/.htpasswd"]
+            - {field: data.flags, has: [recon_dotfile, config_leak, backup_probe]}
+
+  # service-probe on the web sensor: a safe-method request for the signature path of a specific
+  # piece of software. The flags are set by the sensor from the request path and never from what
+  # the client claims. Every flag listed here is also in ingest/scanners.py SAFE_FLAGS, so the
+  # tag never makes a research scanner's session look like an attack (a test keeps both in step).
+  # An exploit shape on the same request (rce, lfi, shellshock, phpunit_rce...) means it is not a
+  # plain probe.
+  - id: web-app-probe
+    tag: service-probe
+    description: >-
+      A GET, HEAD or OPTIONS for the signature path of a specific application or device (WordPress,
+      phpMyAdmin, phpinfo, Jenkins, Tomcat, Spring actuator, a router or VPN portal...), so the
+      visitor learns what runs here. A plain homepage, robots.txt or favicon request is not tagged.
+    when:
+      all:
+        - {field: type, equals: http_request}
+        - {field: sensor, equals: web}
+        - {field: data.method, in: [GET, HEAD, OPTIONS]}
+        - field: data.flags
+          has: [recon, wordpress, phpmyadmin, phpinfo_probe, db_admin_probe, cgi_probe, router_probe, console_probe, docker_api_probe, exchange_probe, f5_probe, geoserver_probe, jenkins_probe, laravel_probe, phpunit_probe, solr_probe, spring_probe, tomcat_probe, vpn_probe]
+        - not:
+            field: data.flags
+            has: [php2shell, upload_progress, rce, php_code, rfi, lfi, log4shell, shellshock, phpunit_rce, laravel_rce, router_exploit, webshell_probe, session_include, sqli, xss, path_traversal, php_wrapper, ssrf]
 
   - id: scanner-user-agent
     tag: scanner
-    description: User agents of well-known internet scanners.
+    description: >-
+      User agents of well-known internet scanners: the list below, plus the scanner_ua flag the
+      web sensor sets from its own, longer list of scanner and fuzzer names.
     when:
-      field: data.user_agent
-      contains_any: [zgrab, masscan, nmap, nuclei, censys, shodan, zmap, expanse, netcraft, internet-measurement, leakix, projectdiscovery]
+      any:
+        - field: data.user_agent
+          contains_any: [zgrab, masscan, nmap, nuclei, censys, shodan, zmap, expanse, netcraft, internet-measurement, leakix, projectdiscovery]
+        - {field: data.flags, has: scanner_ua}

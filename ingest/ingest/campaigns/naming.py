@@ -31,7 +31,9 @@ OBJECTIVE_TAGS = (
     "bluekeep",
     "weak-credentials",
     "persistence",
+    "iot-shell-probe",
     "env-file-probe",
+    "service-probe",
     "scanner",
     "recon",
 )
@@ -54,7 +56,9 @@ OBJECTIVE_NAMES = {
     "bluekeep": "BlueKeep probing",
     "weak-credentials": "Weak password guessing",
     "persistence": "Persistence setup",
+    "iot-shell-probe": "IoT shell probing",
     "env-file-probe": "Secrets hunting",
+    "service-probe": "Service fingerprinting",
     "scanner": "Scanning",
     "recon": "Reconnaissance",
 }

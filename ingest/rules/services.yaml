@@ -67,6 +67,60 @@ rules:
         - {field: sensor, in: [mysql, mssql, redis]}
         - {field: data.flags, has: ransom_note}
 
+  # service-probe: read-only requests that identify an exposed service or look at what it holds.
+  # They change nothing and say nothing about what the visitor does next (that is what the other
+  # tags are for). The tag is informational and also applies to the web sensor (web.yaml).
+  - id: redis-fingerprint
+    tag: service-probe
+    description: >-
+      Read-only Redis commands that identify the server or look at what it holds (INFO, PING,
+      GET, CONFIG GET, CLIENT, COMMAND, KEYS...). Writes, CONFIG SET, replication and module
+      commands are not in the list: they carry their own flag and tag.
+    when:
+      all:
+        - {field: sensor, equals: redis}
+        - {field: type, equals: command}
+        - any:
+            - field: data.command
+              in: [INFO, PING, ECHO, QUIT, GET, GETRANGE, STRLEN, TYPE, TTL, PTTL, EXISTS, DBSIZE, KEYS, SCAN, RANDOMKEY, COMMAND, CLIENT, ROLE, TIME, LASTSAVE, MEMORY, LATENCY, SLOWLOG]
+            - {field: data.input, startswith: config get}
+
+  - id: docker-fingerprint
+    tag: service-probe
+    description: >-
+      A read-only request to the exposed Docker API that identifies the daemon or lists what it
+      runs (/_ping, /version, /info, /containers/json, /images/json, networks, volumes). The
+      sensor flags the listing calls recon; creating or running a container is a POST and never
+      matches.
+    when:
+      all:
+        - {field: sensor, equals: docker}
+        - {field: type, equals: http_request}
+        - {field: data.method, in: [GET, HEAD]}
+        - any:
+            - {field: data.flags, has: recon}
+            - {field: data.path, glob: ["*/_ping"]}
+
+  - id: sql-fingerprint
+    tag: service-probe
+    description: >-
+      A read-only query that asks a database for its version, its host or user, or the list of
+      databases and tables (SELECT @@version, SHOW DATABASES, information_schema). A statement
+      that also writes a file, loads a library, changes privileges or runs a command is not a
+      fingerprint and keeps only its own tags. Matched on the query text and the sensor flags;
+      forging it only buys the informational tag.
+    when:
+      all:
+        - {field: sensor, in: [mysql, mssql]}
+        - {field: type, equals: command}
+        - any:
+            - {field: data.flags, has: [schema_recon, show_databases]}
+            - field: data.input
+              contains_any: ["@@version", "version()", "show variables", "show databases", "show schemas", "show tables", "show status", "select database()", "select user()", "current_user", "@@hostname", "@@servername", "serverproperty(", "sys.databases", "db_name()"]
+        - not:
+            field: data.flags
+            has: [into_outfile, load_file, load_data_infile, udf, ransom_note, drop_database, log_file_write, privilege_change, user_dump, sql_delay, xp_cmdshell, sp_oacreate, ole_automation, shell_command, lolbin, sp_configure, reconfigure, openrowset, bulk_insert, xp_dirtree, xp_regread, add_login, sqli_probe, time_probe]
+
   - id: service-download-drop
     tag: malware-drop
     description: A download was recorded from a session on a service that never legitimately fetches files.
