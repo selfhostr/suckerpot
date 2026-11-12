@@ -18,6 +18,7 @@ from ingest.abuse.bootstrap import Bootstrap
 from ingest.abuse.build import DEMO_MAILBOX, DraftBuilder
 from ingest.abuse.contacts import ContactResolver, make_reserve
 from ingest.abuse.rdap import QuotaExhausted, RdapClient
+from ingest.abuse.reguard import DraftReguard
 from ingest.abuse.selfterms import TermsCache, learn, self_address_state
 from ingest.egress import EgressClosed
 from ingest.features import FeatureSettings
@@ -464,6 +465,70 @@ async def test_missing_reply_contact_blocks_the_draft_instead_of_crashing(
     assert (stats.created, stats.guard_failed) == (1, 1)
     rep = (await rows(engine, "SELECT guard_ok, guard_codes FROM abuse_reports"))[0]
     assert rep.guard_ok is False and "settings_incomplete" in rep.guard_codes
+
+
+async def set_wording(
+    engine: AsyncEngine,
+    *,
+    reply_contact: str = "reports@example.org",
+    intro: str = "Intro written by the owner.",
+) -> None:
+    """Change the owner's wording the way the API does: new text, revision plus one."""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE report_settings SET reply_contact = :c, intro = :i, revision = revision + 1"
+            ),
+            {"c": reply_contact, "i": intro},
+        )
+
+
+async def test_drafts_are_rechecked_after_the_wording_changes(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    await seed_attack(engine)
+    await add_self_address(engine)
+    # A reply contact that names the project blocks every draft.
+    await set_wording(engine, reply_contact="reports@honeypot.example.net")
+    await builder(factory, DEMO).run(NOW, allow_lookups=False)
+    first = (
+        await rows(
+            engine, "SELECT guard_ok, guard_codes, revision, content_sha256 FROM abuse_reports"
+        )
+    )[0]
+    assert first.guard_ok is False and "project_term" in first.guard_codes
+
+    reguard = DraftReguard(factory, DEMO, TermsCache(factory, {}))
+    stats = await reguard.run_if_changed()  # the first pass after a start
+    assert stats is not None and (stats.checked, stats.changed) == (1, 0)
+    assert await reguard.run_if_changed() is None  # nothing changed since
+
+    # The owner fixes the reply contact: the draft is clear within one cycle, nothing else moves.
+    await set_wording(engine)
+    stats = await reguard.run_if_changed()
+    assert stats is not None and (stats.checked, stats.changed, stats.unblocked) == (1, 1, 1)
+    fixed = (
+        await rows(
+            engine, "SELECT guard_ok, guard_codes, revision, content_sha256 FROM abuse_reports"
+        )
+    )[0]
+    assert fixed.guard_ok is True and fixed.guard_codes == []
+    assert (fixed.revision, fixed.content_sha256) == (first.revision, first.content_sha256)
+
+    # Wording that was once a shipped default blocks it again, with a constant code.
+    await set_wording(engine, intro="Please investigate and stop this activity.")
+    stats = await reguard.run_if_changed()
+    assert stats is not None and (stats.changed, stats.blocked) == (1, 1)
+    again = (await rows(engine, "SELECT guard_ok, guard_codes FROM abuse_reports"))[0]
+    assert again.guard_ok is False and "default_wording" in again.guard_codes
+
+    # A reviewed report is never touched by the pass.
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE abuse_reports SET status = 'reviewed'"))
+    await set_wording(engine)
+    stats = await reguard.run_if_changed()
+    assert stats is not None and stats.checked == 0
+    assert await scalar(engine, "SELECT guard_ok FROM abuse_reports") is False
 
 
 async def test_reviewed_drafts_are_untouched_and_new_evidence_waits(

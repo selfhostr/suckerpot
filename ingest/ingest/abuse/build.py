@@ -142,6 +142,33 @@ def options_of(stored: Any, fallback: ReportOptions) -> ReportOptions:
     return fallback
 
 
+async def load_report_settings(session: AsyncSession) -> tuple[ReportSettings, dict[str, Any]]:
+    """The owner's wording and the defaults for new drafts (empty ones when never saved)."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT reply_contact, signature, intro, outro, note, subject_template, "
+                "xarf_user_agent, defaults "
+                "FROM report_settings WHERE id = 1"
+            )
+        )
+    ).first()
+    if row is None:
+        return ReportSettings(), {}
+    return (
+        ReportSettings(
+            reply_contact=row.reply_contact,
+            signature=row.signature,
+            intro=row.intro,
+            outro=row.outro,
+            note=row.note,
+            subject_template=row.subject_template,
+            xarf_user_agent=row.xarf_user_agent,
+        ),
+        dict(row.defaults or {}),
+    )
+
+
 class DraftBuilder:
     def __init__(
         self,
@@ -202,29 +229,7 @@ class DraftBuilder:
     async def _report_settings(
         self, session: AsyncSession
     ) -> tuple[ReportSettings, dict[str, Any]]:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT reply_contact, signature, intro, outro, note, subject_template, "
-                    "xarf_user_agent, defaults "
-                    "FROM report_settings WHERE id = 1"
-                )
-            )
-        ).first()
-        if row is None:
-            return ReportSettings(), {}
-        return (
-            ReportSettings(
-                reply_contact=row.reply_contact,
-                signature=row.signature,
-                intro=row.intro,
-                outro=row.outro,
-                note=row.note,
-                subject_template=row.subject_template,
-                xarf_user_agent=row.xarf_user_agent,
-            ),
-            dict(row.defaults or {}),
-        )
+        return await load_report_settings(session)
 
     # -- cycle ---------------------------------------------------------------------------
 
@@ -470,14 +475,7 @@ class DraftBuilder:
         gctx = GuardContext(
             internal_ids=frozenset(col.session_ids) | {report_seed.hex}, allow_documentation=demo
         )
-        try:
-            result = guard_message(_message(evidence, report_settings), terms, ctx=gctx)
-        except RenderUnavailable as exc:
-            # The owner has not set a reply contact yet: nothing can be rendered. The evidence
-            # itself is still checked, and the draft is stored as blocked with a constant code.
-            checked = guard(evidence.model_dump(mode="json"), terms, fmt="json", ctx=gctx)
-            codes = tuple(sorted({*checked.codes, exc.code}))
-            result = GuardResult(ok=False, codes=codes, counts=dict(checked.counts))
+        result = check_evidence(evidence, report_settings, terms, gctx)
         if not result.ok:
             stats.guard_failed += 1
             for code in result.codes:
@@ -629,6 +627,20 @@ class DraftBuilder:
 def _message(evidence: Evidence, settings: ReportSettings) -> RenderedMessage:
     body = render_text(evidence, settings)
     return RenderedMessage(body.to, body.subject, body.body, (render_csv(evidence),))
+
+
+def check_evidence(
+    evidence: Evidence, settings: ReportSettings, terms: SelfTerms, ctx: GuardContext
+) -> GuardResult:
+    """The identity check of a draft: the plain-text message and its CSV, as they would be sent."""
+    try:
+        return guard_message(_message(evidence, settings), terms, ctx=ctx)
+    except RenderUnavailable as exc:
+        # The owner has not set a reply contact yet: nothing can be rendered. The evidence
+        # itself is still checked, and the draft is stored as blocked with a constant code.
+        checked = guard(evidence.model_dump(mode="json"), terms, fmt="json", ctx=ctx)
+        codes = tuple(sorted({*checked.codes, exc.code}))
+        return GuardResult(ok=False, codes=codes, counts=dict(checked.counts))
 
 
 def utc_now() -> datetime:
