@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-11-12
+
 ### Fixed
 
 - An update no longer leaves the checkout unreadable by the containers. `scripts/update.sh` keeps
@@ -432,7 +434,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.3...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.4...HEAD
+[0.11.4]: https://github.com/selfhostr/suckerpot/compare/v0.11.3...v0.11.4
 [0.11.3]: https://github.com/selfhostr/suckerpot/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/selfhostr/suckerpot/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/selfhostr/suckerpot/compare/v0.11.0...v0.11.1
