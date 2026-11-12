@@ -1,9 +1,14 @@
 """IP reputation worker (AbuseIPDB check + GreyNoise Community), fully asynchronous.
 
-It never touches the ingest hot path: a background loop picks the busiest IPs that have no
-fresh (24 h) answer, spends one unit of a persisted daily quota per lookup, stores the answer
-in ``ip_reputation`` and updates the sessions of that address. Only read endpoints are used:
-nothing is ever reported to AbuseIPDB.
+It never touches the ingest hot path: a background loop spends one unit of a persisted daily
+quota per lookup, stores the answer in ``ip_reputation`` and updates the sessions of that
+address. Only read endpoints are used: nothing is ever reported to AbuseIPDB.
+
+Who is looked up. Addresses a provider has never answered for come first (busiest first), then
+addresses whose answer is older than ``REPUTATION_RECHECK_DAYS`` (busiest first). A recent
+answer is never asked for again. An answer never expires: the row keeps serving lookups (the
+writer reads it for every new event) until a newer one replaces it, and the maintenance job only
+prunes rows nobody refreshed for the whole retention window.
 """
 
 from __future__ import annotations
@@ -12,8 +17,9 @@ import asyncio
 import ipaddress
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -28,7 +34,7 @@ log = logging.getLogger(__name__)
 
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 GREYNOISE_URL = "https://api.greynoise.io/v3/community/{ip}"
-CACHE_TTL = timedelta(hours=24)
+DEFAULT_RECHECK_DAYS = 7
 PER_CYCLE = 5
 RATE_LIMIT_PAUSE_S = 3600.0
 HTTP_TIMEOUT = httpx.Timeout(8.0, connect=4.0)
@@ -78,29 +84,55 @@ async def reserve_quota(
         return row.first() is not None
 
 
+async def mark_quota_spent(
+    factory: async_sessionmaker[AsyncSession], provider: str, limit: int
+) -> None:
+    """Record that today's allowance is gone: the counter reads as full, restarts included."""
+    stmt = text(
+        """
+        INSERT INTO enrichment_quota (provider, day, used) VALUES (:p, :d, :q)
+        ON CONFLICT (provider, day) DO UPDATE SET used = GREATEST(enrichment_quota.used, :q)
+        """
+    )
+    async with factory() as session, session.begin():
+        await session.execute(stmt, {"p": provider, "d": _quota_day(), "q": limit})
+
+
 async def candidate_ips(
     factory: async_sessionmaker[AsyncSession],
     provider: str,
     min_events: int,
     limit: int = PER_CYCLE,
+    recheck_days: int = DEFAULT_RECHECK_DAYS,
+    exclude: Sequence[str] = (),
 ) -> list[str]:
-    """Busiest recent source IPs without a fresh answer from ``provider`` (most active first)."""
+    """Recent source IPs to look up with ``provider``: never answered first, then stale.
+
+    "Never answered" means no row, or a row without this provider's answer (it may hold the
+    other provider's). "Stale" means answered more than ``recheck_days`` ago. Each group is
+    ordered busiest first. A recent answer excludes the address, so the quota is spent on
+    addresses we know nothing about before it is spent on refreshing known ones. ``exclude``
+    holds addresses to skip for now (unroutable or failing): they must not fill the limit.
+    """
     column = "abuse_checked_at" if provider == "abuseipdb" else "gn_checked_at"
     stmt = text(
         f"""
         SELECT host(s.src_ip) AS ip, sum(s.event_count) AS activity
         FROM sessions s LEFT JOIN ip_reputation r ON r.ip = s.src_ip
         WHERE s.last_event_at > now() - interval '7 days'
-          AND (r.ip IS NULL OR r.{column} IS NULL OR r.{column} < now() - interval '24 hours')
-        GROUP BY s.src_ip
+          AND (r.{column} IS NULL OR r.{column} < now() - make_interval(days => :d))
+          AND NOT (host(s.src_ip) = ANY(:ex))
+        GROUP BY s.src_ip, r.{column}
         HAVING bool_or(s.login_success) OR sum(s.commands) > 0 OR sum(s.downloads) > 0
             OR sum(s.event_count) >= :n
-        ORDER BY activity DESC
+        ORDER BY (r.{column} IS NOT NULL), sum(s.event_count) DESC, s.src_ip
         LIMIT :k
         """  # noqa: S608 - column name comes from a fixed two-value choice above
-    )
+    ).bindparams(bindparam("ex", type_=ARRAY(Text)))
     async with factory() as session:
-        rows = await session.execute(stmt, {"n": min_events, "k": limit})
+        rows = await session.execute(
+            stmt, {"n": min_events, "k": limit, "d": recheck_days, "ex": list(exclude)}
+        )
         return [r.ip for r in rows]
 
 
@@ -117,6 +149,7 @@ class ReputationWorker:
         self._gate = gate or get_gate()
         self.client = client or make_client(HTTP_TIMEOUT, gate=self._gate)
         self._paused_until: dict[str, float] = {}
+        self._spent_day: dict[str, date] = {}  # provider -> UTC day its real allowance ran out
         self._disabled: dict[str, str] = {}
         self._retry_after: dict[tuple[str, str], float] = {}
         self.last_error: dict[str, str] = {}
@@ -128,6 +161,7 @@ class ReputationWorker:
         for provider in changed:
             self._disabled.pop(provider, None)
             self._paused_until.pop(provider, None)
+            self._spent_day.pop(provider, None)
             self.last_error.pop(provider, None)
             self.test_result.pop(provider, None)
             for pair in [k for k in self._retry_after if k[0] == provider]:
@@ -270,7 +304,21 @@ class ReputationWorker:
         return self.s.greynoise_daily_quota
 
     def _paused(self, provider: str) -> bool:
+        if self._spent_day.get(provider) == _quota_day():
+            return True
         return time.monotonic() < self._paused_until.get(provider, 0.0)
+
+    async def _stop_for_today(self, provider: str) -> None:
+        """The provider said 429: its real allowance is spent, wait for the next UTC day."""
+        self._spent_day[provider] = _quota_day()
+        await mark_quota_spent(self.factory, provider, self.quota(provider))
+
+    def _backed_off(self, provider: str) -> list[str]:
+        """Addresses to leave out of the next candidate query (and forget the expired ones)."""
+        now = time.monotonic()
+        for pair in [k for k, until in self._retry_after.items() if until <= now]:
+            del self._retry_after[pair]
+        return [ip for (p, ip) in self._retry_after if p == provider]
 
     async def run_once(self) -> int:
         """One cycle over both providers. Returns how many lookups were made."""
@@ -281,9 +329,14 @@ class ReputationWorker:
             if not self.enabled(provider) or self._paused(provider):
                 continue
             quota = self.quota(provider)
-            for ip in await candidate_ips(self.factory, provider, self.s.reputation_min_events):
-                if time.monotonic() < self._retry_after.get((provider, ip), 0.0):
-                    continue
+            candidates = await candidate_ips(
+                self.factory,
+                provider,
+                self.s.reputation_min_events,
+                recheck_days=self.s.reputation_recheck_days,
+                exclude=self._backed_off(provider),
+            )
+            for ip in candidates:
                 try:
                     if not is_routable(ipaddress.ip_address(ip)):
                         self._retry_after[(provider, ip)] = time.monotonic() + 86400
@@ -313,8 +366,14 @@ class ReputationWorker:
                         log.error("%s rejected the API key: lookups disabled", provider)
                         break
                     if exc.kind == "rate_limited":
-                        self._paused_until[provider] = time.monotonic() + RATE_LIMIT_PAUSE_S
-                        log.warning("%s rate limited: paused for an hour", provider)
+                        if provider == "greynoise":
+                            # The free allowance is far below the configured quota: a 429
+                            # means it is gone, and asking again an hour later only fails again.
+                            await self._stop_for_today(provider)
+                            log.warning("%s rate limited: stopped until the next UTC day", provider)
+                        else:
+                            self._paused_until[provider] = time.monotonic() + RATE_LIMIT_PAUSE_S
+                            log.warning("%s rate limited: paused for an hour", provider)
                         break
                     log.warning("%s lookup failed", provider)
         return made

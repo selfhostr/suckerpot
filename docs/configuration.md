@@ -271,6 +271,7 @@ The geolocation data has a licence that requires credit. See [Data sources and a
 | `CVE_GITHUB_DAILY_QUOTA` | `100` | Maximum GitHub advisory requests per day |
 | `REPUTATION_MIN_EVENTS` | `10` | An address is looked up only after this many events |
 | `REPUTATION_INTERVAL_S` | `30` | Seconds between reputation cycles (at least 5) |
+| `REPUTATION_RECHECK_DAYS` | `7` | Days before an address that already has an answer is looked up again (1 to 30). Addresses that were never looked up always go first, so the daily quota is spent on new sources before it is spent on refreshing known ones. The last answer keeps being used until the new one arrives. |
 | `ABUSECH_AUTH_KEY` | empty | abuse.ch Auth-Key (free) for URLhaus and ThreatFox. Without it, no indicator lookups there. |
 | `ABUSECH_DAILY_QUOTA` | `1000` | Maximum abuse.ch requests per day (URLhaus and ThreatFox share it). Enforced, and persisted. |
 | `VIRUSTOTAL_API_KEY` | empty | VirusTotal key. Used for file hashes only. |
