@@ -191,7 +191,10 @@ def test_collector_grants() -> None:
     assert g["fetch_attempts"] >= {"DELETE"}
     assert "DELETE" not in g["samples"] | g["fetch_targets"] | g["sample_sources"]
     assert g["enrichment_status"] >= {"SELECT", "INSERT", "UPDATE"}
-    for table in ("sample_analysis", "sample_links", "users", "events", "sessions"):
+    # 0033: it reads the links between files and targets (which targets only plain web content
+    # leads to), and never writes them.
+    assert g["sample_links"] == {"SELECT"}
+    for table in ("sample_analysis", "users", "events", "sessions"):
         assert table not in g, table
 
 
