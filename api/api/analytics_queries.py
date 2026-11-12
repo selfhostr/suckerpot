@@ -20,6 +20,7 @@ from sqlalchemy import (
     and_,
     case,
     distinct,
+    exists,
     extract,
     func,
     literal_column,
@@ -27,8 +28,10 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from suckerpot_db.event_bounds import SLACK
 from suckerpot_db.models import EventRow, SessionRow
+from suckerpot_db.session_counts import sessions_count
 
 from api.analytics_schemas import (
     AsnItem,
@@ -125,11 +128,17 @@ def _bucket_stmt(
     window: Window,
     sensor: Sequence[str] | None,
     visible: Sequence[ColumnElement[bool]] = (),
+    count: ColumnElement[int] | None = None,
 ) -> Select[Any]:
+    """Rows per time bucket and sensor; ``count`` is the aggregate to report (default: rows)."""
     interval, step = BUCKET_SQL[bucket]
     b = func.time_bucket(literal_column(interval), ts_col)
     stmt = (
-        select(b.label("b"), sensor_col.label("sensor"), func.count().label("n"))
+        select(
+            b.label("b"),
+            sensor_col.label("sensor"),
+            (func.count() if count is None else count).label("n"),
+        )
         .where(ts_col >= floor_to_bucket(window.since, step), ts_col < window.until)
         .group_by(b, sensor_col)
     )
@@ -149,6 +158,9 @@ def events_bucket_stmt(
 def sessions_bucket_stmt(
     bucket: str, window: Window, sensor: Sequence[str] | None, include_benign: bool = True
 ) -> Select[Any]:
+    """Sessions per bucket. A flood group counts its ``connections``, all in the bucket of its
+    first connection: exact for hourly and daily buckets (a group never crosses an hour), a
+    little early for 5 minute ones."""
     return _bucket_stmt(
         SessionRow.started_at,
         SessionRow.sensor,
@@ -156,6 +168,7 @@ def sessions_bucket_stmt(
         window,
         sensor,
         visible_sessions(include_benign),
+        count=sessions_count(),
     )
 
 
@@ -233,13 +246,20 @@ def top_stmt(
 ) -> Select[Any]:
     """Top values of ``field``.
 
-    Geo, ASN, tag and IP fields count *sessions*; payload fields count *events*.
-    Built as an inner (value, ts) subquery plus an outer GROUP BY, so no bound parameter
-    appears in both SELECT and GROUP BY.
+    Geo, ASN, tag and IP fields count *sessions* (a flood group counts its ``connections``);
+    payload fields count *events*. Built as an inner (value, ts, weight) subquery plus an outer
+    GROUP BY, so no bound parameter appears in both SELECT and GROUP BY.
     """
     if field in SESSION_FIELDS:
+        # A group ends when its last connection did; a plain session is seen when it started.
+        last = case(
+            (SessionRow.kind == "burst", SessionRow.last_event_at), else_=SessionRow.started_at
+        )
         inner = select(
-            _session_value(field).label("value"), SessionRow.started_at.label("ts")
+            _session_value(field).label("value"),
+            SessionRow.started_at.label("ts"),
+            last.label("last_ts"),
+            SessionRow.connections.label("w"),
         ).where(
             SessionRow.started_at >= window.since,
             SessionRow.started_at < window.until,
@@ -251,7 +271,12 @@ def top_stmt(
             inner = inner.where(SessionRow.src_ip == src_ip)
     else:
         expr, types = _event_value(field)
-        inner = select(expr.label("value"), EventRow.ts.label("ts")).where(
+        inner = select(
+            expr.label("value"),
+            EventRow.ts.label("ts"),
+            EventRow.ts.label("last_ts"),
+            literal_column("1").label("w"),
+        ).where(
             EventRow.ts >= window.since,
             EventRow.ts < window.until,
             EventRow.type.in_(types),
@@ -262,13 +287,13 @@ def top_stmt(
         if src_ip is not None:
             inner = inner.where(EventRow.src_ip == src_ip)
     sub = inner.subquery("v")
-    n = func.count()
+    n = func.coalesce(func.sum(sub.c.w), 0)
     return (
         select(
             sub.c.value,
             n.label("n"),
             func.min(sub.c.ts).label("first_seen"),
-            func.max(sub.c.ts).label("last_seen"),
+            func.max(sub.c.last_ts).label("last_seen"),
             func.sum(n).over().label("total"),
         )
         .where(sub.c.value.is_not(None))
@@ -355,7 +380,7 @@ def _sort_keys() -> dict[str, ColumnElement[Any]]:
     return {
         "first_seen": func.min(s.started_at),
         "last_seen": func.max(s.last_event_at),
-        "sessions": func.count(),
+        "sessions": sessions_count(),
         "events": func.coalesce(func.sum(s.event_count), 0),
     }
 
@@ -384,7 +409,7 @@ def attackers_stmt(
         keys["events"].label("events"),
         func.array_agg(distinct(s.sensor)).label("sensors"),
         func.coalesce(func.sum(s.login_attempts), 0).label("login_attempts"),
-        func.count().filter(s.login_success).label("login_success"),
+        sessions_count(s.login_success).label("login_success"),
         func.coalesce(func.sum(s.commands), 0).label("commands"),
         func.coalesce(func.sum(s.downloads), 0).label("downloads"),
         func.max(s.country).label("country"),
@@ -562,7 +587,7 @@ def asns_stmt(
 ) -> Select[Any]:
     s = SessionRow
     cols: dict[str, ColumnElement[Any]] = {
-        "sessions": func.count(),
+        "sessions": sessions_count(),
         "ips": func.count(distinct(s.src_ip)),
         "events": func.coalesce(func.sum(s.event_count), 0),
     }
@@ -613,9 +638,12 @@ def session_has_value(field: str, value: str) -> ColumnElement[bool]:
     """EXISTS clause: the session has an event whose ``field`` equals ``value``.
 
     Uses the same (truncated) expression as ``/stats/top``, so a value returned there matches here.
+    A flood group (``kind = 'burst'``) has no events under its own id: it matches when one of the
+    events of its source, sensor and port inside its time range does, leaving out the
+    connections that kept a row of their own (they match on their own).
     """
     expr, types = _event_value(field)
-    return (
+    own = (
         select(literal_column("1"))
         .where(
             EventRow.session_id == SessionRow.session_id,
@@ -626,4 +654,24 @@ def session_has_value(field: str, value: str) -> ColumnElement[bool]:
             expr == value,
         )
         .exists()
+    )
+    standalone = aliased(SessionRow, name="x")
+    folded = (
+        select(literal_column("1"))
+        .where(
+            EventRow.src_ip == SessionRow.src_ip,
+            EventRow.sensor == SessionRow.sensor,
+            EventRow.dst_port == SessionRow.dst_port,
+            EventRow.ts >= SessionRow.started_at,
+            EventRow.ts <= SessionRow.last_event_at + SLACK,
+            EventRow.type.in_(types),
+            expr == value,
+            ~exists().where(standalone.session_id == EventRow.session_id),
+        )
+        .exists()
+    )
+    # Each branch is guarded by the kind, so a row only runs the lookup that can match it.
+    return or_(
+        and_(SessionRow.kind == "session", own),
+        and_(SessionRow.kind == "burst", folded),
     )
