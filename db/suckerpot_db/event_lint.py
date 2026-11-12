@@ -7,7 +7,8 @@ Both checks read source text only and are meant for the static tests of ``api`` 
 * raw SQL: a string constant that reads ``FROM events`` or ``JOIN events`` and filters on
   ``session_id`` must also compare ``ts`` (``ts >= ...``, ``e.ts < ...``);
 * ORM: a function that filters ``EventRow.session_id`` (or an alias bound with ``e = EventRow``)
-  must also use ``ts`` of the same name, or build its statement with an ``event_bounds`` helper.
+  must also use ``ts`` of the same name, or build its statement with an ``event_bounds`` helper
+  (``group_events_*`` reads the events of a flood group, which have no session id of their own).
 
 The check is deliberately simple. It cannot prove that a bound is narrow, only that one is there.
 """
@@ -20,7 +21,18 @@ import re
 _RAW_EVENTS = re.compile(r"\b(?:FROM|JOIN)\s+events\b", re.IGNORECASE)
 _RAW_SESSION_FILTER = re.compile(r"\bsession_id\s*(?:=|IN\b|<>|!=)", re.IGNORECASE)
 _RAW_TS_BOUND = re.compile(r"(?<![\w.])(?:\w+\.)?ts\s*(?:>=|>|<=|<|BETWEEN\b)", re.IGNORECASE)
-_HELPERS = frozenset({"session_events_select", "session_events_where", "SQL_EVENT_TS_BOUND"})
+_HELPERS = frozenset(
+    {
+        "session_events_select",
+        "session_events_where",
+        "SQL_EVENT_TS_BOUND",
+        # Flood groups: their events are found by source, sensor and port inside the group's
+        # time range, not by a session id of their own.
+        "group_events_select",
+        "group_events_where",
+        "SQL_GROUP_EVENT_BOUND",
+    }
+)
 
 
 def _strings(node: ast.AST) -> list[tuple[int, str]]:

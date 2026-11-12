@@ -11,8 +11,14 @@ during a poll, the API takes it EXCLUSIVELY (with a lock timeout) to change or d
 into fetch targets (an attacker typing a URL that already served a file), the analyzer holds it
 SHARED while it decides whether a file is plain web content, so a decision never reads a typing
 that is half written.
+
+``SESSION_FOLD`` (flood groups, 0034): ``fold_session_buckets`` takes it with
+``pg_try_advisory_xact_lock`` (no waiting) so two callers (the ingest batch and the sweep worker)
+never merge the same buckets at once; a caller that does not get it folds nothing this time.
+The function body is created by migration 0034 with this value.
 """
 
 ABUSE_SMTP_PROFILE = 25_001
 ABUSE_IMAP_PROFILE = 26_001
 SAMPLE_TYPING = 27_001
+SESSION_FOLD = 34_001
