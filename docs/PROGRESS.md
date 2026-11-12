@@ -303,3 +303,11 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Found while updating a real source-mode node from v0.11.2 to v0.11.3: `update.sh` ran the checkout and the image build under `umask 077`, so rewritten files became unreadable inside the containers and `migrate` stopped the update. That node was repaired by hand (files made readable, images rebuilt, stack restarted) and runs v0.11.3.
 - The update, rollback, installer and `env-migrate.sh` now run git and the build under `umask 022` and make the committed files readable after every checkout, never touching `.env*`, `hub/.env`, `hub/secrets` or `.suckerpot-state`. A node updating from an older release is repaired by the new `env-migrate.sh` it runs after the checkout.
 - Tests: guardrail tests under `umask 077` for every path, and every CI job green. Not run on a real node yet.
+
+## 2026-11-12: v0.11.5 (collector stops crawling the public web)
+
+- One pull request since v0.11.4 (#129). The details are in `CHANGELOG.md`.
+- Found on a real node: the collector followed every link inside fetched web pages, so one connectivity check typed by an attacker crawled big public sites and filled the Malware page with unknown text.
+- Web content (HTML, SVG and XML, CSS, JSON, web JavaScript) now has its own kinds. It is spared (no link following, no hash indicator, left out of lookups, lists, drafts and the network batch) only when the collector reached it as a page asset of other web content and no attacker typed it; anything an attacker typed or a script linked to stays attacker content. Migration `0033`.
+- Five security review rounds shaped the final rule: droppers dressed as pages, a quadratic CSS scan, link sources and parent order were all found and fixed, with tests for every case.
+- Not run on a real node yet: existing samples are reclassified on their own after the update.
