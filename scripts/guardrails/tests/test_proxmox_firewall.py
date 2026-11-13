@@ -6,7 +6,10 @@ there is no Proxmox here and nothing under the real /etc/pve is ever read or wri
 Every address is from a documentation range.
 """
 
+import ipaddress
+import os
 import re
+import shutil
 import stat
 import subprocess
 from dataclasses import dataclass
@@ -17,21 +20,25 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "host" / "proxmox-firewall.sh"
 PATH = "/usr/local/bin:/usr/bin:/bin"
-VMID = "102"
+VMID = "210"
 MARK = "# SuckerPot:"
 NIC = "virtio=02:00:00:00:00:01,bridge=vmbr0"
 # The private ranges every VM file must drop, in this order (the point of the test).
 PRIVATE = "10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 fc00::/7"  # gitleaks:allow (private ranges are the point of the rule)
+# An --allow-out that covers a whole private range (warned about), and ones inside a range (not).
+COVERING = "192.168.0.0/16 192.168.0.0/15 10.0.0.0/8 10.0.0.0/7 172.16.0.0/12 100.64.0.0/10 169.254.0.0/16"  # gitleaks:allow (private ranges are the point of the test)
+INSIDE = "192.168.0.0/24 10.1.0.0/16 172.16.0.0/16 192.168.0.0/17"  # gitleaks:allow (private ranges are the point of the test)
 
 ID_SHIM = '#!/bin/sh\necho "id $*" >> "$SHIM_LOG"\necho "${SHIM_UID:-0}"\n'
 
 # `compile` keeps a copy of the VM file as it was when it ran, and fails on demand:
 #   SHIM_COMPILE_FAIL=new     fails while the file holds a rule written by the script
 #   SHIM_COMPILE_FAIL=always  fails every time
-#   SHIM_COMPILE_WARN=1       exits 0 but names the VM file on stderr while it holds such a rule
+#   SHIM_COMPILE_WARN=1       exits 0 but names a file on stderr while the VM file holds such a rule
+#                             (SHIM_COMPILE_WARN_NAME: which file, default the VM's own)
 PVE_FIREWALL_SHIM = r"""#!/bin/sh
 echo "pve-firewall $*" >> "$SHIM_LOG"
-vmfw="$SUCKERPOT_PVE_ROOT/etc/pve/firewall/102.fw"
+vmfw="$SUCKERPOT_PVE_ROOT/etc/pve/firewall/210.fw"
 case "$1" in
   compile)
     n=$(cat "$SHIM_DIR/compiles" 2>/dev/null || echo 0)
@@ -45,7 +52,7 @@ case "$1" in
       exit 255
     fi
     if [ -n "${SHIM_COMPILE_WARN:-}" ] && [ "$new" = 1 ]; then
-      echo "/etc/pve/firewall/102.fw (line 9): unknown option" >&2
+      echo "${SHIM_COMPILE_WARN_NAME:-/etc/pve/firewall/210.fw} (line 9): unknown option" >&2
     fi
     echo "iptables rules"
     exit 0 ;;
@@ -108,6 +115,10 @@ class Box:
     def backups(self) -> list[Path]:
         return sorted(self.bakdir.glob("*")) if self.bakdir.exists() else []
 
+    def stack(self) -> list[Path]:
+        """The numbered backups, oldest first: the steps --undo goes back through."""
+        return [p for p in self.backups() if "before-undo" not in p.name]
+
     def calls(self) -> list[str]:
         log = self.shim / "calls.log"
         return log.read_text().splitlines() if log.exists() else []
@@ -154,19 +165,28 @@ FULL = (
     "--private-port",
     "8444",
     "--private-from",
-    "192.0.2.10",
+    "192.0.2.50",
     "--private-from-admin",
 )
+DHCP = ["OUT DROP -p udp -dport 68", "OUT DROP -p udp -dport 546"]
+GATEWAY = [
+    "OUT ACCEPT -dest 192.0.2.1 -p udp -dport 53",
+    "OUT ACCEPT -dest 192.0.2.1 -p tcp -dport 53",
+]
+PRIVATE_DROPS = [f"OUT DROP -dest {r}" for r in PRIVATE.split()]
+LINK_LOCAL = ["OUT DROP -dest fe80::/10 -p tcp", "OUT DROP -dest fe80::/10 -p udp"]
+ADMIN = ["IN ACCEPT -source 198.51.100.0/24 -p tcp -dport 2200", "IN DROP -p tcp -dport 2200"]
 FULL_RULES = [
-    "OUT ACCEPT -dest 192.0.2.1",
+    *DHCP,
+    *GATEWAY,
     "OUT ACCEPT -dest 192.0.2.53",
-    *[f"OUT DROP -dest {r}" for r in PRIVATE.split()],
-    "IN ACCEPT -source 198.51.100.0/24 -p tcp -dport 2200",
-    "IN DROP -p tcp -dport 2200",
-    "IN ACCEPT -source 192.0.2.10 -p tcp -dport 8443",
+    *PRIVATE_DROPS,
+    *LINK_LOCAL,
+    *ADMIN,
+    "IN ACCEPT -source 192.0.2.50 -p tcp -dport 8443",
     "IN ACCEPT -source 198.51.100.0/24 -p tcp -dport 8443",
     "IN DROP -p tcp -dport 8443",
-    "IN ACCEPT -source 192.0.2.10 -p tcp -dport 8444",
+    "IN ACCEPT -source 192.0.2.50 -p tcp -dport 8444",
     "IN ACCEPT -source 198.51.100.0/24 -p tcp -dport 8444",
     "IN DROP -p tcp -dport 8444",
 ]
@@ -271,38 +291,70 @@ def test_a_full_example_in_the_right_order(box: Box) -> None:
     assert len(rule_lines) == len(FULL_RULES)
     assert all(f" {MARK} " in ln for ln in rule_lines)
     assert text.index("[OPTIONS]") < text.index("[RULES]")
-    # fe80::/10 must stay reachable (neighbour discovery) and ipfilter must not be set.
-    assert "fe80" not in text
+    # Without --vm-addr there is no ipfilter (an empty set would cut the VM off), and no set.
     assert "ipfilter" not in text
+    assert "[IPSET" not in text
 
 
 def test_the_minimal_file_has_no_private_port_rules(box: Box) -> None:
     proc = box.vm()
     assert proc.returncode == 0
     assert rules(generated(proc.stdout)) == [
-        "OUT ACCEPT -dest 192.0.2.1",
-        *[f"OUT DROP -dest {r}" for r in PRIVATE.split()],
-        "IN ACCEPT -source 198.51.100.0/24 -p tcp -dport 2200",
-        "IN DROP -p tcp -dport 2200",
+        *DHCP,
+        *GATEWAY,
+        *PRIVATE_DROPS,
+        *LINK_LOCAL,
+        *ADMIN,
     ]
+
+
+def test_the_gateway_answers_dns_only_by_default(box: Box) -> None:
+    got = rules(generated(box.vm().stdout))
+    gateway_rules = [r for r in got if "192.0.2.1" in r]
+    assert gateway_rules == GATEWAY
+    # No rule opens every port of the gateway.
+    assert "OUT ACCEPT -dest 192.0.2.1" not in got
+
+
+def test_gateway_all_opens_every_port_of_the_gateway(box: Box) -> None:
+    proc = box.vm("--gateway-all")
+    assert proc.returncode == 0, proc.stderr
+    got = rules(generated(proc.stdout))
+    assert got == [*DHCP, "OUT ACCEPT -dest 192.0.2.1", *PRIVATE_DROPS, *LINK_LOCAL, *ADMIN]
+
+
+def test_dhcp_server_replies_are_dropped_before_any_accept(box: Box) -> None:
+    for extra in ([], ["--gateway-all", "--allow-out", "192.0.2.53"]):
+        got = rules(generated(box.vm(*extra).stdout))
+        assert got[:2] == DHCP
+        assert not any(r.startswith("OUT ACCEPT") for r in got[:2])
+
+
+def test_ipv6_link_local_loses_tcp_and_udp_but_not_icmpv6(box: Box) -> None:
+    got = rules(generated(box.vm().stdout))
+    assert [r for r in got if "fe80" in r] == LINK_LOCAL
+    # Both come after the accepts (an IPv6 gateway may be link-local) and the private drops, and
+    # no rule drops fe80::/10 whatever the protocol: that would break neighbour discovery.
+    assert got.index(LINK_LOCAL[0]) > got.index(PRIVATE_DROPS[-1])
+    assert "OUT DROP -dest fe80::/10" not in got
 
 
 def test_ipv6_addresses_and_repeated_sources(box: Box) -> None:
     proc = box.run(
         *("--vmid", VMID, "--gateway", "2001:db8::1", "--admin-port", "2200"),
         *("--admin-from", "2001:db8:1::/48", "--allow-out", "2001:db8::53"),
-        *("--private-port", "8443", "--private-from", "192.0.2.10"),
-        *("--private-from", "192.0.2.11", "--private-from", "192.0.2.10"),
+        *("--private-port", "8443", "--private-from", "192.0.2.50"),
+        *("--private-from", "192.0.2.51", "--private-from", "192.0.2.50"),
     )
     assert proc.returncode == 0, proc.stderr
     got = rules(generated(proc.stdout))
-    assert got[0] == "OUT ACCEPT -dest 2001:db8::1"
-    assert got[1] == "OUT ACCEPT -dest 2001:db8::53"
+    assert got[2] == "OUT ACCEPT -dest 2001:db8::1 -p udp -dport 53"
+    assert "OUT ACCEPT -dest 2001:db8::53" in got
     assert "IN ACCEPT -source 2001:db8:1::/48 -p tcp -dport 2200" in got
     # The tunnel host is listed once, in the order it was given.
     assert got[-3:] == [
-        "IN ACCEPT -source 192.0.2.10 -p tcp -dport 8443",
-        "IN ACCEPT -source 192.0.2.11 -p tcp -dport 8443",
+        "IN ACCEPT -source 192.0.2.50 -p tcp -dport 8443",
+        "IN ACCEPT -source 192.0.2.51 -p tcp -dport 8443",
         "IN DROP -p tcp -dport 8443",
     ]
 
@@ -355,12 +407,12 @@ def test_a_bad_port_is_refused(box: Box, bad: str) -> None:
     proc = box.run(*BASE[:5], bad, *BASE[6:])
     assert proc.returncode == 2
     assert "--admin-port" in proc.stderr
-    proc = box.vm("--private-port", bad, "--private-from", "192.0.2.10")
+    proc = box.vm("--private-port", bad, "--private-from", "192.0.2.50")
     assert proc.returncode == 2
     assert "--private-port" in proc.stderr
 
 
-@pytest.mark.parametrize("bad", ["12", "abc", "0", "1000000000", "10 2", "-102", "102.0"])
+@pytest.mark.parametrize("bad", ["12", "abc", "0", "1000000000", "10 2", "-210", "210.5"])
 def test_a_bad_vmid_is_refused(box: Box, bad: str) -> None:
     proc = box.run("--vmid", bad, *BASE[2:])
     assert proc.returncode == 2
@@ -421,14 +473,14 @@ def test_ipv6_forms_that_are_not(box: Box, bad: str) -> None:
 
 
 def test_the_admin_port_cannot_be_a_private_port(box: Box) -> None:
-    proc = box.vm("--private-port", "2200", "--private-from", "192.0.2.10")
+    proc = box.vm("--private-port", "2200", "--private-from", "192.0.2.50")
     assert proc.returncode == 2
     assert "is the admin port" in proc.stderr
 
 
 @pytest.mark.parametrize("port", ["22", "80", "443", "445", "3389", "5060", "6379"])
 def test_a_sensor_port_is_refused(box: Box, port: str) -> None:
-    proc = box.vm("--private-port", port, "--private-from", "192.0.2.10")
+    proc = box.vm("--private-port", port, "--private-from", "192.0.2.50")
     assert proc.returncode == 2
     assert "sensor port" in proc.stderr
     proc = box.run(*BASE[:5], port, *BASE[6:])
@@ -440,7 +492,7 @@ def test_a_private_port_needs_someone_to_reach_it(box: Box) -> None:
     proc = box.vm("--private-port", "8443")
     assert proc.returncode == 2
     assert "--private-from" in proc.stderr
-    proc = box.vm("--private-from", "192.0.2.10")
+    proc = box.vm("--private-from", "192.0.2.50")
     assert proc.returncode == 2
     assert "--private-port" in proc.stderr
     assert box.vm("--private-port", "8443", "--private-from-admin").returncode == 0
@@ -458,9 +510,14 @@ def test_nothing_is_open_to_everyone(box: Box) -> None:
     "args",
     [
         ["--force"],
-        ["--vmid", "103"],
+        ["--vmid", "211"],
         ["--allow-out"],
         ["--set-nic-firewall"],
+        ["--vm-nic", "net0"],
+        ["--vm-addr", "192.0.2.60", "--vm-nic", "eth0"],
+        ["--vm-addr", "192.0.2.60", "--vm-nic", "net0", "--vm-nic", "net1"],
+        ["--vm-addr", "192.0.2.0/24"],
+        ["--vm-addr", "not-an-address"],
     ],
 )
 def test_other_bad_arguments(box: Box, args: list[str]) -> None:
@@ -478,12 +535,60 @@ def test_other_bad_arguments(box: Box, args: list[str]) -> None:
         ["--replace"],
         ["--set-nic-firewall"],
         ["--private-from-admin"],
+        ["--gateway-all"],
+        ["--vm-addr", "192.0.2.60"],
+        ["--vm-nic", "net0"],
     ],
 )
 def test_undo_takes_only_the_vmid(box: Box, extra: list[str]) -> None:
     proc = box.run("--undo", "--vmid", VMID, *extra)
     assert proc.returncode == 2
     assert "--undo takes only --vmid" in proc.stderr
+
+
+def test_a_source_wider_than_a_16_is_a_warning(box: Box) -> None:
+    admin = box.run(*BASE[:-1], "198.51.0.0/15")
+    assert admin.returncode == 0, admin.stderr
+    assert "--admin-from 198.51.0.0/15 is wider than a /16" in admin.stderr
+    tunnel = box.vm("--private-port", "8443", "--private-from", "198.51.0.0/15")
+    assert tunnel.returncode == 0, tunnel.stderr
+    assert "--private-from 198.51.0.0/15 is wider than a /16" in tunnel.stderr
+    # A /16 and narrower are fine, and so is an IPv6 /48.
+    assert (
+        "wider than"
+        not in box.vm("--private-port", "8443", "--private-from", "198.51.0.0/16").stderr
+    )
+    assert "wider than" not in box.vm().stderr
+    assert "wider than" not in box.run(*BASE[:-1], "2001:db8:1::/48").stderr
+    v6 = box.run(*BASE[:-1], "2001:db8::/32")
+    assert "--admin-from 2001:db8::/32 is wider than a /48" in v6.stderr
+
+
+@pytest.mark.parametrize("allow", COVERING.split())
+def test_an_allow_out_that_covers_a_private_range_is_a_warning(box: Box, allow: str) -> None:
+    proc = box.vm("--allow-out", allow)
+    assert proc.returncode == 0, proc.stderr
+    net = ipaddress.IPv4Network(allow)
+    covered = [
+        r for r in PRIVATE.split() if ":" not in r and net.supernet_of(ipaddress.IPv4Network(r))
+    ]
+    assert covered
+    assert f"--allow-out {allow} covers the whole private range {covered[0]}" in proc.stderr
+
+
+@pytest.mark.parametrize("allow", [*INSIDE.split(), "192.0.2.53"])
+def test_an_allow_out_inside_a_private_range_is_not(box: Box, allow: str) -> None:
+    proc = box.vm("--allow-out", allow)
+    assert proc.returncode == 0, proc.stderr
+    assert "covers the whole private range" not in proc.stderr
+    assert "wider than" not in proc.stderr
+    assert f"OUT ACCEPT -dest {allow}" in proc.stdout
+
+
+def test_an_allow_out_wider_than_a_16_is_a_warning(box: Box) -> None:
+    assert (
+        "--allow-out 198.0.0.0/8 is wider than a /16" in box.vm("--allow-out", "198.0.0.0/8").stderr
+    )
 
 
 def test_the_script_asks_for_no_default_admin_port(box: Box) -> None:
@@ -517,7 +622,7 @@ def test_a_dry_run_changes_nothing(box: Box) -> None:
     # The difference is against the current file.
     assert "(current)" in proc.stdout
     assert "-IN ACCEPT -p tcp -dport 80" in proc.stdout
-    assert "+OUT ACCEPT -dest 192.0.2.1" in proc.stdout
+    assert "+OUT DROP -p udp -dport 68" in proc.stdout
 
 
 def test_a_dry_run_says_when_the_file_is_new(box: Box) -> None:
@@ -568,7 +673,7 @@ def test_apply_writes_a_new_file_and_checks_it(box: Box) -> None:
     assert marker.read_text() == ""
     assert stat.S_IMODE(marker.stat().st_mode) == 0o600
     assert stat.S_IMODE(box.bakdir.stat().st_mode) == 0o700
-    assert sorted(p.name for p in box.fwdir.iterdir()) == ["102.fw", "cluster.fw"]
+    assert sorted(p.name for p in box.fwdir.iterdir()) == ["210.fw", "cluster.fw"]
 
 
 def test_apply_never_touches_the_datacenter_or_node_firewall(box: Box) -> None:
@@ -641,25 +746,127 @@ def test_apply_puts_the_old_file_back_when_the_check_fails(box: Box) -> None:
     assert proc.returncode == 5
     assert "rolled back" in proc.stderr
     assert box.vmfw.read_text() == OLD
-    (backup,) = box.backups()
-    assert backup.read_text() == OLD
+    # A failed apply pushes nothing on the stack of backups.
+    assert box.backups() == []
     # The check that failed ran on the new file.
     assert "OUT ACCEPT -dest 192.0.2.1" in (box.shim / "compile-1.fw").read_text()
-    assert sorted(p.name for p in box.fwdir.iterdir()) == ["102.fw", "cluster.fw"]
+    assert sorted(p.name for p in box.fwdir.iterdir()) == ["210.fw", "cluster.fw"]
 
 
 def test_apply_removes_a_new_file_when_the_check_fails(box: Box) -> None:
     proc = box.vm("--apply", SHIM_COMPILE_FAIL="new")
     assert proc.returncode == 5
     assert not box.vmfw.exists()
+    assert box.backups() == []
     assert "syntax error" in proc.stderr
 
 
-def test_a_complaint_about_the_file_is_a_failed_check(box: Box) -> None:
+@pytest.mark.parametrize(
+    "name",
+    ["/etc/pve/firewall/210.fw", "210.fw", "/etc/pve/firewall/210.fw:", "see 210.fw (line 3)"],
+)
+def test_a_complaint_about_the_file_is_a_failed_check(box: Box, name: str) -> None:
     box.vmfw.write_text(OLD)
-    proc = box.vm("--apply", SHIM_COMPILE_WARN="1")
+    proc = box.vm("--apply", SHIM_COMPILE_WARN="1", SHIM_COMPILE_WARN_NAME=name)
     assert proc.returncode == 5
     assert box.vmfw.read_text() == OLD
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "/etc/pve/firewall/1210.fw",
+        "/etc/pve/firewall/2210.fw",
+        "/etc/pve/firewall/x210.fw",
+        "/etc/pve/firewall/210.fw.tmp.4242",
+        "/etc/pve/firewall/210.fwx",
+        "/etc/pve/firewall/210-fw",
+    ],
+)
+def test_a_complaint_about_another_file_is_not(box: Box, name: str) -> None:
+    proc = box.vm("--apply", SHIM_COMPILE_WARN="1", SHIM_COMPILE_WARN_NAME=name)
+    assert proc.returncode == 0, proc.stderr
+    assert box.vmfw.read_text() == generated(proc.stdout)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write to a read-only folder")
+@pytest.mark.parametrize("what", ["apply", "undo"])
+def test_a_read_only_etc_pve_is_said_plainly(box: Box, what: str) -> None:
+    box.vmfw.write_text(OLD)
+    _backup(box, "20261104T000000Z", "[OPTIONS]\n\nenable: 1\n")
+    before = box.snapshot()
+    box.fwdir.chmod(0o555)
+    try:
+        proc = box.vm("--apply") if what == "apply" else box.run("--undo", "--vmid", VMID)
+    finally:
+        box.fwdir.chmod(0o755)
+    assert proc.returncode == 5
+    assert "read-only" in proc.stderr
+    assert "quorum" in proc.stderr
+    assert "Nothing was changed" in proc.stderr
+    # Nothing was written, so nothing is claimed to be restored.
+    assert "RESTORE FAILED" not in proc.stderr
+    assert "rolled back" not in proc.stderr
+    assert "back in place" not in proc.stderr
+    assert box.snapshot() == before
+
+
+# A `cat` that cuts the Nth read of a .fw file short, like a failing disk.
+CAT_SHIM = r"""#!/bin/sh
+# Only the script's copies count (cat -- FILE): first the one that reads the file to keep, then
+# the one that makes the backup.
+case "$1 $2" in
+  "-- "*.fw)
+    n=$(/bin/cat "$SHIM_DIR/cats" 2>/dev/null || echo 0)
+    n=$((n + 1))
+    echo "$n" > "$SHIM_DIR/cats"
+    if [ "$n" = "${SHIM_CAT_CUT_AT:-0}" ]; then
+      exec /usr/bin/head -c 3 -- "$2"
+    fi ;;
+esac
+exec /bin/cat "$@"
+"""
+
+
+@pytest.mark.parametrize("cut_at", ["1", "2"])
+def test_a_bad_backup_copy_aborts_before_anything_changes(box: Box, cut_at: str) -> None:
+    box.vmfw.write_text(OLD)
+    _write_exec(box.shim / "cat", CAT_SHIM)
+    before = box.snapshot()
+    proc = box.vm("--apply", SHIM_CAT_CUT_AT=cut_at)
+    assert proc.returncode == 5
+    assert "nothing was changed" in proc.stderr
+    assert box.snapshot() == before
+    assert box.backups() == []
+    assert not any(c.endswith("compile") for c in box.calls())
+
+
+def test_a_backup_folder_that_cannot_be_made_aborts_before_anything_changes(box: Box) -> None:
+    box.vmfw.write_text(OLD)
+    box.bakdir.parent.mkdir(parents=True)
+    box.bakdir.write_text("in the way")
+    proc = box.vm("--apply")
+    assert proc.returncode == 5
+    assert "nothing was changed" in proc.stderr
+    assert box.vmfw.read_text() == OLD
+
+
+def test_the_test_root_is_refused_for_root(box: Box) -> None:
+    unshare = shutil.which("unshare")
+    if unshare is None or subprocess.run([unshare, "-Ur", "true"], check=False).returncode != 0:  # noqa: S603
+        pytest.skip("no user namespace to be root in")
+    proc = subprocess.run(  # noqa: S603
+        [unshare, "-Ur", "bash", str(SCRIPT), *BASE],
+        env=box.env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 2
+    assert "SUCKERPOT_PVE_ROOT" in proc.stderr
+    assert "refused for root" in proc.stderr
+    assert "== Generated" not in proc.stdout
 
 
 @pytest.mark.parametrize(
@@ -710,35 +917,61 @@ def _backup(box: Box, stamp: str, text: str | None) -> Path:
     return path
 
 
-def test_undo_restores_the_most_recent_backup(box: Box) -> None:
-    _backup(box, "20261101T000000Z", "[OPTIONS]\n\nenable: 0\n")
+def test_undo_restores_the_most_recent_backup_and_takes_it_off(box: Box) -> None:
+    older = "[OPTIONS]\n\nenable: 0\n"
     newest = "[OPTIONS]\n\nenable: 1\nlog_level_in: info\n"
-    _backup(box, "20261102T000000Z", newest)
+    _backup(box, "20261103T000000Z", older)
+    newer = _backup(box, "20261104T000000Z", newest)
     box.vmfw.write_text("[OPTIONS]\n\nenable: 1\npolicy_in: DROP\n")
     proc = box.run("--undo", "--vmid", VMID)
     assert proc.returncode == 0, proc.stderr
     assert box.vmfw.read_text() == newest
     assert (box.shim / "compile-1.fw").read_text() == newest
     assert "Status: enabled/running" in proc.stdout
+    assert not newer.exists()
     # The file it replaced is kept, apart from the numbered backups.
     (kept,) = box.bakdir.glob("*-before-undo.fw")
     assert kept.read_text() == "[OPTIONS]\n\nenable: 1\npolicy_in: DROP\n"
     assert stat.S_IMODE(kept.stat().st_mode) == 0o600
-    # A second --undo does not undo the undo: it still means "the newest numbered backup".
-    box.vmfw.write_text("[OPTIONS]\n\nenable: 1\n")
+    # Exactly one step per call: the next one goes to the older backup, the one after has none.
     assert box.run("--undo", "--vmid", VMID).returncode == 0
-    assert box.vmfw.read_text() == newest
+    assert box.vmfw.read_text() == older
+    last = box.run("--undo", "--vmid", VMID)
+    assert last.returncode == 4
+    assert "nothing to undo" in last.stderr
+    assert box.vmfw.read_text() == older
 
 
-def test_undo_twice_in_a_row_is_a_no_op(box: Box) -> None:
-    _backup(box, "20261102T000000Z", "[OPTIONS]\n\nenable: 1\n")
-    box.vmfw.write_text("[OPTIONS]\n\nenable: 0\n")
+def test_two_applies_then_two_undos_go_back_one_step_each(box: Box) -> None:
+    first = box.vm("--apply")
+    assert first.returncode == 0, first.stderr
+    one = box.vmfw.read_text()
+    second = box.vm("--gateway-all", "--apply")
+    assert second.returncode == 0, second.stderr
+    two = box.vmfw.read_text()
+    assert one != two
+    assert len(box.stack()) == 2
     assert box.run("--undo", "--vmid", VMID).returncode == 0
-    before = box.snapshot()
-    proc = box.run("--undo", "--vmid", VMID)
-    assert proc.returncode == 0
-    assert "nothing to do" in proc.stderr
-    assert box.snapshot() == before
+    assert box.vmfw.read_text() == one
+    assert len(box.stack()) == 1
+    assert box.run("--undo", "--vmid", VMID).returncode == 0
+    assert not box.vmfw.exists()
+    assert box.stack() == []
+    assert box.run("--undo", "--vmid", VMID).returncode == 4
+
+
+def test_a_failed_apply_pushes_nothing_on_the_stack(box: Box) -> None:
+    assert box.vm("--apply").returncode == 0
+    one = box.vmfw.read_text()
+    (before,) = box.stack()
+    failed = box.vm("--gateway-all", "--apply", SHIM_COMPILE_FAIL="new")
+    assert failed.returncode == 5
+    assert box.vmfw.read_text() == one
+    assert box.stack() == [before]
+    # One undo is enough to get back to the state before the one successful apply.
+    assert box.run("--undo", "--vmid", VMID).returncode == 0
+    assert not box.vmfw.exists()
+    assert box.run("--undo", "--vmid", VMID).returncode == 4
 
 
 def test_undo_after_the_first_apply_removes_the_file(box: Box) -> None:
@@ -762,25 +995,27 @@ def test_undo_with_no_backup(box: Box) -> None:
     assert proc.returncode == 4
     assert "nothing to undo" in proc.stderr
     # Another VM's backup, and a file of another shape, do not count.
-    _backup(box, "20261102T000000Z", "[OPTIONS]\n\nenable: 1\n").rename(
-        box.bakdir / "103-20261102T000000Z.fw"
+    _backup(box, "20261104T000000Z", "[OPTIONS]\n\nenable: 1\n").rename(
+        box.bakdir / "220-20261104T000000Z.fw"
     )
     (box.bakdir / f"{VMID}-notes.fw").write_text("x")
     assert box.run("--undo", "--vmid", VMID).returncode == 4
 
 
 def test_undo_is_rolled_back_when_its_check_fails(box: Box) -> None:
-    _backup(box, "20261102T000000Z", "[OPTIONS]\n\nenable: 1\n")
+    backup = _backup(box, "20261104T000000Z", "[OPTIONS]\n\nenable: 1\n")
     current = "[OPTIONS]\n\nenable: 0\n"
     box.vmfw.write_text(current)
     proc = box.run("--undo", "--vmid", VMID, SHIM_COMPILE_FAIL="always")
     assert proc.returncode == 5
     assert "rolled back" in proc.stderr
     assert box.vmfw.read_text() == current
+    # The step was not taken, so its backup stays on the stack.
+    assert backup.exists()
 
 
 def test_undo_needs_root_and_a_node(box: Box) -> None:
-    _backup(box, "20261102T000000Z", "[OPTIONS]\n\nenable: 1\n")
+    _backup(box, "20261104T000000Z", "[OPTIONS]\n\nenable: 1\n")
     assert box.run("--undo", "--vmid", VMID, SHIM_UID="1000").returncode == 4
     (box.shim / "qm").unlink()
     assert box.run("--undo", "--vmid", VMID).returncode == 3
@@ -852,7 +1087,127 @@ def test_a_failed_qm_set_leaves_the_file_and_says_so(box: Box) -> None:
     assert box.vmfw.exists()
 
 
+# ---------------------------------------------------------------- --vm-addr (ipfilter)
+VM_ADDRS = ("--vm-addr", "192.0.2.60", "--vm-addr", "2001:db8::60")
+
+
+def ipset(text: str, name: str) -> list[str]:
+    """The entries of an [IPSET name] section, without their comments."""
+    section = ""
+    out: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            section = line
+        elif line and section == f"[IPSET {name}]":
+            out.append(line.split(" #", 1)[0])
+    return out
+
+
+def test_ipfilter_is_only_turned_on_with_the_vms_addresses(box: Box) -> None:
+    proc = box.vm(*VM_ADDRS)
+    assert proc.returncode == 0, proc.stderr
+    text = generated(proc.stdout)
+    assert options(text) == [
+        "enable: 1",
+        "policy_in: ACCEPT",
+        "policy_out: ACCEPT",
+        "macfilter: 1",
+        "ipfilter: 1",
+    ]
+    assert ipset(text, "ipfilter-net0") == ["192.0.2.60", "2001:db8::60"]
+    assert text.index("[RULES]") < text.index("[IPSET ipfilter-net0]")
+    # The rules are the same as without it, and each address says why it is there.
+    assert rules(text) == [*DHCP, *GATEWAY, *PRIVATE_DROPS, *LINK_LOCAL, *ADMIN]
+    assert f"192.0.2.60 {MARK} address of the VM" in text
+    # The owner is told what a wrong list costs.
+    assert "only send from 192.0.2.60 2001:db8::60" in proc.stderr
+
+
+def test_ipfilter_names_the_nic_and_lists_an_address_once(box: Box) -> None:
+    config = f"name: vm-test\nnet1: {NIC},firewall=1\n"
+    proc = box.vm(*VM_ADDRS, "--vm-addr", "192.0.2.60", "--vm-nic", "net1", SHIM_QM_CONFIG=config)
+    assert proc.returncode == 0, proc.stderr
+    text = generated(proc.stdout)
+    assert ipset(text, "ipfilter-net1") == ["192.0.2.60", "2001:db8::60"]
+    assert "ipfilter-net0" not in text
+
+
+def test_without_vm_addr_no_set_is_written(box: Box) -> None:
+    text = generated(box.vm().stdout)
+    assert "ipfilter" not in text
+    assert "[IPSET" not in text
+
+
+def test_apply_writes_the_set_and_a_rerun_with_other_addresses_is_not_foreign(box: Box) -> None:
+    assert box.vm(*VM_ADDRS, "--apply").returncode == 0
+    assert ipset(box.vmfw.read_text(), "ipfilter-net0") == ["192.0.2.60", "2001:db8::60"]
+    # Its own set and rules, with other addresses, are replaced without --replace.
+    again = box.vm("--vm-addr", "192.0.2.61", "--apply")
+    assert again.returncode == 0, again.stderr
+    assert ipset(box.vmfw.read_text(), "ipfilter-net0") == ["192.0.2.61"]
+
+
+def test_dropping_vm_addr_later_is_refused_until_replace(box: Box) -> None:
+    # `ipfilter: 1` is an option, and an option carries no mark of ours: the owner is told that
+    # leaving out --vm-addr would switch the filter off.
+    assert box.vm(*VM_ADDRS, "--apply").returncode == 0
+    refused = box.vm("--apply")
+    assert refused.returncode == 4
+    listed = refused.stdout.split("== In the current file, not generated by this script ==")[1]
+    assert "[OPTIONS] ipfilter: 1" in listed
+    assert "[IPSET" not in listed
+    assert box.vm("--apply", "--replace").returncode == 0
+    assert "ipfilter" not in box.vmfw.read_text()
+
+
+def test_a_set_of_the_owners_is_foreign(box: Box) -> None:
+    box.vmfw.write_text("[OPTIONS]\n\nenable: 1\n\n[IPSET management] # my admins\n\n192.0.2.80\n")
+    proc = box.vm()
+    assert proc.returncode == 0
+    assert "[IPSET MANAGEMENT] 192.0.2.80" in proc.stdout
+    assert box.vm("--apply").returncode == 4
+
+
+def test_ipfilter_would_cut_off_another_nic(box: Box) -> None:
+    config = f"net0: {NIC},firewall=1\nnet1: virtio=02:00:00:00:00:02,bridge=vmbr1,firewall=1\n"
+    dry = box.vm(*VM_ADDRS, SHIM_QM_CONFIG=config)
+    assert dry.returncode == 0
+    assert "would cut off the other NIC" in dry.stderr
+    assert "net1" in dry.stderr
+    proc = box.vm(*VM_ADDRS, "--apply", SHIM_QM_CONFIG=config)
+    assert proc.returncode == 4
+    assert "refused" in proc.stderr
+    assert not box.vmfw.exists()
+    assert box.backups() == []
+
+
+def test_ipfilter_ignores_a_nic_without_firewall_unless_it_would_get_one(box: Box) -> None:
+    config = f"net0: {NIC},firewall=1\nnet1: virtio=02:00:00:00:00:02,bridge=vmbr1\n"
+    ok = box.vm(*VM_ADDRS, "--apply", SHIM_QM_CONFIG=config)
+    assert ok.returncode == 0, ok.stderr
+    box.vmfw.unlink()
+    refused = box.vm(*VM_ADDRS, "--apply", "--set-nic-firewall", SHIM_QM_CONFIG=config)
+    assert refused.returncode == 4
+    assert not any(c.startswith("qm set") for c in box.calls())
+
+
+def test_ipfilter_needs_the_nic_to_exist(box: Box) -> None:
+    dry = box.vm(*VM_ADDRS, "--vm-nic", "net3")
+    assert dry.returncode == 0
+    assert "the VM has no net3" in dry.stderr
+    proc = box.vm(*VM_ADDRS, "--vm-nic", "net3", "--apply")
+    assert proc.returncode == 4
+    assert not box.vmfw.exists()
+
+
 # ---------------------------------------------------------------- the script itself
+def test_the_script_checks_that_root_does_not_use_the_test_root() -> None:
+    code = SCRIPT.read_text()
+    assert '"$EUID" -eq 0' in code
+    assert code.index('"$EUID" -eq 0') < code.index("build > ")
+
+
 def test_the_script_never_writes_the_datacenter_firewall() -> None:
     text = SCRIPT.read_text()
     code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))

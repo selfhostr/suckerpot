@@ -15,9 +15,16 @@
 #                      scripts/move-admin-ssh.sh. There is no default
 #   --admin-from CIDR  who may reach the admin port (an address or a CIDR, never /0)
 # Options:
-#   --allow-out ADDR   another LAN host the VM may reach, such as a local DNS server (address or
-#                      CIDR, repeat it). Placed before the private-range drops
-#   --private-port N   a port that only some hosts may reach, such as the dashboard port or a hub
+#   --gateway-all      let the VM reach EVERY port of the gateway. Without it the gateway
+#                      answers DNS only (53/udp and 53/tcp): the router's admin page, UPnP and
+#                      the like stay out of reach. Routing through the gateway is unaffected
+#   --allow-out ADDR   another LAN host the VM may reach on every port, such as a local DNS
+#                      server (address or CIDR, repeat it). Placed before the private-range drops
+#   --vm-addr ADDR     an address the VM uses (IPv4 or IPv6, repeat it). Turns on ipfilter: the
+#                      VM may then only send with these source addresses. List EVERY address the
+#                      VM uses on that NIC, IPv6 included, or it loses that traffic
+#   --vm-nic NAME      the NIC of --vm-addr, as in `qm config` (default net0)
+#   --private-port N  a port that only some hosts may reach, such as the dashboard port or a hub
 #                      port (repeat it). Needs --private-from or --private-from-admin
 #   --private-from ADDR
 #                      who may reach the private ports: the host of the reverse tunnel, for
@@ -29,50 +36,59 @@
 #   --set-nic-firewall with --apply: run `qm set` to put firewall=1 on the VM's NICs that lack
 #                      it (briefly reconnects a running VM's NIC). Without it, the command is
 #                      only printed
-#   --undo             put back the most recent backup of this VM
+#   --undo             go back one step: put the most recent backup of this VM back and drop it
+#                      from the stack of backups (run it again to go back another step)
 #   -h, --help         show this help
 #
 # What it writes (Proxmox evaluates top to bottom, the first match wins):
 #   [OPTIONS]  enable: 1, policy_in: ACCEPT (the sensors must accept the internet on many ports),
-#              policy_out: ACCEPT, macfilter: 1. ipfilter is NOT set: on a VM an empty ipfilter
-#              set drops all of the VM's IPv4 traffic, and the script cannot know the VM's
-#              addresses. It would cut the VM off.
-#   [RULES]    1. OUT ACCEPT to the gateway, then to each --allow-out
-#              2. OUT DROP to the private ranges: the three of RFC 1918 (10/8, 172.16/12,
+#              policy_out: ACCEPT, macfilter: 1. ipfilter: 1 only with --vm-addr: on a VM an
+#              empty ipfilter set drops all of the VM's IPv4 traffic, so it is never turned on
+#              without the VM's addresses
+#   [RULES]    1. OUT DROP of udp to port 68 and 546: no rogue DHCP server replies from the VM
+#              2. OUT ACCEPT of DNS (53/udp, 53/tcp) to the gateway, or of everything with
+#                 --gateway-all, then of everything to each --allow-out
+#              3. OUT DROP to the private ranges: the three of RFC 1918 (10/8, 172.16/12,
 #                 192.168/16), 100.64/10 (CGNAT), 169.254/16 (link-local) and, for IPv6,
-#                 fc00::/7. fe80::/10 stays open: neighbour discovery needs it. A LAN that is
-#                 also reachable by global IPv6 addresses cannot be blocked here
-#              3. IN ACCEPT admin-from to the admin port, then IN DROP of the admin port
-#              4. for each --private-port: IN ACCEPT from the tunnel host(s) (and the admin
+#                 fc00::/7. Then OUT DROP of tcp and udp to fe80::/10: without it the VM could
+#                 find every IPv6 host of the LAN (ping ff02::1) and reach its services over
+#                 link-local. ICMPv6 is left alone: neighbour discovery is ICMPv6, and Proxmox
+#                 accepts it (option ndp) before these rules. A LAN that is also reachable by
+#                 global IPv6 addresses cannot be blocked here
+#              4. IN ACCEPT admin-from to the admin port, then IN DROP of the admin port
+#              5. for each --private-port: IN ACCEPT from the tunnel host(s) (and the admin
 #                 network with --private-from-admin), then IN DROP of that port
+#   [IPSET ipfilter-<nic>]  with --vm-addr: the addresses of the VM
 #
 # Safety: a dry run changes nothing. --apply backs the current file up to
-# /root/suckerpot-firewall-backups/<vmid>-<UTC timestamp>.fw (0600), writes the new file
-# atomically (a temp file in /etc/pve/firewall, then a rename), runs `pve-firewall compile` and
-# puts the backup back when that fails. It refuses (exit 4) when the current file holds rules or
-# options it did not generate, unless --replace. It never touches the datacenter firewall
-# (cluster.fw) or the node firewall: it only reads whether the datacenter firewall is on and
-# warns. It checks `qm config` for firewall=1 on the NICs and only changes it with
-# --set-nic-firewall. A rule it wrote carries a "# SuckerPot:" comment: those are replaced
-# without --replace.
+# /root/suckerpot-firewall-backups/<vmid>-<UTC timestamp>.fw (0600), checks the copy, writes the
+# new file atomically (a temp file in /etc/pve/firewall, then a rename), runs `pve-firewall
+# compile` and puts the backup back when that fails. A failed apply leaves no backup behind. It
+# refuses (exit 4) when the current file holds rules or options it did not generate, unless
+# --replace. It never touches the datacenter firewall (cluster.fw) or the node firewall: it only
+# reads whether the datacenter firewall is on and warns. It checks `qm config` for firewall=1 on
+# the NICs and only changes it with --set-nic-firewall. A rule it wrote carries a "# SuckerPot:"
+# comment: those are replaced without --replace. It warns about a source wider than a /16
+# (IPv4) or a /48 (IPv6) and about an --allow-out that covers a whole private range.
 #
-# Keep the Proxmox console open the first time: a wrong --admin-from cuts your SSH to the VM
-# (--undo, run on the node, brings it back).
+# Keep the Proxmox console open the first time: a wrong --admin-from cuts your SSH to the VM,
+# and a wrong --vm-addr cuts the VM off (--undo, run on the node, brings it back).
 #
 # Exit codes: 0 done, or the dry run worked; 2 bad arguments; 3 not a Proxmox node, or a tool is
 # missing; 4 refused (not root, VM not found, foreign rules without --replace, nothing to
-# undo); 5 the change failed (a failed check was rolled back; a failed `qm set` leaves the
-# written file in place).
+# undo); 5 the change failed (nothing was changed when /etc/pve is read-only or the backup
+# failed; a failed check was rolled back; a failed `qm set` leaves the written file in place).
 #
-# SUCKERPOT_PVE_ROOT is for the tests only: it prefixes /etc/pve and /root. Never set it.
+# SUCKERPOT_PVE_ROOT is for the tests only: it prefixes /etc/pve and /root. Never set it (it is
+# refused for root).
 set -euo pipefail
 
 # The sensors' default host ports (.env.example, *_HOST_PORT). A private port or the admin port
 # on one of them would block a sensor or expose the admin SSH, so they are refused.
 SENSOR_PORTS="22 23 80 443 445 1433 2375 3306 3389 5000 5001 5060 5555 6379"
 MARK="SuckerPot:"
-# What the VM may not reach: RFC 1918, CGNAT, link-local, IPv6 unique local. Not fe80::/10: IPv6
-# neighbour discovery needs it.
+# What the VM may not reach, whatever the protocol: RFC 1918, CGNAT, link-local, IPv6 unique
+# local. IPv6 link-local (fe80::/10) is dropped for tcp and udp only (see build).
 PRIVATE_RANGES="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 fc00::/7" # gitleaks:allow (private ranges are the point of the rule)
 
 root=${SUCKERPOT_PVE_ROOT:-}
@@ -202,12 +218,62 @@ check_source() { # option value: an address or a CIDR that is not "everyone"
 
 in_list() { [[ " $2 " == *" $1 "* ]]; }
 
+ipv4_int() {
+  local IFS=. a b c d
+  read -r a b c d <<< "$1"
+  echo $(((a << 24) + (b << 16) + (c << 8) + d))
+}
+
+# Prefix length of an address or CIDR (a bare address is a host: 32 or 128).
+net_len() {
+  if [[ $1 == */* ]]; then
+    echo "${1#*/}"
+  elif valid_ipv4 "$1"; then
+    echo 32
+  else
+    echo 128
+  fi
+}
+
+# Warns about a source broader than a /16 (IPv4) or a /48 (IPv6).
+warn_wide() { # option value
+  local addr=${2%%/*} len
+  len=$(net_len "$2")
+  if valid_ipv4 "$addr"; then
+    ((len >= 16)) || warn "$1 $2 is wider than a /16: every host in it is trusted"
+  else
+    ((len >= 48)) || warn "$1 $2 is wider than a /48: every host in it is trusted"
+  fi
+}
+
+# Prints the private range (IPv4) that the address or CIDR $1 covers whole, and fails if none.
+covers_private() {
+  local addr=${1%%/*} len a r rl mask
+  valid_ipv4 "$addr" || return 1
+  len=$(net_len "$1")
+  a=$(ipv4_int "$addr")
+  for r in $PRIVATE_RANGES; do
+    [[ $r != *:* ]] || continue
+    rl=${r#*/}
+    ((len <= rl)) || continue
+    mask=$(((0xFFFFFFFF << (32 - len)) & 0xFFFFFFFF))
+    if ((($(ipv4_int "${r%/*}") & mask) == (a & mask))); then
+      echo "$r"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------- arguments
 vmid=""
 gateway=""
+gateway_all=0
 admin_port=""
 admin_from=""
 allow_out=()
+vm_addrs=()
+vm_nic=""
 private_ports=()
 private_from=()
 private_from_admin=0
@@ -221,14 +287,16 @@ once() { [ -z "$2" ] || bad "$1 was given twice"; }
 
 while [ "$#" -gt 0 ]; do
   case $1 in
-    --vmid | --gateway | --admin-port | --admin-from | --allow-out | --private-port | --private-from)
+    --vmid | --gateway | --admin-port | --admin-from | --allow-out | --private-port | --private-from | --vm-addr | --vm-nic)
       need_value "$@"
       case $1 in
         --vmid) once "$1" "$vmid" && vmid=$2 ;;
         --gateway) once "$1" "$gateway" && gateway=$2 ;;
         --admin-port) once "$1" "$admin_port" && admin_port=$2 ;;
         --admin-from) once "$1" "$admin_from" && admin_from=$2 ;;
+        --vm-nic) once "$1" "$vm_nic" && vm_nic=$2 ;;
         --allow-out) allow_out+=("$2") ;;
+        --vm-addr) vm_addrs+=("$2") ;;
         --private-port) private_ports+=("$2") ;;
         --private-from) private_from+=("$2") ;;
       esac
@@ -236,6 +304,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --private-from-admin)
       private_from_admin=1
+      shift
+      ;;
+    --gateway-all)
+      gateway_all=1
       shift
       ;;
     --apply)
@@ -262,13 +334,19 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# The test root moves /etc/pve and /root: for root it would send a real run to the wrong place.
+if [ -n "${SUCKERPOT_PVE_ROOT:-}" ] && [ "$EUID" -eq 0 ]; then
+  die 2 "SUCKERPOT_PVE_ROOT is for the tests only and is refused for root: unset it"
+fi
+
 [ -n "$vmid" ] || bad "--vmid is required"
 valid_vmid "$vmid" || bad "--vmid must be a whole number, 100 or more"
 
 if [ "$undo" = 1 ]; then
-  { [ -z "$gateway$admin_port$admin_from" ] && [ "${#allow_out[@]}" -eq 0 ] &&
-    [ "${#private_ports[@]}" -eq 0 ] && [ "${#private_from[@]}" -eq 0 ] &&
-    [ "$private_from_admin$apply$replace$set_nic" = 0000 ]; } ||
+  { [ -z "$gateway$admin_port$admin_from$vm_nic" ] && [ "${#allow_out[@]}" -eq 0 ] &&
+    [ "${#vm_addrs[@]}" -eq 0 ] && [ "${#private_ports[@]}" -eq 0 ] &&
+    [ "${#private_from[@]}" -eq 0 ] &&
+    [ "$private_from_admin$gateway_all$apply$replace$set_nic" = 00000 ]; } ||
     bad "--undo takes only --vmid"
 else
   [ -n "$gateway" ] || bad "--gateway is required (the LAN gateway and DNS the VM needs)"
@@ -278,8 +356,26 @@ else
   valid_port "$admin_port" || bad "--admin-port must be a whole number from 1 to 65535"
   in_list "$admin_port" "$SENSOR_PORTS" && bad "--admin-port $admin_port is a sensor port ($SENSOR_PORTS)"
   check_source --admin-from "$admin_from"
-  for a in ${allow_out[@]+"${allow_out[@]}"}; do check_source --allow-out "$a"; done
-  for a in ${private_from[@]+"${private_from[@]}"}; do check_source --private-from "$a"; done
+  warn_wide --admin-from "$admin_from"
+  for a in ${allow_out[@]+"${allow_out[@]}"}; do
+    check_source --allow-out "$a"
+    if covered=$(covers_private "$a"); then
+      warn "--allow-out $a covers the whole private range $covered: the VM could reach every host in it, which defeats the drop of that range"
+    else
+      warn_wide --allow-out "$a"
+    fi
+  done
+  for a in ${private_from[@]+"${private_from[@]}"}; do
+    check_source --private-from "$a"
+    warn_wide --private-from "$a"
+  done
+  for a in ${vm_addrs[@]+"${vm_addrs[@]}"}; do check_addr --vm-addr "$a"; done
+  if [ "${#vm_addrs[@]}" -gt 0 ]; then
+    vm_nic=${vm_nic:-net0}
+    [[ $vm_nic =~ ^net[0-9]{1,2}$ ]] || bad "--vm-nic must be a NIC of the VM such as net0"
+  elif [ -n "$vm_nic" ]; then
+    bad "--vm-nic needs --vm-addr"
+  fi
   for p in ${private_ports[@]+"${private_ports[@]}"}; do
     valid_port "$p" || bad "--private-port '$p' is not a whole number from 1 to 65535"
     [ "$p" != "$admin_port" ] || bad "--private-port $p is the admin port: they must differ"
@@ -314,7 +410,23 @@ need_node() {
   [ "$(id -u)" -eq 0 ] || die 4 "--apply and --undo must run as root"
 }
 
-# Atomic write of $1 as the VM file: a temp file in the same folder, then a rename.
+# Whether a file can be created in the firewall folder. /etc/pve is read-only when the cluster
+# has lost its quorum or pve-cluster is down: then nothing can change, and nothing has.
+probe_write() {
+  local tmp=$fwdir/$vmid.fw.tmp.$$
+  mkdir -p "$fwdir" 2> /dev/null || true
+  if (: > "$tmp") 2> /dev/null; then
+    rm -f "$tmp"
+    return 0
+  fi
+  return 1
+}
+no_write() {
+  die 5 "cannot write in $fwdir: /etc/pve is read-only, usually because the cluster has no quorum (see pvecm status) or pve-cluster is not running. Nothing was changed"
+}
+
+# Atomic write of $1 as the VM file: a temp file in the same folder, then a rename. When it
+# fails, the VM file is as it was.
 install_file() {
   local tmp=$fwdir/$vmid.fw.tmp.$$
   mkdir -p "$fwdir" || return 1
@@ -329,11 +441,24 @@ install_file() {
   }
 }
 
+# Copies $1 to $2 (mode 0600) and checks the copy: same size, same bytes. A bad copy is removed.
+copy_checked() {
+  if ! (umask 077 && cat -- "$1" > "$2") 2> /dev/null; then
+    rm -f -- "$2"
+    return 1
+  fi
+  if [ "$(wc -c < "$1")" != "$(wc -c < "$2")" ] || ! cmp -s -- "$1" "$2"; then
+    rm -f -- "$2"
+    return 1
+  fi
+  chmod 0600 "$2"
+}
+
 # State of the VM file before a change: "file" (copied to $work/prev) or "absent".
 prev_kind=absent
 save_prev() {
   if [ -e "$target" ]; then
-    cat -- "$target" > "$work/prev"
+    copy_checked "$target" "$work/prev" || return 1
     prev_kind="file"
   else
     prev_kind=absent
@@ -348,24 +473,40 @@ restore_prev() {
   fi
 }
 
+# An apply pushes a backup on the stack; a failure of that apply takes it off again.
+backup_path=""
+drop_backup=0
+abandon() {
+  [ "$drop_backup" = 0 ] || rm -f -- "$backup_path"
+}
+
 # Puts the previous state back, loudly when even that fails.
 rollback() {
   if restore_prev; then
     note "the previous $vmid.fw is back in place"
+    abandon
   else
-    echo "proxmox-firewall: RESTORE FAILED: put the backup back by hand: $backup_path -> $target" >&2
+    echo "proxmox-firewall: RESTORE FAILED: put the backup back by hand: ${backup_path:-the copy in $work} -> $target" >&2
+    return 1
   fi
+}
+
+# Dies with exit 5 after a failed check, saying only what is true about the file.
+rolled_back_die() { # message
+  if rollback; then die 5 "$1 and was rolled back"; fi
+  die 5 "$1, and the previous file could NOT be put back (see above)"
 }
 
 on_signal() {
   trap - INT TERM HUP
   note "interrupted: restoring the previous file"
-  rollback
+  rollback || true
   exit 5
 }
 
 # `pve-firewall compile` parses every rule file and prints the iptables rules; it applies
-# nothing. It fails on a bad file, or reports the file by name on stderr.
+# nothing. It fails on a bad file, or reports this VM's file by its path on stderr. The name must
+# match whole: a complaint about the file of VM 1<vmid> is not about this one.
 check_compile() {
   local rc=0 err=$work/compile.err
   timeout 120 pve-firewall compile > /dev/null 2> "$err" || rc=$?
@@ -374,7 +515,7 @@ check_compile() {
     sed 's/^/  /' "$err" >&2
     return 1
   fi
-  if grep -qF -- "$vmid.fw" "$err"; then
+  if grep -Eq "(^|[/[:space:]])${vmid}\\.fw([^A-Za-z0-9_.-]|\$)" "$err"; then
     note "pve-firewall compile complains about $vmid.fw"
     sed 's/^/  /' "$err" >&2
     return 1
@@ -387,8 +528,8 @@ show_status() {
   pve-firewall status 2>&1 || true
 }
 
-# A new backup path for kind $1 (fw or absent), never an existing one. Timestamps sort.
-backup_path=""
+# A new backup path for kind $1 (fw or absent), never an existing one. Timestamps sort, so the
+# newest backup is the last name.
 new_backup() {
   local ts f n=0 taken
   while :; do
@@ -405,18 +546,21 @@ new_backup() {
   done
 }
 
+# Pushes the current state on the stack of backups: a checked copy of the file, or an empty
+# ".absent" marker when there is no file. Fails without leaving a partial backup.
 make_backup() {
-  mkdir -p "$bakdir" || return 1
-  chmod 0700 "$bakdir"
-  new_backup "$([ "$prev_kind" = file ] && echo fw || echo absent)" || return 1
-  (
-    umask 077
-    if [ "$prev_kind" = file ]; then cat -- "$work/prev" > "$backup_path"; else : > "$backup_path"; fi
-  )
-  chmod 0600 "$backup_path"
+  { mkdir -p "$bakdir" && chmod 0700 "$bakdir"; } 2> /dev/null || return 1
+  if [ "$prev_kind" = file ]; then
+    new_backup fw || return 1
+    copy_checked "$target" "$backup_path" || return 1
+  else
+    new_backup absent || return 1
+    (umask 077 && : > "$backup_path") 2> /dev/null || return 1
+  fi
 }
 
 # ---------------------------------------------------------------- undo
+# One step back per call: the newest backup is restored and then taken off the stack.
 if [ "$undo" = 1 ]; then
   need_node
   found=()
@@ -425,37 +569,31 @@ if [ "$undo" = 1 ]; then
   done
   [ "${#found[@]}" -gt 0 ] || die 4 "no backup for VM $vmid in $bakdir: nothing to undo"
   latest=$(printf '%s\n' "${found[@]}" | sort | tail -n 1)
-  save_prev
-  if [ "$prev_kind" = file ] && [ "${latest##*.}" = fw ] && cmp -s "$latest" "$target"; then
-    note "$target already matches $latest: nothing to do"
-    show_status
-    exit 0
-  fi
+  probe_write || no_write
+  save_prev || die 5 "could not read $target: nothing was changed"
   if [ "$prev_kind" = absent ] && [ "${latest##*.}" = absent ]; then
-    note "VM $vmid has no firewall file, like before the first --apply: nothing to do"
+    rm -f -- "$latest"
+    note "VM $vmid has no firewall file, as before that apply: nothing to write; the backup is taken off"
     exit 0
   fi
   if [ "$prev_kind" = file ]; then
-    # Kept apart from the numbered backups, so that a second --undo does not undo the undo.
-    mkdir -p "$bakdir"
-    chmod 0700 "$bakdir"
+    # Kept apart from the numbered backups, so that it is never taken for a step to go back to.
     keep=$bakdir/$vmid-$(date -u +%Y%m%dT%H%M%SZ)-before-undo.fw
-    (umask 077 && cat -- "$work/prev" > "$keep")
-    chmod 0600 "$keep"
+    copy_checked "$target" "$keep" || die 5 "could not keep a copy of $target in $bakdir: nothing was changed"
   fi
   backup_path=$latest
   trap on_signal INT TERM HUP
   if [ "${latest##*.}" = fw ]; then
-    install_file "$latest" || die 5 "could not write $target"
+    install_file "$latest" || die 5 "could not write $target: nothing was changed"
   else
-    rm -f -- "$target" || die 5 "could not remove $target"
+    rm -f -- "$target" || die 5 "could not remove $target: nothing was changed"
   fi
   if ! check_compile; then
-    rollback
-    die 5 "the undo failed its check and was rolled back"
+    rolled_back_die "the undo failed its check (the backup is kept)"
   fi
   trap - INT TERM HUP
-  note "restored $latest"
+  rm -f -- "$latest"
+  note "restored $latest; $((${#found[@]} - 1)) older backup(s) left"
   show_status
   exit 0
 fi
@@ -466,13 +604,23 @@ rule() { # "OUT ACCEPT -dest ADDR" "comment"
 }
 
 build() {
-  local r p s why
+  local r p s why seen
   printf '[OPTIONS]\n\n'
-  printf 'enable: 1\npolicy_in: ACCEPT\npolicy_out: ACCEPT\nmacfilter: 1\n\n'
-  printf '[RULES]\n\n'
-  rule "OUT ACCEPT -dest $gateway" "LAN gateway and DNS"
+  printf 'enable: 1\npolicy_in: ACCEPT\npolicy_out: ACCEPT\nmacfilter: 1\n'
+  [ "${#vm_addrs[@]}" -eq 0 ] || printf 'ipfilter: 1\n'
+  printf '\n[RULES]\n\n'
+  # First, so that no later accept can let a DHCP server's replies out: the VM is a DHCP client
+  # (it sends to port 67 and 547), never a server (replies go to port 68 and 546).
+  rule "OUT DROP -p udp -dport 68" "no DHCP server replies from the VM (rogue DHCP server)"
+  rule "OUT DROP -p udp -dport 546" "no DHCPv6 server replies from the VM (rogue DHCP server)"
+  if [ "$gateway_all" = 1 ]; then
+    rule "OUT ACCEPT -dest $gateway" "LAN gateway, every port (--gateway-all)"
+  else
+    rule "OUT ACCEPT -dest $gateway -p udp -dport 53" "DNS to the LAN gateway"
+    rule "OUT ACCEPT -dest $gateway -p tcp -dport 53" "DNS over TCP to the LAN gateway"
+  fi
   for r in ${allow_out[@]+"${allow_out[@]}"}; do
-    rule "OUT ACCEPT -dest $r" "extra LAN host the VM may reach"
+    rule "OUT ACCEPT -dest $r" "extra LAN host the VM may reach, every port"
   done
   for r in $PRIVATE_RANGES; do
     case $r in
@@ -483,9 +631,14 @@ build() {
     esac
     rule "OUT DROP -dest $r" "no traffic to $why"
   done
+  # IPv6 link-local: tcp and udp only. ICMPv6 (neighbour discovery) stays, and Proxmox accepts it
+  # before these rules anyway; without these two, the VM could reach every service of every
+  # IPv6 host of the LAN, the Proxmox node included, over fe80::.
+  rule "OUT DROP -dest fe80::/10 -p tcp" "no TCP to IPv6 link-local addresses (ICMPv6 is not affected)"
+  rule "OUT DROP -dest fe80::/10 -p udp" "no UDP to IPv6 link-local addresses (ICMPv6 is not affected)"
   rule "IN ACCEPT -source $admin_from -p tcp -dport $admin_port" "admin SSH from the management network"
   rule "IN DROP -p tcp -dport $admin_port" "admin SSH from nowhere else"
-  local seen=" "
+  seen=" "
   for p in ${private_ports[@]+"${private_ports[@]}"}; do
     [[ $seen != *" $p "* ]] || continue
     seen="$seen$p "
@@ -500,6 +653,16 @@ build() {
     fi
     rule "IN DROP -p tcp -dport $p" "port $p from nowhere else"
   done
+  if [ "${#vm_addrs[@]}" -gt 0 ]; then
+    # The default IP filter of the NIC, with the addresses the VM may send from.
+    printf '\n[IPSET ipfilter-%s]\n\n' "$vm_nic"
+    seen=" "
+    for s in "${vm_addrs[@]}"; do
+      [[ $seen != *" $s "* ]] || continue
+      seen="$seen$s "
+      printf '%s # %s address of the VM\n' "$s" "$MARK"
+    done
+  fi
 }
 
 build > "$work/new.fw"
@@ -514,14 +677,15 @@ function parse(raw,    line, idx, k, v) {
   kind = ""
   comment = ""
   if (line == "" || line ~ /^#/) return
-  if (line ~ /^\[.*\]$/) {
-    section = toupper(substr(line, 2, length(line) - 2))
-    section = trim(section)
+  if (line ~ /^\[[^]]*\]/) {
+    idx = index(line, "]")
+    section = trim(toupper(substr(line, 2, idx - 2)))
+    gsub(/[ \t]+/, " ", section)
     kind = "header"
     return
   }
   body = line
-  if (section == "RULES") {
+  if (section == "RULES" || section ~ /^IPSET /) {
     idx = index(line, "#")
     if (idx > 0) { comment = substr(line, idx); body = trim(substr(line, 1, idx - 1)) }
   }
@@ -537,8 +701,8 @@ FILENAME == gen { parse($0); if (kind == "line") known[section SUBSEP body] = 1;
 {
   parse($0)
   if (kind != "line") next
-  if ((section == "OPTIONS" || section == "RULES") && ((section SUBSEP body) in known)) next
-  if (section == "RULES" && comment ~ /^#[ \t]*SuckerPot:/) next
+  if ((section SUBSEP body) in known) next
+  if ((section == "RULES" || section ~ /^IPSET /) && comment ~ /^#[ \t]*SuckerPot:/) next
   print "[" section "] " trim($0)
 }
 '
@@ -572,6 +736,8 @@ fi
 nic_cmds=()
 nic_names=()
 nic_values=()
+all_nics=()
+fw_nics=()
 nic_state=skipped
 if command -v qm > /dev/null 2>&1; then
   if qm_out=$(qm config "$vmid" 2> /dev/null); then
@@ -580,7 +746,11 @@ if command -v qm > /dev/null 2>&1; then
       [[ $line =~ ^(net[0-9]+):[[:space:]]*(.*)$ ]] || continue
       nic=${BASH_REMATCH[1]}
       val=${BASH_REMATCH[2]}
-      [[ ,$val, != *,firewall=1,* ]] || continue
+      all_nics+=("$nic")
+      if [[ ,$val, == *,firewall=1,* ]]; then
+        fw_nics+=("$nic")
+        continue
+      fi
       IFS=, read -ra opts <<< "$val"
       newval=""
       for o in "${opts[@]}"; do
@@ -593,6 +763,25 @@ if command -v qm > /dev/null 2>&1; then
     done <<< "$qm_out"
   else
     nic_state=missing
+  fi
+fi
+
+# ipfilter is a setting of the whole VM, but each NIC has its own set of addresses: a NIC that
+# is filtered and has no set loses all its IP traffic. So --vm-addr is only for a VM whose
+# filtered NIC is the one named, and the NIC must exist.
+ipf_problem=""
+if [ "${#vm_addrs[@]}" -gt 0 ] && [ "$nic_state" = ok ]; then
+  if ! in_list "$vm_nic" "${all_nics[*]:-}"; then
+    ipf_problem="the VM has no $vm_nic (qm config lists: ${all_nics[*]:-no NIC})"
+  else
+    others=()
+    for n in ${all_nics[@]+"${all_nics[@]}"}; do
+      [ "$n" != "$vm_nic" ] || continue
+      if [ "$set_nic" = 1 ] || in_list "$n" "${fw_nics[*]:-}"; then others+=("$n"); fi
+    done
+    if [ "${#others[@]}" -gt 0 ]; then
+      ipf_problem="ipfilter would cut off the other NIC(s) of the VM with a firewall (${others[*]}): each needs its own ipfilter set. Leave out --vm-addr and write the sets by hand"
+    fi
   fi
 fi
 
@@ -619,6 +808,10 @@ report_checks() {
     warn "the VM's NIC needs firewall=1 or its rules do nothing: ${nic_names[*]}
   Run it (a running VM's NIC reconnects briefly), or pass --set-nic-firewall with --apply:"
     printf '    %s\n' "${nic_cmds[@]}" >&2
+  fi
+  [ -z "$ipf_problem" ] || warn "$ipf_problem"
+  if [ "${#vm_addrs[@]}" -gt 0 ]; then
+    warn "ipfilter is on for $vm_nic: the VM can only send from ${vm_addrs[*]}. Any other address it uses, IPv6 included, loses its traffic: keep the console open"
   fi
 }
 
@@ -661,6 +854,7 @@ fi
 
 # ---------------------------------------------------------------- apply
 [ "$nic_state" = ok ] || die 4 "VM $vmid not found on this node (qm config $vmid failed): run it on the node that hosts the VM"
+[ -z "$ipf_problem" ] || die 4 "refused: $ipf_problem"
 [ "$cur_state" != unreadable ] || die 4 "$target exists but is not a readable regular file"
 if [ -n "$foreign" ] && [ "$replace" = 0 ]; then
   die 4 "refused: $target holds rules or options this script did not generate (listed above). Pass --replace to drop them; the backup keeps them"
@@ -673,17 +867,19 @@ if [ "$cur_state" = file ] && cmp -s "$work/new.fw" "$target"; then
 fi
 
 if [ "$changed" = 1 ]; then
-  save_prev
-  make_backup || die 5 "could not write the backup in $bakdir (nothing was changed)"
+  probe_write || no_write
+  save_prev || die 5 "could not read $target: nothing was changed"
+  make_backup || die 5 "could not make a checked backup in $bakdir: nothing was changed"
+  drop_backup=1
   note "backup: $([ "$prev_kind" = file ] && echo "$backup_path" || echo "none, the file did not exist ($backup_path marks that)")"
   trap on_signal INT TERM HUP
   if ! install_file "$work/new.fw"; then
-    rollback
-    die 5 "could not write $target (rolled back)"
+    trap - INT TERM HUP
+    abandon
+    die 5 "could not write $target: nothing was changed"
   fi
   if ! check_compile; then
-    rollback
-    die 5 "the new file failed its check and was rolled back"
+    rolled_back_die "the new file failed its check"
   fi
   trap - INT TERM HUP
   note "wrote $target"
