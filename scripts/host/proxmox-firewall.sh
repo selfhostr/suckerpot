@@ -18,11 +18,16 @@
 #   --gateway-all      let the VM reach EVERY port of the gateway. Without it the gateway
 #                      answers DNS only (53/udp and 53/tcp): the router's admin page, UPnP and
 #                      the like stay out of reach. Routing through the gateway is unaffected
-#   --allow-out ADDR   another LAN host the VM may reach on every port, such as a local DNS
-#                      server (address or CIDR, repeat it). Placed before the private-range drops
-#   --vm-addr ADDR     an address the VM uses (IPv4 or IPv6, repeat it). Turns on ipfilter: the
-#                      VM may then only send with these source addresses. List EVERY address the
-#                      VM uses on that NIC, IPv6 included, or it loses that traffic
+#   --dns ADDR         another resolver the VM uses, DNS only (53/udp and 53/tcp): an IPv4 or
+#                      IPv6 address, such as the box's IPv6 link-local or ULA resolver (repeat it).
+#                      Check what the VM uses with `resolvectl dns` on the VM
+#   --allow-out ADDR   another LAN host the VM may reach on every port (address or CIDR, repeat
+#                      it). Placed before the private-range drops
+#   --vm-addr ADDR     an address the VM uses (IPv4 or IPv6, or a CIDR no broader than a /24 or
+#                      a /64, such as the IPv6 /64 when the VM rotates temporary addresses;
+#                      repeat it). Writes the set ipfilter-<NIC>, which filters that NIC: the VM
+#                      may then only send with these source addresses. List EVERY address the VM
+#                      uses on that NIC, IPv6 included, or it loses that traffic
 #   --vm-nic NAME      the NIC of --vm-addr, as in `qm config` (default net0)
 #   --private-port N  a port that only some hosts may reach, such as the dashboard port or a hub
 #                      port (repeat it). Needs --private-from or --private-from-admin
@@ -42,12 +47,14 @@
 #
 # What it writes (Proxmox evaluates top to bottom, the first match wins):
 #   [OPTIONS]  enable: 1, policy_in: ACCEPT (the sensors must accept the internet on many ports),
-#              policy_out: ACCEPT, macfilter: 1. ipfilter: 1 only with --vm-addr: on a VM an
-#              empty ipfilter set drops all of the VM's IPv4 traffic, so it is never turned on
-#              without the VM's addresses
+#              policy_out: ACCEPT, macfilter: 1. There is no `ipfilter` option: it would give
+#              every NIC an empty set, which drops all of that NIC's IPv4 traffic (a NIC that
+#              later gets firewall=1 would be cut off). The set of --vm-addr alone filters its
+#              NIC
 #   [RULES]    1. OUT DROP of udp to port 68 and 546: no rogue DHCP server replies from the VM
 #              2. OUT ACCEPT of DNS (53/udp, 53/tcp) to the gateway, or of everything with
-#                 --gateway-all, then of everything to each --allow-out
+#                 --gateway-all, then of DNS to each --dns, then of everything to each
+#                 --allow-out
 #              3. OUT DROP to the private ranges: the three of RFC 1918 (10/8, 172.16/12,
 #                 192.168/16), 100.64/10 (CGNAT), 169.254/16 (link-local) and, for IPv6,
 #                 fc00::/7. Then OUT DROP of tcp and udp to fe80::/10: without it the VM could
@@ -58,7 +65,7 @@
 #              4. IN ACCEPT admin-from to the admin port, then IN DROP of the admin port
 #              5. for each --private-port: IN ACCEPT from the tunnel host(s) (and the admin
 #                 network with --private-from-admin), then IN DROP of that port
-#   [IPSET ipfilter-<nic>]  with --vm-addr: the addresses of the VM
+#   [IPSET ipfilter-<nic>]  with --vm-addr: the addresses of the VM; it filters that NIC
 #
 # Safety: a dry run changes nothing. --apply backs the current file up to
 # /root/suckerpot-firewall-backups/<vmid>-<UTC timestamp>.fw (0600), checks the copy, writes the
@@ -69,7 +76,8 @@
 # reads whether the datacenter firewall is on and warns. It checks `qm config` for firewall=1 on
 # the NICs and only changes it with --set-nic-firewall. A rule it wrote carries a "# SuckerPot:"
 # comment: those are replaced without --replace. It warns about a source wider than a /16
-# (IPv4) or a /48 (IPv6) and about an --allow-out that covers a whole private range.
+# (IPv4) or a /48 (IPv6) and about an --allow-out that covers a whole private range. It refuses a
+# --vm-addr broader than a /24 (IPv4) or a /64 (IPv6).
 #
 # Keep the Proxmox console open the first time: a wrong --admin-from cuts your SSH to the VM,
 # and a wrong --vm-addr cuts the VM off (--undo, run on the node, brings it back).
@@ -246,6 +254,22 @@ warn_wide() { # option value
   fi
 }
 
+# --vm-addr: an address, or a CIDR no broader than a /24 (IPv4) or a /64 (IPv6). The VM may send
+# from every address in it, so a wider one would hardly filter anything. A /64 is what a VM that
+# rotates temporary IPv6 addresses needs.
+check_vm_addr() { # value
+  local addr=${1%%/*} len
+  if ! valid_net "$1" || ! py_agrees net "$1"; then
+    bad "--vm-addr: '$1' is not an IPv4 or IPv6 address or CIDR"
+  fi
+  len=$(net_len "$1")
+  if valid_ipv4 "$addr"; then
+    ((len >= 24)) || bad "--vm-addr $1 is broader than a /24: the VM could send from too many addresses; list the addresses it uses, or a narrower range"
+  else
+    ((len >= 64)) || bad "--vm-addr $1 is broader than a /64: the VM could send from too many addresses; use the /64 it lives in, or list its addresses"
+  fi
+}
+
 # Prints the private range (IPv4) that the address or CIDR $1 covers whole, and fails if none.
 covers_private() {
   local addr=${1%%/*} len a r rl mask
@@ -272,6 +296,7 @@ gateway_all=0
 admin_port=""
 admin_from=""
 allow_out=()
+dns_hosts=()
 vm_addrs=()
 vm_nic=""
 private_ports=()
@@ -287,7 +312,7 @@ once() { [ -z "$2" ] || bad "$1 was given twice"; }
 
 while [ "$#" -gt 0 ]; do
   case $1 in
-    --vmid | --gateway | --admin-port | --admin-from | --allow-out | --private-port | --private-from | --vm-addr | --vm-nic)
+    --vmid | --gateway | --admin-port | --admin-from | --allow-out | --private-port | --private-from | --vm-addr | --vm-nic | --dns)
       need_value "$@"
       case $1 in
         --vmid) once "$1" "$vmid" && vmid=$2 ;;
@@ -296,6 +321,7 @@ while [ "$#" -gt 0 ]; do
         --admin-from) once "$1" "$admin_from" && admin_from=$2 ;;
         --vm-nic) once "$1" "$vm_nic" && vm_nic=$2 ;;
         --allow-out) allow_out+=("$2") ;;
+        --dns) dns_hosts+=("$2") ;;
         --vm-addr) vm_addrs+=("$2") ;;
         --private-port) private_ports+=("$2") ;;
         --private-from) private_from+=("$2") ;;
@@ -344,6 +370,7 @@ valid_vmid "$vmid" || bad "--vmid must be a whole number, 100 or more"
 
 if [ "$undo" = 1 ]; then
   { [ -z "$gateway$admin_port$admin_from$vm_nic" ] && [ "${#allow_out[@]}" -eq 0 ] &&
+    [ "${#dns_hosts[@]}" -eq 0 ] &&
     [ "${#vm_addrs[@]}" -eq 0 ] && [ "${#private_ports[@]}" -eq 0 ] &&
     [ "${#private_from[@]}" -eq 0 ] &&
     [ "$private_from_admin$gateway_all$apply$replace$set_nic" = 00000 ]; } ||
@@ -369,7 +396,8 @@ else
     check_source --private-from "$a"
     warn_wide --private-from "$a"
   done
-  for a in ${vm_addrs[@]+"${vm_addrs[@]}"}; do check_addr --vm-addr "$a"; done
+  for a in ${dns_hosts[@]+"${dns_hosts[@]}"}; do check_addr --dns "$a"; done
+  for a in ${vm_addrs[@]+"${vm_addrs[@]}"}; do check_vm_addr "$a"; done
   if [ "${#vm_addrs[@]}" -gt 0 ]; then
     vm_nic=${vm_nic:-net0}
     [[ $vm_nic =~ ^net[0-9]{1,2}$ ]] || bad "--vm-nic must be a NIC of the VM such as net0"
@@ -606,8 +634,9 @@ rule() { # "OUT ACCEPT -dest ADDR" "comment"
 build() {
   local r p s why seen
   printf '[OPTIONS]\n\n'
+  # No `ipfilter` option: the set of --vm-addr alone filters its NIC, while the option would give
+  # every NIC an empty set (and cut off a NIC that later gets firewall=1).
   printf 'enable: 1\npolicy_in: ACCEPT\npolicy_out: ACCEPT\nmacfilter: 1\n'
-  [ "${#vm_addrs[@]}" -eq 0 ] || printf 'ipfilter: 1\n'
   printf '\n[RULES]\n\n'
   # First, so that no later accept can let a DHCP server's replies out: the VM is a DHCP client
   # (it sends to port 67 and 547), never a server (replies go to port 68 and 546).
@@ -619,6 +648,13 @@ build() {
     rule "OUT ACCEPT -dest $gateway -p udp -dport 53" "DNS to the LAN gateway"
     rule "OUT ACCEPT -dest $gateway -p tcp -dport 53" "DNS over TCP to the LAN gateway"
   fi
+  seen=" $gateway "
+  for r in ${dns_hosts[@]+"${dns_hosts[@]}"}; do
+    [[ $seen != *" $r "* ]] || continue
+    seen="$seen$r "
+    rule "OUT ACCEPT -dest $r -p udp -dport 53" "DNS to a resolver of the VM"
+    rule "OUT ACCEPT -dest $r -p tcp -dport 53" "DNS over TCP to a resolver of the VM"
+  done
   for r in ${allow_out[@]+"${allow_out[@]}"}; do
     rule "OUT ACCEPT -dest $r" "extra LAN host the VM may reach, every port"
   done
@@ -654,13 +690,13 @@ build() {
     rule "IN DROP -p tcp -dport $p" "port $p from nowhere else"
   done
   if [ "${#vm_addrs[@]}" -gt 0 ]; then
-    # The default IP filter of the NIC, with the addresses the VM may send from.
+    # The IP filter of the NIC: the addresses (or CIDRs) the VM may send from.
     printf '\n[IPSET ipfilter-%s]\n\n' "$vm_nic"
     seen=" "
     for s in "${vm_addrs[@]}"; do
       [[ $seen != *" $s "* ]] || continue
       seen="$seen$s "
-      printf '%s # %s address of the VM\n' "$s" "$MARK"
+      printf '%s # %s address or range of the VM\n' "$s" "$MARK"
     done
   fi
 }
@@ -737,7 +773,6 @@ nic_cmds=()
 nic_names=()
 nic_values=()
 all_nics=()
-fw_nics=()
 nic_state=skipped
 if command -v qm > /dev/null 2>&1; then
   if qm_out=$(qm config "$vmid" 2> /dev/null); then
@@ -747,10 +782,7 @@ if command -v qm > /dev/null 2>&1; then
       nic=${BASH_REMATCH[1]}
       val=${BASH_REMATCH[2]}
       all_nics+=("$nic")
-      if [[ ,$val, == *,firewall=1,* ]]; then
-        fw_nics+=("$nic")
-        continue
-      fi
+      [[ ,$val, != *,firewall=1,* ]] || continue
       IFS=, read -ra opts <<< "$val"
       newval=""
       for o in "${opts[@]}"; do
@@ -766,22 +798,11 @@ if command -v qm > /dev/null 2>&1; then
   fi
 fi
 
-# ipfilter is a setting of the whole VM, but each NIC has its own set of addresses: a NIC that
-# is filtered and has no set loses all its IP traffic. So --vm-addr is only for a VM whose
-# filtered NIC is the one named, and the NIC must exist.
+# The set of --vm-addr is named after a NIC: it must be one the VM has, or it filters nothing.
 ipf_problem=""
 if [ "${#vm_addrs[@]}" -gt 0 ] && [ "$nic_state" = ok ]; then
   if ! in_list "$vm_nic" "${all_nics[*]:-}"; then
     ipf_problem="the VM has no $vm_nic (qm config lists: ${all_nics[*]:-no NIC})"
-  else
-    others=()
-    for n in ${all_nics[@]+"${all_nics[@]}"}; do
-      [ "$n" != "$vm_nic" ] || continue
-      if [ "$set_nic" = 1 ] || in_list "$n" "${fw_nics[*]:-}"; then others+=("$n"); fi
-    done
-    if [ "${#others[@]}" -gt 0 ]; then
-      ipf_problem="ipfilter would cut off the other NIC(s) of the VM with a firewall (${others[*]}): each needs its own ipfilter set. Leave out --vm-addr and write the sets by hand"
-    fi
   fi
 fi
 
@@ -811,7 +832,7 @@ report_checks() {
   fi
   [ -z "$ipf_problem" ] || warn "$ipf_problem"
   if [ "${#vm_addrs[@]}" -gt 0 ]; then
-    warn "ipfilter is on for $vm_nic: the VM can only send from ${vm_addrs[*]}. Any other address it uses, IPv6 included, loses its traffic: keep the console open"
+    warn "the set ipfilter-$vm_nic filters $vm_nic: the VM can only send from ${vm_addrs[*]}. Any other address it uses, IPv6 included, loses its traffic: keep the console open"
   fi
 }
 

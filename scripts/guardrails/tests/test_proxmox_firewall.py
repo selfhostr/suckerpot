@@ -291,7 +291,7 @@ def test_a_full_example_in_the_right_order(box: Box) -> None:
     assert len(rule_lines) == len(FULL_RULES)
     assert all(f" {MARK} " in ln for ln in rule_lines)
     assert text.index("[OPTIONS]") < text.index("[RULES]")
-    # Without --vm-addr there is no ipfilter (an empty set would cut the VM off), and no set.
+    # No ipfilter option ever, and no set without --vm-addr.
     assert "ipfilter" not in text
     assert "[IPSET" not in text
 
@@ -516,8 +516,10 @@ def test_nothing_is_open_to_everyone(box: Box) -> None:
         ["--vm-nic", "net0"],
         ["--vm-addr", "192.0.2.60", "--vm-nic", "eth0"],
         ["--vm-addr", "192.0.2.60", "--vm-nic", "net0", "--vm-nic", "net1"],
-        ["--vm-addr", "192.0.2.0/24"],
+        ["--vm-addr", "192.0.2.0/23"],
         ["--vm-addr", "not-an-address"],
+        ["--dns"],
+        ["--dns", "192.0.2.53/24"],
     ],
 )
 def test_other_bad_arguments(box: Box, args: list[str]) -> None:
@@ -538,6 +540,7 @@ def test_other_bad_arguments(box: Box, args: list[str]) -> None:
         ["--gateway-all"],
         ["--vm-addr", "192.0.2.60"],
         ["--vm-nic", "net0"],
+        ["--dns", "192.0.2.53"],
     ],
 )
 def test_undo_takes_only_the_vmid(box: Box, extra: list[str]) -> None:
@@ -1087,7 +1090,7 @@ def test_a_failed_qm_set_leaves_the_file_and_says_so(box: Box) -> None:
     assert box.vmfw.exists()
 
 
-# ---------------------------------------------------------------- --vm-addr (ipfilter)
+# ---------------------------------------------------------------- --vm-addr (ipfilter set)
 VM_ADDRS = ("--vm-addr", "192.0.2.60", "--vm-addr", "2001:db8::60")
 
 
@@ -1104,33 +1107,74 @@ def ipset(text: str, name: str) -> list[str]:
     return out
 
 
-def test_ipfilter_is_only_turned_on_with_the_vms_addresses(box: Box) -> None:
+def test_vm_addr_writes_the_set_and_no_ipfilter_option(box: Box) -> None:
     proc = box.vm(*VM_ADDRS)
     assert proc.returncode == 0, proc.stderr
     text = generated(proc.stdout)
+    # The set alone filters its NIC. The option would give every NIC an empty set, and a NIC
+    # that later gets firewall=1 would silently lose its IPv4 traffic.
     assert options(text) == [
         "enable: 1",
         "policy_in: ACCEPT",
         "policy_out: ACCEPT",
         "macfilter: 1",
-        "ipfilter: 1",
     ]
+    assert "ipfilter:" not in text
     assert ipset(text, "ipfilter-net0") == ["192.0.2.60", "2001:db8::60"]
     assert text.index("[RULES]") < text.index("[IPSET ipfilter-net0]")
     # The rules are the same as without it, and each address says why it is there.
     assert rules(text) == [*DHCP, *GATEWAY, *PRIVATE_DROPS, *LINK_LOCAL, *ADMIN]
-    assert f"192.0.2.60 {MARK} address of the VM" in text
+    assert f"192.0.2.60 {MARK} address or range of the VM" in text
     # The owner is told what a wrong list costs.
+    assert "filters net0" in proc.stderr
     assert "only send from 192.0.2.60 2001:db8::60" in proc.stderr
 
 
-def test_ipfilter_names_the_nic_and_lists_an_address_once(box: Box) -> None:
+def test_vm_addr_names_the_nic_and_lists_an_address_once(box: Box) -> None:
     config = f"name: vm-test\nnet1: {NIC},firewall=1\n"
     proc = box.vm(*VM_ADDRS, "--vm-addr", "192.0.2.60", "--vm-nic", "net1", SHIM_QM_CONFIG=config)
     assert proc.returncode == 0, proc.stderr
     text = generated(proc.stdout)
     assert ipset(text, "ipfilter-net1") == ["192.0.2.60", "2001:db8::60"]
     assert "ipfilter-net0" not in text
+
+
+@pytest.mark.parametrize(
+    "cidr",
+    ["192.0.2.0/24", "192.0.2.64/26", "192.0.2.60/32", "2001:db8:1:2::/64", "2001:db8::60/128"],
+)
+def test_vm_addr_takes_a_cidr_no_broader_than_a_24_or_a_64(box: Box, cidr: str) -> None:
+    proc = box.vm("--vm-addr", cidr)
+    assert proc.returncode == 0, proc.stderr
+    assert ipset(generated(proc.stdout), "ipfilter-net0") == [cidr]
+
+
+@pytest.mark.parametrize(
+    ("cidr", "limit"),
+    [
+        ("192.0.2.0/23", "/24"),
+        ("192.0.0.0/16", "/24"),
+        ("0.0.0.0/0", "/24"),
+        ("2001:db8::/48", "/64"),
+        ("2001:db8:1:2::/63", "/64"),
+        ("::/0", "/64"),
+    ],
+)
+def test_vm_addr_refuses_a_broader_cidr(box: Box, cidr: str, limit: str) -> None:
+    proc = box.vm("--vm-addr", cidr)
+    assert proc.returncode == 2
+    assert f"--vm-addr {cidr} is broader than a {limit}" in proc.stderr
+    assert not box.vmfw.exists()
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["192.0.2.0/", "192.0.2.1/33", "2001:db8::/129", "192.0.2.0/024", "192.0.2.0/24/1", "x/64"],
+)
+def test_vm_addr_validates_a_cidr_strictly(box: Box, bad: str) -> None:
+    proc = box.vm("--vm-addr", bad)
+    assert proc.returncode == 2
+    assert "--vm-addr" in proc.stderr
 
 
 def test_without_vm_addr_no_set_is_written(box: Box) -> None:
@@ -1148,17 +1192,13 @@ def test_apply_writes_the_set_and_a_rerun_with_other_addresses_is_not_foreign(bo
     assert ipset(box.vmfw.read_text(), "ipfilter-net0") == ["192.0.2.61"]
 
 
-def test_dropping_vm_addr_later_is_refused_until_replace(box: Box) -> None:
-    # `ipfilter: 1` is an option, and an option carries no mark of ours: the owner is told that
-    # leaving out --vm-addr would switch the filter off.
+def test_leaving_vm_addr_out_later_takes_the_set_away_like_any_rule_of_ours(box: Box) -> None:
     assert box.vm(*VM_ADDRS, "--apply").returncode == 0
-    refused = box.vm("--apply")
-    assert refused.returncode == 4
-    listed = refused.stdout.split("== In the current file, not generated by this script ==")[1]
-    assert "[OPTIONS] ipfilter: 1" in listed
-    assert "[IPSET" not in listed
-    assert box.vm("--apply", "--replace").returncode == 0
-    assert "ipfilter" not in box.vmfw.read_text()
+    proc = box.vm("--apply")
+    assert proc.returncode == 0, proc.stderr
+    assert "[IPSET" not in box.vmfw.read_text()
+    # And the diff said so before: the set is shown as removed.
+    assert "-[IPSET ipfilter-net0]" in proc.stdout
 
 
 def test_a_set_of_the_owners_is_foreign(box: Box) -> None:
@@ -1169,36 +1209,68 @@ def test_a_set_of_the_owners_is_foreign(box: Box) -> None:
     assert box.vm("--apply").returncode == 4
 
 
-def test_ipfilter_would_cut_off_another_nic(box: Box) -> None:
+def test_another_nic_is_not_a_reason_to_refuse(box: Box) -> None:
+    # No ipfilter option, so the other NICs are not given an empty set: nothing to protect.
     config = f"net0: {NIC},firewall=1\nnet1: virtio=02:00:00:00:00:02,bridge=vmbr1,firewall=1\n"
-    dry = box.vm(*VM_ADDRS, SHIM_QM_CONFIG=config)
-    assert dry.returncode == 0
-    assert "would cut off the other NIC" in dry.stderr
-    assert "net1" in dry.stderr
-    proc = box.vm(*VM_ADDRS, "--apply", SHIM_QM_CONFIG=config)
-    assert proc.returncode == 4
-    assert "refused" in proc.stderr
-    assert not box.vmfw.exists()
-    assert box.backups() == []
+    proc = box.vm(*VM_ADDRS, "--apply", "--set-nic-firewall", SHIM_QM_CONFIG=config)
+    assert proc.returncode == 0, proc.stderr
+    assert "would cut off" not in proc.stderr
+    assert "[IPSET ipfilter-net1]" not in box.vmfw.read_text()
 
 
-def test_ipfilter_ignores_a_nic_without_firewall_unless_it_would_get_one(box: Box) -> None:
-    config = f"net0: {NIC},firewall=1\nnet1: virtio=02:00:00:00:00:02,bridge=vmbr1\n"
-    ok = box.vm(*VM_ADDRS, "--apply", SHIM_QM_CONFIG=config)
-    assert ok.returncode == 0, ok.stderr
-    box.vmfw.unlink()
-    refused = box.vm(*VM_ADDRS, "--apply", "--set-nic-firewall", SHIM_QM_CONFIG=config)
-    assert refused.returncode == 4
-    assert not any(c.startswith("qm set") for c in box.calls())
-
-
-def test_ipfilter_needs_the_nic_to_exist(box: Box) -> None:
+def test_vm_addr_needs_the_nic_to_exist(box: Box) -> None:
     dry = box.vm(*VM_ADDRS, "--vm-nic", "net3")
     assert dry.returncode == 0
     assert "the VM has no net3" in dry.stderr
     proc = box.vm(*VM_ADDRS, "--vm-nic", "net3", "--apply")
     assert proc.returncode == 4
     assert not box.vmfw.exists()
+
+
+# ---------------------------------------------------------------- --dns
+def test_dns_adds_dns_only_rules_before_the_drops(box: Box) -> None:
+    proc = box.vm("--dns", "2001:db8::53", "--dns", "fe80::1", "--dns", "192.0.2.53")
+    assert proc.returncode == 0, proc.stderr
+    got = rules(generated(proc.stdout))
+    dns = [
+        f"OUT ACCEPT -dest {a} -p {p} -dport 53"
+        for a in ("2001:db8::53", "fe80::1", "192.0.2.53")
+        for p in ("udp", "tcp")
+    ]
+    assert got == [*DHCP, *GATEWAY, *dns, *PRIVATE_DROPS, *LINK_LOCAL, *ADMIN]
+    # Even a link-local resolver is accepted before the link-local drops, and never on every port.
+    assert got.index("OUT ACCEPT -dest fe80::1 -p udp -dport 53") < got.index(LINK_LOCAL[0])
+    assert "OUT ACCEPT -dest fe80::1" not in got
+
+
+def test_dns_is_listed_once_and_skips_the_gateway(box: Box) -> None:
+    proc = box.vm("--dns", "192.0.2.53", "--dns", "192.0.2.1", "--dns", "192.0.2.53")
+    assert proc.returncode == 0, proc.stderr
+    got = rules(generated(proc.stdout))
+    assert [r for r in got if "192.0.2.53" in r] == [
+        "OUT ACCEPT -dest 192.0.2.53 -p udp -dport 53",
+        "OUT ACCEPT -dest 192.0.2.53 -p tcp -dport 53",
+    ]
+    assert [r for r in got if "192.0.2.1 " in r] == GATEWAY
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["192.0.2.0/24", "2001:db8::/32", "example.org", "192.0.2", "fe80::1%eth0", "::g", "$(id)"],
+)
+def test_dns_takes_one_address(box: Box, bad: str) -> None:
+    proc = box.vm("--dns", bad)
+    assert proc.returncode == 2
+    assert "--dns" in proc.stderr
+
+
+def test_dns_is_written_by_apply_and_replaced_freely(box: Box) -> None:
+    assert box.vm("--dns", "192.0.2.53", "--apply").returncode == 0
+    assert "-dest 192.0.2.53 -p udp -dport 53" in box.vmfw.read_text()
+    assert box.vm("--dns", "192.0.2.54", "--apply").returncode == 0
+    text = box.vmfw.read_text()
+    assert "192.0.2.53" not in text
+    assert "-dest 192.0.2.54 -p tcp -dport 53" in text
 
 
 # ---------------------------------------------------------------- the script itself

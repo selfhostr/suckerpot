@@ -243,14 +243,14 @@ Every rule it writes ends with a `# SuckerPot: ...` comment.
 
 | Section | Rule | Why |
 | --- | --- | --- |
-| `[OPTIONS]` | `enable: 1`, `policy_in: ACCEPT`, `policy_out: ACCEPT`, `macfilter: 1`; with `--vm-addr` also `ipfilter: 1` | The sensors must accept the internet on many ports, so the input policy stays open; the rules below close what must be closed. `macfilter` stops the VM from sending with another MAC address. `ipfilter` is described [below](#source-addresses-vm-addr). |
+| `[OPTIONS]` | `enable: 1`, `policy_in: ACCEPT`, `policy_out: ACCEPT`, `macfilter: 1` | The sensors must accept the internet on many ports, so the input policy stays open; the rules below close what must be closed. `macfilter` stops the VM from sending with another MAC address. There is no `ipfilter` option: see [below](#source-addresses-vm-addr). |
 | `[RULES]` 1 | `OUT DROP -p udp -dport 68` and `-dport 546` | No rogue DHCP server: the VM is a DHCP client (it sends to ports 67 and 547); the replies of a DHCP server go to 68 and 546. First, so that no accept below can let them out. |
-| `[RULES]` 2 | `OUT ACCEPT -dest <gateway> -p udp -dport 53` and `-p tcp -dport 53` (every port with `--gateway-all`), then `OUT ACCEPT -dest <host>` for each `--allow-out` (every port) | The VM needs the gateway for DNS and nothing else. The router's admin page, UPnP (a host that speaks it can add port forwards) and telnet stay out of reach. Routing through the gateway is not affected: the destination of those packets is the far host. A DHCP renewal is Proxmox's own `dhcp` option, which the file leaves at its default. |
+| `[RULES]` 2 | `OUT ACCEPT -dest <gateway> -p udp -dport 53` and `-p tcp -dport 53` (every port with `--gateway-all`), then the same two for each `--dns`, then `OUT ACCEPT -dest <host>` for each `--allow-out` (every port) | The VM needs the gateway for DNS and nothing else. If the VM resolves through another address (the box's IPv6 link-local or ULA resolver, a local resolver), pass it with `--dns`: it is accepted for DNS only, before the drops. Check what the VM uses with `resolvectl dns` (or `cat /etc/resolv.conf`) on the VM. The router's admin page, UPnP (a host that speaks it can add port forwards) and telnet stay out of reach. Routing through the gateway is not affected: the destination of those packets is the far host. A DHCP renewal is Proxmox's own `dhcp` option, which the file leaves at its default. |
 | `[RULES]` 3 | `OUT DROP` to the private ranges | The VM may not start a connection to your LAN: the three RFC 1918 ranges (10/8, 172.16/12, 192.168/16), `100.64.0.0/10` (CGNAT), `169.254.0.0/16` (link-local) and, for IPv6, `fc00::/7` (unique local). Replies to connections that came in (a sensor answering a scanner, the tunnel host reading the dashboard) are not new connections and still pass. |
 | `[RULES]` 4 | `OUT DROP -dest fe80::/10 -p tcp` and `-p udp` | IPv6 link-local. Every IPv6 host of the LAN answers `ping -6 ff02::1`, and the Proxmox node's own SSH and web UI (8006) listen on their link-local address too. Without these two rules a compromised VM could find them and connect. ICMPv6 is **not** dropped: IPv6 neighbour discovery is ICMPv6, and Proxmox accepts it (option `ndp`, on by default) before any rule here. |
 | `[RULES]` 5 | `IN ACCEPT -source <admin CIDR> -p tcp -dport <admin port>`, then `IN DROP -p tcp -dport <admin port>` | The admin SSH answers your management network only. |
 | `[RULES]` 6 | for each `--private-port`: `IN ACCEPT -source <tunnel host>` (one per `--private-from`, plus the admin network with `--private-from-admin`), then `IN DROP` on that port | The dashboard, or a hub port, answers the tunnel host only. |
-| `[IPSET ipfilter-net0]` | the addresses of `--vm-addr`, only with `--vm-addr` | The addresses the VM may send from. |
+| `[IPSET ipfilter-net0]` | the addresses or ranges of `--vm-addr`, only with `--vm-addr` | The source addresses the VM may use on that NIC. |
 
 The generated file for the example above, with the three RFC 1918 drops left out for brevity:
 
@@ -282,21 +282,24 @@ IN DROP -p tcp -dport 8443 # SuckerPot: port 8443 from nowhere else
 ### Source addresses (`--vm-addr`)
 
 Without it, a compromised VM can send packets with any source address. With `--vm-addr ADDR`
-(repeat it for each address, IPv4 and IPv6), the file turns on `ipfilter: 1` and lists the
-addresses in `[IPSET ipfilter-net0]`, so the VM can only send from those. `--vm-nic netN` picks
-another NIC (default `net0`; the set is named `ipfilter-<NIC>`).
+(repeat it for each address), the file lists the addresses in `[IPSET ipfilter-net0]`: a set
+with that name filters the NIC, so the VM can only send from those. `--vm-nic netN` picks
+another NIC (default `net0`; the set is named `ipfilter-<NIC>`). An address is IPv4 or IPv6, or
+a CIDR no broader than a `/24` (IPv4) or a `/64` (IPv6); anything broader is refused (exit 2).
+A VM that rotates temporary IPv6 addresses (`use_tempaddr=2`) needs its `/64`, for example
+`--vm-addr 2001:db8:1:2::/64`, because the addresses themselves change.
 
-`ipfilter` is **off** without `--vm-addr` on purpose: for a VM, an empty `ipfilter` set drops all
-of the VM's IPv4 traffic, and the script cannot know which addresses the VM uses. It is risky
-with them too:
+The script does **not** write the `ipfilter: 1` option. That option gives every NIC of the VM
+an empty set, and for a VM an empty set drops all of that NIC's IPv4 traffic: a NIC that later
+gets `firewall=1` would silently lose its traffic. Only the NIC that has a set is filtered.
 
-- List **every** address the VM uses on that NIC, IPv6 included. Any other address loses its
-  traffic, and a wrong list cuts the VM off, your admin SSH with it.
-- `ipfilter` is a setting of the whole VM, and each NIC needs its own set. The script refuses
-  `--apply` (exit 4) when the VM has another NIC with a firewall (or `--set-nic-firewall` would
-  give it one), and when the NIC does not exist. Write the sets by hand in that case.
-- Leaving `--vm-addr` out of a later run is refused until `--replace`: the old `ipfilter: 1` is
-  an option, which has no comment to say that the script wrote it, so it counts as foreign.
+- List **every** address the VM uses on that NIC, IPv6 included (a `/64` for temporary
+  addresses). Any other address loses its traffic, and a wrong list cuts the VM off, your
+  admin SSH with it.
+- The NIC must exist (`qm config`): `--apply` refuses (exit 4) when it does not, and the set
+  would filter nothing.
+- Leaving `--vm-addr` out of a later run takes the set away, like any other rule the script
+  wrote, and the diff shows it. The VM is then unfiltered again.
 
 ### Arguments
 
@@ -307,8 +310,9 @@ with them too:
 | `--admin-port N` | The port of the VM's admin SSH: the port you chose with `scripts/move-admin-ssh.sh`. There is no default. |
 | `--admin-from CIDR` | Who may reach the admin port: an address or a CIDR, never `/0`. It must be the address the VM sees, so check it if your SSH goes through a router that rewrites it. |
 
-Optional: `--gateway-all` (every port of the gateway), `--allow-out ADDR` (another LAN host,
-every port; repeat it), `--vm-addr ADDR` and `--vm-nic NAME` (see above), `--private-port N`
+Optional: `--gateway-all` (every port of the gateway), `--dns ADDR` (another resolver, DNS only,
+IPv4 or IPv6; repeat it), `--allow-out ADDR` (another LAN host, every port; repeat it),
+`--vm-addr ADDR` and `--vm-nic NAME` (see above), `--private-port N`
 (repeat it), `--private-from ADDR` (repeat it), `--private-from-admin`, `--apply`, `--replace`,
 `--set-nic-firewall`, `--undo`.
 
@@ -362,8 +366,8 @@ Keep the Proxmox console open the first time. A wrong `--admin-from` cuts your S
 `--undo`, run on the node, brings it back.
 
 Exit codes: 0 done, or the dry run worked; 2 bad arguments; 3 not a Proxmox node, or a tool is
-missing; 4 refused (not root, VM not found, foreign rules without `--replace`, an ipfilter that
-would cut off a NIC, nothing to undo); 5 the change failed (a failed check is rolled back; a
+missing; 4 refused (not root, VM not found, foreign rules without `--replace`, a `--vm-nic` the
+VM does not have, nothing to undo); 5 the change failed (a failed check is rolled back; a
 read-only `/etc/pve` or a bad backup changes nothing; a failed `qm set` leaves the written file
 in place).
 
@@ -406,7 +410,10 @@ in place).
 2. From inside the VM, a new connection to another LAN machine must time out, for example
    `nc -zv -w3 <lan-machine> 22`, while DNS through the gateway (`dig @<gateway> example.org`)
    and the internet still work. A connection to another port of the gateway
-   (`nc -zv -w3 <gateway> 80`) must time out too, unless you passed `--gateway-all`.
+   (`nc -zv -w3 <gateway> 80`) must time out too, unless you passed `--gateway-all`. If DNS
+   fails, the VM resolves through another address than the gateway: `resolvectl dns` on the
+   VM lists the resolvers it uses (the box may hand out an IPv6 link-local or ULA one); pass
+   each with `--dns`.
 3. IPv6 link-local, from inside the VM: `ip -6 neigh` still shows the gateway as `REACHABLE`
    (neighbour discovery works), `ping -6 -c1 ff02::1%<interface>` still answers (ICMPv6 is open
    on purpose), and a connection to the link-local address of another LAN host or of the
