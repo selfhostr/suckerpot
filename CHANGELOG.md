@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/host/proxmox-firewall.sh`: manages the Proxmox VE firewall of the SuckerPot VM
+  (`/etc/pve/firewall/<vmid>.fw`) from the node. It writes `enable`, open `policy_in` and
+  `policy_out`, `macfilter`, then in order: `OUT DROP` of DHCP server replies (udp ports 68 and
+  546), `OUT ACCEPT` of DNS only to the LAN gateway (every port with `--gateway-all`) and to each
+  `--dns` resolver, and of every port to each `--allow-out` host, `OUT DROP` to the private ranges (RFC 1918, CGNAT, link-local,
+  IPv6 unique local) and of tcp and udp to IPv6 link-local `fe80::/10` (ICMPv6 and neighbour
+  discovery stay), the admin SSH port open to one CIDR only, and each `--private-port` (the
+  dashboard, a hub port) open to the tunnel host only. `--vm-addr` (an address, or a CIDR
+  no broader than a `/24` or a `/64`) writes the `ipfilter-<NIC>` set that filters that NIC, and
+  never the `ipfilter` option, which would give every NIC an empty set. Every value is validated, the admin
+  port has no default and may not be a sensor port, and a source wider than a `/16` or an
+  `--allow-out` that covers a whole private range gets a warning. The default is a dry run with a
+  unified diff. `--apply` needs root on a Proxmox node, pushes the current file on a stack of
+  checked backups in `/root/suckerpot-firewall-backups/`, writes the new one atomically, runs
+  `pve-firewall compile` and restores the backup when it fails (a failed apply, or a read-only
+  `/etc/pve`, changes nothing and leaves no backup); it refuses to drop rules or options it did not
+  generate unless `--replace` is given. `--undo` goes back one backup per call. It never touches the
+  datacenter or node firewall: it warns when the datacenter firewall is off (and about the
+  `policy_in: DROP` lockout risk of enabling it) and when a VM NIC lacks `firewall=1`, and only
+  runs `qm set` with `--set-nic-firewall`. See
+  [Proxmox firewall](docs/deployment.md#proxmox-firewall) and `scripts/host/README.md`.
+
 ## [0.11.6] - 2026-11-12
 
 ### Added
