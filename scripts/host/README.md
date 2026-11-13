@@ -209,10 +209,158 @@ sudo scripts/host/install-firewall.sh --uninstall   # or, for this boot only: su
 By hand: `sudo systemctl disable --now suckerpot-firewall.service`, then
 `sudo rm /etc/systemd/system/suckerpot-firewall.service /etc/suckerpot-firewall.nft && sudo systemctl daemon-reload`.
 
+## Proxmox firewall
+
+The nftables table above runs inside the VM. If the VM runs on Proxmox VE, add the hypervisor
+layer too: `proxmox-firewall.sh` writes the VM's own firewall file, `/etc/pve/firewall/<vmid>.fw`.
+It stops the VM from reaching your LAN (even if the VM is fully compromised, because the
+filter sits outside it), and it keeps the admin SSH port and the dashboard port private. Run it
+as root **on the Proxmox node**, not in the VM. Nothing here is specific to your network: you
+pass every address.
+
+```
+# 1. Dry run (the default): prints the file and its difference, changes nothing.
+scripts/host/proxmox-firewall.sh --vmid 102 --gateway 192.0.2.1 \
+  --admin-port <the port you chose with scripts/move-admin-ssh.sh> --admin-from 198.51.100.0/24 \
+  --private-port 8443 --private-from 192.0.2.10
+
+# 2. The same command with --apply added writes it (a backup first, a check after, rollback on failure).
+scripts/host/proxmox-firewall.sh <the same arguments> --apply
+
+# Undo: put the most recent backup back.
+scripts/host/proxmox-firewall.sh --undo --vmid 102
+```
+
+Here `192.0.2.1` is the LAN gateway (it must also be the VM's DNS, or add the DNS server with
+`--allow-out`), `198.51.100.0/24` is the network you SSH from, and `192.0.2.10` is the host of
+your reverse tunnel (for example a cloudflared VM) that reaches the dashboard on `8443`.
+
+### What it writes
+
+Proxmox evaluates the rules top to bottom and the first match wins, so the order matters.
+Every rule it writes ends with a `# SuckerPot: ...` comment.
+
+| Section | Rule | Why |
+| --- | --- | --- |
+| `[OPTIONS]` | `enable: 1`, `policy_in: ACCEPT`, `policy_out: ACCEPT`, `macfilter: 1` | The sensors must accept the internet on many ports, so the input policy stays open; the rules below close what must be closed. `macfilter` stops the VM from sending with another MAC address. |
+| `[RULES]` 1 | `OUT ACCEPT -dest <gateway>`, then one per `--allow-out` | The LAN gateway and DNS the VM needs, and any other LAN host you list (a local DNS server). |
+| `[RULES]` 2 | `OUT DROP` to the private ranges | The VM may not start a connection to your LAN: the three RFC 1918 ranges (10/8, 172.16/12, 192.168/16), `100.64.0.0/10` (CGNAT), `169.254.0.0/16` (link-local) and, for IPv6, `fc00::/7` (unique local). `fe80::/10` stays open, because IPv6 neighbour discovery needs it. Replies to connections that came in (a sensor answering a scanner, the tunnel host reading the dashboard) are not new connections and still pass. |
+| `[RULES]` 3 | `IN ACCEPT -source <admin CIDR> -p tcp -dport <admin port>`, then `IN DROP -p tcp -dport <admin port>` | The admin SSH answers your management network only. |
+| `[RULES]` 4 | for each `--private-port`: `IN ACCEPT -source <tunnel host>` (one per `--private-from`, plus the admin network with `--private-from-admin`), then `IN DROP` on that port | The dashboard, or a hub port, answers the tunnel host only. |
+
+The generated file for the example above, with the three RFC 1918 drops left out for brevity:
+
+```
+[OPTIONS]
+
+enable: 1
+policy_in: ACCEPT
+policy_out: ACCEPT
+macfilter: 1
+
+[RULES]
+
+OUT ACCEPT -dest 192.0.2.1 # SuckerPot: LAN gateway and DNS
+OUT DROP -dest 100.64.0.0/10 # SuckerPot: no traffic to shared address space (CGNAT)
+OUT DROP -dest 169.254.0.0/16 # SuckerPot: no traffic to link-local addresses
+OUT DROP -dest fc00::/7 # SuckerPot: no traffic to IPv6 unique local addresses
+IN ACCEPT -source 198.51.100.0/24 -p tcp -dport <admin port> # SuckerPot: admin SSH from the management network
+IN DROP -p tcp -dport <admin port> # SuckerPot: admin SSH from nowhere else
+IN ACCEPT -source 192.0.2.10 -p tcp -dport 8443 # SuckerPot: port 8443 from the tunnel host
+IN DROP -p tcp -dport 8443 # SuckerPot: port 8443 from nowhere else
+```
+
+`ipfilter` is not set on purpose. For a VM, an empty `ipfilter` set drops all of the VM's IPv4
+traffic, and the script cannot know which addresses the VM uses: it would cut the VM off.
+
+### Required arguments
+
+| Argument | Meaning |
+| --- | --- |
+| `--vmid N` | The VM. |
+| `--gateway ADDR` | The LAN gateway and DNS the VM needs (IPv4 or IPv6). |
+| `--admin-port N` | The port of the VM's admin SSH: the port you chose with `scripts/move-admin-ssh.sh`. There is no default. |
+| `--admin-from CIDR` | Who may reach the admin port: an address or a CIDR, never `/0`. It must be the address the VM sees, so check it if your SSH goes through a router that rewrites it. |
+
+Optional: `--allow-out ADDR` (repeat it), `--private-port N` (repeat it), `--private-from ADDR`
+(repeat it), `--private-from-admin`, `--apply`, `--replace`, `--set-nic-firewall`, `--undo`.
+Every value is checked before anything else happens (whole numbers for ports, real IPv4 and
+IPv6 addresses and CIDRs). A private port may not be the admin port, nor one of the sensors'
+default host ports, and a private port needs someone allowed to reach it.
+
+### Safety
+
+- The default is a dry run. It prints the generated file and a unified diff against the current
+  `<vmid>.fw`, and changes nothing. It runs as any user, anywhere (it only warns that it could
+  not check Proxmox).
+- `--apply` needs root, the `pve-firewall`, `qm` and `pvesh` commands and a mounted `/etc/pve`.
+  It copies the current file to `/root/suckerpot-firewall-backups/<vmid>-<UTC timestamp>.fw`
+  (mode 0600; when there was no file yet, an empty `.absent` marker takes its place), writes the
+  new file next to it and renames it into place, then runs `pve-firewall compile`. If that
+  fails (or names the file in a warning), the backup is put back and the exit code is 5.
+- If the current file holds a rule, an option or a section the script did not generate, the diff
+  lists it and `--apply` refuses (exit 4). `--replace` goes ahead and **drops** them; the backup
+  keeps them. A rule the script wrote itself (its comment starts with `# SuckerPot:`) is
+  replaced without `--replace`, so you can run it again with other arguments.
+- It never touches the datacenter firewall (`cluster.fw`) or the node's firewall. It only
+  checks them and warns:
+  - **Datacenter firewall disabled**: the VM's rules do nothing until it is enabled (web UI:
+    Datacenter > Firewall > Options, or `pvesh set /cluster/firewall/options --enable 1`).
+    Read the warning first: enabling it applies the datacenter `policy_in`, `DROP` by default,
+    to the node itself, and without a rule that allows the web UI (8006/tcp) and SSH from your
+    management network you can lose access to the node. Proxmox adds rules for the local
+    network, but check that they cover your admin machine, and keep the console at hand.
+  - **VM NIC without `firewall=1`**: the VM's rules do nothing until its NIC has it. The script
+    prints the exact command, for example `qm set 102 --net0 <the NIC's current value>,firewall=1`.
+    It only runs it with `--apply --set-nic-firewall`. A running VM's NIC reconnects briefly.
+- `--undo --vmid N` puts the most recent backup of that VM back, with the same check and the same
+  rollback. The file it replaces is kept as `<vmid>-<timestamp>-before-undo.fw`. Undoing the
+  first `--apply` removes the file again.
+
+Keep the Proxmox console open the first time. A wrong `--admin-from` cuts your SSH to the VM;
+`--undo`, run on the node, brings it back.
+
+Exit codes: 0 done, or the dry run worked; 2 bad arguments; 3 not a Proxmox node, or a tool is
+missing; 4 refused (not root, VM not found, foreign rules without `--replace`, nothing to undo);
+5 the change failed (a failed check is rolled back; a failed `qm set` leaves the written file in
+place).
+
+### What it does not cover
+
+- **The router or ISP box.** Forward only the sensor ports there. This script does not replace
+  that.
+- **The nftables table inside the VM.** Keep it. The Proxmox firewall filters what leaves and
+  enters the VM's network card; it cannot see a container reaching the VM's own admin SSH port,
+  or one container reaching another. The table above stops those. The two layers cover
+  different paths: install both.
+- **A LAN that is reachable over global IPv6.** Proxmox can only match an address range, and
+  this script cannot know which global prefix your LAN uses, so it drops `fc00::/7` only. If
+  your LAN hosts have global IPv6 addresses, the VM can still open connections to them. Turn
+  IPv6 off on the VM's network (or filter it at the router), or add a `OUT DROP` rule for your
+  prefix by hand after running the script. The next run lists that rule as one it did not
+  generate and refuses without `--replace`, which drops it: add it again afterwards.
+- **Other networks on the same bridge.** Only the private ranges above are blocked. A public
+  address that happens to sit on your LAN bridge is not.
+
+### Verify
+
+1. On the node: `pve-firewall status` says `enabled/running`, and the VM file is the one you
+   expect (`cat /etc/pve/firewall/<vmid>.fw`).
+2. From inside the VM, a new connection to another LAN machine must time out, for example
+   `nc -zv -w3 <lan-machine> 22`, while DNS through the gateway and the internet still work.
+3. From another LAN machine: the admin SSH answers from the `--admin-from` network and not from
+   anywhere else, the dashboard port answers from the tunnel host only, and a sensor port still
+   answers (`nc -zv -w3 <vm> <sensor port>`).
+4. From the internet (or your phone on mobile data), the sensor ports still answer.
+
+The `SUCKERPOT_PVE_ROOT` environment variable exists for the tests only (it moves `/etc/pve`
+and `/root` to a scratch folder). Never set it.
+
 ## Also recommended
 
 - Filter the dashboard port upstream (hypervisor or router firewall) so that only your
-  reverse tunnel can reach it. Published Docker ports bypass ordinary host input rules.
+  reverse tunnel can reach it. Published Docker ports bypass ordinary host input rules. On
+  Proxmox, [`proxmox-firewall.sh`](#proxmox-firewall) does it with `--private-port`.
 - Keep the host's admin SSH on a port that is not a sensor port, and restrict it to your
   management network.
 

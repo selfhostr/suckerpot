@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/host/proxmox-firewall.sh`: manages the Proxmox VE firewall of the SuckerPot VM
+  (`/etc/pve/firewall/<vmid>.fw`) from the node. It writes `enable`, open `policy_in` and
+  `policy_out`, `macfilter`, then in order: `OUT ACCEPT` to the LAN gateway (and any
+  `--allow-out` host), `OUT DROP` to the private ranges (RFC 1918, CGNAT, link-local, IPv6 unique
+  local), the admin SSH port open to one CIDR only, and each `--private-port` (the dashboard, a
+  hub port) open to the tunnel host only. Every value is validated, the admin port has no default
+  and may not be a sensor port. The default is a dry run with a unified diff. `--apply` needs root
+  on a Proxmox node, backs the current file up to `/root/suckerpot-firewall-backups/`, writes the
+  new one atomically, runs `pve-firewall compile` and restores the backup when it fails; it
+  refuses to drop rules or options it did not generate unless `--replace` is given. `--undo`
+  restores the latest backup. It never touches the datacenter or node firewall: it warns when the
+  datacenter firewall is off (and about the `policy_in: DROP` lockout risk of enabling it) and when
+  a VM NIC lacks `firewall=1`, and only runs `qm set` with `--set-nic-firewall`. See
+  [Proxmox firewall](docs/deployment.md#proxmox-firewall) and `scripts/host/README.md`.
+
 ## [0.11.6] - 2026-11-12
 
 ### Added
