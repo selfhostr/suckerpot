@@ -243,34 +243,39 @@ If the VM runs on Proxmox VE, add the hypervisor layer. The nftables table runs 
 
 ```bash
 # Dry run (the default): prints the generated file and its difference, changes nothing.
-scripts/host/proxmox-firewall.sh --vmid 102 --gateway 192.0.2.1 \
+scripts/host/proxmox-firewall.sh --vmid 210 --gateway 192.0.2.1 \
   --admin-port <the port you chose with scripts/move-admin-ssh.sh> --admin-from 198.51.100.0/24 \
-  --private-port 8443 --private-from 192.0.2.10
+  --private-port 8443 --private-from 192.0.2.50
 
-# The same command with --apply added writes it. Undo it with:
-scripts/host/proxmox-firewall.sh --undo --vmid 102
+# The same command with --apply added writes it. Go back one step with:
+scripts/host/proxmox-firewall.sh --undo --vmid 210
 ```
 
-In this example, `192.0.2.1` is the LAN gateway (and the VM's DNS), `198.51.100.0/24` is the network you SSH from, `192.0.2.10` is the host of your reverse tunnel (for example a cloudflared VM) and `8443` is the dashboard port. Repeat `--private-port` for a hub port, `--private-from` for another tunnel host, and `--allow-out` for another LAN host the VM must reach, such as a local DNS server. `--private-from-admin` lets the admin network reach the private ports too. Required: `--vmid`, `--gateway`, `--admin-port` (no default) and `--admin-from`.
+In this example, `210` is the VM, `192.0.2.1` is the LAN gateway (the VM's DNS), `198.51.100.0/24` is the network you SSH from, `192.0.2.50` is the host of your reverse tunnel (for example a cloudflared VM) and `8443` is the dashboard port. Repeat `--private-port` for another private port (the hub's is `<HUB_HTTP_PORT>`), `--private-from` for another tunnel host, and `--allow-out` for another LAN host the VM must reach on every port, such as a local DNS server. `--private-from-admin` lets the admin network reach the private ports too. `--gateway-all` opens every port of the gateway instead of its DNS only. `--vm-addr` (see below) limits the source addresses of the VM. Required: `--vmid`, `--gateway`, `--admin-port` (no default) and `--admin-from`.
 
 Proxmox evaluates the rules top to bottom and the first match wins. The file the script writes:
 
 | Order | Rule | Effect |
 | --- | --- | --- |
-| Options | `enable: 1`, `policy_in: ACCEPT`, `policy_out: ACCEPT`, `macfilter: 1` | The sensors must accept the internet on many ports, so the input policy stays open. `ipfilter` is left off: on a VM an empty filter set drops all of the VM's IPv4 traffic. |
-| 1 | `OUT ACCEPT -dest <gateway>`, then one per `--allow-out` | The LAN gateway and DNS, and any LAN host you list. |
-| 2 | `OUT DROP` to the private ranges: the three RFC 1918 ranges (10/8, 172.16/12, 192.168/16), `100.64.0.0/10` (CGNAT), `169.254.0.0/16` (link-local) and `fc00::/7` (IPv6 unique local) | The VM cannot start a connection to your LAN. Replies to connections that came in still pass. `fe80::/10` stays open, because IPv6 neighbour discovery needs it. |
-| 3 | `IN ACCEPT -source <admin CIDR> -p tcp -dport <admin port>`, then `IN DROP -p tcp -dport <admin port>` | The admin SSH answers your management network only. |
-| 4 | For each `--private-port`: `IN ACCEPT -source <tunnel host>`, then `IN DROP -p tcp -dport <port>` | The dashboard (and a hub port) answer the tunnel host only. This is the [upstream filter](#dashboard-bind-and-upstream-filtering) for the dashboard. |
+| Options | `enable: 1`, `policy_in: ACCEPT`, `policy_out: ACCEPT`, `macfilter: 1` (and `ipfilter: 1` with `--vm-addr`) | The sensors must accept the internet on many ports, so the input policy stays open. |
+| 1 | `OUT DROP -p udp -dport 68` and `-dport 546` | No rogue DHCP server: the VM is a DHCP client, and a server's replies go to these ports. |
+| 2 | `OUT ACCEPT -dest <gateway>` for `-p udp -dport 53` and `-p tcp -dport 53` (every port with `--gateway-all`), then `OUT ACCEPT -dest <host>` per `--allow-out` | The VM reaches the gateway for DNS only: the router's admin page and UPnP stay out of reach. Routing through the gateway is not affected. |
+| 3 | `OUT DROP` to the private ranges: the three RFC 1918 ranges (10/8, 172.16/12, 192.168/16), `100.64.0.0/10` (CGNAT), `169.254.0.0/16` (link-local) and `fc00::/7` (IPv6 unique local) | The VM cannot start a connection to your LAN. Replies to connections that came in still pass. |
+| 4 | `OUT DROP -dest fe80::/10 -p tcp` and `-p udp` | Every IPv6 host of the LAN answers `ping -6 ff02::1`, and the Proxmox node's SSH and web UI listen on their link-local address: without this, a compromised VM could find them and connect. ICMPv6 is not dropped: IPv6 neighbour discovery is ICMPv6, and Proxmox accepts it before any rule here. |
+| 5 | `IN ACCEPT -source <admin CIDR> -p tcp -dport <admin port>`, then `IN DROP -p tcp -dport <admin port>` | The admin SSH answers your management network only. |
+| 6 | For each `--private-port`: `IN ACCEPT -source <tunnel host>`, then `IN DROP -p tcp -dport <port>` | The dashboard (and a hub port) answer the tunnel host only. This is the [upstream filter](#dashboard-bind-and-upstream-filtering) for the dashboard. |
+
+**Source addresses.** With `--vm-addr ADDR` (repeat it for each address, IPv4 and IPv6), the file turns on `ipfilter: 1` and lists the addresses in `[IPSET ipfilter-net0]` (`--vm-nic` picks another NIC), so the VM can only send from them. Without it, `ipfilter` stays off: for a VM, an empty filter set drops all of its IPv4 traffic. List **every** address the VM uses on that NIC, IPv6 included: any other address loses its traffic, and a wrong list cuts the VM off. The script refuses to apply it when the VM has another NIC with a firewall, which would need its own set.
 
 How it stays safe:
 
-- **A dry run changes nothing.** `--apply` backs the current file up to `/root/suckerpot-firewall-backups/<vmid>-<UTC timestamp>.fw` (mode 0600), writes the new file atomically, runs `pve-firewall compile` and puts the backup back if that fails. `--undo` restores the most recent backup with the same check.
+- **A dry run changes nothing.** `--apply` pushes the current file on a stack of backups in `/root/suckerpot-firewall-backups/<vmid>-<UTC timestamp>.fw` (mode 0600), checks the copy, writes the new file atomically, runs `pve-firewall compile` and puts the backup back if that fails (a failed apply leaves no backup). If `/etc/pve` is read-only (a cluster without quorum), it says so and changes nothing. `--undo` goes back one step per call: it restores the most recent backup with the same check, then takes it off the stack.
 - **It refuses to drop your own rules.** If the current file holds a rule, option or section the script did not generate, the diff lists it and `--apply` refuses (exit 4) unless you pass `--replace`, which drops them (the backup keeps them). Its own rules carry a `# SuckerPot:` comment and are replaced freely.
+- **It warns about wide values.** An `--admin-from` or `--private-from` broader than a `/16` (IPv4) or `/48` (IPv6), and an `--allow-out` that covers a whole private range (which would cancel its drop), are accepted with a warning.
 - **It never changes the datacenter or node firewall.** It checks them and warns. If the datacenter firewall is disabled, the VM's rules do nothing until you enable it. Enabling it applies the datacenter `policy_in` (`DROP` by default) to the node itself: unless rules allow the web UI (8006/tcp) and SSH from your management network, you can lose access to the node, so read the warning first and keep the console at hand.
 - **The VM's NIC needs `firewall=1`.** The script checks `qm config` and prints the exact `qm set` command if a NIC lacks it. It only runs it with `--apply --set-nic-firewall` (a running VM's NIC reconnects briefly).
 
-Exit codes: 0 done (or the dry run worked), 2 bad arguments, 3 not a Proxmox node or a tool is missing, 4 refused, 5 the change failed (a failed check is rolled back).
+Exit codes: 0 done (or the dry run worked), 2 bad arguments, 3 not a Proxmox node or a tool is missing, 4 refused, 5 the change failed (a failed check is rolled back; a read-only `/etc/pve` or a bad backup changes nothing).
 
 Keep the Proxmox console open the first time. A wrong `--admin-from` cuts your SSH to the VM, and `--undo` on the node brings it back. `--admin-from` must be the address the VM sees as the source of your SSH connection.
 
@@ -278,14 +283,18 @@ What it does not cover:
 
 - **The router or ISP box.** Forward only the sensor ports there.
 - **The nftables table inside the VM.** Keep it: the Proxmox firewall cannot see a container reaching the VM's own admin SSH port, or one container reaching another.
-- **A LAN reachable over global IPv6.** Proxmox matches address ranges, and the script cannot know your global prefix, so it drops `fc00::/7` only. Turn IPv6 off on the VM's network, filter it at the router, or add an `OUT DROP` rule for your prefix by hand (the script lists such a rule as foreign on the next run and needs `--replace`, which drops it).
+- **A LAN reachable over global IPv6.** Proxmox matches address ranges, and the script cannot know your global prefix, so it drops `fc00::/7` and link-local only. Turn IPv6 off on the VM's network, filter it at the router, or add an `OUT DROP` rule for your prefix by hand (the script lists such a rule as foreign on the next run and needs `--replace`, which drops it).
+- **IPv6 discovery.** ICMPv6 to link-local addresses stays open, so a compromised VM can still find the IPv6 hosts of the LAN with a ping. It cannot open a TCP or UDP connection to them.
+- **Attacks on the LAN's layer 2.** ARP spoofing of the gateway, rogue router advertisements and MAC flooding are not handled by this file (`macfilter` only checks the VM's own source MAC address, and the file adds no ARP rules). Use the protections of your switch, and check the `radv` option of your Proxmox version.
+- **Spoofed source addresses** without `--vm-addr`, a DHCP client flood, and the bandwidth the VM uses.
 
 Verify:
 
 1. On the node, `pve-firewall status` says `enabled/running`.
-2. From inside the VM, a new connection to another LAN machine must time out (`nc -zv -w3 <lan-machine> 22`), while DNS through the gateway and the internet keep working.
-3. From another LAN machine, the admin SSH answers from the `--admin-from` network and not from anywhere else, the dashboard port answers from the tunnel host only, and a sensor port still answers.
-4. From the internet, the sensor ports still answer.
+2. From inside the VM, a new connection to another LAN machine must time out (`nc -zv -w3 <lan-machine> 22`), while DNS through the gateway (`dig @<gateway> example.org`) and the internet keep working. Another port of the gateway must time out too (`nc -zv -w3 <gateway> 80`), unless you passed `--gateway-all`.
+3. IPv6 link-local, from inside the VM: `ip -6 neigh` still shows the gateway as `REACHABLE` (neighbour discovery works), `ping -6 -c1 ff02::1%<interface>` still answers, and a connection to the link-local address of another LAN host or of the Proxmox node (`nc -6 -zv -w3 <fe80:: address>%<interface> 22`) must time out.
+4. From another LAN machine, the admin SSH answers from the `--admin-from` network and not from anywhere else, the dashboard port answers from the tunnel host only, and a sensor port still answers.
+5. From the internet, the sensor ports still answer.
 
 ## Anonymous egress (VPN)
 
