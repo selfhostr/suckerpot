@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SuckerPot installer. Run it from a checkout of a release tag:
 #
-#   git clone --depth 1 --branch vX.Y.Z <repository-url> suckerpot && cd suckerpot
+#   git clone <repository-url> suckerpot && cd suckerpot
+#   git switch --detach "$(git describe --tags --abbrev=0)"   # the latest release
 #   ./scripts/install.sh
 #
 # It checks the machine, asks a few questions, generates every secret on this host, writes .env

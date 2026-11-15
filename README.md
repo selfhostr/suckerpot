@@ -24,8 +24,8 @@
 ## Quick start
 
 ```bash
-git clone --depth 1 --branch v0.11.6 https://github.com/selfhostr/suckerpot.git
-cd suckerpot
+git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
+git switch --detach "$(git describe --tags --abbrev=0)"
 ./scripts/install.sh
 ```
 

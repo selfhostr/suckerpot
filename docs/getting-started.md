@@ -30,15 +30,15 @@ No Python, Node.js or database has to be installed on the host. Everything runs 
 
 ## 1. Install with the installer (recommended)
 
-Clone a release tag and run the installer from the checkout:
+Clone the repository, switch to the latest release and run the installer from the checkout:
 
 ```bash
-git clone --depth 1 --branch vX.Y.Z https://github.com/<your-account>/suckerpot.git
-cd suckerpot
+git clone https://github.com/<your-account>/suckerpot.git && cd suckerpot
+git switch --detach "$(git describe --tags --abbrev=0)"
 ./scripts/install.sh
 ```
 
-Replace `vX.Y.Z` with the release you want. The installer asks a few questions. The six recommended sensors are on by default, and the SuckerPot network is off unless you answer yes to its question. It then writes `.env` with new secrets, starts the stack and prints the dashboard address. Every question and every flag is explained in [Install SuckerPot](install.md).
+The second line switches to the newest release tag. The installer asks a few questions. The six recommended sensors are on by default, and the SuckerPot network is off unless you answer yes to its question. It then writes `.env` with new secrets, starts the stack and prints the dashboard address. Every question and every flag is explained in [Install SuckerPot](install.md).
 
 When the installer is done, sign in. The first-run setup opens by itself. It walks you through the sensors, the ports to forward, the VPN and the rest. See [the first-run setup](install.md#first-run-setup-in-the-dashboard).
 
@@ -102,7 +102,7 @@ git clone https://github.com/<your-account>/suckerpot.git
 cd suckerpot
 ```
 
-Use the URL of your own fork or of the project repository. To run a release instead of the latest code, add `--branch vX.Y.Z`.
+Use the URL of your own fork or of the project repository. To run the latest release instead of the latest code, run `git switch --detach "$(git describe --tags --abbrev=0)"` in the checkout.
 
 ### Create your `.env` file
 

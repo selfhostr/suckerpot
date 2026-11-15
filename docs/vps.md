@@ -96,8 +96,8 @@ It works on Debian and Ubuntu. For another system, use [By hand](#by-hand) below
 1. **Get SuckerPot and run the script**, in your current SSH session:
 
    ```bash
-   git clone --depth 1 --branch v0.11.6 https://github.com/selfhostr/suckerpot.git
-   cd suckerpot
+   git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
+   git switch --detach "$(git describe --tags --abbrev=0)"
    sudo ./scripts/move-admin-ssh.sh
    ```
 
