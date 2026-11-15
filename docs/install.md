@@ -45,15 +45,15 @@ The mode is saved as `SUCKERPOT_INSTALL_MODE` in `.env`. Updates use the same mo
 
 ## Install in one command
 
-Clone a release tag, then run the installer from the checkout:
+Clone the repository, switch to the latest release, then run the installer from the checkout:
 
 ```bash
-git clone --depth 1 --branch v0.11.6 https://github.com/selfhostr/suckerpot.git
-cd suckerpot
+git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
+git switch --detach "$(git describe --tags --abbrev=0)"
 ./scripts/install.sh
 ```
 
-Replace `v0.11.6` with the release you want. The tag is the release name on the repository's Releases page.
+The second line switches to the newest release tag, so these commands always install the latest release. For an older release, run `git switch --detach vX.Y.Z` instead, with a release name from the repository's Releases page.
 
 If you clone without a tag, or you want to build from source, run:
 
