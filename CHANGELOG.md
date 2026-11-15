@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runs `qm set` with `--set-nic-firewall`. See
   [Proxmox firewall](docs/deployment.md#proxmox-firewall) and `scripts/host/README.md`.
 
+### Changed
+
+- The install commands in the README and the docs (install, join the network, VPS, getting
+  started) no longer name a fixed release tag. They clone the repository and run
+  `git switch --detach "$(git describe --tags --abbrev=0)"`, which picks the newest release, so
+  the pages stay right after each release. An older release is still one
+  `git switch --detach vX.Y.Z` away.
+
 ## [0.11.6] - 2026-11-12
 
 ### Added
