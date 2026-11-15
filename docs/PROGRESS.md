@@ -320,3 +320,9 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Sensor fix (#135): the Docker and Synology sensors reused summary session ids after a restart; they now get random ids.
 - After the update the sweep folds the stored history six hours at a time. `docs/retention.md` describes an optional one-time `VACUUM (FULL, ANALYZE) sessions` to give the space back.
 - Not run on a real node yet.
+
+## 2026-11-15: v0.11.7 (Proxmox firewall script, latest-release install commands)
+
+- Two pull requests since v0.11.6 (#138, #139). The details are in `CHANGELOG.md`.
+- No change to the services or the database. `scripts/host/proxmox-firewall.sh` has not run on a real Proxmox node yet: start with the dry run.
+- The install commands in the README and the docs now pick the newest release tag themselves, so release commits no longer edit them.
