@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Automatic updates check every 6 hours instead of once a day, so a release is installed at most
+  about 6 hours after its 48-hour minimum age instead of up to a day after. The minimum age does
+  not change. An existing once-a-day schedule moves to every 6 hours by itself on its first run.
+  A target whose update failed is tried again on a later day only, so the attempt cap still counts
+  days and a failing update does not take a dump and roll back 4 times a day.
+
 ## [0.11.9] - 2026-11-18
 
 ### Fixed

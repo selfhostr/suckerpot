@@ -818,14 +818,16 @@ def test_participant_install_with_fake_docker(
     assert "./scripts/status.sh" in out
     assert "2200" not in out
     assert "8443" not in out
-    # Scheduled once, with the marker, at a random time between 03:00 and 05:59.
+    # Scheduled once, with the marker, every 6 hours from a random time between 03:00 and 05:59.
     cron = [line for line in crontab_text(psb).splitlines() if "selfhostr-auto-update" in line]
     assert len(cron) == 1
-    minute, hour = cron[0].split()[:2]
-    assert 3 <= int(hour) <= 5
+    minute, hours = cron[0].split()[:2]
+    hour = int(hours.split(",")[0])
+    assert 3 <= hour <= 5
+    assert hours == f"{hour},{hour + 6},{hour + 12},{hour + 18}"
     assert 0 <= int(minute) <= 59
     assert cron[0].endswith("# selfhostr-auto-update suckerpot")
-    assert f"daily at 0{hour}:{int(minute):02d} local time" in out
+    assert f"every 6 h from 0{hour}:{int(minute):02d} local time" in out
 
 
 def test_participant_no_auto_update_schedules_nothing(
