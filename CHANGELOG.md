@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A new install on a small VPS (1 core, 1 GB) could stop at "container suckerpot-hubproxy-1 is
+  unhealthy": the hub proxy's health check starts a Python process inside 0.25 CPU and took
+  about 20 seconds there, against a 3-second timeout. The proxy itself worked. The check now has
+  a 30-second timeout, a 30-second interval and a 120-second start period.
+
 ## [0.11.10] - 2026-11-18
 
 ### Changed
