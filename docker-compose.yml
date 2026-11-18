@@ -1441,13 +1441,13 @@ services:
     cpus: 0.25
     pids_limit: 32
     restart: unless-stopped
-    # The check starts a Python process. On a 1-core, 1 GB VPS every service starts at once and
-    # this one gets 0.25 CPU, so it can take more than a few seconds: a short timeout or start
-    # period marked it unhealthy while it was fine, and ingest (which waits for it) never started.
+    # The check starts a Python process inside the 0.25 CPU of this container. On a 1-core, 1 GB
+    # VPS that took about 20 s even at rest (measured on a participant node), so a 3 s timeout
+    # marked a working proxy unhealthy and ingest, which waits for it, never started.
     healthcheck:
       test: ["CMD", "python", "-m", "hubproxy.healthcheck"]
-      interval: 15s
-      timeout: 15s
+      interval: 30s
+      timeout: 30s
       retries: 3
       start_period: 120s
     # no ports, no volumes: nothing is published
