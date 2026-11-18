@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A new install on a small VPS (1 core, 1 GB) could stop at "container suckerpot-hubproxy-1 is
+  unhealthy": while every service started at once, the hub proxy's health check did not answer
+  within 3 seconds. It now has a 120-second start period and a 15-second timeout.
+
 ## [0.11.10] - 2026-11-18
 
 ### Changed
