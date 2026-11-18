@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Automatic sending of abuse reports sent the due reports one after the other, about one a
+  second. A mailbox provider took the burst for spam and refused the rest. Automatic sends now go
+  at least 3 minutes apart. A "try later" reply (SMTP 4xx) is `deferred`: automatic sends wait one
+  hour and the report is scheduled again by itself, at most 3 times. A send error now keeps the
+  server's numeric reply code (`refused:550`, `deferred:451`) and the dashboard shows it.
+
 ## [0.11.11] - 2026-11-18
 
 ### Fixed

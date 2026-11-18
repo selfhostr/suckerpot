@@ -46,6 +46,19 @@ describe("sentences", () => {
       describeRequest({ status: "pending", error_code: "egress_closed", done_at: null }),
     ).toMatch(/Waiting for the VPN/)
   })
+  it("shows the server's reply code of a refusal and explains a deferral", () => {
+    expect(describeSendErrorCode("refused:550")).toBe(
+      "The mail server refused the message or the recipient. (server code 550)",
+    )
+    expect(describeSendErrorCode("refused")).toBe(
+      "The mail server refused the message or the recipient.",
+    )
+    expect(describeSendErrorCode("deferred:451")).toMatch(/try later.*\(server code 451\)$/)
+    expect(describeSendErrorCode("refused:<script>")).toBe(
+      "The mail server refused the message or the recipient.",
+    )
+    expect(describeSendErrorCode("nonsense:550")).toBe("The message could not be sent.")
+  })
   it("treats sending like pending and explains an unknown outcome", () => {
     expect(describeRequest({ status: "sending", error_code: null, done_at: null })).toBe("Sending…")
     expect(describeSendErrorCode("unknown_outcome")).toMatch(/may or may not have left/)

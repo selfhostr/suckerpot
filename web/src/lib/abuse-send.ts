@@ -114,6 +114,8 @@ export const SEND_ERROR: Record<string, string> = {
   tls_failed:
     "The secure connection to the mail server could not be set up. Check the host, the port and the security setting.",
   refused: "The mail server refused the message or the recipient.",
+  deferred:
+    "The mail server asked to try later (often a limit on mails per minute or per hour). An automatic send is tried again by itself.",
   timeout: "The mail server did not answer in time.",
   egress_closed: "Waiting for the VPN: it is sent when the tunnel is back.",
   network: "The mail server could not be reached.",
@@ -133,7 +135,11 @@ export function describeSendErrorCode(code: string | null | undefined): string {
       ? "Blocked by the identity check: confirm your own address in Settings → Reporting."
       : "Blocked by the identity check."
   }
-  return (code ? SEND_ERROR[code] : undefined) ?? "The message could not be sent."
+  // A refusal carries the server's reply code after a colon: `refused:550`, `deferred:451`.
+  const [base, reply] = (code ?? "").split(":", 2)
+  const text = base ? SEND_ERROR[base] : undefined
+  if (!text) return "The message could not be sent."
+  return reply && /^[2-5][0-9][0-9]$/.test(reply) ? `${text} (server code ${reply})` : text
 }
 
 /** One sentence about the last request of a report, or null when there is nothing to say. */

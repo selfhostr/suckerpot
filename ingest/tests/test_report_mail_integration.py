@@ -458,7 +458,7 @@ async def test_an_unusable_profile_fails_the_request(world: World) -> None:
     ("exc", "code"),
     [
         (smtplib.SMTPAuthenticationError(535, b"nope"), "auth_failed"),
-        (smtplib.SMTPRecipientsRefused({"x": (550, b"no")}), "refused"),
+        (smtplib.SMTPRecipientsRefused({"x": (550, b"no")}), "refused:550"),
         (TimeoutError("slow"), "unknown_outcome"),  # in DATA: nobody knows
     ],
 )
@@ -548,6 +548,143 @@ async def test_a_cancelled_auto_request_is_not_scheduled_again(world: World) -> 
     async with world.owner.connect() as conn:
         count = await conn.scalar(text("SELECT count(*) FROM abuse_send_requests"))
     assert count == 1 and FakeSMTP.instances == []
+
+
+async def _age_auto_requests(world: World, by: timedelta) -> None:
+    """Moves the start and end of every automatic send back, as if ``by`` had passed."""
+    async with world.owner.begin() as conn:
+        await conn.execute(text("ALTER TABLE abuse_send_requests DISABLE TRIGGER USER"))
+        await conn.execute(
+            text(
+                "UPDATE abuse_send_requests SET "
+                "started_at = started_at - make_interval(secs => :d), "
+                "done_at = done_at - make_interval(secs => :d) WHERE auto"
+            ),
+            {"d": by.total_seconds()},
+        )
+        await conn.execute(text("ALTER TABLE abuse_send_requests ENABLE TRIGGER USER"))
+
+
+async def test_automatic_sends_are_spaced_out(world: World) -> None:
+    """A burst from one mailbox looks like spam to its provider: one automatic mail at a time."""
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    first = await world.report(status="reviewed")
+    second = await world.report(status="reviewed")
+    s = world.sender()
+    await s.run(NOW)
+    later = datetime.now(UTC) + timedelta(minutes=11)
+    await s.run(later)
+    assert len(FakeSMTP.instances) == 1
+    await s.run(later)  # less than the spacing since the first: still one
+    assert len(FakeSMTP.instances) == 1
+    assert (await world.report_row(first)).status == "sent"
+    assert (await world.report_row(second)).status == "reviewed"
+    await _age_auto_requests(world, timedelta(minutes=4))
+    await s.run(later)
+    assert len(FakeSMTP.instances) == 2
+    assert (await world.report_row(second)).status == "sent"
+
+
+async def test_a_click_send_is_not_held_back_by_the_spacing(world: World) -> None:
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    await world.report(status="reviewed")
+    s = world.sender()
+    await s.run(NOW)
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    assert len(FakeSMTP.instances) == 1
+    clicked = await world.report(status="reviewed")
+    rid = await world.ask(clicked)
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    assert (await world.request(rid)).status == "sent"
+
+
+async def test_a_deferred_send_pauses_the_automatic_ones_and_is_tried_again(
+    world: World,
+) -> None:
+    """A 4xx reply (a rate limit) is "not now": every automatic send waits, then the report is
+    scheduled again by itself."""
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    first = await world.report(status="reviewed")
+    second = await world.report(status="reviewed")
+    s = world.sender()
+    await s.run(NOW)
+    FakeSMTP.fail["send"] = smtplib.SMTPDataError(451, b"too many messages")
+    later = datetime.now(UTC) + timedelta(minutes=11)
+    await s.run(later)
+    async with world.owner.connect() as conn:
+        failed = (
+            await conn.execute(
+                text("SELECT report_id, error_code FROM abuse_send_requests WHERE status='failed'")
+            )
+        ).all()
+    assert [(r.report_id, r.error_code) for r in failed] == [(first, "deferred:451")]
+    del FakeSMTP.fail["send"]
+    # Past the spacing but within the pause: nothing goes out.
+    await _age_auto_requests(world, timedelta(minutes=10))
+    await s.run(later)
+    assert all(c.sent is None for c in FakeSMTP.instances)
+    assert (await world.report_row(second)).status == "reviewed"
+    # The deferred report got a new automatic request.
+    async with world.owner.connect() as conn:
+        pending = await conn.scalar(
+            text(
+                "SELECT count(*) FROM abuse_send_requests WHERE report_id = :r "
+                "AND status = 'pending' AND auto"
+            ),
+            {"r": first},
+        )
+    assert pending == 1
+    # The pause is over: both reports go out, one at a time.
+    await _age_auto_requests(world, timedelta(hours=1))
+    for _ in range(2):
+        await s.run(datetime.now(UTC) + timedelta(minutes=30))
+        await _age_auto_requests(world, timedelta(minutes=4))
+    assert (await world.report_row(first)).status == "sent"
+    assert (await world.report_row(second)).status == "sent"
+
+
+async def test_a_report_is_rescheduled_after_at_most_three_deferrals(world: World) -> None:
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    report = await world.report(status="reviewed")
+    s = world.sender()
+    FakeSMTP.fail["send"] = smtplib.SMTPRecipientsRefused({"abuse1@example.net": (450, b"later")})
+    base = datetime.now(UTC)
+    for i in range(6):  # the first run only schedules; each later one is past the hold
+        await s.run(base + timedelta(hours=2 * (i + 1)))
+        await _age_auto_requests(world, timedelta(hours=2))
+    async with world.owner.connect() as conn:
+        rows = (
+            await conn.execute(
+                text("SELECT status, error_code FROM abuse_send_requests WHERE report_id = :r"),
+                {"r": report},
+            )
+        ).all()
+    assert [(r.status, r.error_code) for r in rows] == [("failed", "deferred:450")] * 3
+    assert (await world.report_row(report)).status == "reviewed"
+
+
+async def test_a_refused_automatic_send_is_not_tried_again(world: World) -> None:
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    report = await world.report(status="reviewed")
+    s = world.sender()
+    await s.run(NOW)
+    FakeSMTP.fail["send"] = smtplib.SMTPDataError(554, b"rejected")
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    await _age_auto_requests(world, timedelta(hours=2))
+    await s.run(datetime.now(UTC) + timedelta(hours=1))
+    async with world.owner.connect() as conn:
+        rows = (
+            await conn.execute(
+                text("SELECT status, error_code FROM abuse_send_requests WHERE report_id = :r"),
+                {"r": report},
+            )
+        ).all()
+    assert [(r.status, r.error_code) for r in rows] == [("failed", "refused:554")]
 
 
 # ---- at most once ----------------------------------------------------------------------------

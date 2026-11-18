@@ -394,7 +394,9 @@ By default you send each report yourself. The dashboard can also send it through
 | --- | --- |
 | `off` (default) | Nothing is sent. Use the To send queue. |
 | `click` | A "Send now" button sends a ready report, after a confirmation. |
-| `auto` | Ready reports are sent after a hold time (default 60 minutes, 10 to 1440). While a report waits, the page shows the time it will go, with a Cancel button. At most `daily_cap` reports are sent per UTC day (default 20, 1 to 200). |
+| `auto` | Ready reports are sent after a hold time (default 60 minutes, 10 to 1440). While a report waits, the page shows the time it will go, with a Cancel button. At most `daily_cap` reports are sent per UTC day (default 20, 1 to 200), one at a time: at least 3 minutes apart, so the mailbox provider does not take the reports for spam. |
+
+If the mail server answers "try later" (an SMTP 4xx reply, often a limit on mails per minute or per hour), the send is marked `deferred`, every automatic send waits one hour, and the report is scheduled again by itself (at most 3 times). A refusal (5xx) is never retried by itself. Both show the server's reply code, for example `refused:550` or `deferred:451`.
 
 Demo reports are never sent. A report that fails the identity guard, or that has no reply contact, is never sent in any mode. "Send a test" sends a short neutral message to the sender address itself, so you can check the profile first.
 
