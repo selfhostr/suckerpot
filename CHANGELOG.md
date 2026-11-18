@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   at least 3 minutes apart. A "try later" reply (SMTP 4xx) is `deferred`: automatic sends wait one
   hour and the report is scheduled again by itself, at most 3 times. A send error now keeps the
   server's numeric reply code (`refused:550`, `deferred:451`) and the dashboard shows it.
+- A node kept searching for its enrolment proof of work for up to 15 minutes, while the hub
+  forgets the challenge after 10. On a slow machine the answer always came too late. The search
+  now stops 30 seconds before the challenge expires, and the node tries again later.
 
 ## [0.11.11] - 2026-11-18
 

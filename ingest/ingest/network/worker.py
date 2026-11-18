@@ -48,6 +48,8 @@ PULL_EVERY = timedelta(hours=6)
 SUMMARY_EVERY = timedelta(hours=24)
 LEAVE_GIVE_UP = timedelta(days=7)
 POW_CAP_S = 15 * 60
+# The answer must reach the hub before its challenge expires: the search stops this much earlier.
+POW_SEND_MARGIN_S = 30
 PERMANENT = frozenset({"pseudonym_taken", "pseudonym_invalid"})
 # The hub may close enrolment or set a hard puzzle for a while: wait, never opt out.
 TEMPORARY = frozenset({"enrolment_closed", "pow_timeout"})
@@ -59,6 +61,13 @@ VERIFY_REVEAL_EVERY = timedelta(minutes=15)
 VERIFY_RETRY = timedelta(hours=24)
 LEARN_EVERY = timedelta(hours=1)
 NAME_RETRIES = 5
+
+
+def pow_budget_s(ch: wire.ChallengeResponse) -> float:
+    """Seconds the proof of work may run: until shortly before the hub forgets the challenge, and
+    never more than ``POW_CAP_S``. Searching past ``expires_in`` only wastes the CPU of a small
+    machine: the hub would refuse the answer anyway."""
+    return float(max(1, min(POW_CAP_S, ch.expires_in - POW_SEND_MARGIN_S)))
 
 
 class NetworkWorker(FeatureWorker):
@@ -363,7 +372,7 @@ class NetworkWorker(FeatureWorker):
                 return
             ch = await hub.challenge(identity)
             nonce_raw = await solve_low_priority(
-                sign.b64u_decode(ch.challenge), identity.public, ch.difficulty, POW_CAP_S
+                sign.b64u_decode(ch.challenge), identity.public, ch.difficulty, pow_budget_s(ch)
             )
             if nonce_raw is None:
                 await self._enrol_wait(store)
