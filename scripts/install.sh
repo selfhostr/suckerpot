@@ -1064,7 +1064,9 @@ if [ "$stack" = participant ] || [ "$switching" = 1 ]; then
     schedule_remove || warn "could not remove the update schedule; see ./scripts/participant.sh auto-update off"
   elif [ "$(env_get AUTO_UPDATE_ENABLED false)" = true ]; then
     if sched=$(schedule_status 2> /dev/null); then
-      :
+      # A once-a-day schedule from an older release moves to every 6 hours.
+      schedule_upgrade || warn "could not move the update schedule to every 6 hours; it stays as it is"
+      sched=$(schedule_status || echo off)
     else
       read -r sh sm < <(schedule_random_time)
       if schedule_install "$sh" "$sm"; then
@@ -1110,8 +1112,11 @@ if [ "$stack" = participant ]; then
   if [ "$assume_yes" = 0 ]; then fw_step participant 3; else fw_step participant; fi
   echo
   echo "Check it any time:      ./scripts/status.sh"
+  sched_when=${sched#* }
+  sched_when=${sched_when%/6h}
   case $sched in
-    "cron "* | "systemd "*) echo "Automatic updates:      daily at ${sched#* } local time (off: ./scripts/participant.sh auto-update off)" ;;
+    "cron "*/6h | "systemd "*/6h) echo "Automatic updates:      every 6 h from ${sched_when%/6h} local time (off: ./scripts/participant.sh auto-update off)" ;;
+    "cron "* | "systemd "*) echo "Automatic updates:      daily at ${sched_when} local time (off: ./scripts/participant.sh auto-update off)" ;;
     *) echo "Automatic updates:      off (on: ./scripts/participant.sh auto-update on)" ;;
   esac
   echo "The network counts your sensor after a short probation period set by the hub. The date shows in ./scripts/status.sh."

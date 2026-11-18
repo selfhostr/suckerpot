@@ -300,6 +300,8 @@ case $cmd in
           confirm "Turn on automatic updates anyway?" || die "not turned on; nothing was changed"
         fi
         if sched=$(schedule_status 2> /dev/null); then
+          schedule_upgrade || note "could not move the schedule to every 6 hours; it stays as it is"
+          sched=$(schedule_status || echo off)
           note "already scheduled: $sched"
         else
           read -r sh sm < <(schedule_random_time)

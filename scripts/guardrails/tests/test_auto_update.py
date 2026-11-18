@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +100,11 @@ def stage_auto(sb: Sandbox) -> None:
     }.items():
         write_exec(sb.root / "scripts" / name, text)
     sb.env["SHIM_NEW_HEAD"] = NEW
+    # auto-update.sh moves an old schedule: it must only ever see a fake crontab.
+    write_exec(sb.shim / "crontab", CRONTAB_SHIM)
+    write_exec(sb.shim / "systemctl", SYSTEMCTL_SHIM)
+    write_exec(sb.shim / "loginctl", LOGINCTL_SHIM)
+    sb.env["XDG_CONFIG_HOME"] = str(sb.shim / "config")
 
 
 def run_auto(sb: Sandbox) -> subprocess.CompletedProcess[str]:
@@ -238,7 +244,8 @@ def test_a_failed_update_that_is_not_a_regression_is_retried(sandbox: Sandbox) -
     assert names(sandbox) == ["update", "rollback"]
     assert result(sandbox)["error_code"] == "update_failed_rolled_back"
     assert not (sandbox.root / ".suckerpot-state" / "bad-versions").exists()
-    # The next run tries the same release again.
+    # The next run, on a later day, tries the same release again.
+    yesterday(sandbox)
     sandbox.log.write_text("")
     sandbox.git_set("head", OLD)
     (sandbox.root / ".suckerpot-state" / "last-update.json").write_text(
@@ -250,8 +257,21 @@ def test_a_failed_update_that_is_not_a_regression_is_retried(sandbox: Sandbox) -
     assert result(sandbox)["last_result"] == "updated"
 
 
+def yesterday(sb: Sandbox) -> None:
+    """Moves the day of the last failed attempt one day back, as if the next run were tomorrow."""
+    path = sb.root / ".suckerpot-state" / "update-attempts"
+    target, count, _day = path.read_text().split()
+    day = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
+    path.write_text(f"{target} {count} {day}\n")
+
+
+def today() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
 def fail_once_more(sb: Sandbox) -> None:
-    """One more automatic run whose update fails (not a regression) and is rolled back."""
+    """One more automatic run, on a later day, whose update fails (not a regression)."""
+    yesterday(sb)
     sb.log.write_text("")
     sb.git_set("head", OLD)
     (sb.root / ".suckerpot-state" / "last-update.json").write_text('{\n  "completed": true,\n}\n')
@@ -266,10 +286,10 @@ def test_repeated_non_regression_failures_blacklist_after_three_attempts(
     sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
     state = sandbox.root / ".suckerpot-state"
     assert run_auto(sandbox).returncode == 1
-    assert (state / "update-attempts").read_text() == "v0.9.0 1\n"
+    assert (state / "update-attempts").read_text() == f"v0.9.0 1 {today()}\n"
     assert not (state / "bad-versions").exists()
     fail_once_more(sandbox)
-    assert (state / "update-attempts").read_text() == "v0.9.0 2\n"
+    assert (state / "update-attempts").read_text() == f"v0.9.0 2 {today()}\n"
     assert not (state / "bad-versions").exists()
     fail_once_more(sandbox)
     assert (state / "bad-versions").read_text() == "v0.9.0\n"
@@ -293,6 +313,7 @@ def test_a_success_resets_the_attempt_counter(sandbox: Sandbox) -> None:
     state = sandbox.root / ".suckerpot-state"
     assert run_auto(sandbox).returncode == 1
     assert (state / "update-attempts").exists()
+    yesterday(sandbox)
     sandbox.log.write_text("")
     sandbox.git_set("head", OLD)
     (state / "last-update.json").write_text('{\n  "completed": true,\n}\n')
@@ -300,6 +321,61 @@ def test_a_success_resets_the_attempt_counter(sandbox: Sandbox) -> None:
     assert run_auto(sandbox).returncode == 0
     assert names(sandbox) == ["update"]
     assert not (state / "update-attempts").exists()
+
+
+def test_a_failed_target_is_not_tried_again_the_same_day(sandbox: Sandbox) -> None:
+    """The job runs every 6 hours, but a failing update is tried once a day: no dump and no
+    rollback 4 times a day, and the attempt cap still counts days. The last result stays."""
+    stage_auto(sandbox)
+    sandbox.env["SHIM_UPDATE_RC"] = "1"
+    sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
+    state = sandbox.root / ".suckerpot-state"
+    assert run_auto(sandbox).returncode == 1
+    before = (state / "auto-update.json").read_text()
+    sandbox.log.write_text("")
+    sandbox.git_set("head", OLD)
+    (state / "last-update.json").write_text('{\n  "completed": true,\n}\n')
+    proc = run_auto(sandbox)
+    assert proc.returncode == 0
+    assert "tried again tomorrow" in proc.stdout
+    assert names(sandbox) == []
+    assert (state / "auto-update.json").read_text() == before
+    assert (state / "update-attempts").read_text() == f"v0.9.0 1 {today()}\n"
+
+
+def test_a_newer_target_is_not_held_back_by_an_older_failure(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    (sandbox.root / ".suckerpot-state").mkdir(exist_ok=True)
+    (sandbox.root / ".suckerpot-state" / "update-attempts").write_text(f"v0.8.5 2 {today()}\n")
+    assert run_auto(sandbox).returncode == 0
+    assert names(sandbox) == ["update"]
+
+
+def test_an_old_attempts_file_without_a_day_is_still_read(sandbox: Sandbox) -> None:
+    """A count written before v0.11.10 has no day: the target is tried, and counted on."""
+    stage_auto(sandbox)
+    sandbox.env["SHIM_UPDATE_RC"] = "1"
+    sandbox.env["SHIM_UPDATE_MOVES_HEAD"] = "1"
+    state = sandbox.root / ".suckerpot-state"
+    state.mkdir(exist_ok=True)
+    (state / "update-attempts").write_text("v0.9.0 1\n")
+    assert run_auto(sandbox).returncode == 1
+    assert names(sandbox) == ["update", "rollback"]
+    assert (state / "update-attempts").read_text() == f"v0.9.0 2 {today()}\n"
+
+
+def test_the_run_moves_a_once_a_day_schedule_to_every_6_hours(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    (sandbox.shim / "crontab.data").write_text(
+        "0 1 * * * /usr/bin/backup\n"
+        f"37 4 * * * cd {sandbox.root} && bash scripts/auto-update.sh > /dev/null 2>&1"
+        " # selfhostr-auto-update demo\n"
+    )
+    assert run_auto(sandbox).returncode == 0
+    lines = crontab_text(sandbox).splitlines()
+    assert lines[0] == "0 1 * * * /usr/bin/backup"
+    mine = [line for line in lines if "selfhostr-auto-update demo" in line]
+    assert len(mine) == 1 and mine[0].startswith("37 4,10,16,22 * * * ")
 
 
 def test_a_failed_rollback_is_reported_and_blocks_later_runs(sandbox: Sandbox) -> None:
@@ -609,7 +685,7 @@ def test_install_adds_one_marked_line_and_keeps_the_others(sandbox: Sandbox) -> 
     mine = [line for line in text.splitlines() if "selfhostr-auto-update" in line]
     assert len(mine) == 1
     assert re.fullmatch(
-        rf"37 4 \* \* \* cd {re.escape(str(sandbox.root))} && bash scripts/auto-update\.sh "
+        rf"37 4,10,16,22 \* \* \* cd {re.escape(str(sandbox.root))} && bash scripts/auto-update\.sh "
         r"> /dev/null 2>&1 # selfhostr-auto-update demo",
         mine[0],
     )
@@ -620,9 +696,9 @@ def test_install_is_idempotent_and_moves_the_time(sandbox: Sandbox) -> None:
     for hm in ("4 37", "4 37", "3 05"):
         assert sched(sandbox, f"schedule_install {hm}").returncode == 0
     lines = [line for line in crontab_text(sandbox).splitlines() if "selfhostr-auto-update" in line]
-    assert len(lines) == 1 and lines[0].startswith("5 3 * * *")
+    assert len(lines) == 1 and lines[0].startswith("5 3,9,15,21 * * *")
     status = sched(sandbox, "schedule_status")
-    assert status.returncode == 0 and status.stdout.strip() == "cron 03:05"
+    assert status.returncode == 0 and status.stdout.strip() == "cron 03:05/6h"
 
 
 def test_remove_only_touches_its_own_line(sandbox: Sandbox) -> None:
@@ -676,13 +752,13 @@ def test_systemd_user_timer_fallback_and_removal(sandbox: Sandbox) -> None:
     units = sandbox.shim / "config" / "systemd" / "user"
     timer = (units / "selfhostr-auto-update-demo.timer").read_text()
     service = (units / "selfhostr-auto-update-demo.service").read_text()
-    assert "OnCalendar=*-*-* 05:59:00" in timer
+    assert "OnCalendar=*-*-* 5,11,17,23:59:00" in timer
     assert f"WorkingDirectory={sandbox.root}" in service
     assert "ExecStart=/usr/bin/env bash scripts/auto-update.sh" in service
     calls = sandbox.calls()
     assert "systemctl --user enable --now selfhostr-auto-update-demo.timer" in calls
     status = sched(sandbox, "schedule_status")
-    assert status.stdout.strip() == "systemd 05:59"
+    assert status.stdout.strip() == "systemd 05:59/6h"
     assert sched(sandbox, "schedule_remove").returncode == 0
     assert not (units / "selfhostr-auto-update-demo.timer").exists()
     assert "systemctl --user disable --now selfhostr-auto-update-demo.timer" in sandbox.calls()
@@ -794,3 +870,59 @@ def test_an_image_missing_from_the_signed_manifest_is_refused(sandbox: Sandbox) 
     path = expect_file(sandbox, "sha256:" + "0" * 64, "redis")
     args = ("--only", "redis api", "--expect", str(path), "v0.6.0")
     assert sandbox.run("scripts/verify-images.sh", *args).returncode == 7
+
+
+def test_an_old_daily_cron_line_is_read_and_upgraded(sandbox: Sandbox) -> None:
+    stage_schedule(sandbox)
+    old = (
+        f"7 5 * * * cd {sandbox.root} && bash scripts/auto-update.sh > /dev/null 2>&1"
+        " # selfhostr-auto-update demo\n"
+    )
+    (sandbox.shim / "crontab.data").write_text("0 1 * * * /usr/bin/backup\n" + old)
+    assert sched(sandbox, "schedule_status").stdout.strip() == "cron 05:07"
+    assert sched(sandbox, "schedule_upgrade").returncode == 0
+    text = crontab_text(sandbox)
+    assert text.startswith("0 1 * * * /usr/bin/backup\n")
+    mine = [line for line in text.splitlines() if "selfhostr-auto-update" in line]
+    assert len(mine) == 1 and mine[0].startswith("7 5,11,17,23 * * * ")
+    assert sched(sandbox, "schedule_status").stdout.strip() == "cron 05:07/6h"
+
+
+def test_upgrade_leaves_a_new_schedule_and_no_schedule_alone(sandbox: Sandbox) -> None:
+    stage_schedule(sandbox)
+    assert sched(sandbox, "schedule_upgrade").returncode == 0
+    assert crontab_text(sandbox) == ""
+    assert sched(sandbox, "schedule_install 4 37").returncode == 0
+    before = crontab_text(sandbox)
+    sandbox.log.write_text("")
+    assert sched(sandbox, "schedule_upgrade").returncode == 0
+    assert crontab_text(sandbox) == before
+    assert "crontab -" not in sandbox.calls()
+
+
+def test_an_old_daily_systemd_timer_stays_a_timer_when_upgraded(sandbox: Sandbox) -> None:
+    stage_schedule(sandbox)
+    units = sandbox.shim / "config" / "systemd" / "user"
+    units.mkdir(parents=True)
+    (units / "selfhostr-auto-update-demo.timer").write_text(
+        "[Timer]\nOnCalendar=*-*-* 03:41:00\nPersistent=false\n"
+    )
+    assert sched(sandbox, "schedule_status").stdout.strip() == "systemd 03:41"
+    assert sched(sandbox, "schedule_upgrade").returncode == 0
+    assert (
+        "OnCalendar=*-*-* 3,9,15,21:41:00"
+        in (units / "selfhostr-auto-update-demo.timer").read_text()
+    )
+    assert crontab_text(sandbox) == ""
+    assert sched(sandbox, "schedule_status").stdout.strip() == "systemd 03:41/6h"
+
+
+def test_a_hand_edited_schedule_is_shown_but_never_rewritten(sandbox: Sandbox) -> None:
+    stage_schedule(sandbox)
+    (sandbox.shim / "crontab.data").write_text(
+        f"0 */2 * * * cd {sandbox.root} && bash scripts/auto-update.sh # selfhostr-auto-update demo\n"
+    )
+    assert sched(sandbox, "schedule_status").stdout.strip() == "cron ??:??"
+    before = crontab_text(sandbox)
+    assert sched(sandbox, "schedule_upgrade").returncode == 0
+    assert crontab_text(sandbox) == before

@@ -119,7 +119,7 @@ By default, your sensor counts toward confirmations after 14 days of regular bat
 
 ## Automatic updates
 
-Signed releases install themselves once a day, at a random time between 03:00 and 06:00 local time. Details are in [Updates and rollback](updates.md#automatic-updates). In short:
+Signed releases install themselves: the node checks every 6 hours, from a random time between 03:00 and 06:00 local time. Details are in [Updates and rollback](updates.md#automatic-updates). In short:
 
 - A release is installed only if its signature is valid and it is at least 48 hours old.
 - Only releases of the same major version are installed.
@@ -152,7 +152,7 @@ At first, only the operator's own node is a verifier.
 | `./scripts/participant.sh leave` | Leave the network. The sensors keep running |
 | `./scripts/participant.sh join` | Show the consent again and join |
 | `./scripts/participant.sh vpn FILE` | Send everything through your VPN |
-| `./scripts/participant.sh auto-update on\|off` | Turn the daily update schedule on or off |
+| `./scripts/participant.sh auto-update on\|off` | Turn the automatic update schedule on or off |
 | `./scripts/participant.sh uninstall` | Leave, stop the stack and remove the schedule. It prints the command that removes the data volumes and never runs it |
 
 If a newer release widens what is shared, the node waits until you run `join` again. It never agrees for you.

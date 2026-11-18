@@ -104,10 +104,13 @@ class Status:
         text = doc if isinstance(doc, str) else json.dumps(doc)
         (self.sb.shim / "cli.json").write_text(text)
 
-    def schedule(self, hhmm: str = "04:37") -> None:
+    def schedule(self, hhmm: str = "04:37", *, daily: bool = False) -> None:
+        """Every 6 hours (from v0.11.10), or once a day like an older install."""
         hour, minute = hhmm.split(":")
+        h = int(hour)
+        hours = str(h) if daily else f"{h % 6},{h % 6 + 6},{h % 6 + 12},{h % 6 + 18}"
         (self.sb.shim / "crontab.txt").write_text(
-            f"{int(minute)} {int(hour)} * * * cd {self.sb.root} && bash scripts/auto-update.sh"
+            f"{int(minute)} {hours} * * * cd {self.sb.root} && bash scripts/auto-update.sh"
             " > /dev/null 2>&1 # selfhostr-auto-update suckerpot\n"
         )
 
@@ -145,7 +148,7 @@ def test_healthy_participant_report(st: Status) -> None:
     assert "Sent: 2026-11-02  412 sources, 9 links (blinded), 0 files" in out
     assert "2026-11-01  398 sources, 7 links (blinded), 0 files" in out
     assert "Links revealed for verification (7 days): 3" in out
-    assert "Automatic: on, next window 04:37." in out
+    assert "Automatic: on, every 6 h from 04:37." in out
     assert "already on v0.6.0" in out
     assert "Exit code 0 = OK, 1 = warning, 2 = error." in out
 
@@ -167,7 +170,7 @@ def test_json_output_has_the_same_data_and_the_exit_code(st: Status) -> None:
     assert doc["exit"] == 0
     assert doc["sensors"] == {"ssh": "healthy", "web": "healthy"}
     assert doc["network"]["pseudonym"] == "amber-falcon-42"
-    assert doc["updates"]["schedule"] == "cron 04:37"
+    assert doc["updates"]["schedule"] == "cron 04:37/6h"
     assert doc["warnings"] == []
 
 
@@ -374,6 +377,14 @@ def test_updated_result_and_systemd_schedule(st: Status) -> None:
     assert rc == 0, out
     assert "next window 05:12" in out
     assert "updated v0.5.0 to v0.6.0" in out
+
+
+def test_a_once_a_day_schedule_from_an_older_release_still_shows(st: Status) -> None:
+    st.schedule("05:12", daily=True)
+    st.auto_state(last_run=iso(timedelta(hours=1)), last_result="ok", **{"from": "v0.6.0"})
+    rc, out, _ = st.run()
+    assert rc == 0, out
+    assert "Automatic: on, next window 05:12." in out
 
 
 def test_network_status_failure_is_reported_not_fatal(st: Status) -> None:

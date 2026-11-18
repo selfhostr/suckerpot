@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Automatic update (M32), meant for the user's crontab or a systemd user timer. Never needs sudo.
+# The schedule runs it every 6 hours (scripts/lib/schedule.sh); a schedule from before v0.11.10
+# ran once a day and is moved to every 6 hours by the first run of this script.
 #
 #   scripts/auto-update.sh
 #
@@ -21,6 +23,8 @@
 # was already degraded before the update never blacklists a release. After
 # AUTO_UPDATE_MAX_ATTEMPTS (default 3) failed attempts in a row for the same target it is
 # blacklisted anyway (update_failed_repeatedly); counts are in .suckerpot-state/update-attempts.
+# A target that failed is tried again on a later UTC day only, so the count is in days, as when the
+# schedule ran once a day, and a failing update does not take a dump and roll back 4 times a day.
 #
 # One run at a time (flock on .suckerpot-state/update.lock). A random wait of up to 30 minutes
 # keeps a fleet from updating at the same second (AUTO_UPDATE_JITTER_S overrides the maximum).
@@ -84,6 +88,13 @@ record() {
 }
 
 log "auto-update starts"
+
+# A once-a-day schedule from an older release moves to every 6 hours (same minute).
+if [ -f scripts/lib/schedule.sh ]; then
+  # shellcheck source=scripts/lib/schedule.sh
+  . scripts/lib/schedule.sh
+  schedule_upgrade || log "could not move the schedule to every 6 hours; it stays as it is"
+fi
 
 if [ "$(env_get SUCKERPOT_INSTALL_MODE source)" != images ]; then record skipped source_mode; fi
 if [ -f "$STATE" ] && grep -q '"completed": false' "$STATE"; then record skipped unfinished_update; fi
@@ -159,6 +170,15 @@ case $vi_rc in
   *) record refused images_unverified ;;
 esac
 
+# A target that already failed today waits for the next UTC day. The last result stays as it is.
+today=$(date -u +%F)
+if [ -f "$ATTEMPTS" ] && [ "$(awk 'NR == 1 { print $1 }' "$ATTEMPTS")" = "$target" ] \
+  && [ "$(awk 'NR == 1 { print $3 }' "$ATTEMPTS")" = "$today" ]; then
+  log "$target already failed today: it is tried again tomorrow"
+  echo "auto-update: $target already failed today, tried again tomorrow" >&3
+  exit 0
+fi
+
 head_before=$(git rev-parse HEAD)
 up_rc=0
 bash scripts/update.sh --yes --auto "$target" || up_rc=$?
@@ -179,7 +199,7 @@ if [ "$release_fault" = 0 ]; then
     [[ $attempts =~ ^[0-9]{1,3}$ ]] || attempts=0
   fi
   attempts=$((attempts + 1))
-  printf '%s %s\n' "$target" "$attempts" > "$ATTEMPTS"
+  printf '%s %s %s\n' "$target" "$attempts" "$today" > "$ATTEMPTS"
   log "failed attempt $attempts of $max_attempts for $target"
   if [ "$attempts" -ge "$max_attempts" ]; then
     log "$target failed $attempts times in a row: it is not tried again"

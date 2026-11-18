@@ -7,7 +7,7 @@ Reads one JSON document on stdin, written by status.sh:
     stack, install, version        strings from .env
     ps                             [[service, state, health], ...] from `docker compose ps`
     ports                          [[router_port, host_port, protocol, sensor], ...]
-    auto_enabled, auto_schedule    AUTO_UPDATE_ENABLED and `schedule_status` ("cron 04:37", "off")
+    auto_enabled, auto_schedule    AUTO_UPDATE_ENABLED and `schedule_status` ("cron 04:37/6h", "off")
     auto_state_raw                 text of .suckerpot-state/auto-update.json, or ""
     cli_raw, cli_error             output of `python -m ingest.network.cli status --json`, or ""
 
@@ -133,7 +133,11 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
     hub = _dict(cli.get("hub")) if cli else {}
     member = bool(cli) and cli.get("state") not in (None, "off", "left", "not_joined")
     membership = _dict(_dict(cli.get("network") if cli else None).get("membership"))
-    pending = bool(cli) and cli.get("state") in ("off", "not_joined") and membership.get("desired") == "member"
+    pending = (
+        bool(cli)
+        and cli.get("state") in ("off", "not_joined")
+        and membership.get("desired") == "member"
+    )
     join_error = str(membership.get("last_error") or "") if pending else ""
     if cli:
         for code in _list(cli.get("errors")):
@@ -141,7 +145,11 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
         for code in _list(cli.get("warnings")):
             (errors if str(code) in ERROR_CODES else warnings).append(str(code))
         contact = _when(hub.get("last_contact"))
-        if member and contact is not None and (now - contact).total_seconds() > HUB_STALE_HOURS * 3600:
+        if (
+            member
+            and contact is not None
+            and (now - contact).total_seconds() > HUB_STALE_HOURS * 3600
+        ):
             warnings.append("hub_contact_stale")
         if member and hub.get("signature_ok") is False:
             errors.append("hub_signature")
@@ -180,7 +188,9 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
 
 
 def _sensor_ports(doc: dict[str, Any], sensor: str) -> str:
-    rows = [r for r in _list(doc.get("ports")) if isinstance(r, list) and len(r) >= 4 and r[3] == sensor]
+    rows = [
+        r for r in _list(doc.get("ports")) if isinstance(r, list) and len(r) >= 4 and r[3] == sensor
+    ]
     if not rows:
         return ""
     parts = []
@@ -193,7 +203,11 @@ def _auto_line(doc: dict[str, Any], info: dict[str, Any]) -> str:
     schedule = str(doc.get("auto_schedule") or "off")
     if not doc.get("auto_enabled") or schedule == "off":
         return "Automatic: off (on: ./scripts/participant.sh auto-update on)"
-    line = f"Automatic: on, next window {schedule.split(' ')[-1]}."
+    when = schedule.split(" ")[-1]
+    if when.endswith("/6h"):
+        line = f"Automatic: on, every 6 h from {when.removesuffix('/6h')}."
+    else:
+        line = f"Automatic: on, next window {when}."
     state = info["auto_state"]
     if not state:
         return line + " No run yet."
@@ -223,7 +237,9 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
     if not sensors:
         out.append("Sensors (none running)")
     elif bad:
-        out.append(f"Sensors ({len(sensors) - len(bad)} of {len(sensors)} healthy; not healthy: {', '.join(bad)})")
+        out.append(
+            f"Sensors ({len(sensors) - len(bad)} of {len(sensors)} healthy; not healthy: {', '.join(bad)})"
+        )
     else:
         out.append(f"Sensors ({len(sensors)} running, all healthy)")
     sessions = _dict(_dict(info["cli"]).get("sessions_24h"))
@@ -255,7 +271,11 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
     else:
         name = cli.get("pseudonym")
         node = cli.get("node")
-        who = f"{name} (Node {node})" if name and node else (name or (f"Node {node}" if node else "this node"))
+        who = (
+            f"{name} (Node {node})"
+            if name and node
+            else (name or (f"Node {node}" if node else "this node"))
+        )
         standing = f", standing: {cli['standing']}" if cli.get("standing") else ""
         out.append(f"  Member as {who}{standing}")
         if cli.get("counts_from"):
@@ -266,13 +286,19 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
             out.append(f"  Hub contact: none yet ({host})")
         else:
             sig = "signature verified" if hub.get("signature_ok") else "signature NOT verified"
-            out.append(f"  Hub contact: {'OK' if hub.get('signature_ok') else 'PROBLEM'}, {_ago(contact, now)} ({host}, {sig})")
+            out.append(
+                f"  Hub contact: {'OK' if hub.get('signature_ok') else 'PROBLEM'}, {_ago(contact, now)} ({host}, {sig})"
+            )
         path = cli.get("path")
         if path == "direct":
             out.append("  Path: direct (no VPN). The hub sees this machine's address.")
         elif path == "vpn":
             out.append("  Path: through your VPN. The hub sees the VPN's address.")
-        own = {"learned": "learned", "manual": "set by hand", "waiting": "waiting to be learned from traffic"}
+        own = {
+            "learned": "learned",
+            "manual": "set by hand",
+            "waiting": "waiting to be learned from traffic",
+        }
         if cli.get("self_address"):
             out.append(f"  Own address: {own.get(str(cli['self_address']), cli['self_address'])}")
         sent = [s for s in _list(cli.get("sent")) if isinstance(s, dict)]
