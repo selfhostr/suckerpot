@@ -119,14 +119,28 @@ def count_sources(rows: Iterable[tuple[str, Mapping[str, Any]]]) -> dict[tuple[s
     return {term: len(nets) for term, nets in seen.items()}
 
 
-async def _known_infrastructure(session: AsyncSession, kind: str, value: str) -> bool:
-    """True for something that attacked us or that a report names: never ours."""
-    sql = (
+_INDICATOR_HOST = "UNION ALL SELECT 1 FROM indicators WHERE host = :v "
+
+
+async def _known_infrastructure(
+    session: AsyncSession, kind: str, value: str, *, refresh: bool = False
+) -> bool:
+    """True for something that attacked us or that a report names: never ours.
+
+    ``refresh`` is the check for an address that is already a learned row. Attackers name the
+    address of the machine they attack in their commands (``wget http://<it>/x``), so an
+    indicator with that host says nothing against a learned own address: only a new candidate is
+    checked against the indicators. Without this, one such command stopped the refresh for good
+    and the address expired after ``FRESH_HOURS``.
+    """
+    attacked = (
         "SELECT 1 FROM sessions WHERE src_ip = CAST(:ip AS inet) "
         "UNION ALL SELECT 1 FROM events WHERE src_ip = CAST(:ip AS inet) "
         "AND ts >= now() - interval '7 days' "
         "UNION ALL SELECT 1 FROM abuse_report_subjects WHERE value = :v "
-        "UNION ALL SELECT 1 FROM indicators WHERE host = :v LIMIT 1"
+    )
+    sql = (
+        (attacked + "LIMIT 1" if refresh else attacked + _INDICATOR_HOST + "LIMIT 1")
         if kind == "address"
         else "SELECT 1 FROM abuse_report_subjects WHERE value = :v OR value LIKE '%.' || :v "
         "UNION ALL SELECT 1 FROM indicators WHERE host = :v OR host LIKE '%.' || :v LIMIT 1"
@@ -180,7 +194,8 @@ async def learn(factory: async_sessionmaker[AsyncSession], now: datetime | None 
             ).first()
             if existing is not None and existing.source != "learned":
                 continue  # the owner's (or a sensor's) entry is authoritative
-            if await _known_infrastructure(session, kind, value):
+            refresh = existing is not None and kind == "address"
+            if await _known_infrastructure(session, kind, value, refresh=refresh):
                 continue
             week = (
                 await session.execute(

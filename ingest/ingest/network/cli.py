@@ -28,7 +28,8 @@ addresses (design M32 section 10).
        "verifier": {"enabled": bool, "state": str, "tasks": {"<task state>": int}}},
      "last_batch": {"day": "<date>", "batch": {...}}|null}   # only with --last-batch
 
-Warning codes: ``waiting_self_address`` (more than 2 days), ``hub_contact_old`` (over 26 h),
+Warning codes: ``submit_paused_self_address`` (a due day is held back because the own address is
+unknown or expired), ``waiting_self_address`` (more than 2 days), ``hub_contact_old`` (over 26 h),
 ``consent_outdated``, ``hub_key_differs_from_release``. Error codes: ``hub_signature``,
 ``guard_failed``. The caller turns ``level`` into exit code 0, 1 or 2.
 """
@@ -171,7 +172,11 @@ async def build_status(
     differs = key_differs_from_release(settings) if settings.hub_configured else False
     warnings: list[str] = []
     errors: list[str] = []
-    if waiting_days is not None and waiting_days > WAITING_WARN_DAYS:
+    paused = member and own == "waiting" and m.last_error_code == "waiting_self_address"
+    if paused:
+        # Not only "not learned yet": the worker already held a due day back for it.
+        warnings.append("submit_paused_self_address")
+    elif waiting_days is not None and waiting_days > WAITING_WARN_DAYS:
         warnings.append("waiting_self_address")
     if member and (age_h is None or age_h > CONTACT_WARN_H):
         warnings.append("hub_contact_old")

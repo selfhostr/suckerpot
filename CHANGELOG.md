@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A participant node stopped sending batches when its learned own address expired. Attackers
+  name the address they attack in their commands (`wget http://<address>/x`), and the learning
+  refused to refresh an address that an indicator named, so a single such command froze the
+  refresh and the address expired 72 hours later. An address that is already learned is now
+  refreshed whatever indicators name it; a new candidate is still refused.
+- `./scripts/status.sh` said "batches are paused" nowhere: a node that held a day back for its own
+  address only showed "waiting to be learned from traffic". It now warns
+  (`submit_paused_self_address`) and names the fix (`SELF_ADDRESS` in `.env`), and ingest logs a
+  warning when it pauses.
+- `./scripts/status.sh` called an automatic update that waits for a release to be 48 hours old
+  ("refused (too_young)") an update that "did not complete". Only a failure or another refusal
+  is a warning now.
+
 ## [0.11.7] - 2026-11-15
 
 ### Added

@@ -219,7 +219,13 @@ def test_hub_signature_failure_is_an_error(st: Status) -> None:
 
 
 @pytest.mark.parametrize(
-    "code", ["consent_outdated", "hub_key_differs_from_release", "waiting_self_address"]
+    "code",
+    [
+        "consent_outdated",
+        "hub_key_differs_from_release",
+        "waiting_self_address",
+        "submit_paused_self_address",
+    ],
 )
 def test_network_warning_codes_are_warnings(st: Status, code: str) -> None:
     st.schedule()
@@ -323,6 +329,33 @@ def test_a_failed_automatic_update_is_a_warning(st: Status) -> None:
     rc, out, _ = st.run()
     assert rc == 1
     assert "failed (health_check), rolled back" in out
+
+
+def test_a_release_still_too_young_is_not_a_failed_update(st: Status) -> None:
+    st.schedule()
+    st.auto_state(
+        last_run=iso(timedelta(hours=1)),
+        last_result="refused",
+        error_code="too_young",
+        **{"from": "v0.6.0", "to": "v0.6.1"},
+    )
+    rc, out, _ = st.run()
+    assert rc == 0
+    assert "did not complete" not in out
+    assert "refused (too_young)" in out
+
+
+def test_any_other_refusal_is_still_a_warning(st: Status) -> None:
+    st.schedule()
+    st.auto_state(
+        last_run=iso(timedelta(hours=1)),
+        last_result="refused",
+        error_code="digest_mismatch",
+        **{"from": "v0.6.0", "to": "v0.6.1"},
+    )
+    rc, out, _ = st.run()
+    assert rc == 1
+    assert "did not complete" in out
 
 
 def test_updated_result_and_systemd_schedule(st: Status) -> None:

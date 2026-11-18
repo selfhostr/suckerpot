@@ -246,6 +246,11 @@ class NetworkWorker(FeatureWorker):
     async def _note(self, m: Membership, code: str) -> None:
         self.reason = code
         if m.last_error_code != code:
+            if code == "waiting_self_address":
+                log.warning(
+                    "batches are paused: the own public address is unknown or expired "
+                    "(set SELF_ADDRESS in .env to send again)"
+                )
             assert self.store is not None  # noqa: S101
             await self.store.update(last_error_code=code)
 
