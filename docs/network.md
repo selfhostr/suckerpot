@@ -88,7 +88,7 @@ The address your request comes from is not hidden by the protocol, see [What the
 
 Before a batch leaves, every item passes the same identity check that protects your abuse reports. The check drops an item that contains your own address, a domain you use, or any term you have listed as yours. A batch that fails the check as a whole is not sent.
 
-Nothing is sent until you confirm your own address in Settings, Reporting. Without a confirmed address, the node shows that it is waiting for your address and sends nothing. This is on purpose. It stops your own address from leaving in a batch by mistake.
+Nothing is sent until you confirm your own address in Settings, Reporting. Without a confirmed address, the node shows that it is waiting for your address and sends nothing. This is on purpose. It stops your own address from leaving in a batch by mistake. A participant install has no Settings page: it learns the address from traffic, and a learned address expires when no attack has named it for 72 hours. When that holds a day back, `./scripts/status.sh` says that batches are paused. Set `SELF_ADDRESS=<this machine's public address>` in `.env` and run `docker compose up -d ingest`: an address set this way never expires, and the node sends the missed days on its next run (at most the last two closed days).
 
 ```{note}
 Test traffic counts. If you test your sensors from an outside address that is not in your address terms, that address is submitted like any attacker's. Add your test address to your terms, or expect it to appear in a batch.

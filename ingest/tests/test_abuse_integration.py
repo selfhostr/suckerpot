@@ -322,6 +322,37 @@ async def test_attackers_and_reported_hosts_are_never_learned(
     assert await scalar(engine, "SELECT count(*) FROM report_self_terms") == 0
 
 
+async def test_an_attacker_naming_the_learned_address_does_not_stop_its_refresh(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    """Attackers put the address they attack in their commands. Once learned, the own address
+    stays fresh when such an indicator appears; a new candidate is still refused."""
+    await add_http(engine, 3, "8.8.4.4")
+    assert await learn(factory) == 1
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO indicators (type, value, role, host, first_seen, last_seen) VALUES "
+                "('url', 'http://8.8.4.4/x.sh', 'download_host', '8.8.4.4', now(), now()), "
+                "('url', 'http://9.9.9.9/x.sh', 'download_host', '9.9.9.9', now(), now())"
+            )
+        )
+        await conn.execute(
+            text("UPDATE report_self_terms SET last_seen = now() - interval '2 days'")
+        )
+    await add_http(engine, 3, "9.9.9.9", first=40)
+    assert await learn(factory) == 1  # the refresh of 8.8.4.4 only
+    fresh = await scalar(
+        engine,
+        "SELECT count(*) FROM report_self_terms WHERE value = '8.8.4.4' "
+        "AND last_seen > now() - interval '1 hour'",
+    )
+    assert fresh == 1
+    assert (
+        await scalar(engine, "SELECT count(*) FROM report_self_terms WHERE value = '9.9.9.9'") == 0
+    )
+
+
 async def test_artefact_vocabulary_names_are_not_learned(
     engine: AsyncEngine, factory: Factory
 ) -> None:

@@ -27,12 +27,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 HUB_STALE_HOURS = 26
+# Refusals that only mean "not yet": the release is younger than the minimum age. The next run
+# takes it, so the status does not call the update failed.
+WAITING_REFUSALS = {"too_young"}
 ERROR_CODES = {"hub_signature", "guard_failed"}
 KNOWN_TEXT = {
     "consent_outdated": "the consent text is newer than your agreement: run ./scripts/participant.sh join",
     "consent_stale": "the install-time agreement is more than 7 days old and was not used: run ./scripts/participant.sh join to agree again",
     "hub_key_differs_from_release": "the hub key differs from the release's key list",
     "waiting_self_address": "the node has not learned its own address yet",
+    "submit_paused_self_address": "batches are paused: the node does not know its own public address. Set SELF_ADDRESS=<this machine's public address> in .env, then: docker compose up -d ingest",
     "hub_signature": "the hub's answer failed the signature check",
     "guard_failed": "a guard stopped the network worker",
     "hub_contact_stale": f"no contact with the hub for more than {HUB_STALE_HOURS} h",
@@ -150,7 +154,13 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
     if stack == "participant":
         if not doc.get("auto_enabled"):
             warnings.append("auto_update_off")
-        elif auto_state and auto_state.get("last_result") in ("failed", "refused"):
+        elif auto_state and (
+            auto_state.get("last_result") == "failed"
+            or (
+                auto_state.get("last_result") == "refused"
+                and auto_state.get("error_code") not in WAITING_REFUSALS
+            )
+        ):
             warnings.append("auto_update_failed")
     code = 2 if errors else (1 if warnings else 0)
     return {
