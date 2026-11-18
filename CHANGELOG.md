@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.9] - 2026-11-18
+
 ### Fixed
 
 - An update no longer stops at "the signature of vX could not be checked" on a machine whose DNS
@@ -612,7 +614,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.8...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.9...HEAD
+[0.11.9]: https://github.com/selfhostr/suckerpot/compare/v0.11.8...v0.11.9
 [0.11.8]: https://github.com/selfhostr/suckerpot/compare/v0.11.7...v0.11.8
 [0.11.7]: https://github.com/selfhostr/suckerpot/compare/v0.11.6...v0.11.7
 [0.11.6]: https://github.com/selfhostr/suckerpot/compare/v0.11.5...v0.11.6

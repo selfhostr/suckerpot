@@ -332,3 +332,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - One pull request since v0.11.7 (#141). The details are in `CHANGELOG.md`.
 - Found on a real participant node: an attacker command naming the node's address froze the refresh of the learned own address, which expired 72 hours later and held every batch back. Two days were lost before `SELF_ADDRESS` unblocked it.
 - No database change and no migration.
+
+## 2026-11-18: v0.11.9 (signature check behind a Tailscale DNS)
+
+- One pull request since v0.11.8 (#143). The details are in `CHANGELOG.md`.
+- Found on a real participant node: its DNS is the Tailscale resolver, which a container on the default Docker bridge cannot reach, so cosign never reached Sigstore and every update stopped with exit 9. cosign now runs on the host network.
+- A node already caught by it still runs the old check during the step to v0.11.9: update once with `--skip-verify v0.11.9`. Later updates check signatures again.
+- No database change and no migration.
