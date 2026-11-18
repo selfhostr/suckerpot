@@ -14,6 +14,11 @@ Order of a send, each step stopping the whole thing:
    guarded (``guard_failed:<codes>``, including ``no_self_address``);
 5. delivery through the VPN proxy (``outgoing.deliver``), gate checked again right before connect;
 6. the report becomes ``sent`` (``sent_via = 'smtp'``) and the request ``sent``, in one commit.
+
+Automatic sends are paced: at most one every ``AUTO_SPACING`` (a burst of mails from one mailbox
+looks like spam to its provider), and none for ``AUTO_PAUSE`` after the server answered "not now"
+(a 4xx reply, ``deferred``). A report whose automatic send was deferred is scheduled again, at
+most ``MAX_DEFERRALS`` times; a refused, cancelled or unknown send is never retried by itself.
 """
 
 from __future__ import annotations
@@ -58,6 +63,9 @@ log = logging.getLogger(__name__)
 
 MAX_PER_CYCLE = 10
 MAX_SCHEDULE = 50
+AUTO_SPACING = timedelta(minutes=3)
+AUTO_PAUSE = timedelta(hours=1)
+MAX_DEFERRALS = 3
 TEST_EGRESS_WAIT = timedelta(minutes=2)
 PASSWORD_AAD = "report_smtp"  # noqa: S105 - a label, not a secret; bound to the ciphertext, see api.abuse_smtp
 
@@ -80,6 +88,16 @@ SENT_TODAY = (
     "AND s.done_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')"
 )
 STALE_SENDING_S = SMTP_DEADLINE_S + 30
+
+# True while automatic sends must wait: one started less than :spacing ago, or the server deferred
+# one less than :pause ago. Database time on both sides, like ``started_at`` and ``done_at``.
+AUTO_PACED = (
+    "SELECT EXISTS (SELECT 1 FROM abuse_send_requests s WHERE s.kind = 'send' AND s.auto "
+    "AND s.started_at > now() - make_interval(secs => :spacing)) "
+    "OR EXISTS (SELECT 1 FROM abuse_send_requests s WHERE s.kind = 'send' AND s.auto "
+    "AND s.status = 'failed' AND s.error_code LIKE 'deferred%' "
+    "AND s.done_at > now() - make_interval(secs => :pause))"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,8 +227,9 @@ class ReportSender:
 
     async def schedule(self, now: datetime) -> int:
         """Auto mode: a pending request, ``auto_hold_minutes`` ahead, for each ready report that
-        never had one. Cancelled and failed requests are not rescheduled (the owner decided or
-        can press Send)."""
+        never had one, or whose automatic sends were only deferred (at most ``MAX_DEFERRALS``).
+        Cancelled and other failed requests are not rescheduled (the owner decided or can press
+        Send)."""
         async with self.factory() as session, session.begin():
             profile = await self.load_profile(session)
             if profile is None or profile.mode != "auto":
@@ -225,12 +244,21 @@ class ReportSender:
                     WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
                       AND NOT rec.muted
                       AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
+                      -- never had a request, or only automatic sends the server deferred
                       AND NOT EXISTS (
-                          SELECT 1 FROM abuse_send_requests q WHERE q.report_id = r.id)
+                          SELECT 1 FROM abuse_send_requests q WHERE q.report_id = r.id
+                            AND NOT (q.auto AND q.status = 'failed'
+                                     AND q.error_code LIKE 'deferred%'))
+                      AND (SELECT count(*) FROM abuse_send_requests q
+                           WHERE q.report_id = r.id) < :deferrals
                     ORDER BY r.id LIMIT :n
                     """
                 ),
-                {"at": now + timedelta(minutes=profile.auto_hold_minutes), "n": MAX_SCHEDULE},
+                {
+                    "at": now + timedelta(minutes=profile.auto_hold_minutes),
+                    "n": MAX_SCHEDULE,
+                    "deferrals": MAX_DEFERRALS,
+                },
             )
             return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
@@ -298,6 +326,18 @@ class ReportSender:
                 and int(await session.scalar(text(SENT_TODAY)) or 0) >= profile.daily_cap
             ):
                 return  # the cap is per UTC day: it stays pending until tomorrow
+            if (
+                req.auto
+                and req.kind == "send"
+                and await session.scalar(
+                    text(AUTO_PACED),
+                    {
+                        "spacing": AUTO_SPACING.total_seconds(),
+                        "pause": AUTO_PAUSE.total_seconds(),
+                    },
+                )
+            ):
+                return  # paced: it stays pending for a later cycle
             if not gate_open(self.gate):
                 # Nothing is attempted: no socket, no tunnel. A send waits for the VPN.
                 if req.kind == "test" and now - req.requested_at > TEST_EGRESS_WAIT:
@@ -334,7 +374,7 @@ class ReportSender:
                 )
                 return
             await self._finish(session, req.id, "failed", exc.stored)
-            log.info("abuse mail request %s failed (%s)", req.id, exc.code)
+            log.info("abuse mail request %s failed (%s)", req.id, exc.stored)
             return
         except Exception as exc:  # after the claim an unexpected error leaves the outcome unknown
             log.warning("abuse mail request %s failed (%s)", req.id, type(exc).__name__)

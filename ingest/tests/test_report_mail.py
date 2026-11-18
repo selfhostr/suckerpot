@@ -287,6 +287,10 @@ def test_implicit_tls_uses_the_ssl_client_with_a_verifying_context(
         ("auth", smtplib.SMTPAuthenticationError(535, b"bad credentials " + PASSWORD.encode()), "auth_failed"),
         ("auth", smtplib.SMTPNotSupportedError("no AUTH"), "auth_failed"),
         ("send", smtplib.SMTPRecipientsRefused({"abuse@example.net": (550, b"no")}), "refused"),
+        ("send", smtplib.SMTPRecipientsRefused({"abuse@example.net": (450, b"later")}), "deferred"),
+        ("send", smtplib.SMTPDataError(451, b"rejected: too many messages"), "deferred"),
+        ("send", smtplib.SMTPSenderRefused(452, b"rejected", "sender@mail.example.org"), "deferred"),
+        ("connect", smtplib.SMTPConnectError(421, b"rejected: too many connections"), "deferred"),
         ("send", smtplib.SMTPDataError(554, b"rejected"), "refused"),
         ("send", smtplib.SMTPSenderRefused(550, b"no", "sender@mail.example.org"), "refused"),
         ("send", TimeoutError("slow"), "unknown_outcome"),  # DATA may have started
@@ -304,6 +308,24 @@ def test_errors_map_to_constant_codes_without_secrets(
     shown = str(err.value) + repr(err.value) + err.value.stored
     assert PASSWORD not in shown and "rejected" not in shown
     assert err.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    ("exc", "stored"),
+    [
+        (smtplib.SMTPDataError(554, b"rejected"), "refused:554"),
+        (smtplib.SMTPRecipientsRefused({"abuse@example.net": (550, b"rejected")}), "refused:550"),
+        (smtplib.SMTPDataError(451, b"rejected"), "deferred:451"),
+        (smtplib.SMTPDataError(999, b"rejected"), "refused"),
+    ],
+)  # fmt: skip
+def test_a_refusal_keeps_only_the_numeric_reply_code(
+    smtp: type[FakeSMTP], exc: BaseException, stored: str
+) -> None:
+    smtp.fail["send"] = exc
+    with pytest.raises(SendFailure) as err:
+        deliver(fake_gate(), PROFILE, b"x", "abuse@example.net")
+    assert err.value.stored == stored
 
 
 # ---- the gate: nothing is attempted while it is closed ------------------------------------

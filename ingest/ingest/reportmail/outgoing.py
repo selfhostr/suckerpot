@@ -63,6 +63,7 @@ CODES: Final = (
     "auth_failed",
     "tls_failed",
     "refused",
+    "deferred",
     "timeout",
     "unknown_outcome",
     "network",
@@ -196,6 +197,27 @@ def check_message(
         raise SendFailure("guard_failed", reasons=tuple(result.codes))
 
 
+def _smtp_code(exc: Exception) -> int | None:
+    """The numeric SMTP reply code of a refusal (a constant, never the server's text)."""
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        codes = [c for c, _ in exc.recipients.values() if isinstance(c, int)]
+        return codes[0] if codes else None
+    if isinstance(exc, smtplib.SMTPResponseException) and isinstance(exc.smtp_code, int):
+        return exc.smtp_code
+    return None
+
+
+def _refusal(exc: Exception) -> SendFailure:
+    """A clear refusal. A 4xx reply means "not now" (a rate limit, greylisting, a full queue):
+    ``deferred``, which the sender retries later. Anything else is ``refused``. The reply code is
+    kept after a colon (``refused:550``), so the owner can tell what the server meant."""
+    code = _smtp_code(exc)
+    reasons = (str(code),) if code is not None and 200 <= code <= 599 else ()
+    if code is not None and 400 <= code < 500:
+        return SendFailure("deferred", reasons=reasons)
+    return SendFailure("refused", reasons=reasons)
+
+
 def _map_error(exc: Exception, stage: str, expired: bool) -> SendFailure:
     """A constant code for what went wrong. In the ``send`` stage the message may already be on
     its way, so anything that is not a clear refusal is an unknown outcome (never retried)."""
@@ -207,7 +229,7 @@ def _map_error(exc: Exception, stage: str, expired: bool) -> SendFailure:
         return SendFailure("tls_failed")
     clear_refusal = isinstance(exc, smtplib.SMTPResponseException | smtplib.SMTPRecipientsRefused)
     if clear_refusal and not expired:
-        return SendFailure("refused")
+        return _refusal(exc)
     if stage == "send":
         return SendFailure("unknown_outcome")  # DATA may have started: we cannot know
     if isinstance(exc, TimeoutError) or expired:
