@@ -14,6 +14,7 @@ from suckerpot_reporting import SelfTermRow, load_self_terms
 
 from ingest.features import FeatureSettings
 from ingest.network import identity as ident
+from ingest.network import worker
 from ingest.network.builder import BatchBuilder
 from ingest.network.source import PayloadFact, SessionFact
 from ingest.network.worker import NetworkWorker
@@ -227,6 +228,28 @@ async def test_a_closed_or_too_hard_enrolment_waits_with_backoff_and_never_opts_
     await rig.cycle()
     assert len([c for c in rig.hub.calls if c[1] == "/v1/enrol/challenge"]) == attempts + 1
     assert store.m.desired == "member"
+
+
+@pytest.mark.parametrize(("expires_in", "budget"), [(600, 570.0), (3600, 900.0), (20, 1.0)])
+def test_the_proof_of_work_stops_before_the_challenge_expires(
+    expires_in: int, budget: float
+) -> None:
+    """A slow machine must not search past the challenge: the hub would refuse the answer."""
+    ch = wire.ChallengeResponse(challenge="A" * 43, difficulty=24, expires_in=expires_in)
+    assert worker.pow_budget_s(ch) == budget
+
+
+async def test_the_solver_gets_the_budget_of_the_challenge(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = MemoryStore(desired="member", pseudonym="night owl")
+    rig = Rig(store)
+    seen: list[float] = []
+
+    async def record(_c: bytes, _k: bytes, _d: int, budget_s: float) -> None:
+        seen.append(budget_s)
+
+    monkeypatch.setattr("ingest.network.worker.solve_low_priority", record)
+    await rig.cycle()
+    assert seen == [570.0]  # the helper hub answers expires_in = 600
 
 
 async def test_enrolment_succeeds_once_the_hub_reopens(monkeypatch: pytest.MonkeyPatch) -> None:
