@@ -19,7 +19,9 @@
 # (ghcr.io/<owner>/<repo>), so a fork verifies its own releases.
 #
 # cosign runs in a pinned container (host traffic: it contacts the registry and the Sigstore
-# transparency log from this machine, like `docker pull` does). It never sees a secret, unless you
+# transparency log from this machine, like `docker pull` does; it uses the host network, so it
+# resolves names with the host's own DNS, such as a Tailscale or VPN resolver that a container on
+# the default bridge cannot reach). It never sees a secret, unless you
 # have a registry login in ~/.docker/config.json: that file is then mounted read-only so private
 # packages can be read. Set VERIFY_IMAGES_NO_AUTH=1 to skip it.
 set -euo pipefail
@@ -109,7 +111,7 @@ fail=0
 mismatch=0
 for image in $IMAGES; do
   ref="$prefix-$image:$version"
-  if docker run --rm --user 65532:65532 --read-only --cap-drop ALL \
+  if docker run --rm --network host --user 65532:65532 --read-only --cap-drop ALL \
       --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=32m,uid=65532,gid=65532 \
       -e HOME=/tmp -e TUF_ROOT=/tmp/tuf ${auth[@]+"${auth[@]}"} \
       -e DOCKER_CONFIG=/home/nonroot/.docker \

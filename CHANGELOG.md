@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An update no longer stops at "the signature of vX could not be checked" on a machine whose DNS
+  is a Tailscale or VPN resolver (such as 100.100.100.100): the signature checker now runs on the
+  host network and uses the host's own DNS.
+
 ## [0.11.8] - 2026-11-18
 
 ### Fixed
