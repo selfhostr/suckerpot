@@ -353,3 +353,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Found on two new participant nodes on 1-core, 1 GB VPSs: the hub proxy health check took about 20 s against a 3-second timeout, so the install stopped at the start step and never scheduled automatic updates or offered the host firewall. A node installed that way runs, but needs `./scripts/participant.sh auto-update on` and `./scripts/participant.sh firewall install` once.
 - No database change and no migration.
 
+## 2026-11-18: v0.11.12 (paced abuse mail, enrolment on slow machines)
+
+- Two pull requests since v0.11.11 (#149, #150). The details are in `CHANGELOG.md`.
+- Found on the first automatic run of a real node: the due reports went out about one a second, and the mailbox provider accepted 6 and refused 54. Automatic sends are now at least 3 minutes apart, a 4xx reply pauses them for an hour, and the report is retried later.
+- Found on two 1-core micro VPS nodes: the enrolment proof of work ran past the 10-minute challenge. The node now stops in time. The hub difficulty was also lowered from 27 to 24 (hub `.env`, owner decision 2026-11-18).
+- No database change and no migration.
+

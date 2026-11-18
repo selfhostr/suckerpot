@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.12] - 2026-11-18
+
 ### Fixed
 
 - Automatic sending of abuse reports sent the due reports one after the other, about one a
@@ -644,7 +646,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.11...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.12...HEAD
+[0.11.12]: https://github.com/selfhostr/suckerpot/compare/v0.11.11...v0.11.12
 [0.11.11]: https://github.com/selfhostr/suckerpot/compare/v0.11.10...v0.11.11
 [0.11.10]: https://github.com/selfhostr/suckerpot/compare/v0.11.9...v0.11.10
 [0.11.9]: https://github.com/selfhostr/suckerpot/compare/v0.11.8...v0.11.9
