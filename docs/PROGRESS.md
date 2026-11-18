@@ -346,3 +346,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - The automatic update checks every 6 hours instead of once a day. The 48-hour minimum age is unchanged; a release now reaches the nodes about 54 hours after it is published instead of about 70.
 - Existing nodes move to the new schedule by themselves on their first run after this update. A failing update is still tried once a day.
 - No database change and no migration.
+
+## 2026-11-18: v0.11.11 (hub proxy health check on small VPSs)
+
+- One pull request since v0.11.10 (#147). The details are in `CHANGELOG.md`.
+- Found on two new participant nodes on 1-core, 1 GB VPSs: the hub proxy health check took about 20 s against a 3-second timeout, so the install stopped at the start step and never scheduled automatic updates or offered the host firewall. A node installed that way runs, but needs `./scripts/participant.sh auto-update on` and `./scripts/participant.sh firewall install` once.
+- No database change and no migration.
+
