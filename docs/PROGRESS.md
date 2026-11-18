@@ -326,3 +326,9 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Two pull requests since v0.11.6 (#138, #139). The details are in `CHANGELOG.md`.
 - No change to the services or the database. `scripts/host/proxmox-firewall.sh` has not run on a real Proxmox node yet: start with the dry run.
 - The install commands in the README and the docs now pick the newest release tag themselves, so release commits no longer edit them.
+
+## 2026-11-18: v0.11.8 (participant batches paused by an expired own address)
+
+- One pull request since v0.11.7 (#141). The details are in `CHANGELOG.md`.
+- Found on a real participant node: an attacker command naming the node's address froze the refresh of the learned own address, which expired 72 hours later and held every batch back. Two days were lost before `SELF_ADDRESS` unblocked it.
+- No database change and no migration.
