@@ -339,3 +339,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Found on a real participant node: its DNS is the Tailscale resolver, which a container on the default Docker bridge cannot reach, so cosign never reached Sigstore and every update stopped with exit 9. cosign now runs on the host network.
 - A node already caught by it still runs the old check during the step to v0.11.9: update once with `--skip-verify v0.11.9`. Later updates check signatures again.
 - No database change and no migration.
+
+## 2026-11-18: v0.11.10 (automatic updates every 6 hours)
+
+- One pull request since v0.11.9 (#145). The details are in `CHANGELOG.md`.
+- The automatic update checks every 6 hours instead of once a day. The 48-hour minimum age is unchanged; a release now reaches the nodes about 54 hours after it is published instead of about 70.
+- Existing nodes move to the new schedule by themselves on their first run after this update. A failing update is still tried once a day.
+- No database change and no migration.
