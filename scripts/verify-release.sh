@@ -31,7 +31,8 @@
 # about the release: the caller tries again later and must not hold it against the release.
 #
 # cosign runs in a pinned container, like scripts/verify-images.sh (host traffic: the download
-# and Sigstore are contacted from this machine, not through the VPN).
+# and Sigstore are contacted from this machine, not through the VPN; the host network is used so
+# the host's own DNS answers, such as a Tailscale resolver a bridged container cannot reach).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -110,7 +111,7 @@ docker image inspect "$COSIGN_IMAGE" > /dev/null 2>&1 \
   || docker pull --quiet "$COSIGN_IMAGE" > /dev/null 2>&1 \
   || die "could not get the signature verifier image (is Docker running? is the registry reachable?)" 9
 cosign_rc=0
-docker run --rm --user 65532:65532 --read-only --cap-drop ALL \
+docker run --rm --network host --user 65532:65532 --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=32m,uid=65532,gid=65532 \
   -e HOME=/tmp -e TUF_ROOT=/tmp/tuf -v "$work:/m:ro" \
   "$COSIGN_IMAGE" verify-blob \
