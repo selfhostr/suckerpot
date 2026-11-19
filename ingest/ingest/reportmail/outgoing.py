@@ -72,6 +72,7 @@ CODES: Final = (
     "not_configured",
     "mode_off",
     "mode_changed",
+    "too_old",
     "not_ready",
     "internal",
 )

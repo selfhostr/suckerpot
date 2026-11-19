@@ -398,6 +398,8 @@ By default you send each report yourself. The dashboard can also send it through
 
 If the mail server answers "try later" (an SMTP 4xx reply, often a limit on mails per minute or per hour), the send is marked `deferred`, every automatic send waits one hour, and the report is scheduled again by itself (at most 3 times). A refusal (5xx) is never retried by itself. Both show the server's reply code, for example `refused:550` or `deferred:451`.
 
+Automatic sending only takes fresh reports, newest first. A report whose last activity is more than 7 days old is not sent automatically, and one that ages past 7 days while it waits is cancelled (`too_old`). A provider checks the reported host when the mail arrives: weeks later the machine is often cleaned or given to someone else, and the report is closed as "cannot be substantiated". You can still send an older report by hand.
+
 Demo reports are never sent. A report that fails the identity guard, or that has no reply contact, is never sent in any mode. "Send a test" sends a short neutral message to the sender address itself, so you can check the profile first.
 
 **Setting up SMTP.** You need an SMTP server that accepts your login with STARTTLS (usually port 587) or with SMTPS (usually port 465). Enter the server's DNS name, not an IP address, with the port, the security, the login name, the sender address and the password. Saving the profile asks for your dashboard password again. The SMTP password is stored encrypted. The dashboard never shows it again. The API reference is in [Sending abuse reports](api.md#sending-abuse-reports-m25).
