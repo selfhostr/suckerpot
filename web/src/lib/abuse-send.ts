@@ -122,6 +122,8 @@ export const SEND_ERROR: Record<string, string> = {
   not_configured: "SMTP is not set up.",
   mode_off: "Sending was switched off before this went out.",
   mode_changed: "The sending mode changed before this went out.",
+  too_old:
+    "The activity is more than 7 days old: automatic sending skips it, because the provider can no longer check it. You can still send it by hand.",
   not_ready: "The report was no longer ready to send.",
   internal: "Something went wrong inside SuckerPot. Try again.",
   unknown_outcome:

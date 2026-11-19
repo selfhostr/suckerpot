@@ -19,6 +19,12 @@ Automatic sends are paced: at most one every ``AUTO_SPACING`` (a burst of mails 
 looks like spam to its provider), and none for ``AUTO_PAUSE`` after the server answered "not now"
 (a 4xx reply, ``deferred``). A report whose automatic send was deferred is scheduled again, at
 most ``MAX_DEFERRALS`` times; a refused, cancelled or unknown send is never retried by itself.
+
+Automatic sends only carry fresh evidence: a report whose last activity (``window_end``) is older
+than ``AUTO_MAX_AGE`` is never scheduled, and a queued one that aged past it is cancelled
+(``too_old``). Providers check the reported host when the mail arrives; weeks later it is usually
+cleaned or reassigned and the report "cannot be substantiated". The owner can still send it by
+hand. The newest reports are scheduled and sent first.
 """
 
 from __future__ import annotations
@@ -66,6 +72,7 @@ MAX_SCHEDULE = 50
 AUTO_SPACING = timedelta(minutes=3)
 AUTO_PAUSE = timedelta(hours=1)
 MAX_DEFERRALS = 3
+AUTO_MAX_AGE = timedelta(days=7)
 TEST_EGRESS_WAIT = timedelta(minutes=2)
 PASSWORD_AAD = "report_smtp"  # noqa: S105 - a label, not a secret; bound to the ciphertext, see api.abuse_smtp
 
@@ -193,10 +200,13 @@ class ReportSender:
                 (
                     await session.execute(
                         text(
-                            "SELECT id FROM abuse_send_requests q WHERE q.status = 'pending' "  # noqa: S608
+                            "SELECT q.id FROM abuse_send_requests q "  # noqa: S608
+                            "LEFT JOIN abuse_reports r ON r.id = q.report_id "
+                            "WHERE q.status = 'pending' "
                             "AND (q.scheduled_at IS NULL OR q.scheduled_at <= :now) "
                             "AND (NOT q.auto OR (" + SENT_TODAY + ") < :cap) "
-                            "ORDER BY q.auto, q.id LIMIT :n"
+                            # manual first, then the freshest evidence
+                            "ORDER BY q.auto, r.window_end DESC NULLS LAST, q.id LIMIT :n"
                         ),
                         {
                             "now": now,
@@ -227,9 +237,9 @@ class ReportSender:
 
     async def schedule(self, now: datetime) -> int:
         """Auto mode: a pending request, ``auto_hold_minutes`` ahead, for each ready report that
-        never had one, or whose automatic sends were only deferred (at most ``MAX_DEFERRALS``).
-        Cancelled and other failed requests are not rescheduled (the owner decided or can press
-        Send)."""
+        never had one, or whose automatic sends were only deferred (at most ``MAX_DEFERRALS``),
+        and whose evidence is younger than ``AUTO_MAX_AGE``, newest first. Cancelled and other
+        failed requests are not rescheduled (the owner decided or can press Send)."""
         async with self.factory() as session, session.begin():
             profile = await self.load_profile(session)
             if profile is None or profile.mode != "auto":
@@ -244,6 +254,7 @@ class ReportSender:
                     WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
                       AND NOT rec.muted
                       AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
+                      AND r.window_end > now() - make_interval(secs => :max_age)
                       -- never had a request, or only automatic sends the server deferred
                       AND NOT EXISTS (
                           SELECT 1 FROM abuse_send_requests q WHERE q.report_id = r.id
@@ -251,13 +262,14 @@ class ReportSender:
                                      AND q.error_code LIKE 'deferred%'))
                       AND (SELECT count(*) FROM abuse_send_requests q
                            WHERE q.report_id = r.id) < :deferrals
-                    ORDER BY r.id LIMIT :n
+                    ORDER BY r.window_end DESC, r.id LIMIT :n
                     """
                 ),
                 {
                     "at": now + timedelta(minutes=profile.auto_hold_minutes),
                     "n": MAX_SCHEDULE,
                     "deferrals": MAX_DEFERRALS,
+                    "max_age": AUTO_MAX_AGE.total_seconds(),
                 },
             )
             return int(result.rowcount or 0)  # type: ignore[attr-defined]
@@ -326,6 +338,10 @@ class ReportSender:
                 and int(await session.scalar(text(SENT_TODAY)) or 0) >= profile.daily_cap
             ):
                 return  # the cap is per UTC day: it stays pending until tomorrow
+            if req.auto and req.kind == "send" and await self._too_old(session, req):
+                await self._finish(session, rid, "cancelled", "too_old")
+                log.info("abuse mail request %s cancelled (too_old)", rid)
+                return
             if (
                 req.auto
                 and req.kind == "send"
@@ -394,6 +410,19 @@ class ReportSender:
             except DBAPIError:
                 log.warning("abuse report %s was sent but could not be marked", stamp["i"])
         await self._finish(session, req.id, "sent")
+
+    @staticmethod
+    async def _too_old(session: AsyncSession, req: Request) -> bool:
+        """The report's last activity is older than ``AUTO_MAX_AGE`` (database time)."""
+        return bool(
+            await session.scalar(
+                text(
+                    "SELECT window_end <= now() - make_interval(secs => :a) "
+                    "FROM abuse_reports WHERE id = :i"
+                ),
+                {"i": req.report_id, "a": AUTO_MAX_AGE.total_seconds()},
+            )
+        )
 
     @staticmethod
     def _mode_refusal(req: Request, profile: Profile) -> tuple[str, str] | None:

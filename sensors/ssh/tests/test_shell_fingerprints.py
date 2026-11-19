@@ -91,13 +91,15 @@ def test_elf_header_is_deterministic() -> None:
 def test_ps_start_times_follow_boot() -> None:
     sh = make("secret-a")
     out = run(sh, "ps aux")
-    assert "Oct12" not in out
     # daemons show the boot date, this session's processes the clock time
     import time
 
     boot = time.gmtime(sh.profile.boot_epoch)
     mon = time.strftime("%b", boot)
     assert f"{mon}{boot.tm_mday:02d}" in out
+    # the template's literal date is gone (unless the boot date happens to be that very day)
+    if f"{mon}{boot.tm_mday:02d}" != "Oct12":
+        assert "Oct12" not in out
     line = next(ln for ln in out.splitlines() if "-bash" in ln)
     assert re.search(r"\d\d:\d\d", line)
 

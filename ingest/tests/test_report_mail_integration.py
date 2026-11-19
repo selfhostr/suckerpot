@@ -126,7 +126,7 @@ class World:
 
     async def report(
         self, *, status: str = "draft", demo: bool = False, guard_ok: bool = True,
-        cmd: str = "uname -a",
+        cmd: str = "uname -a", at: datetime = NOW,
     ) -> int:  # fmt: skip
         self.n += 1
         async with self.owner.begin() as conn:
@@ -152,7 +152,7 @@ class World:
                         "r": rec,
                         "s": status,
                         "d": demo,
-                        "t": NOW,
+                        "t": at,
                         "e": json.dumps(ev),
                         "g": guard_ok,
                     },
@@ -548,6 +548,56 @@ async def test_a_cancelled_auto_request_is_not_scheduled_again(world: World) -> 
     async with world.owner.connect() as conn:
         count = await conn.scalar(text("SELECT count(*) FROM abuse_send_requests"))
     assert count == 1 and FakeSMTP.instances == []
+
+
+async def test_old_activity_is_not_sent_automatically_and_the_newest_goes_first(
+    world: World,
+) -> None:
+    """A provider checks the host when the mail arrives: weeks later there is nothing to see."""
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    stale = await world.report(status="reviewed", at=NOW - timedelta(days=8))
+    older = await world.report(status="reviewed", at=NOW - timedelta(days=2))
+    newer = await world.report(status="reviewed", at=NOW - timedelta(hours=1))
+    s = world.sender()
+    await s.run(NOW)
+    async with world.owner.connect() as conn:
+        scheduled = (
+            (await conn.execute(text("SELECT report_id FROM abuse_send_requests ORDER BY id")))
+            .scalars()
+            .all()
+        )
+    assert list(scheduled) == [newer, older]  # not the stale one, the newest first
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    assert len(FakeSMTP.instances) == 1
+    assert (await world.report_row(newer)).status == "sent"
+    assert (await world.report_row(older)).status == "reviewed"
+    rid = await world.ask(stale)  # by hand, an old report still goes
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    assert (await world.request(rid)).status == "sent"
+
+
+async def test_a_queued_report_that_aged_past_the_limit_is_cancelled(world: World) -> None:
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    report = await world.report(status="reviewed", at=NOW - timedelta(days=6, hours=23))
+    s = world.sender()
+    await s.run(NOW)
+    async with world.owner.begin() as conn:  # an hour later it crossed the 7 days
+        await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
+        await conn.execute(
+            text("UPDATE abuse_reports SET window_end = window_end - interval '2 hours'")
+        )
+        await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    assert FakeSMTP.instances == []
+    async with world.owner.connect() as conn:
+        row = (await conn.execute(text("SELECT status, error_code FROM abuse_send_requests"))).one()
+    assert (row.status, row.error_code) == ("cancelled", "too_old")
+    assert (await world.report_row(report)).status == "reviewed"
+    await s.run(datetime.now(UTC) + timedelta(hours=2))  # and it is not scheduled again
+    async with world.owner.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM abuse_send_requests")) == 1
 
 
 async def _age_auto_requests(world: World, by: timedelta) -> None:

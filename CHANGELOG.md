@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Automatic sending of abuse reports only takes reports whose last activity is less than 7 days
+  old, newest first. Providers check the reported host when the mail arrives, and weeks later
+  they close the report as "cannot be substantiated". A queued report that ages past 7 days is
+  cancelled (`too_old`). An older report can still be sent by hand.
+
 ## [0.11.12] - 2026-11-18
 
 ### Fixed
