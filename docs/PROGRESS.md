@@ -358,5 +358,11 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Two pull requests since v0.11.11 (#149, #150). The details are in `CHANGELOG.md`.
 - Found on the first automatic run of a real node: the due reports went out about one a second, and the mailbox provider accepted 6 and refused 54. Automatic sends are now at least 3 minutes apart, a 4xx reply pauses them for an hour, and the report is retried later.
 - Found on two 1-core micro VPS nodes: the enrolment proof of work ran past the 10-minute challenge. The node now stops in time. The hub difficulty was also lowered from 27 to 24 (hub `.env`, owner decision 2026-11-18).
+- No database change and no migration.## 2026-11-19: v0.11.13 (automatic abuse mail only for fresh reports)
+
+- One pull request since v0.11.12 (#152). The details are in `CHANGELOG.md`.
+- Found on the first night of paced sending: a large cloud provider closed a report about 17-day-old activity as "cannot be substantiated". Three quarters of the queue described activity older than a week. Automatic sending now takes only reports whose last activity is less than 7 days old, newest first; a queued one that ages past that is cancelled (`too_old`). Manual sends are unchanged.
+- The owner discarded the backlog of old drafts on the home node (owner decision 2026-11-19), so automatic sending restarts from fresh reports.
+- A date-dependent ssh sensor test failed on 2026-11-19 (the fake boot date fell on the template's own date); the test now tolerates it.
 - No database change and no migration.
 
