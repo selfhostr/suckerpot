@@ -1,4 +1,4 @@
-"""The opt-in Selfhostr network, node side (M29, ``docs/design/m29.md`` section 9.2).
+"""The opt-in Selfhostr network, node side (M29, ``docs/dev/design/m29.md`` section 9.2).
 
 Revision ID: 0028
 Revises: 0027

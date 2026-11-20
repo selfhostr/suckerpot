@@ -241,7 +241,7 @@ After the installer finishes, sign in as the admin user. The setup opens by itse
 | Open the ports | The Ports table, with a live status for each row. | Yes |
 | Anonymous egress | The VPN state, and the upload of a WireGuard file. | Yes |
 | Your own address | Asks for your own public address, so it never goes into a report or alert. | Yes |
-| Abuse reports | The reply contact for reports. Reports are drafts you send yourself. | Yes |
+| Abuse reports | The reply contact for reports. By default reports are drafts you send yourself; one-click or automatic sending is optional (see [Reporting attacks](reporting.md)). | Yes |
 | Alerts | Link to the alert channels. | Yes |
 | The SuckerPot network | Shows what joining means. The network is an experimental preview and is off by default. Joining needs `NETWORK_ENABLED=true` and a password. | Yes |
 | You are set | The checklist of what is left, the tour, and "Go to Today". | No |

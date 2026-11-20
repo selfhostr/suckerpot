@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M28 first-run setup (docs/design/m28.md section 4.2): setup progress, the
+ * MSW handlers for the M28 first-run setup (docs/dev/design/m28.md section 4.2): setup progress, the
  * ports table and the version. Demo data only; the shapes match the spec exactly.
  *
  * `?wizard=new|progress|finished|skipped` picks the starting state (default: finished, so the

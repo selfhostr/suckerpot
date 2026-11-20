@@ -3,7 +3,7 @@
 ```{admonition} Status
 :class: note
 
-Built in M20. Wired into `docker-compose.yml` as `sensor-synology`, with the stream `events:synology`, the network `sensors-synology` and the Redis user `sensor-synology`. The sensor's own notes are in `sensors/synology/README.md`. Its security review is still open (see the [roadmap](../ROADMAP.md)).
+Built in M20. Wired into `docker-compose.yml` as `sensor-synology`, with the stream `events:synology`, the network `sensors-synology` and the Redis user `sensor-synology`. The sensor's own notes are in `sensors/synology/README.md`. Its security review is still open (see the [roadmap](../roadmap.md)).
 ```
 
 ## What it emulates

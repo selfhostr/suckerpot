@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Safe update of an installed SuckerPot: backup first, then new code, new images, restart, health
-# check. Called by `just update [vX.Y.Z]`. See docs/design/m28.md section 6.
+# check. Called by `just update [vX.Y.Z]`. See docs/dev/design/m28.md section 6.
 #
 #   scripts/update.sh [--yes] [--no-backup] [--skip-verify] [--force] [--auto] [vX.Y.Z]
 #

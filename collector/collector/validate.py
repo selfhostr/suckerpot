@@ -1,4 +1,4 @@
-"""URL validation for the collector (SSRF defence), docs/design/m21.md section 5.3.
+"""URL validation for the collector (SSRF defence), docs/dev/design/m21.md section 5.3.
 
 Pure and offline: nothing here resolves a name. It runs on every URL and again on every redirect
 hop. Names are resolved by the VPN's resolver inside the tunnel, whose rebinding protection and the

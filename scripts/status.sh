@@ -10,7 +10,7 @@
 #
 # --json prints the same data as JSON, for monitoring. --last-batch prints the exact JSON of the
 # last submission to the network (attacker addresses only, kept 7 days) and nothing else.
-# Exit code: 0 OK, 1 warning, 2 error (design: docs/design/m32.md section 10).
+# Exit code: 0 OK, 1 warning, 2 error (design: docs/dev/design/m32.md section 10).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

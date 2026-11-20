@@ -1,5 +1,5 @@
 /**
- * Collected samples (M21): shapes of `/api/v1/samples` and `/api/v1/egress` (docs/design/m21.md
+ * Collected samples (M21): shapes of `/api/v1/samples` and `/api/v1/egress` (docs/dev/design/m21.md
  * section 7.2 is the contract), the plain-English sentences of the pages, and the calls.
  * The sentences are pure and tested.
  */
@@ -359,7 +359,7 @@ export interface Egress {
   quarantine: { used_bytes: number; max_bytes: number }
 }
 
-/** Gate reason codes, as `suckerpot_egress` and the API write them (docs/design/m21.md §3.4). */
+/** Gate reason codes, as `suckerpot_egress` and the API write them (docs/dev/design/m21.md §3.4). */
 const REASONS: Record<string, string> = {
   no_vpn: "the VPN is not reachable",
   tunnel_down: "the VPN tunnel is down",

@@ -2,23 +2,16 @@
 
 This page describes how SuckerPot is built: the services, the networks, the queue, the database and the API. For the threat model and the controls, see [Security](SECURITY.md).
 
-```{admonition} Build status
-:class: note
+SuckerPot is one product in four parts. Each part maps to a few components:
 
-**Built and wired in Compose:** Redis, the database and its migrations, ingest (multi-stream, with GeoIP, reputation and tagging), the API with its REST endpoints and live WebSocket feed, the SSH, RDP, Telnet and web sensors, the seven sensors of M9 (Redis, Docker, MySQL, MSSQL, ADB, SMB and SIP), and the web UI (served by the API once built).
+| Part | Components |
+| --- | --- |
+| **Observe** | The sensors, Redis Streams, ingest (validation, enrichment, tagging), the database, the analysis workers, the API and the dashboard |
+| **Defend** | The blocklist worker in ingest, and the API routes for exports, detections, exposure and the opt-in token feed |
+| **Report** | The abuse worker and the report sender in ingest, the `reporting` package (rendering and the identity guard), the replies worker, and the takedown re-checks in the collector. They reach the internet through the VPN only |
+| **Share** | The network node in ingest, and the hub (`hub/`), a separate deployment that confirms targets, sends network reports and publishes the community lists |
 
-**Under security review:** the web sensor (M6) and the M9 sensors. The sensor pages show the status of each one.
-
-**In progress:** the analytics API (M5).
-
-**Built since:** insights, trends and malware endpoints and pages (M7), and dashboard login (M8).
-
-**Built since:** retention, compressed storage, kept-forever aggregates and the database disk guard (see [Data retention](retention.md)), and backups (`just backup`).
-
-**Built in M20:** the Synology NAS sensor (a DSM look-alike on ports 5000 and 5001), the CVE watch fixes (a 60-day window in daily chunks, resumable runs, watched-CVE lookups by id) and a separate Compose overlay for `just test-integration`.
-
-**Built since (M10 to M19):** RDP depth, Settings that edit keys, CVE watch, indicators, users and roles, campaigns and ATT&CK, Defend (blocklists, exports, the opt-in feed, detections and exposure), the script library, alerts and the weekly report, and Today, search and research-scanner labels. The analysis features are in [Analysis workers](#analysis-workers-m15-to-m19).
-```
+All twelve sensors are built and wired in Compose. The web and Synology sensors are still under security review (see [Sensors](sensors/index.md)).
 
 ## Overview
 
@@ -264,7 +257,7 @@ State is kept per stream, so one slow or broken stream does not affect the other
 - **After an error** (Redis or database), all streams go back to draining and the loop retries with a backoff from 1 s to 30 s.
 - **Forged IDs.** A producer that sends an explicit entry ID far in the future would make `MINID` trimming wipe the stream. Ingest reports such IDs and never uses them as a trim target.
 
-Delivery is at least once. A batch replayed after a crash between the database commit and the acknowledgement can count twice. Idempotent replay is on the [roadmap](ROADMAP.md).
+Delivery is at least once. A batch replayed after a crash between the database commit and the acknowledgement can count twice. Idempotent replay is on the [roadmap](roadmap.md).
 
 The exact field layout is in [Event schema](event-schema.md).
 
@@ -376,7 +369,7 @@ Two parts run inside the normal write path rather than on a timer. While writing
 
 ### Anonymous reporting (M22)
 
-The stack prepares abuse reports for the networks that host hostile sources, payload hosts and C2 servers, and indicator exports for CERTs. By default it sends nothing: the owner reads each draft and sends it from their own mailbox. Optional SMTP sending (off by default) goes through the VPN only, after a last identity check on the complete message. Design: [M22 design](design/m22.md), [M25 design](design/m25.md).
+The stack prepares abuse reports for the networks that host hostile sources, payload hosts and C2 servers, and indicator exports for CERTs. By default it sends nothing: the owner reads each draft and sends it from their own mailbox. Optional SMTP sending (off by default; one click per report, or automatic with pacing and a daily cap) goes through the VPN only, after a last identity check on the complete message. See [Reporting attacks](reporting.md). Design: [M22 design](dev/design/m22.md), [M25 design](dev/design/m25.md).
 
 Two pieces share one set of rules.
 
@@ -449,7 +442,7 @@ The WebSocket checks the `Origin` header. Requests with no `Origin` (non-browser
 | Web UI | React, Vite, TypeScript (strict), Tailwind, shadcn/ui, TanStack Query. The Live page is a flat SVG map, with no WebGL. Terminal replay planned. |
 | Python tooling | uv, ruff, mypy (strict), pytest |
 | Web tooling | pnpm, eslint, prettier, vitest, Playwright |
-| Task runner | `justfile`. See [Development](development.md). |
+| Task runner | `justfile`. See [Development](dev/development.md). |
 
 ## Containers
 

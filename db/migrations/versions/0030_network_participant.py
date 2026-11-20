@@ -1,4 +1,4 @@
-"""Participant and verifier mode of the Selfhostr network (M32, ``docs/design/m32.md`` 8.5).
+"""Participant and verifier mode of the Selfhostr network (M32, ``docs/dev/design/m32.md`` 8.5).
 
 Revision ID: 0030
 Revises: 0029

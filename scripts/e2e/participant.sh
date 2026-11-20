@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end test of the participant install (docs/design/m32.md section 11.3).
+# End-to-end test of the participant install (docs/dev/design/m32.md section 11.3).
 #
 #   scripts/e2e/participant.sh [--keep]
 #

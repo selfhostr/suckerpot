@@ -7,7 +7,7 @@ This page is for people who change the code. It explains the repository layout, 
 - **English everywhere.** Code, comments, commit messages, docs and UI strings.
 - **The repository is public.** Never commit `.env`, captured data, screenshots of real attacks, private IP addresses or host names. Use the documentation ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) in examples.
 - **Docker Compose only.** Every component is a service in `docker-compose.yml`.
-- **Read the [Security](SECURITY.md) page** before you change a sensor, the network layout or a Dockerfile.
+- **Read the [Security](../SECURITY.md) page** before you change a sensor, the network layout or a Dockerfile.
 
 ## Set up
 
@@ -20,7 +20,7 @@ This page is for people who change the code. It explains the repository layout, 
 
    The script installs `pre-commit` if it can, and falls back to a plain git hook. Both run `gitleaks` before each commit and block commits that contain secrets. The fallback installs a pinned `gitleaks` binary in `~/.local/bin`.
 
-3. Create your `.env`, as described in [Getting started](getting-started.md).
+3. Create your `.env`, as described in [Getting started](../getting-started.md).
 
 ## Common commands
 
@@ -35,7 +35,7 @@ All commands are `just` recipes. Run `just` with no arguments to list them.
 | `just down` | Stop the stack. Data volumes are kept. |
 | `just logs [service ...]` | Follow the logs. For example, `just logs ingest api`. |
 | `just ps` | Show the state of the services |
-| `just ports` | Run `scripts/check-ports.sh`: refuse a port layout that exposes the wrong thing (see [Deployment](deployment.md#port-guard)) |
+| `just ports` | Run `scripts/check-ports.sh`: refuse a port layout that exposes the wrong thing (see [Deployment](../deployment.md#port-guard)) |
 | `just config` | Run the port guard, then check that `docker-compose.yml` is valid |
 | `just psql` | Open a `psql` shell as the database owner, inside the database container. Maintenance only. |
 
@@ -43,7 +43,7 @@ All commands are `just` recipes. Run `just` with no arguments to list them.
 
 | Recipe | What it does |
 | --- | --- |
-| `just backup` | Dump the database now into the `suckerpot_backups` volume (the `backup` service also does it daily, 7 kept). See [Deployment](deployment.md#data-volumes-and-backups). |
+| `just backup` | Dump the database now into the `suckerpot_backups` volume (the `backup` service also does it daily, 7 kept). See [Deployment](../deployment.md#data-volumes-and-backups). |
 | `just backups` / `just backup-host` | List the dumps in the volume / dump into the host folder `./backups` (`BACKUP_DIR`, `BACKUP_KEEP`). |
 | `just restore latest\|FILE\|volume:NAME` | Replace the whole database with a dump, after restoring it into a side database first. Asks for confirmation. Flags: `--yes`, `--keep-previous`. |
 | `just test-backup-restore` | End-to-end check in a throwaway Compose project that a dump of the `backup` service restores and a truncated dump is refused. Also a CI job. |
@@ -190,10 +190,30 @@ The `compose` job is the only place where the placeholder secrets are allowed. I
 
 ## These docs
 
-The documentation is the Markdown in `docs/`. It reads on GitHub as it is, and it is published at https://suckerpot.selfhostr.io/docs/ by the shared selfhostr docs kit (Starlight), which lives outside this repository. The kit converts these files on each publish: the `{toctree}` blocks in `docs/index.md` become the sidebar, and MyST admonitions such as `{note}` and `{warning}` become callouts. Keep using that syntax, and link pages with relative `.md` paths.
+The documentation is the Markdown in `docs/`. User pages sit at the top of `docs/`; the development journal and the design notes sit in `docs/dev/`. It reads on GitHub as it is, and it is published at https://suckerpot.selfhostr.io/docs/ by the shared selfhostr docs kit (Starlight), which lives outside this repository. The kit converts these files on each publish: the `{toctree}` blocks in `docs/index.md` become the sidebar, and MyST admonitions such as `{note}` and `{warning}` become callouts. Keep using that syntax, and link pages with relative `.md` paths. Every page must be listed in a toctree, either in `docs/index.md` or in a section index such as `sensors/index.md`.
 
 ## Before you commit
 
 1. Run `just lint`, `just typecheck` and `just test`.
 2. Read `git diff --staged`. Look for secrets, private addresses, host names and captured data.
 3. Commit with a Conventional Commit message.
+
+## Definition of done
+
+A change or a milestone is done when all of these hold:
+
+- every service of the stack starts and is healthy;
+- lint, type checks and tests pass (`just check`), and the integration tests too when the change touches the database, Redis or a sensor;
+- a security review passed when the change touches a sensor, the network layout, a Dockerfile, authentication, egress or anything an attacker can reach;
+- the documentation and the changelog are updated;
+- the change is merged to `main` through a pull request with green CI.
+
+## Development journal
+
+The journal of how SuckerPot was built is kept apart from the user documentation:
+
+- [Roadmap history](roadmap-history.md): every milestone from M0 to v0.11, with its checklist.
+- [Progress log](progress.md): what was done at each step, and what was left open.
+- [Design notes](design/index.md): the design documents of the larger milestones (M21 to M36).
+
+The public plan is in [Roadmap](../roadmap.md).

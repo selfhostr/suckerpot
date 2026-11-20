@@ -1,6 +1,6 @@
 /**
- * Results of abuse reports (M26 outcomes, M27 takedown tracking; docs/design/m26.md section 11 and
- * docs/design/m27.md section 11): shapes, vocabulary and calls. Percentages are ratios (0 to 1);
+ * Results of abuse reports (M26 outcomes, M27 takedown tracking; docs/dev/design/m26.md section 11 and
+ * docs/dev/design/m27.md section 11): shapes, vocabulary and calls. Percentages are ratios (0 to 1);
  * durations are seconds. Target values (URLs, hosts) are shown defanged and never as links.
  */
 import { getJson, sendJson, type Page } from "./api"

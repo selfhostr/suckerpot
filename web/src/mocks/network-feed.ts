@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M30 community lists (`/api/v1/network/feed`, docs/design/m30.md section
+ * MSW handlers for the M30 community lists (`/api/v1/network/feed`, docs/dev/design/m30.md section
  * 10.5). Demo data only: documentation addresses (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
  * 2001:db8::/32) and example.org names. Every value is typed with `lib/network-feed.ts`, and a
  * test checks the shapes, so the mock cannot drift from the contract.

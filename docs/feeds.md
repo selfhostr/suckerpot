@@ -6,7 +6,7 @@ The feed is an experimental preview. The network has very few nodes, so the list
 
 The examples use the public feed address shipped with each release in `config/network-defaults.env`: `https://suckerpot-feeds.selfhostr.io/v1`.
 
-The lists are built only from what many sensors saw. Each entry needs observations from at least five independent sensors. The network explains how that works in [The SuckerPot network](network.md).
+The lists are built only from what many sensors saw. Each entry needs observations from at least five independent nodes. The network explains how that works in [The SuckerPot network](network.md).
 
 ## The five lists
 
@@ -46,7 +46,7 @@ The high tier is empty when the hub has no outside source configured. `outbound-
 
 | Rule | What it means |
 | --- | --- |
-| Several independent sensors | An entry needs observations from at least 5 eligible nodes, the "k" in k-support. One sensor's sighting never changes a list. |
+| Several independent nodes | An entry needs observations from at least 5 eligible nodes, the "k" in k-support. One sensor's sighting never changes a list. |
 | TCP evidence for inbound | An address is listed only when the evidence came over TCP. Scans, plain connects and web-only probes never list an address. Evidence seen on SIP (UDP) never lists one either, because UDP source addresses can be faked. A node sends one summary per address and day, so when an address shows up on SIP and on a TCP service the same day, that node's summary for the day is not counted at all. |
 | Payload hosts | A host is listed only when a file was fetched from it by at least 2 nodes, and that file has a known malware family. A URL that was merely typed into a command never lists its host. |
 | Command servers (C2) | A command server is listed only when the hub's analysis rates it with high confidence, and at least two different samples from at least two nodes point to it. |
@@ -401,7 +401,7 @@ We chose CC0 because a firewall vendor or a list aggregator can use the data wit
 
 ## Accuracy
 
-Each entry means: "observed by at least five independent sensors". It does not say that the holder of the address is guilty of anything. Many listed devices are themselves compromised. Addresses change hands, and hosts get cleaned up.
+Each entry means: "observed by at least five independent nodes". It does not say that the holder of the address is guilty of anything. Many listed devices are themselves compromised. Addresses change hands, and hosts get cleaned up.
 
 Use the lists as one input among others. Do not block a critical service only because it is listed. Put allow rules for your own critical hosts above the block rules.
 
@@ -484,7 +484,7 @@ The lookup gives no dates, no categories, no list names and no node counts. It i
 
 ## Network figures: `network.json`
 
-`network.json` holds anonymised figures about the network itself: node counts, how close the network is to its first collective report, confirmations, reports, takedowns and the attack traffic the network sees. When the hub operator turns it on, it is published even while the lists are off. The rules are in [The SuckerPot network](network.md#public-network-figures) and the schema in [M34](design/m34.md). Browsers may read it from the project site only.
+`network.json` holds anonymised figures about the network itself: node counts, how close the network is to its first collective report, confirmations, reports, takedowns and the attack traffic the network sees. When the hub operator turns it on, it is published even while the lists are off. The rules are in [The SuckerPot network](network.md#public-network-figures) and the schema in [M34](dev/design/m34.md). Browsers may read it from the project site only.
 
 ## Privacy
 
@@ -533,7 +533,7 @@ The path form puts the token in the URL. Treat that URL like a password, and rev
 
 ## See also
 
-- [The SuckerPot network](network.md): how the lists are built and what members share
+- [The SuckerPot network](network.md): how the lists are built and what nodes share
 - [Defend](defend.md): the Network tab on the Blocklists page
 - [Configuration](configuration.md#community-lists-m30): the `NETWORK_FEED_*` settings
 - [API](api.md#community-lists-m30): the node endpoints and the mirror routes

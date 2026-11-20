@@ -7,7 +7,7 @@ SuckerPot is a honeypot. Its job is to be attacked. This page covers what it doe
 
 **Built:** the isolation layer (networks, container hardening, Redis and database roles, the secrets policy), the API exposure controls, the host firewall template, and the SSH, RDP and Telnet sensors with their limits. The web sensor is wired into Compose and is under security review.
 
-**Built in M9:** seven more sensors (ADB, Docker API, Redis, MySQL, MSSQL, SMB and SIP), each with its own Redis user, network and stream. Their review status is on the [roadmap](ROADMAP.md).
+**Built in M9:** seven more sensors (ADB, Docker API, Redis, MySQL, MSSQL, SMB and SIP), each with its own Redis user, network and stream. Their review status is on the [roadmap](roadmap.md).
 
 **Built in M20:** the Synology NAS sensor (a DSM 7.2.1 look-alike on HTTP 5000 and HTTPS 5001), with its own network, Redis user and stream, the same limits and the same no-execution rules.
 
@@ -127,12 +127,12 @@ Every internal network (`sensors-<name>`, `backend`, `tools`, `egress-proxy`, `h
 
 The aim: no outbound connection made by the stack ever comes from the home address.
 
-- **One route out.** Only `vpn` (gluetun, WireGuard) has an internet route. A static test (`just guardrails`, part of `just test`) loads `docker-compose.yml` and its overlays and fails if another service joins a network with a route out, if `ingest`, `collector` or `analyzer` lack `dns: 127.0.0.1`, if any service other than `vpn` gets `cap_add`, `devices`, `privileged` or a `network_mode`, if the `egress-proxy` members change, or if any `HTTP_PROXY`-style variable appears.
+- **One route out.** Only `vpn` (gluetun, WireGuard) has an internet route. A static test (`just guardrails`, part of `just test`) loads `docker-compose.yml` and its overlays and fails if another service joins a network with a route out, if `ingest`, `collector` or `analyzer` lack `dns: 127.0.0.1`, if any service other than `vpn` gets `cap_add`, `devices`, `privileged` or a `network_mode`, if the `egress-proxy` nodes change, or if any `HTTP_PROXY`-style variable appears.
 - **Kill switch.** gluetun's firewall starts before the tunnel and allows only the tunnel and the WireGuard packets to one endpoint. The [host firewall](deployment.md#host-firewall) drops everything else from `sp-vpn` (new connections other than UDP to the endpoint, the LAN, IPv6, TCP) and every new connection from `sp-vpn`, `sp-egress` and `sp-samples` to the host. With the tunnel down, nothing leaves.
 - **Proxy only.** `ingest` and `collector` use one client factory that sends host names to the proxy. External DNS does not resolve in those containers. A static test scans their code and fails on any other way to open a socket (`httpx.AsyncClient(` outside the factory, `socket`, `smtplib`, `urllib.request`, `requests`, `aiohttp`, `getaddrinfo`). SMTP goes through an HTTP `CONNECT` tunnel.
 - **The gate.** No outbound work starts unless the last self-check passed (every `EGRESS_CHECK_INTERVAL_S`, 300 s by default). It checks that the tunnel is running, that two independent echo services agree on the public address, that it equals the address gluetun reports, that it is a global address and that it is inside `EGRESS_ALLOWED_CIDRS` (default: the /24 of the endpoint). Otherwise it stays closed with a constant reason code and lookups wait without spending quota. Events keep being stored. It is a positive check: it never needs to learn the home address.
 - **Least privilege for `vpn`.** It is the only container with `NET_ADMIN` and `/dev/net/tun`, still `cap_drop: [ALL]`, `no-new-privileges`, read-only root, no published port, image pinned by digest. Its control server answers only two read routes (tunnel status, public address), so a compromised client cannot stop or reconfigure the tunnel. The proxy needs a password (at least 24 characters) and runs in stealth mode (no `Via` or `X-Forwarded-For`).
-- **Uploaded VPN settings (M23).** Settings > VPN lets the admin upload a WireGuard `.conf`; the API validates it strictly and writes `wg.env` (mode 0644, atomic rename) into the `vpn-config` volume. That volume is mounted read-write in `api` and read-only in `vpn` and nowhere else (a guardrail test enforces it, together with: no Docker socket, no `NET_ADMIN`, no extra network for `api`, and `vpn/entrypoint.sh` mounted read-only). The entrypoint never sources or evaluates `wg.env`: it reads each of the five keys with a fixed pattern and exits 1 (fail closed, no value logged) if one is missing or malformed or if the endpoint is not a global IPv4 address (defence in depth if the API were compromised). It parses and checksums one tmpfs snapshot of the file, so a rewrite while it reads cannot slip past the watcher. A watcher checks the file every 10 s; on any change it stops gluetun and exits 0 so Docker restarts `vpn` on the new settings. During the restart `ingest` and `collector` have no route out, and the egress gate stays closed until the new exit address is allowed. The watcher also checksums `/vpn-config/restart` (the API's Reconnect button) and restarts `vpn` the same way when it changes, without ever reading its content or letting it influence the settings. Design: `docs/design/m23.md`.
+- **Uploaded VPN settings (M23).** Settings > VPN lets the admin upload a WireGuard `.conf`; the API validates it strictly and writes `wg.env` (mode 0644, atomic rename) into the `vpn-config` volume. That volume is mounted read-write in `api` and read-only in `vpn` and nowhere else (a guardrail test enforces it, together with: no Docker socket, no `NET_ADMIN`, no extra network for `api`, and `vpn/entrypoint.sh` mounted read-only). The entrypoint never sources or evaluates `wg.env`: it reads each of the five keys with a fixed pattern and exits 1 (fail closed, no value logged) if one is missing or malformed or if the endpoint is not a global IPv4 address (defence in depth if the API were compromised). It parses and checksums one tmpfs snapshot of the file, so a rewrite while it reads cannot slip past the watcher. A watcher checks the file every 10 s; on any change it stops gluetun and exits 0 so Docker restarts `vpn` on the new settings. During the restart `ingest` and `collector` have no route out, and the egress gate stays closed until the new exit address is allowed. The watcher also checksums `/vpn-config/restart` (the API's Reconnect button) and restarts `vpn` the same way when it changes, without ever reading its content or letting it influence the settings. Design: `docs/dev/design/m23.md`.
 - **Known limit.** The proxy runs inside `vpn`, so a CONNECT to `vpn`'s own address is a local connection that gluetun's firewall cannot filter. A client holding the proxy password could read the two open control routes. The collector's validator refuses every private literal and the control server denies everything else, so `egress-check` reports this as a NOTE, not a failure.
 - **Exit range.** Providers often exit on a different network from the endpoint, so the default allow-list (the endpoint /24) can keep the gate closed. Set `EGRESS_ALLOWED_CIDRS` to the observed exit range (Settings > Egress shows it to admins). A closed gate is the safe failure.
 - **Check it live.** `just egress-check` tries direct TCP and UDP to public resolvers from `ingest`, `collector` and `analyzer`, name resolution, CONNECT to the bridge gateway, a name that resolves to loopback, and takes the tunnel down and back up. It prints PASS or FAIL per line and never prints the exit address.
@@ -305,11 +305,16 @@ The sensor's test suite (`sensors/sip/tests/test_reflection.py`) measures the re
 
 ### No offensive behaviour
 
-SuckerPot does not:
+SuckerPot never probes an attacker. It does not:
 
 - scan other hosts, or respond to scans with scans;
 - hack back or run any active countermeasure;
-- report IP addresses to AbuseIPDB or any other service without the owner's explicit approval.
+- open a connection to an attacking host to probe or answer it. Takedown re-checks never contact an attacking address or a command server (see [Track takedowns](takedowns.md#what-is-never-contacted));
+- report anything to AbuseIPDB. AbuseIPDB is only read, as an optional reputation source.
+
+Two things leave toward hosts an attacker named, and both are off by default: the collector fetches a download link that an attacker typed (through the VPN only, see [The collector and SSRF](#the-collector-and-ssrf)), and takedown tracking fetches the same link again after a report.
+
+An abuse report is a mail to the abuse contact that the attacking network publishes in RDAP, never a connection to the attacker. Reporting is off by default. The owner turns it on and chooses how reports leave: by hand, with one click per report, or automatically after a hold time, with a daily cap. See [Anonymous reporting](#anonymous-reporting-m22) and [Reporting attacks](reporting.md).
 
 ### Realistic fingerprints
 
@@ -317,7 +322,7 @@ Fake services must look real to an attacker. Banners and versions are plausible 
 
 ## Anonymous reporting (M22)
 
-The owner reports hostile networks and shares indicators as an anonymous whistleblower. The stack only prepares the text and files. By default it sends no mail and stores no mail credentials; it never submits to a CERT or a malware repository. Optional SMTP sending (M25, off by default) stores an encrypted password the API cannot read back, and mail leaves only through the VPN after the identity guard has checked the complete message, envelope and EHLO name; with the tunnel down nothing is sent. Abuse desks often forward a report to their customer, who is the attacker, so a report must not lead back to the owner. Design: [M22 design](design/m22.md).
+The owner reports hostile networks and shares indicators as an anonymous whistleblower. The abuse worker (off by default) prepares the text and files. By default it sends no mail and stores no mail credentials, and a node never submits to a CERT or a malware repository: CERT exports and sample bundles are downloaded and passed on by hand. Optional SMTP sending (M25, off by default) has two modes the owner chooses: `click` sends one report per click, and `auto` sends ready reports after a hold time, paced, at most `daily_cap` a day, and only when the evidence is less than 7 days old (see [Reporting attacks](reporting.md#automatic-sending-and-pacing)). Either way it stores an encrypted password the API cannot read back, and mail leaves only through the VPN after the identity guard has checked the complete message, envelope and EHLO name; with the tunnel down nothing is sent. Abuse desks often forward a report to their customer, who is the attacker, so a report must not lead back to the owner. Design: [M22 design](dev/design/m22.md).
 
 ### What a report never contains
 
@@ -381,7 +386,7 @@ The package ships no introduction, closing text, note or signature. Any text shi
 
 ## Community lists (M30)
 
-The community blocklist feeds ([Community blocklist feeds](feeds.md)) add three kinds of exposure: the hub publishes files to the internet, nodes download them, and a bad list can reach many firewalls at once. The design is in [M30](design/m30.md).
+The community blocklist feeds ([Community blocklist feeds](feeds.md)) add three kinds of exposure: the hub publishes files to the internet, nodes download them, and a bad list can reach many firewalls at once. The design is in [M30](dev/design/m30.md).
 
 ### New adversaries
 
@@ -400,7 +405,7 @@ The community blocklist feeds ([Community blocklist feeds](feeds.md)) add three 
 | Spoofed UDP packets with a victim's source address (A8) | Inbound listing needs TCP evidence. Evidence only from SIP (UDP) never lists. Plain connects and scans never list. |
 | A botnet types a URL into every honeypot (A8) | A URL or host typed in a command never lists by itself. A payload host needs a fetched file with a known family from 2 nodes. |
 | Decoy command-server addresses in malware configs (A8) | A command server needs high confidence and at least 2 samples from 2 nodes. |
-| Member data learned from list content (A1) | Entries carry no node data. Every published attribute needs k-support: at least 5 eligible nodes. No countries, no node counts. |
+| Node data learned from list content (A1) | Entries carry no node data. Every published attribute needs k-support: at least 5 eligible nodes. No countries, no node counts. |
 | Probing one suspected sensor with a listed address (A1) | k-support: one node's sighting changes nothing public. |
 | Timing of changes (A1) | The feed is rebuilt on a fixed hourly schedule. New values wait 6 hours. |
 | Downloaders learned from the feed site (A3, A4) | No access log, no cookies, no query strings on files, no script on list files, no analytics, no CDN at launch. |
@@ -428,20 +433,20 @@ The community blocklist feeds ([Community blocklist feeds](feeds.md)) add three 
 | N14 | Parsing is strict. Over 1 % invalid entries rejects the file. Size caps apply. Nothing pulled is executed or contacted. | Format library parser, with tests |
 | N15 | After `valid_until`, the node keeps the stored data for display, and its local mirror serves nothing | Node feed worker and the mirror, with tests |
 
-### Privacy of members and downloaders
+### Privacy of nodes and downloaders
 
-- The lists name no member, no sensor and no country.
+- The lists name no node, no sensor and no country.
 - A node's fetch is a plain `GET` with the generic name `spn-feed/1`. It carries no node id and no query.
 - The hub keeps no client address for the feed site. Delisting requests hold the value, a category, the day and the decision. The evidence and the contact address are deleted 30 days after the decision. Requests are deleted after 180 days.
 - The lookup endpoint returns one word (`listed`, `removed` or `not_listed`). It exposes no dates, categories or lists.
 
 ### Legal and accuracy
 
-The lists are a factual statement: at least five independent sensors observed the behaviour. They are not an accusation. IP addresses can be personal data, so retention is short, and a delisting path is public with a 72 hour target. A short legal review is an owner action before the hub leaves `HUB_FEED_MODE=off`. This is not legal advice.
+The lists are a factual statement: at least five independent nodes observed the behaviour. They are not an accusation. IP addresses can be personal data, so retention is short, and a delisting path is public with a 72 hour target. A short legal review is an owner action before the hub leaves `HUB_FEED_MODE=off`. This is not legal advice.
 
 ## Participant mode, verifiers and automatic updates (M32)
 
-The full threat model is in the [M32 design](design/m32.md). The summary:
+The full threat model is in the [M32 design](dev/design/m32.md). The summary:
 
 ### Invariants
 
@@ -502,7 +507,7 @@ Review outcomes so far:
 
 | Area | Passes | Outcome |
 | --- | --- | --- |
-| Foundations (M1: networks, Redis, database, ingest, API) | 2 | The first pass failed (unbounded stream, weak egress control, poison messages that block the queue, default credentials). All were fixed and the second pass passed. Follow-ups: per-sensor networks, users and streams, the sensor/stream check, the host firewall, stable trimming, rotatable role passwords. Idempotent replay after a crash is still open on the [roadmap](ROADMAP.md). |
+| Foundations (M1: networks, Redis, database, ingest, API) | 2 | The first pass failed (unbounded stream, weak egress control, poison messages that block the queue, default credentials). All were fixed and the second pass passed. Follow-ups: per-sensor networks, users and streams, the sensor/stream check, the host firewall, stable trimming, rotatable role passwords. Idempotent replay after a crash is still open on the [roadmap](roadmap.md). |
 | SSH sensor | 4 | Passed on the fourth pass. The passes found resource problems under hostile load, not code execution: unbounded input, expensive decryption of tiny packets, one address starving the shell CPU, memory growth, and event volume. They led to flow-controlled channels, inbound metering, a fair CPU scheduler, a cgroup memory guard, byte budgets for events and collapsed repeats. |
 | Telnet sensor | 2 | Pass 1 **failed**: pipelined heavy command lines starved the event loop (the watchdog then restarted the container in a loop), the fake `/etc/shadow` used constant hashes (a fingerprint), the memory budget could be used up to make the sensor drop other sessions, and option negotiation was chattier than BusyBox. Fixed with a shared fair CPU budget, per-device generated hashes, sessions kept open with a "Cannot allocate memory" error instead of being dropped when the memory budget is full and the exact BusyBox opener. Pass 2 passed. |
 | RDP sensor | 2 | Pass 1 **failed**: a TLS `close_notify` made the read return empty data, which sent the read loop into a 100% CPU busy loop (a one-packet denial of service), TLS handshakes were not throttled, and slow clients could use up all handshake slots. Fixed with an explicit end-of-stream check, per-source and global handshake limits, short deadlines and eviction of idle connections. Pass 2 passed. |

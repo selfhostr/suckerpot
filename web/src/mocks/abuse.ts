@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M22 abuse-report endpoints (docs/design/m22.md section 9.1). Demo data
+ * MSW handlers for the M22 abuse-report endpoints (docs/dev/design/m22.md section 9.1). Demo data
  * only: addresses are in the documentation ranges, mailboxes are on example.* domains, and the
  * names are invented. State lives for the page load.
  */

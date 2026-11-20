@@ -17,6 +17,8 @@ The sidebar (the drawer on a phone) has ten entries in three spaces, plus Settin
 | Defend | Protection | Blocklists, Detections | What should I block or watch? |
 | Defend | Exposure | Your exposure, CVE watch | What of mine is at risk? |
 | Defend | Alerts | | What was I told, and what did the weekly report say? |
+| Defend | Abuse reports | Reports, Results | What did I report, and did anything change? |
+| Defend | Network | Overview, Members | What does the network see, and what did my node help confirm? |
 | System | Settings | | How is the system set up? |
 
 The Styleguide page is routable everywhere but listed in the sidebar only in development builds. The whole table lives in `web/src/app/nav.ts`.
@@ -57,7 +59,7 @@ The Styleguide page is routable everywhere but listed in the sidebar only in dev
 | Blocklists | `/defend/blocklists` | Scored blocklists with a reason for every point, overrides, and exports for firewalls. A Network tab shows the community lists. See [Defend](defend.md) and [Community blocklist feeds](feeds.md). |
 | Detections | `/defend/detections` | Sigma and Suricata rules marked "review before deploying". |
 | Your exposure | `/defend/exposure` | Your own service inventory compared with what was recorded. |
-| Abuse reports | `/defend/abuse`, `/defend/abuse/<id>` | Drafts of anonymous abuse reports to review, copy and mark sent. See [Abuse reports](#abuse-reports-m22). |
+| Abuse reports | `/defend/abuse`, `/defend/abuse/<id>` | Drafts of anonymous abuse reports to review and send (by hand, with one click or automatically). See [Abuse reports](#abuse-reports-m22). |
 | Abuse reports: Results | `/defend/results`, `/defend/results/targets/<id>` | Did anyone answer, how fast did targets go down, and which providers act. See [Results](#results-m26-m27). |
 | Alerts and reports | `/defend/alerts`, `/reports/<week>` | Alert rules and channels (all off until you switch them on), and the weekly report with a printable view. |
 | **System** | | |
@@ -103,7 +105,7 @@ The Overview page opens with up to three insights, each one a plain sentence wit
 
 ## Abuse reports (M22)
 
-Nothing here sends mail. You read, copy and send from your own mailbox.
+By default nothing here sends mail: you read, copy and send from your own mailbox. Sending with one click or automatically is optional, see [Reporting attacks](reporting.md#three-ways-to-send).
 
 - **Abuse reports page** (`/defend/abuse`). A finding first ("4 reports are ready for review, covering 23 addresses in 3 networks"). When nothing can be built (worker off, egress closed, no confirmed self address) an empty state says why and links to Settings. Tabs by status (Drafts, Reviewed, Sent, Closed, Discarded) with counts, and a "No contact found" list where you can type a mailbox. Rows are grouped by provider: name and mailbox, network chips, the kind (Attack source, Payload host, C2 server), number of subjects, the period and the identity check as an icon plus a word. A blocked draft says why in a few words ("Why: names the project, uses old default wording"). Above the list, a **Blocked drafts** card counts the drafts the identity check holds back, gives one sentence per reason with what to do about it, and, for an administrator, names the saved reporting text that causes it with a link to Settings. Nothing is sent while a draft is blocked.
 - **Report page** (`/defend/abuse/<id>`). A status stepper (Draft, Reviewed, Sent, Closed). The **Identity check** card comes first: it says what was masked, or why the report is blocked: one plain-English sentence per reason, followed by what to do about it (no raw code is shown). For an administrator it also names the reporting text in Settings that blocks every draft. Then the **Message** card with Plain text, X-ARF and .eml, read-only To, Subject and Body fields with copy buttons and downloads. Then the subjects (the only place with links back into the dashboard), notes and actions: Mark reviewed, Mark sent (with a date and time), Close, Discard, Regenerate. A stale revision reloads the page. Viewers see everything and no buttons. Demo reports carry a "Demo data, do not send" banner and cannot be marked sent. Red is used only for a blocked identity check.
@@ -143,7 +145,7 @@ The Blocklists page (`/defend/blocklists`) has two tabs, set in the URL with `?t
 - **Feed off.** An empty state says what the lists are. It shows the public URLs with copy buttons, because a firewall can fetch them without this dashboard. It also says how to turn the fetch on (`NETWORK_FEED_ENABLED`). Nothing contacts the feed host until the flag is on.
 - **Feed on.** The first line is a sentence: how many entries each list holds, and how many also reached this sensor. A status line says when the lists were last updated and whether the signature was verified. Problems show as a chip with text: out of date, last fetch failed, or waiting for the first fetch. The state is never shown by colour alone.
 - **One card per list.** The outbound card says "Start here". Each card has a one-line purpose, the entry and high-tier counts, a **Copy URL** menu grouped by tier, and a link to the verified copy on this dashboard when the local mirror is on.
-- **Entries table.** Virtualised, paginated on the server. Filters live in the URL: `list`, `tier`, `seen_here` and `q`. A value that this sensor also saw has a badge, and its address opens the attacker page. Members see a "You helped" badge.
+- **Entries table.** Virtualised, paginated on the server. Filters live in the URL: `list`, `tier`, `seen_here` and `q`. A value that this sensor also saw has a badge, and its address opens the attacker page. Nodes see a "You helped" badge.
 - **How to use drawer.** Short steps for OPNsense and pfSense, with a link to [Community blocklist feeds](feeds.md).
 - **Why join the network? card.** It says the lists are free and public, and that every firewall gets the same lists. It says what joining adds, and links to the Network pages. It promises no extra lists.
 
@@ -254,4 +256,4 @@ SSH sessions are recorded with the bytes the attacker typed and the bytes the se
 just web-dev
 ```
 
-The Vite dev server starts on `http://127.0.0.1:5173` with mock data, so you do not need the stack. See [Development](development.md).
+The Vite dev server starts on `http://127.0.0.1:5173` with mock data, so you do not need the stack. See [Development](dev/development.md).

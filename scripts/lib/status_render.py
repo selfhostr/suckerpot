@@ -1,4 +1,4 @@
-"""Renders `scripts/status.sh` (docs/design/m32.md section 10). Run inside the ingest container:
+"""Renders `scripts/status.sh` (docs/dev/design/m32.md section 10). Run inside the ingest container:
 
     docker compose exec -T ingest python -I -c "$(cat scripts/lib/status_render.py)" [--json]
 

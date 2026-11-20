@@ -1,4 +1,4 @@
-"""First-run setup (M28, ``docs/design/m28.md`` 4): progress, and the ports table.
+"""First-run setup (M28, ``docs/dev/design/m28.md`` 4): progress, and the ports table.
 
 The progress is one row of ``setup_progress``. The routes never start or stop anything and never
 learn the honeypot's public address: the ports table only says which sensor received traffic.

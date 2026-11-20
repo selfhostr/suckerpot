@@ -1,5 +1,5 @@
 /**
- * The SuckerPot network (M29, docs/design/m29.md sections 7 and 9.6): shapes of the node API
+ * The SuckerPot network (M29, docs/dev/design/m29.md sections 7 and 9.6): shapes of the node API
  * under `/api/v1/network`, the plain-English sentences of the pages, the consent list and the
  * calls. The mocks in `src/mocks/network.ts` match these types exactly (a test checks it).
  *
@@ -489,7 +489,7 @@ const RESERVED = new Set([
   "suckerpot",
 ])
 
-/** The same rules as the server (docs/design/m29.md 9.7). Empty is fine: it stays anonymous. */
+/** The same rules as the server (docs/dev/design/m29.md 9.7). Empty is fine: it stays anonymous. */
 export function validatePseudonym(raw: string): string | null {
   const v = raw.trim()
   if (v === "") return null

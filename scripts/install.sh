@@ -6,7 +6,7 @@
 #   ./scripts/install.sh
 #
 # It checks the machine, asks a few questions, generates every secret on this host, writes .env
-# (mode 0600), creates the data volumes and starts the stack. See docs/design/m28.md section 2.
+# (mode 0600), creates the data volumes and starts the stack. See docs/dev/design/m28.md section 2.
 #
 # It never overwrites an existing .env, never adopts existing data volumes, never edits the
 # host's sshd configuration and never looks up this machine's public address (that request would
@@ -27,7 +27,7 @@
 #                      [--no-network]  (do not ask about the SuckerPot network)
 #                      [--dry-run --env-out PATH]
 #
-#   Participant mode (docs/design/m32.md): sensors, database, ingest and the network node, no
+#   Participant mode (docs/dev/design/m32.md): sensors, database, ingest and the network node, no
 #   dashboard, no admin account, no VPN needed (the hub is reached through hubproxy):
 #   scripts/install.sh --participant [--yes] [--pseudonym NAME | --no-pseudonym]
 #                      [--country CC [--show-country]] [--wg-conf PATH [--verifier]]
@@ -883,7 +883,7 @@ else
     if [ "$stack" = full ]; then
       if [ "$lowmem" = on ]; then setv COMPOSE_FILE docker-compose.yml:docker-compose.lowmem.yml; fi
     else
-      # Participant mode (docs/design/m32.md section 4.1). The hub address and key are NOT copied:
+      # Participant mode (docs/dev/design/m32.md section 4.1). The hub address and key are NOT copied:
       # ingest reads the defaults baked into the signed image; an explicit value here would win.
       cf=docker-compose.yml
       if [ "$lowmem" = on ]; then cf="$cf:docker-compose.lowmem.yml"; fi

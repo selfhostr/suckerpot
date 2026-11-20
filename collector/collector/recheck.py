@@ -1,4 +1,4 @@
-"""Takedown re-checks (M27, docs/design/m27.md section 4.3): is a payload URL still serving?
+"""Takedown re-checks (M27, docs/dev/design/m27.md section 4.3): is a payload URL still serving?
 
 The only request this module ever makes is one bounded GET to a URL that already served a sample to
 this collector, through the egress client, with the same identity and caps as the original fetch and

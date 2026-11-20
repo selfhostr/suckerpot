@@ -1,5 +1,5 @@
 /**
- * The setup checklist (M24, docs/design/m24.md section 3): shape of `GET /api/v1/setup/status`
+ * The setup checklist (M24, docs/dev/design/m24.md section 3): shape of `GET /api/v1/setup/status`
  * (administrators only), the words for each item and the one-sentence summary.
  */
 import { getJson } from "./api"

@@ -1,5 +1,5 @@
 /**
- * Replies and outcomes of abuse reports (M26, docs/design/m26.md section 11): shapes of the IMAP
+ * Replies and outcomes of abuse reports (M26, docs/dev/design/m26.md section 11): shapes of the IMAP
  * profile, the replies and the outcome of a report, the plain-English labels and the calls.
  * Reply text is hostile input: it is shown as text only, never as HTML, and links stay inert.
  */

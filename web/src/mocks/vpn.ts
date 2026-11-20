@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M23 VPN endpoints (docs/design/m23.md section 6). Demo data only:
+ * MSW handlers for the M23 VPN endpoints (docs/dev/design/m23.md section 6). Demo data only:
  * addresses are in the documentation ranges and keys are fake. State lives for the page load.
  *
  * Starting states: the default (settings from .env, gate open), `?vpn=upload` (uploaded

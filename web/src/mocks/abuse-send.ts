@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M25 sending endpoints (docs/design/m25.md): the send queue, the optional
+ * MSW handlers for the M25 sending endpoints (docs/dev/design/m25.md): the send queue, the optional
  * SMTP profile and the send routes. Stateful for the page load. Hosts and mailboxes are on
  * example.* domains; no real address appears. The password "wrong" fails the re-authentication.
  */

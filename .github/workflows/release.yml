@@ -395,7 +395,7 @@ jobs:
           docker volume ls -q --filter "name=^${PROJECT}_" | xargs -r docker volume rm
 
   manifest:
-    # Publishing only: the signed release manifest (D7 and M11 of docs/design/m32.md).
+    # Publishing only: the signed release manifest (D7 and M11 of docs/dev/design/m32.md).
     if: needs.prepare.outputs.publish == 'true'
     needs: [prepare, merge]
     runs-on: ubuntu-24.04

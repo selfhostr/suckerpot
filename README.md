@@ -10,7 +10,16 @@
 
 ## Overview
 
-`suckerpot` runs fake services that take attacks and records what the attacker does, without ever running it. A single dashboard opens each page with a plain-English finding. It is passive and opt-in: no counter-scans, no hacking back, no automatic reporting. Free, for good: MIT licence, no paid edition.
+**See attacks, block them, and get them cleaned up at the source.**
+
+`suckerpot` runs fake services that take attacks and records what the attacker does, without ever running it. It is one product in four parts:
+
+- **Observe.** Sensors take the attacks, and one dashboard tells each attack as a short story.
+- **Defend.** Scored blocklists, firewall exports, Sigma and Suricata rules, and a view of your own exposure.
+- **Report.** Abuse reports to the abuse contact of the attacking network, sent by hand, with one click or automatically, with replies and takedowns tracked. The goal: get compromised machines cleaned up.
+- **Share.** An opt-in network of independent nodes that confirm targets together, publish a community blocklist, report at network level and feed a public observatory.
+
+`suckerpot` never probes an attacker: no scan, no counter-scan, no hack back, no connection to an attacking host. The optional collector is the one exception, and it is off by default: it downloads, once and through the VPN only, the file an attacker told the honeypot to fetch, as the victim would. A report is a mail to the abuse contact the network publishes; reporting is off by default and you choose how it is sent. Free, for good: MIT licence, no paid edition.
 
 > **`suckerpot` is meant to be attacked.** Deploy it only on an isolated host or VM that you are ready to lose.
 
@@ -35,19 +44,17 @@ The optional SuckerPot network is an experimental preview, off unless you ask fo
 
 ## Features
 
-- **Twelve sensors.** SSH, Telnet, ADB, Web, Docker, Synology, Redis, MySQL, MSSQL, RDP, SMB and SIP.
-- **Readable dashboard.** Every IP, country, tag or URL links to a filtered view, and every filter lives in the URL.
-- **Enrichment and tags.** GeoIP and ASN, optional reputation lookups, and a YAML rules engine.
-- **Campaigns and MITRE ATT&CK.** Techniques and a script library, each with a plain-English story.
-- **Defend.** Scored blocklists, OPNsense and pfSense exports, Sigma and Suricata rules.
-- **Alerts and a weekly report.** Discord, Microsoft Teams and e-mail, every rule off until you switch it on.
+- **Observe.** Twelve sensors (SSH, Telnet, ADB, Web, Docker, Synology, Redis, MySQL, MSSQL, RDP, SMB and SIP), six of them on by default. A dashboard where every IP, country, tag or URL links to a filtered view, with campaigns, MITRE ATT&CK techniques, a script library and a terminal replay for SSH and Telnet. Alerts to Discord, Microsoft Teams and e-mail, every rule off until you switch it on.
+- **Defend.** Scored blocklists with a reason for every point, OPNsense and pfSense exports, Sigma and Suricata rules.
+- **Report.** Abuse reports behind your VPN, an identity guard that blocks anything pointing back to you, paced automatic sending that only sends fresh evidence, reply matching and takedown tracking ([Reporting attacks](docs/reporting.md)).
+- **Share.** The opt-in network, a free community blocklist and public network figures ([The network](docs/network.md)).
 - **Hardened by default.** Non-root, read-only containers, isolated networks, one Redis ACL user per sensor.
 
 Details: [What suckerpot does](docs/features.md).
 
 ## Architecture
 
-Sensors feed Redis Streams, ingest enriches and stores the events in PostgreSQL with TimescaleDB, and a FastAPI service serves the React dashboard. Sensors are the only services published to the internet and can reach Redis and nothing else. See [Architecture](docs/ARCHITECTURE.md).
+Sensors feed Redis Streams, ingest enriches and stores the events in PostgreSQL with TimescaleDB, and a FastAPI service serves the React dashboard. Sensors are the only services published to the internet and can reach Redis and nothing else. Optional workers in ingest build and send abuse reports through the VPN only, and exchange daily batches with the network hub. See [Architecture](docs/ARCHITECTURE.md).
 
 ## Limits
 
@@ -56,6 +63,7 @@ Sensors feed Redis Streams, ingest enriches and stores the events in PostgreSQL 
 - Alpha: before 1.0 the API, the database schema and the installer can change between minor versions.
 - The web and Synology sensors are still under security review.
 - Delivery from sensors to the database is at least once, so a crash can count a batch twice.
+- Abuse reports only help when the network operator acts. Many never answer, and automatic sending needs a mail provider that accepts abuse reports ([details](docs/reporting.md#sending-without-getting-blocked)).
 
 ## Contributing
 

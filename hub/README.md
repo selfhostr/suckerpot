@@ -1,31 +1,31 @@
 # SuckerPot network hub: operator guide
 
-The hub is the server of the SuckerPot network. It takes the daily batches from member systems, confirms the targets that enough independent sensors agree on, sends abuse reports for them, and publishes the network's figures. It is a separate deployment. It lives in `hub/`, with its own `docker-compose.yml`, its own database and its own migrations.
+The hub is the server of the SuckerPot network. It takes the daily batches from nodes, confirms the targets that enough independent nodes agree on, sends abuse reports for them, and publishes the network's figures. It is a separate deployment. It lives in `hub/`, with its own `docker-compose.yml`, its own database and its own migrations.
 
-This guide is for the person who runs a hub. For what members see and share, read [The SuckerPot network](../docs/network.md). For the wire format, read [Network protocol](../docs/network-protocol.md). The design and its review are in [M29](../docs/design/m29.md).
+This guide is for the person who runs a hub. For what nodes see and share, read [The SuckerPot network](../docs/network.md). For the wire format, read [Network protocol](../docs/network-protocol.md). The design and its review are in [M29](../docs/dev/design/m29.md).
 
 Every example uses placeholders. The public name is `hub.example.org`, and addresses come from the documentation ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`).
 
 ## Where to run the hub
 
-Run the hub on its own host, not on a member's connection.
+Run the hub on its own host, not on a node's connection.
 
-- **Never on a home line.** A member's home address must never be the hub's address, and must never be the address that sends abuse reports. A home line also changes IP addresses and goes down often.
-- **Not on a sensor host.** Keep the hub off any machine that runs a sensor or a member's dashboard.
+- **Never on a home line.** A node's home address must never be the hub's address, and must never be the address that sends abuse reports. A home line also changes IP addresses and goes down often.
+- **Not on a node.** Keep the hub off any machine that runs a sensor or a node's dashboard.
 - **A machine you can dedicate.** A small virtual server in a data centre is the usual choice.
 
 The host needs:
 
 | Need | Why |
 | --- | --- |
-| A public IPv4 address (IPv6 if you can) | Members connect to it. Caddy also needs it for the certificate |
+| A public IPv4 address (IPv6 if you can) | Nodes connect to it. Caddy also needs it for the certificate |
 | Inbound TCP 80 and 443 | Let's Encrypt validation and the HTTPS API |
 | A DNS record for `HUB_DOMAIN` that points at the host | Caddy gets its certificate for this name |
 | Outbound access | RDAP (to find abuse contacts), the report mailbox (SMTP over TLS), and the optional lookup sources |
 | Docker with Compose | Everything runs in containers |
 | 2 GB of RAM or more, and 2 vCPUs | The compose file sets a memory limit on each service |
 
-The hub's address becomes public the first time a member joins. Treat the host as public from day one.
+The hub's address becomes public the first time a node joins. Treat the host as public from day one.
 
 ## Architecture
 
@@ -78,7 +78,7 @@ Three database roles keep the parts apart. `hub_api` can write nodes, nonces, ch
    docker compose run --rm hub-admin show-public-key --key-file /keys/hub_signing_key
    ```
 
-   The second command prints `hub_key=...`. This is the public key. Publish it to members as `NETWORK_HUB_KEY`, together with `NETWORK_HUB_URL=https://hub.example.org`, through a channel you control.
+   The second command prints `hub_key=...`. This is the public key. Publish it to nodes as `NETWORK_HUB_KEY`, together with `NETWORK_HUB_URL=https://hub.example.org`, through a channel you control.
 
 4. Start the stack and wait for the health checks:
 
@@ -133,7 +133,7 @@ Upgrading an existing tunnel install: the overlay gives `hub-public` a fixed sub
 
 Things to know:
 
-- **Cloudflare sees client addresses and request contents.** It ends TLS, so it handles every request. The "no client address is logged" promise covers the hub only. Turn off Cloudflare logging and analytics for these hostnames where you can, and tell members that this mode puts a third party in the path.
+- **Cloudflare sees client addresses and request contents.** It ends TLS, so it handles every request. The "no client address is logged" promise covers the hub only. Turn off Cloudflare logging and analytics for these hostnames where you can, and tell nodes that this mode puts a third party in the path.
 - **Report mail goes through the proxy too.** When `HTTPS_PROXY`, `HTTP_PROXY` or `ALL_PROXY` is set (upper or lower case), the mailer opens an HTTP `CONNECT` tunnel to the SMTP host through the proxy (Basic proxy authentication from the URL, percent-decoded), then uses implicit TLS on port 465 or STARTTLS otherwise, with full certificate and host name checks against `HUB_SMTP_HOST`. In this mode TLS is always required, whatever `HUB_SMTP_STARTTLS` says, and there is never a direct connection or a fallback to one. A literal SMTP address must be public. If the proxy or the VPN is down, refuses the tunnel, or the link breaks before the message is sent, the mailer logs a constant code (`proxy_unreachable`, `proxy_refused`, `smtp_link_down`, ...), never a password, and leaves the reports approved and queued for the next run. Only a definitive SMTP answer from the server marks a report failed.
 - **Keep the proxy credentials secret.** They live in `.env`, which is never committed.
 
@@ -145,7 +145,7 @@ Set these in `hub/.env`. The defaults are the values in the code, and in `.env.e
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `HUB_DOMAIN` | none (required) | Public name of the hub. Members use it as `NETWORK_HUB_URL` |
+| `HUB_DOMAIN` | none (required) | Public name of the hub. Nodes use it as `NETWORK_HUB_URL` |
 | `HUB_VOLUME_PREFIX` | none (required) | Prefix of the two external volumes |
 | `HUB_DB_PASSWORD` | none (required) | Database owner. Used by `hub-db`, `hub-migrate` and `hub-backup` |
 | `HUB_API_DB_PASSWORD` | none (required) | Role `hub_api` |
@@ -292,8 +292,11 @@ A report never contains a node id, a pseudonym, a fingerprint, a node's address,
 
 ### What gets reported
 
-- An address with a severe activity (a login that worked, a command, a download or an exploit) from enough nodes, or with 100 or more login attempts from enough nodes.
-- A link or a file-hosting domain that at least two nodes fetched, once the link is confirmed. The fetched content must be malware-like: a known malware family or an executable or script file type (ELF, PE, shell, Python, Perl, PHP). An HTML page, plain text, an archive or an unknown type never qualifies, so an ordinary page of a compromised site is not listed or reported.
+Only confirmed targets, and only the observations of eligible nodes from the last `HUB_WINDOW_DAYS` (7) count. The rules are in `hub/reports/select.py`.
+
+- An address from which at least `HUB_MIN_NODES` (5) eligible nodes saw a severe activity (a login that worked, a command, a download or an exploit), when the target's k-supported activity also lists it. Or an address from which at least `HUB_MIN_NODES` eligible nodes each sent an `attempts` bucket of 3 or more for one day, that is 100 or more login attempts on that node that day.
+- A link or a file-hosting domain that at least two eligible nodes fetched, once the link is confirmed and its value revealed. The fetched content must be malware-like: a known malware family or an executable or script file type (ELF, PE, shell, Python, Perl, PHP). An HTML page, plain text, an archive or an unknown type never qualifies, so an ordinary page of a compromised site is not listed or reported.
+- A payload host given as an address: a malware-like file fetched from it by at least two eligible nodes, and the address seen by at least `HUB_MIN_NODES` eligible nodes in all. A URL typed into a honeypot names a host but proves nothing about it.
 - A command server that is confirmed. Command servers are always reported by hand.
 
 Scans and connections alone are never reported. A target that has been reported is not reported again. A target that came back after a takedown can be reported again, but only when its earlier report is more than 30 days old.
@@ -319,7 +322,7 @@ docker compose run --rm hub-admin reports cancel 42
 Before you approve, check:
 
 - **The targets.** Is each address really an attacker, and not a shared service? A public resolver, a large CDN or a package mirror should be on the never-list (`never add`), not in a report.
-- **The timing.** Does the day range make sense? A single odd day can be a probe from a member. Ask whether the evidence would also fit a test from your own network.
+- **The timing.** Does the day range make sense? A single odd day can be a probe from a node. Ask whether the evidence would also fit a test from your own network.
 - **The recipient.** Is the abuse contact the one for that network? The hub gets it from RDAP.
 - **Command servers.** Check the dropper that named the server. A command server that only one file vouches for is a weak case.
 - **The wording.** The facts must match the evidence. If the wording is empty, the report states the facts only.
@@ -332,7 +335,7 @@ Use `auto` only after you have run `review` for a while and trust the consensus.
 
 ### Abuse handling
 
-When a desk replies, or a member or someone else reports a mistake:
+When a desk replies, or a node or someone else reports a mistake:
 
 - `target dispute <id> --note "..."` marks the target disputed, and lowers the reputation of the nodes that supported it. Use it when a report was wrong.
 - `never add <value> --kind ip|domain|sha256 --note "..."` puts a value on the never-list. The hub stops confirming it, and recheck disputes any confirmed target that matches.
@@ -382,7 +385,7 @@ docker compose run --rm hub-admin abusech reject 8
 
 ## Public feeds
 
-The hub publishes the community blocklists on `HUB_FEEDS_DOMAIN` (for example `feeds.example.org`). They are free and public, and they are built from the same consensus as the reports. The design is in [M30](../docs/design/m30.md). The guide for people who download the lists is [Community blocklist feeds](../docs/feeds.md).
+The hub publishes the community blocklists on `HUB_FEEDS_DOMAIN` (for example `feeds.example.org`). They are free and public, and they are built from the same consensus as the reports. The design is in [M30](../docs/dev/design/m30.md). The guide for people who download the lists is [Community blocklist feeds](../docs/feeds.md).
 
 Publishing is **off by default**: `HUB_FEED_MODE=off`. While it is off, the worker reads and writes nothing, and the feed site serves only its README.
 
@@ -549,7 +552,7 @@ Feed tests run in `just test`. The end-to-end feed test runs in `just hub-integr
 
 ## Public network observatory
 
-The worker can publish `network.json` on the feed site: anonymised figures about the network for the project site (node counts, the bootstrap state, confirmations, reports, takedowns and the attack traffic the network sees). The design, the schema and every anonymity rule are in [M34](../docs/design/m34.md); the public description is in [The SuckerPot network](../docs/network.md#public-network-figures).
+The worker can publish `network.json` on the feed site: anonymised figures about the network for the project site (node counts, the bootstrap state, confirmations, reports, takedowns and the attack traffic the network sees). The design, the schema and every anonymity rule are in [M34](../docs/dev/design/m34.md); the public description is in [The SuckerPot network](../docs/network.md#public-network-figures).
 
 It is **off by default**. It does not depend on `HUB_FEED_MODE`: the lists can stay off while the observatory publishes.
 
@@ -613,14 +616,14 @@ Each cycle runs these steps. A failing step is logged by type and does not stop 
 3. Reads the takedown votes.
 4. Re-checks the never-list against confirmed targets.
 5. Expires targets that nobody has seen for 30 days.
-6. Once a day: reputation, weekly member statistics and the network summary.
+6. Once a day: reputation, weekly node statistics and the network summary.
 7. With `HUB_OBSERVATORY_ENABLED=true`: counts the newly final days and, once a day, publishes `network.json`.
 8. Runs retention.
 9. Queues, approves and sends reports, if the mode allows it.
 10. Queues, approves and sends abuse.ch submissions, if a mode and an Auth-Key are set.
 11. Writes a heartbeat. The container health check fails when the heartbeat is older than three cycles.
 
-Takedown votes come from members' local re-checks. A vote counts only for a target the hub asked that node to re-check that day, once (the `recheck_assignments` table, pruned after 3 days). Members do not send those yet in this release, so no target moves to `taken_down` for now. See [Takedown checks](../docs/network.md#takedown-checks).
+Takedown votes come from nodes' local re-checks. A vote counts only for a target the hub asked that node to re-check that day, once (the `recheck_assignments` table, pruned after 3 days). Nodes do not send those yet in this release, so no target moves to `taken_down` for now. See [Takedown checks](../docs/network.md#takedown-checks).
 
 ## Retention
 
@@ -631,7 +634,7 @@ Takedown votes come from members' local re-checks. A vote counts only for a targ
 | Nonces and enrolment challenges | Until they expire (10 minutes) |
 | Contributor links | Until the target is resolved, or 30 days |
 | Takedown votes | 30 days |
-| Weekly member statistics | 8 weeks |
+| Weekly node statistics | 8 weeks |
 | Candidate targets that nobody saw again | 14 days |
 | Expired targets | 180 days after their last update |
 | Recipient log (report counts per day) | 90 days |
@@ -645,7 +648,7 @@ Takedown votes come from members' local re-checks. A vote counts only for a targ
 
 The `hub-backup` service runs `pg_dump` once a day, in custom format. It keeps the seven newest dumps in the `<HUB_VOLUME_PREFIX>_backups` volume. The health check is healthy while a dump is less than 26 hours old.
 
-A dump holds the node public keys, pseudonyms, countries that members showed, enrolment days, the last 14 days of observations, the report texts and the audit log. Treat the volume as sensitive:
+A dump holds the node public keys, pseudonyms, countries that nodes showed, enrolment days, the last 14 days of observations, the report texts and the audit log. Treat the volume as sensitive:
 
 - keep it on a private disk, and do not copy it to shared storage unless it is encrypted;
 - do not put dumps in a bug report or a chat;
@@ -666,9 +669,9 @@ Be aware of two things. First, a dump older than a node's leave brings that node
 
 Back up the signing key file separately, in a private and encrypted place. Do not store it in the same volume as the dumps. Without it, the hub cannot sign answers under the published key.
 
-If the key is lost, make a new one with `gen-signing-key`, publish the new `hub_key`, and tell members to update `NETWORK_HUB_KEY`. Their node keys stay valid, so they do not need to join again.
+If the key is lost, make a new one with `gen-signing-key`, publish the new `hub_key`, and tell nodes to update `NETWORK_HUB_KEY`. Their node keys stay valid, so they do not need to join again.
 
-If the key leaks, an attacker can sign fake answers that members would accept. Make a new key at once, publish it through a channel you trust, and ask members to update. Treat every answer signed in the time between as suspect.
+If the key leaks, an attacker can sign fake answers that nodes would accept. Make a new key at once, publish it through a channel you trust, and ask nodes to update. Treat every answer signed in the time between as suspect.
 
 ## Health and monitoring
 
@@ -695,7 +698,7 @@ The integration run uses its own project name and its own volumes, and removes t
 
 - No web admin. Everything is done through the CLI.
 - No restore script yet (see [Restoring](#restoring)).
-- Takedown votes are not sent by members yet, so no target becomes `taken_down`.
+- Takedown votes are not sent by nodes yet, so no target becomes `taken_down`.
 - Command-server reports are always reviewed by hand. The hub never connects to a target itself. A confirmed target is a judgement by consensus, not a proof.
 - The community feeds are off until the project identity is set (the feed domain, the feed key and the delisting mailbox), and until a short legal review is done. `HUB_FEED_MODE` stays `off` until then.
 - The feeds corroborate with AbuseIPDB and GreyNoise only. URLhaus and ThreatFox are not used yet: the abuse.ch corroboration path of the selection code exists but is never fed, so an outbound entry always needs the sample evidence of two nodes.

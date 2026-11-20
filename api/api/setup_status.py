@@ -1,4 +1,4 @@
-"""The setup checklist (M24, ``docs/design/m24.md`` section 3). Admin only, read only.
+"""The setup checklist (M24, ``docs/dev/design/m24.md`` section 3). Admin only, read only.
 
 Every item is computed from real state with the API role: the last event of each sensor, the
 gate rows ingest and the collector publish, the reporting settings, the self addresses, the alert

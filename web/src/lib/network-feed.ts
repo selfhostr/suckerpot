@@ -1,5 +1,5 @@
 /**
- * The SuckerPot community lists (M30, docs/design/m30.md sections 4, 6 and 10.5): shapes of the
+ * The SuckerPot community lists (M30, docs/dev/design/m30.md sections 4, 6 and 10.5): shapes of the
  * node API under `/api/v1/network/feed`, the plain-English sentences of the Network tab of the
  * Blocklists page and the calls. The mocks in `src/mocks/network-feed.ts` match these types
  * exactly (a test checks it).

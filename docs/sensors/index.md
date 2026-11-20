@@ -19,7 +19,7 @@ SuckerPot runs twelve sensors in four families. The family sets the colour in th
 | Windows and VoIP | [SMB](smb.md) | Windows Server file service, observation only | 445 | `events:smb` |
 | Windows and VoIP | [SIP](sip.md) | Asterisk-style PBX on UDP and TCP | 5060 (UDP and TCP) | `events:sip` |
 
-All twelve are wired into `docker-compose.yml`. The web and Synology sensors are still under security review (see the [roadmap](../ROADMAP.md)).
+All twelve are wired into `docker-compose.yml`. The web and Synology sensors are still under security review (see the [roadmap](../roadmap.md)).
 
 ## Rules every sensor follows
 
