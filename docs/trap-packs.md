@@ -146,7 +146,7 @@ A trap needs at least one of `path`, `query_keys`, `header_names` or `needles`.
 
 A trap that claims a CVE must hold specific evidence, one of:
 
-- a **specific needle condition**: in `query`, `body` or `headers` (never `path` or `blob`), and every needle of the condition (any one of them may match) has 6 bytes or more and does not occur in the trap's path. In `headers` each needle names its header, `name: value`, with a value of 6 bytes or more (`x-api-version: ${jndi`), so a generic value such as `mozilla` never counts;
+- a **specific needle condition**: in `query`, `body` or `headers` (never `path` or `blob`), and every needle of the condition (any one of them may match) has 6 bytes or more and does not occur in the trap's path. In `headers` each needle names its header, `name: value`, with a value of 6 bytes or more (`x-api-version: ${jndi`), so a generic value such as `mozilla` never counts. A needle on a header every client sends never counts either: `user-agent`, `accept` and `accept-*`, `connection`, `host`, `cache-control`, `pragma`, `upgrade-insecure-requests`, `sec-*`, `dnt`, `referer`, `cookie`, `content-type`, `content-length` and the other `content-*`, `te`, `priority`, `origin`, `x-requested-with`, `x-forwarded-*`, `x-real-ip`, `keep-alive`, `range`, `authorization`, `via`, `forwarded`, `upgrade`, `transfer-encoding`, `expect`, `from` and `if-*`. In `query` and `body`, a needle on a tracking key (`utm_*`, `fbclid`, `gclid`, `msclkid`, `yclid`, `dclid`, `igshid`, `mc_cid`, `mc_eid`, `_ga`, `_gl`, `ref`, `source`) never counts, nor one on a common key (`page`, `paged`, `lang`, `s`, `p`, `q`, `id`, `search`, `query`, `sort`, `order`, `format`, `callback`, `v`, `ver`, `cat`, `tag`, `author`, `feed`, `preview`, `replytocom`) with a value under 6 bytes;
 - an `exact` or `prefix` path of 12 bytes or more on a path the built-in site does not serve.
 
 The validator refuses a claiming trap without it (`evidence`). A pack can never turn `GET /` into an exploit.
@@ -182,6 +182,7 @@ Braces that are not a placeholder stay as text, so JSON bodies need no escaping.
 The validator refuses (`content`) a body or header that contains, in any case, as written or once every space, tab and line break is removed (browsers drop them inside URLs):
 
 - a URL scheme: `http:`, `https:`, `ftp:`, `javascript:`, `vbscript:`;
+- `{base_url}` followed by anything but `/`, `?`, `#`, a quote, a space or the end of the text (so `{base_url}@evil.example` or `{base_url}.evil.example` cannot name another host);
 - a URL value that leaves the site: `//`, `/\`, `\/`, `\\` or `data:` at the start of the text or right after `"`, `'`, `=`, `(` or `,` (so `src= //host`, `srcset="/a 1x, //host 2x"` and `url= //host` are refused);
 - a character reference other than `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and `&nbsp;` (no `&#...;`, no `&sol;`), so nothing can be spelled with entities;
 - an event handler attribute: `on` and letters, optional spaces, then `=` (`onload=`, `onerror =`), when it starts an attribute name;
@@ -211,11 +212,12 @@ A rendered body is at most 16 KiB. A pack can make a node answer like a vulnerab
 | Bundle file | 1 MiB of JSON, 64 packs loaded |
 | One pack | 64 KiB of canonical JSON, 16 traps |
 | Traps loaded | 512, of which at most 32 without a path condition |
-| Distinct needles of traps without a path | 128 (they are searched on every request) |
+| Distinct needles of traps without a path | 64 (they are searched on every request) |
 | Needles | 16 per condition, 6 conditions per trap, 2 to 256 bytes each |
 | Compiled memory | 4 MiB per trap set (an estimate that a test checks is an upper bound) |
-| Work per request | Traps with a path run most specific first and share 128 distinct needle searches; the traps the budget skips are counted in the event as `data.trap_budget`. Traps without a path have their own budget, as large as their 128 distinct needles, so they always run and a crafted request cannot starve them |
+| Work per request | Traps run most specific path first. Traps with a path share 96 distinct needle searches and 512 KiB of searched bytes; traps without a path have their own 64 searches and 512 KiB, so they cannot be starved. At most 160 searches and 1 MiB per request, whatever the packs and the request. The traps the budget skips are counted in the event as `data.trap_budget` |
 | Cost | p99 under 2 ms added per request with the limits filled (tested) |
+| Worst case | A request crafted against needles chosen to be slow (`aaa...b` over `aaa...`) adds at most 5 ms (tested; about 1 ms measured) |
 
 **Room for new flaws.** Packs load newest `disclosed` first. Packs disclosed more than 90 days ago may use only three quarters of each limit, so a new pack always has room. A pack that does not fit is rejected as `over_limit`.
 

@@ -22,11 +22,16 @@ from suckerpot_common import traps as fmt
 log = logging.getLogger("web_sensor.traps")
 
 BUNDLED = Path(__file__).parent / "data" / "traps-bundled.json"
-# Per request, traps with a path condition share this many distinct needle searches (each over at
-# most 32 KiB); traps without one have their own budget (fmt.MAX_UNPATHED_NEEDLES). With every load
-# limit filled this keeps the added cost near 1 ms. Traps the budget skips are reported in the
-# event (data.trap_budget) and counted in ``TrapSet.budget_exhausted``.
-MAX_SEARCHES = 128
+# Per-request search budget. A search of one needle costs at most about 3 ns per haystack byte on
+# crafted input (a needle like "aaaa...b" over "aaaa..."), so the budget counts both searches and
+# haystack bytes. Traps with a path share MAX_SEARCHES searches and MAX_SCAN_BYTES; traps without
+# one have their own MAX_UNPATHED_SEARCHES and MAX_SCAN_BYTES, so path traps can never starve them.
+# Worst case: 160 searches and 1 MiB scanned, about 3 ms on the reference host whatever the
+# packs and the request (tested); typical requests stay far below. Traps the budget skips are
+# reported in the event (data.trap_budget) and counted in ``TrapSet.budget_exhausted``.
+MAX_SEARCHES = 96
+MAX_UNPATHED_SEARCHES = fmt.MAX_UNPATHED_NEEDLES  # 64: every distinct unpathed needle fits
+MAX_SCAN_BYTES = 512 * 1024  # per class (path traps, unpathed traps)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,13 +144,14 @@ class TrapSet:
         """Every trap whose conditions all hold, and how many traps the search budget skipped.
 
         Traps run most specific path first. Traps with a path share ``MAX_SEARCHES`` distinct
-        needle searches; when it is spent, the remaining ones that still need a search are
-        skipped (and counted). Traps without a path have their own budget, as large as their
-        distinct needles may be, so a request crafted to match many path traps can never starve
-        them. Linear in the bounded trap and needle data."""
+        needle searches and ``MAX_SCAN_BYTES`` of haystack; when either is spent, the remaining
+        ones that still need a search are skipped (and counted). Traps without a path have their
+        own budget, so a request crafted to match many path traps can never starve them. Linear
+        in the bounded trap and needle data."""
         hits: list[Hit] = []
         memo: dict[tuple[str, bool, bytes], bool] = {}
-        budget = {True: MAX_SEARCHES, False: fmt.MAX_UNPATHED_NEEDLES}
+        budget = {True: MAX_SEARCHES, False: MAX_UNPATHED_SEARCHES}
+        scan = {True: MAX_SCAN_BYTES, False: MAX_SCAN_BYTES}
         skipped = 0
         for pack, trap in self._traps:
             if trap.methods and method not in trap.methods:
@@ -167,9 +173,11 @@ class TrapSet:
                     key = (cond.area, trap.exact_case, needle)
                     seen = memo.get(key)
                     if seen is None:
-                        if budget[pathed] <= 0:
+                        cost = max(len(hay), 64)
+                        if budget[pathed] <= 0 or scan[pathed] < cost:
                             break
                         budget[pathed] -= 1
+                        scan[pathed] -= cost
                         seen = needle in hay
                         memo[key] = seen
                     if seen:

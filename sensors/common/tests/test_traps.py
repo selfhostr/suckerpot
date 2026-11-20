@@ -285,6 +285,10 @@ def test_get_slash_can_never_be_an_exploit() -> None:
         '<a href="data:text/html,x">',
         "<link rel=stylesheet href=/a.css>",
         "<style>body{}</style>",
+        # Re-review N1: {base_url} followed by anything but a path, query or fragment.
+        '<a href="{base_url}@evil.example/">x</a>',
+        '<img src="{base_url}.evil.example/x.png">',
+        "<a href={base_url}:8080/>x</a>",
         "<math><mi>x</mi></math>",
         "@import '/a.css';",
         '<div style="width:expression(1)">',
@@ -466,7 +470,7 @@ def test_trap_and_unpathed_limits() -> None:
     # Distinct needles of unpathed traps are capped too.
     many = pack("needly", traps_n=1, unpathed=1)
     many["traps"][0]["match"]["needles"] = [
-        {"in": "blob", "any": [f"n{c}-{i:02d}" for i in range(16)]} for c in range(6)
+        {"in": "blob", "any": [f"n{c}-{i:02d}" for i in range(16)]} for c in range(4)
     ]
     second = copy.deepcopy(many)
     second["id"] = "needly-two"
@@ -642,3 +646,71 @@ def test_status_and_body_and_location_agree() -> None:
     assert reason(respond(status=302, headers=[["Cache-Control", "no-store"]])) == "schema"
     traps.validate_pack(respond(status=302, headers=[["Location", "/login"]]))
     assert reason(respond(status=200, headers=[["Location", "/login"]])) == "schema"
+
+
+def test_base_url_cannot_name_another_host() -> None:
+    """Re-review N1: {base_url} only ends a value or starts a path, query or fragment."""
+
+    def location(value: str) -> dict[str, Any]:
+        obj = example()
+        obj["traps"][0]["respond"].update(status=302, headers=[["Location", value]])
+        return obj
+
+    assert reason(location("{base_url}@evil.example/")) == "content"
+    assert reason(location("{base_url}.evil.example/")) == "content"
+    for ok in ("{base_url}", "{base_url}/login", "{base_url}?a=1", "{base_url}#top"):
+        traps.validate_pack(location(ok))
+    obj = example()
+    obj["traps"][0]["respond"]["variants"] = ['<a href="{base_url}/x">home</a> "{base_url}"']
+    traps.validate_pack(obj)
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "user-agent: mozilla/5.0",
+        "connection: keep-alive",
+        "accept-language: en-us,en",
+        "accept: text/html,application",
+        "sec-fetch-mode: navigate",
+        "cookie: wordpress_logged_in",
+        "content-type: application/json",
+        "if-none-match: abcdef",
+        "host: 192.0.2.10",
+    ],
+)
+def test_common_header_needles_are_never_specific(needle: str) -> None:
+    """Re-review M2(a) and L5: needles on headers every client sends are neither evidence nor
+    enough to answer on a page the site serves."""
+    assert reason(_claiming({"needles": [{"in": "headers", "any": [needle]}]})) == "evidence"
+    obj = example()
+    obj["traps"][0]["match"] = {
+        "path": {"exact": "/wp-login.php"},
+        "needles": [{"in": "headers", "any": [needle]}],
+    }
+    assert reason(obj) == "schema"
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "utm_source=newsletter",
+        "?utm_campaign",
+        "fbclid=abcdef",
+        "gclid=123456",
+        "page=2",
+        "&s=hello",
+    ],
+)
+def test_tracking_and_common_query_needles_are_not_evidence(needle: str) -> None:
+    """Re-review L5."""
+    for area in ("query", "body"):
+        assert reason(_claiming({"needles": [{"in": area, "any": [needle]}]})) == "evidence"
+
+
+def test_specific_query_needles_still_count() -> None:
+    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["page=../../../etc"]}]}))
+    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["cmd=wget%20"]}]}))
+    traps.validate_pack(
+        _claiming({"needles": [{"in": "headers", "any": ["x-api-version: ${jndi"]}]})
+    )

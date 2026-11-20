@@ -273,8 +273,8 @@ def test_search_budget_bounds_the_work_and_never_starves_unpathed_traps() -> Non
     ]  # fmt: skip
     ts = trapset(obj)
     a = Detector(Config(), ts).analyze(req(path="/x", headers=[("X-Mark", "yes")]), "192.0.2.1")
-    assert ts.budget_exhausted == 1  # 240 distinct searches wanted, 128 allowed
-    assert a.trap_budget == 15 - 128 // 16  # the path traps that did not get their searches
+    assert ts.budget_exhausted == 1  # 240 distinct searches wanted, 96 allowed
+    assert a.trap_budget == 15 - traps.MAX_SEARCHES // 16  # path traps that got no search
     assert [h.trap.id for h in a.trap_hits] == ["unpathed"]
 
 
@@ -289,7 +289,7 @@ async def test_budget_marker_reaches_the_event(start_with: StartWith) -> None:
         h.sensor.detector = Detector(h.cfg, trapset(obj))
         await h.raw(b"GET /x HTTP/1.1\r\nHost: 192.0.2.10\r\nConnection: close\r\n\r\n")
         data = (await h.events("http_request"))[0].data
-        assert data["trap_budget"] == 2
+        assert data["trap_budget"] == 10 - traps.MAX_SEARCHES // 16
 
 
 # -- fake answers ----------------------------------------------------------------------------
@@ -459,7 +459,7 @@ def _full_objs(heavy: bool = True) -> list[dict[str, Any]]:
     for p in range(2):
         items = []
         for t in range(16):
-            conds = [{"in": area, "any": [needle(), needle()]} for area in ("blob", "headers")]
+            conds = [{"in": area, "any": [needle()]} for area in ("blob", "headers")]
             items.append(
                 {
                     "id": f"u{t}",
@@ -577,3 +577,119 @@ def test_loader_applies_the_limits_to_the_bundled_file() -> None:
     ts = traps.load_bytes(data, today=TODAY)
     assert 0 < ts.size <= fmt.MAX_TRAPS
     assert Detector(Config(), ts).traps is ts
+
+
+# -- re-review: crafted worst case and the benign corpus --------------------------------------
+
+
+def _degenerate_objs() -> list[dict[str, Any]]:
+    """Packs at the limits whose needles are the worst case for a byte search ("aaa...b" over
+    "aaa..."): every search scans the whole area at about 3 ns per byte."""
+
+    def base(pid: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "schema": "suckerpot-trap/1", "id": pid, "version": 1, "engine": 1, "sensor": "web",
+            "title": pid, "cve": [], "disclosed": "2026-11-19",
+            "product": {"vendor": "V", "name": "N"}, "tag": pid, "traps": items,
+        }  # fmt: skip
+
+    objs = []
+    for p in range(2):  # 32 unpathed traps, 64 distinct needles
+        items = [
+            {"id": f"u{t}", "level": "probe", "outcome": {"flags": [f"deg_u{p}"]},
+             "match": {"needles": [{"in": area, "any": ["a" * 200 + f"b{p}{t:02d}"]}
+                                   for area in ("headers", "blob")]}}
+            for t in range(16)
+        ]  # fmt: skip
+        objs.append(base(f"deg-unpathed-{p}", items))
+    for p in range(28):
+        items = [
+            {"id": f"t{t}", "level": "probe", "outcome": {"flags": [f"deg_{p}"]},
+             "match": {"path": {"prefix": "/"},
+                       "needles": [{"in": ("headers", "blob", "body")[t % 3],
+                                    "any": ["a" * 200 + f"c{p}x{t}y{n}" for n in range(16)]}]}}
+            for t in range(16)
+        ]  # fmt: skip
+        objs.append(base(f"deg-pathed-{p:02d}", items))
+    return objs
+
+
+def _crafted_request() -> Request:
+    filler = "a" * 1000
+    return req(
+        "POST",
+        "/" + "a" * 4000,
+        query="a" * 4000,
+        body=b"a" * 16000,
+        headers=[("Host", "192.0.2.10"), ("User-Agent", "a" * 1000)]
+        + [(f"X-{i}", filler) for i in range(31)],
+    )
+
+
+def _added_ms(ts: traps.TrapSet, r: Request, runs: int = 5) -> float:
+    full, none = Detector(Config(), ts), Detector(Config(), traps.TrapSet.empty())
+    times: dict[str, list[float]] = {"full": [], "none": []}
+    for _ in range(runs):
+        for name, det in (("full", full), ("none", none)):
+            start = time.perf_counter()
+            det.analyze(r, "192.0.2.1")
+            times[name].append(time.perf_counter() - start)
+    return (min(times["full"]) - min(times["none"])) * 1000
+
+
+def test_crafted_worst_case_cost_is_bounded() -> None:
+    """Re-review L6: an attacker who knows every needle fills each area with the byte pattern
+    that makes each search slowest. The budget (96 + 64 searches, 512 KiB of haystack per class)
+    bounds the work: about 1 MiB scanned at about 3 ns per byte, so near 3 ms. The bound below
+    (5 ms) leaves room for a slower CI host."""
+    validated = [fmt.validate_pack(o) for o in _degenerate_objs()]
+    kept, _ = fmt.select(validated, TODAY)
+    ts = traps.TrapSet.from_packs(kept)
+    assert sum(1 for p in kept if p.id.startswith("deg-unpathed")) == 2
+    crafted = _crafted_request()
+    samples = [_added_ms(ts, crafted) for _ in range(20)]
+    assert max(samples) < 5.0, samples
+    assert statistics.quantiles(samples, n=100)[98] < 5.0
+    # The bundled packs against a request crafted for their own needles.
+    jndi = "${jndi" * 600
+    bundled_req = req(
+        "GET",
+        "/vendor/phpunit" * 200,
+        query=jndi[:4000],
+        body=jndi.encode()[:16000],
+        headers=[("Host", "192.0.2.10")] + [(f"X-{i}", jndi[:1000]) for i in range(31)],
+    )
+    assert max(_added_ms(traps.bundled(), bundled_req) for _ in range(20)) < 2.0
+
+
+async def _parse(raw: bytes) -> Request | None:
+    import asyncio
+    import contextlib
+
+    from web_sensor.httpio import ConnReader, HttpError
+
+    reader = asyncio.StreamReader()
+    reader.feed_data(raw)
+    reader.feed_eof()
+    cr = ConnReader(reader, Config())
+    req_ = await cr.read_request(first=True)
+    if req_ is not None:
+        with contextlib.suppress(HttpError):
+            await cr.read_body(req_)
+    return req_
+
+
+async def test_no_pack_answers_or_flags_an_exploit_on_the_benign_corpus() -> None:
+    """Re-review M2(b): no responding trap of the repository's packs answers any request of the
+    benign corpus, and no pack trap hits it at exploit level."""
+    ts = traps.bundled()
+    site = _site()
+    files = sorted((FIXTURES / "benign").glob("*.http"))
+    assert len(files) >= 50
+    for path in files:
+        r = await _parse(path.read_bytes())
+        assert r is not None, path.name
+        a = Detector(Config(), ts).analyze(r, "192.0.2.1")
+        assert [h.trap.id for h in a.trap_hits if h.trap.level == "exploit"] == [], path.name
+        assert a.cve == [], path.name
+        assert site.trap_outcome(r, _ctx(), a.trap_hits, ts.groups) is None, path.name

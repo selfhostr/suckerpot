@@ -29,7 +29,7 @@ MAX_PACK_BYTES = 64 * 1024
 MAX_TRAPS_PER_PACK = 16
 MAX_TRAPS = 512
 MAX_UNPATHED = 32  # traps without a path condition are searched on every request
-MAX_UNPATHED_NEEDLES = 128  # distinct needles of those traps (keeps the per-request cost low)
+MAX_UNPATHED_NEEDLES = 64  # distinct needles of those traps (keeps the per-request cost low)
 MAX_CONDITIONS = 6
 MAX_NEEDLES = 16
 NEEDLE_MIN = 2
@@ -141,6 +141,28 @@ PACK_OWNED_FLAGS: tuple[tuple[str, str], ...] = (
 _OWNED = dict(PACK_OWNED_FLAGS)
 PATH_MIN_LOOSE = 4  # contains and suffix paths: at least this many bytes
 EVIDENCE_MIN = 6
+# Header names every browser or client sends: a needle on one of them is never specific, whatever
+# its value ("user-agent: mozilla", "connection: keep-alive" are in every request).
+COMMON_HEADERS = frozenset(
+    {
+        "user-agent", "accept", "connection", "host", "cache-control", "pragma", "te",
+        "upgrade-insecure-requests", "dnt", "referer", "cookie", "content-type", "content-length",
+        "priority", "origin", "x-requested-with", "x-forwarded-for", "x-forwarded-proto",
+        "x-real-ip", "keep-alive", "range", "authorization", "via", "forwarded", "upgrade",
+        "transfer-encoding", "expect", "from",
+    }
+)  # fmt: skip
+COMMON_HEADER_PREFIXES = ("accept", "sec-", "if-", "content-")
+# Query and form keys that tracking links, search and paging put in ordinary requests.
+TRACKING_PARAMS = frozenset(
+    {"fbclid", "gclid", "msclkid", "yclid", "dclid", "igshid", "mc_cid", "mc_eid", "_ga", "_gl",
+     "ref", "source"}
+)  # fmt: skip
+TRACKING_PREFIXES = ("utm_",)
+COMMON_PARAMS = frozenset(
+    {"page", "paged", "lang", "s", "p", "q", "id", "search", "query", "sort", "order", "format",
+     "callback", "v", "ver", "cat", "tag", "author", "feed", "preview", "replytocom"}
+)  # fmt: skip
 
 # Content rules: what a fake answer may never contain. Checked lowercased with placeholders masked,
 # both as written and with every ASCII whitespace removed (browsers drop tabs and newlines inside
@@ -178,6 +200,9 @@ _URL_OPENERS = ('"', "'", "=", "(", ",")
 _ENTITIES = ("&amp;", "&lt;", "&gt;", "&quot;", "&apos;", "&nbsp;")
 _WS = " \t\r\n\f\v"
 _ATTR_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-:.")
+# What may follow {base_url}: a path, the end of the value, a query or a fragment. Anything else
+# ("@evil.example", ".evil.example", ":8080") would name another host.
+_BASE_URL_NEXT = frozenset("/\"' \t\r\n#?")
 _SIMPLE_SLOTS = (
     "hostname",
     "server_ip",
@@ -531,6 +556,16 @@ def _check_content(tpl: Template, where: str) -> None:
     for start in _URL_STARTS:
         if tight.startswith(start) or any(o + start in tight for o in _URL_OPENERS):
             raise _fail("content", f"{where}: links to another host are not allowed")
+    # {base_url} is the start of a URL on this site: only a path, a query, a fragment or the end
+    # of the value may follow it.
+    pos = text.find("\x01")
+    while pos != -1:
+        nxt = text[pos + 1 : pos + 2]
+        if nxt and nxt not in _BASE_URL_NEXT:
+            raise _fail(
+                "content", f"{where}: {{base_url}} may only be followed by /, ?, # or the end"
+            )
+        pos = text.find("\x01", pos + 1)
     # Character references: only the few that cannot spell a URL or a tag.
     pos = text.find("&")
     while pos != -1:
@@ -756,14 +791,28 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str], pack_id: str)
 
 
 def _header_needle_specific(n: bytes) -> bool:
-    """A headers needle names its header: "name: value", with a value of 6 bytes or more."""
+    """A headers needle names its header, "name: value" with a value of 6 bytes or more, and the
+    header is not one every browser or client sends."""
     name, sep, value = n.partition(b": ")
+    text = name.decode("latin-1")
     return (
         bool(sep)
         and bool(name)
-        and all(chr(b) in _TOKEN for b in name)
+        and all(c in _TOKEN for c in text)
+        and text not in COMMON_HEADERS
+        and not text.startswith(COMMON_HEADER_PREFIXES)
         and len(value.strip()) >= EVIDENCE_MIN
     )
+
+
+def _param_needle_generic(n: bytes) -> bool:
+    """A query or form needle on a tracking key (utm_*, fbclid...), or on a common key (page, s,
+    id...) with a value under 6 bytes: ordinary requests carry those."""
+    key, _, value = n.lstrip(b"?&").partition(b"=")
+    text = key.decode("latin-1")
+    if text in TRACKING_PARAMS or text.startswith(TRACKING_PREFIXES):
+        return True
+    return text in COMMON_PARAMS and len(value) < EVIDENCE_MIN
 
 
 def strong_condition(c: Needles, t: Trap) -> bool:
@@ -777,6 +826,8 @@ def strong_condition(c: Needles, t: Trap) -> bool:
         if len(n) < EVIDENCE_MIN or (path and n.lower() in path):
             return False
         if c.area == "headers" and not _header_needle_specific(n.lower()):
+            return False
+        if c.area in ("query", "body") and _param_needle_generic(n.lower()):
             return False
     return True
 
