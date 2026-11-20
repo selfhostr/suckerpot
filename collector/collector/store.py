@@ -1,6 +1,6 @@
 """The quarantine store: sha256-named files, mode 0400, never executable.
 
-Layout (docs/design/m21.md section 5.5)::
+Layout (docs/dev/design/m21.md section 5.5)::
 
     <root>/.incoming/<random>        temp files, same filesystem, wiped at start
     <root>/ab/cd/abcd...<64 hex>     final files, no extension, ever

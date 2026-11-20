@@ -1,5 +1,5 @@
 /**
- * Sending abuse reports (M25, docs/design/m25.md): shapes of the send queue and the optional SMTP
+ * Sending abuse reports (M25, docs/dev/design/m25.md): shapes of the send queue and the optional SMTP
  * profile, the plain-English sentences for every error code, and the calls. By default nothing is
  * sent: mail leaves only after the owner sets up SMTP and picks a sending mode. The sentences and
  * the `mailto:` builder are pure and tested.

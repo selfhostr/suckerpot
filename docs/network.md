@@ -1,8 +1,8 @@
 # The SuckerPot network
 
-The SuckerPot network is a pool you can join and leave at any time. Many SuckerPot systems share what their sensors saw, in aggregate and without identities. The network confirms a target only when several independent sensors agree. It then sends one strong abuse report instead of many weak ones, and it follows the takedown.
+The SuckerPot network is a pool you can join and leave at any time. Many SuckerPot nodes share what their sensors saw, in aggregate and without identities. The network confirms a target only when several independent nodes agree. It then sends one strong abuse report instead of many weak ones, and it follows the takedown.
 
-This page is for members and for people who want to know what joining means. The hub operator reads `hub/README.md`. The exact wire format is in [Network protocol](network-protocol.md). The design and its review are in [M29](design/m29.md).
+This page is for people who run a node, and for people who want to know what joining means. The hub operator reads `hub/README.md`. The exact wire format is in [Network protocol](network-protocol.md). The design and its review are in [M29](dev/design/m29.md).
 
 ```{warning}
 **Experimental preview.** The SuckerPot network has very few nodes today. Its shared feed may be empty, and a participant gets nothing back yet. Thresholds and the protocol may change without notice. Known limits: identity is free, so the consensus does not yet resist a determined attacker who creates several nodes, and the hub run by the project maintainers is the single root of trust. The network is off unless you choose to join.
@@ -14,19 +14,19 @@ Joining is a choice you are always asked about, and the default answer is no. Th
 
 ## What joining means
 
-Joining turns your sensors into one voter in a shared network. Your system then:
+Joining turns your install into a node: one voter in a shared network. Your node then:
 
 - sends one daily batch of attacker addresses and a few related facts (see [What is shared](#what-is-shared-and-what-never-is));
 - receives the list of targets the network has confirmed, and shows it to you (today this list is usually empty, see the note above);
-- can see the network's totals and which members take part.
+- can see the network's totals and which nodes take part.
 
 You do not get a share of anything, and you do not get better detection. The benefit is for the internet: an address that many sensors agree on is more likely to be removed, and the people who run it are more likely to be told.
 
-Your system stays on your own machine. Nothing is installed on the hub side for you, and no account or e-mail address is created.
+Your node stays on your own machine. Nothing is installed on the hub side for you, and no account or e-mail address is created.
 
 ## Joining is always an explicit choice
 
-The network feature is off by default (`NETWORK_ENABLED=false`). To use it, set `NETWORK_ENABLED=true` and join. Nothing goes to the hub until this system has joined, and a join needs an explicit agreement:
+The network feature is off by default (`NETWORK_ENABLED=false`). To use it, set `NETWORK_ENABLED=true` and join. Nothing goes to the hub until this install has joined, and a join needs an explicit agreement:
 
 | Way to join | Who | Default |
 | --- | --- | --- |
@@ -54,14 +54,14 @@ When you join, you are shown five items. Each item is one kind of data. The API 
 | Item | What is sent | Form |
 | --- | --- | --- |
 | Attacker addresses | The addresses that attacked your sensors | Clear IP address, with the kind of service (for example `ssh`, `web`), a coarse activity (`connect`, `scan`, `login`, `login_success`, `command`, `download`, `exploit`, `http`), behaviour tags and rounded counts |
-| Download links | Links that attackers tried to fetch malware from | Blinded: a SHA-256 hash of the normalised link. The clear link is revealed only after the network confirms the hash and a member holds the clear link |
+| Download links | Links that attackers tried to fetch malware from | Blinded: a SHA-256 hash of the normalised link. The clear link is revealed only after the network confirms the hash and a node holds the clear link |
 | Malware file fingerprints | SHA-256 of a captured file, its family and its file type | Hash only. The file is never sent |
 | Command servers | Address or domain and port of a command-and-control server | Only high-confidence links, and only when a dropper that several sensors fetched backs them |
 | Takedown checks | Whether a reported target still answers | `up` or `down`. Nothing is sent yet, see [Takedown checks](#takedown-checks) |
 
 ### What is never shared
 
-These things never leave your system, whatever you tick:
+These things never leave your node, whatever you tick:
 
 - usernames and passwords that attackers tried;
 - commands typed in a shell, and web requests;
@@ -71,7 +71,7 @@ These things never leave your system, whatever you tick:
 - private, reserved and documentation addresses;
 - anything on your never-block list.
 
-Your private key never leaves your system. It is stored encrypted and used only to sign requests. Your public key goes with every signed request, because the hub needs it to check the signature.
+Your private key never leaves your node. It is stored encrypted and used only to sign requests. Your public key goes with every signed request, because the hub needs it to check the signature.
 
 ### What the hub can see about you
 
@@ -98,12 +98,12 @@ Test traffic counts. If you test your sensors from an outside address that is no
 
 | Item | What it is |
 | --- | --- |
-| Totals | Members, members active this week, countries with at least three members, confirmed, reported and taken-down targets over 30 days, median days to takedown |
+| Totals | Nodes, nodes active this week, countries with at least three nodes, confirmed, reported and taken-down targets over 30 days, median days to takedown |
 | Weekly figures | Confirmed, reported and taken-down targets per week |
-| Recently taken down | Targets, with the number of sensors (as a range) and a "You helped" mark when your system contributed |
-| Members | Pseudonym or node number, country (only if the member showed it), member since (a month), active days in the last full week, and a tier |
+| Recently taken down | Targets, with the number of sensors (as a range) and a "You helped" mark when your node contributed |
+| Nodes | Pseudonym or node number, country (only if the node showed it), month of joining, active days in the last full week, and a tier |
 
-Nothing in the public figures can point to a single system. There is no ranking, and the member list is shuffled by the hub on every day.
+Nothing in the public figures can point to a single node. There is no ranking, and the node list is shuffled by the hub on every day.
 
 ## The community lists
 
@@ -117,40 +117,40 @@ The network also publishes free blocklists. They are built from the same consens
 
 The `-high` variants hold the stricter subset. The full rules, the formats and the steps for each firewall are in [Community blocklist feeds](feeds.md).
 
-The lists are published by the hub, from its own server. A member's home connection is never the source of a list. Nothing in a list names a member, a country, a sensor or a day of sighting. An entry needs at least five independent sensors before it can appear at all, and no single sensor's sighting changes a list.
+The lists are published by the hub, from its own server. A node's home connection is never the source of a list. Nothing in a list names a node, a country, a sensor or a day of sighting. An entry needs at least five independent nodes before it can appear at all, and no single sensor's sighting changes a list.
 
 ### Why join, and what it changes
 
-The lists are free and public. Anyone can use them, member or not. Joining does not unlock a better list.
+The lists are free and public. Anyone can use them, node or not. Joining does not unlock a better list.
 
 What joining does change:
 
 - Your sensor's sightings become one of the votes that confirm an entry. More sensors, faster and more accurate lists.
 - The Network tab tells you which entries your sensor also saw, and which ones it helped confirm. You can see the effect of your own sensor.
 
-Joining does not give you a private list or an early copy. Members get the same files as everyone else.
+Joining does not give you a private list or an early copy. Nodes get the same files as everyone else.
 
 ## Public network figures
 
-The hub can publish one more public file, `network.json`, next to the lists on the feed site. The project site reads it to show how the network is doing. Anyone can download it. It is CC0, like the lists, and the same rules apply: no access log, no cookies, no query string. The design and the exact schema are in [M34](design/m34.md).
+The hub can publish one more public file, `network.json`, next to the lists on the feed site. The project site reads it to show how the network is doing. Anyone can download it. It is CC0, like the lists, and the same rules apply: no access log, no cookies, no query string. The design and the exact schema are in [M34](dev/design/m34.md).
 
 | Section | What it says |
 | --- | --- |
-| Nodes | Members, nodes that sent a batch last week, and countries shown by at least three members |
+| Nodes | Nodes, nodes that sent a batch last week, and countries shown by at least three nodes |
 | Bootstrap | How many eligible nodes consensus needs (`HUB_MIN_NODES`) and how many are still missing, counted once a week once that week's late batches are in |
 | Outcomes | Targets confirmed, reported and taken down per day over 90 days, reports and abuse.ch submissions sent in 30 days, the median time to takedown. Exact only when the hub runs the production consensus thresholds; otherwise weekly and rounded to tens (totals over the last four complete weeks), or nothing at all when a confirmation could rest on fewer than three nodes |
 | Activity | Attacking addresses per day and how many logged in, ran commands, downloaded or sent exploits; download links, files and command servers seen; the most targeted services, the most frequent tags and malware families over 30 days |
 
-How the file protects members:
+How the file protects nodes:
 
 - **Nothing per node.** No node id, fingerprint, pseudonym, address, reputation or tier.
 - **Days only, and late.** Outcomes stop two days back. Activity stops four days back, when no batch for that day can arrive any more. A day is counted once and never recounted, so a node that joins or leaves cannot change a published figure.
 - **Rounded.** Activity counts have two significant figures and are never finer than tens. Lists give shares, not counts.
 - **Only eligible nodes count.** A node counts only once it is eligible for consensus (old enough, active enough, good reputation). Freshly enrolled nodes cannot unlock finer figures or test what another node saw.
 - **Coarse while the network is small.** A day with fewer than three eligible nodes is never shown alone: its week is one average of attacking addresses, logins and commands, with one significant figure, and the smaller figures (downloads, exploits, links, files, command servers) stay empty. A single node's day off or exact volume does not show. A service, tag or family needs enough support, over several weeks, before it is named; a CVE tag needs two nodes.
-- **Countries.** A member country appears only when at least three members chose to show it.
+- **Countries.** A country appears only when at least three nodes chose to show it.
 
-The activity figures describe attackers, not members. They show the traffic the network received, never where a sensor is or who runs it. With very few nodes, the list of services also shows which sensors those nodes run.
+The activity figures describe attackers, not nodes. They show the traffic the network received, never where a sensor is or who runs it. With very few nodes, the list of services also shows which sensors those nodes run.
 
 ## How consensus protects against poisoning
 
@@ -175,21 +175,21 @@ By default, an **eligible node** must:
 
 ### Reputation
 
-Each node has a hidden reputation number. It rises a little when its sightings confirm a target, and more when a confirmed target is taken down. It falls when a sighting is disputed, and when a node sends a large volume that nobody else ever sees (only once enough nodes contribute for others to have a chance to see the same values). Below 0.2 a node is soft-suspended. Its batches are accepted and then ignored, and it is not told. The number itself is never sent. Members only see `new`, `good` or `low`.
+Each node has a hidden reputation number. It rises a little when its sightings confirm a target, and more when a confirmed target is taken down. It falls when a sighting is disputed, and when a node sends a large volume that nobody else ever sees (only once enough nodes contribute for others to have a chance to see the same values). Below 0.2 a node is soft-suspended. Its batches are accepted and then ignored, and it is not told. The number itself is never sent. Nodes only see `new`, `good` or `low`.
 
 ### Published values only change with consensus
 
-The first and last day, the services, the activity, the tags and the families of a listed target change only when at least five eligible nodes support the change. One sighting from one node can never change what members see about a listed target. This stops an attacker from using a listed address to test whether one particular address is a sensor.
+The first and last day, the services, the activity, the tags and the families of a listed target change only when at least five eligible nodes support the change. One sighting from one node can never change what nodes see about a listed target. This stops an attacker from using a listed address to test whether one particular address is a sensor.
 
 ### Reports
 
-Scans and connections alone are never reportable. The hub reports only:
+Confirmation alone does not send a report. Only the evidence of eligible nodes over the last 7 days counts (`HUB_WINDOW_DAYS`), and scans and connections alone are never reportable. The hub reports only:
 
-- addresses with a severe activity (a login that worked, a command, a download or an exploit) seen by enough nodes, or with 100 or more login attempts from enough nodes;
-- links and files that at least two nodes fetched;
-- command servers that are confirmed.
+- an address from which at least 5 eligible nodes saw a severe activity (a login that worked, a command, a download or an exploit), or from which at least 5 eligible nodes each saw 100 or more login attempts in one day;
+- a link or a file-hosting domain from which at least two eligible nodes fetched a malware-like file;
+- a command server that is confirmed.
 
-Reports are grouped: at most one report per abuse desk and kind in a week. In the first release an operator reviews each report before it goes out. Command-server reports are never sent automatically. See `hub/README.md`.
+Reports are grouped: at most one report per abuse desk and kind in a week. By default (`review` mode) the hub operator approves each report before it goes out. Command-server reports are never sent automatically. The full rules are in [Reporting attacks](reporting.md#reports-from-the-network), and the operator's side is in `hub/README.md`.
 
 ### What consensus does not stop
 
@@ -231,10 +231,10 @@ Then:
 3. Press **Join the network**. The dialog asks for:
    - the five items, shown for you to confirm;
    - an optional pseudonym. Do not use a name that you use anywhere else;
-   - an optional country. It is never detected for you. It is shown only if you tick "Show my country" and at least three members share it;
+   - an optional country. It is never detected for you. It is shown only if you tick "Show my country" and at least three nodes share it;
    - your dashboard password again.
 4. The sensor creates its key and solves a proof-of-work puzzle. This can take a few minutes on a small machine. It runs at low priority, so ingest keeps working. The hub can raise the puzzle's price when many systems sign up at once. While the hub is closed or the puzzle is too hard, the page says that enrolment is waiting, and the sensor retries by itself.
-5. Your sensor is now a member. Its standing shows `new`. It sends its first batch after the next day ends, plus a random wait of 2 to 20 hours. By default, your sensor counts toward confirmations after 14 days of regular batches. The standing then changes to `good`.
+5. Your install is now a node. Its standing shows `new`. It sends its first batch after the next day ends, plus a random wait of 2 to 20 hours. By default, your sensor counts toward confirmations after 14 days of regular batches. The standing then changes to `good`.
 
 ### Pseudonyms
 
@@ -253,8 +253,8 @@ Empty means the network shows you as `Node` followed by your fingerprint, for ex
 Open **Settings, Network** and press **Leave the network**. The dialog says what will be deleted, and asks for your password again. Then:
 
 1. The worker asks the hub to delete your node. The hub deletes the node record and everything linked to it: its observations, its links to targets, its takedown votes, its weekly statistics and its request nonces.
-2. Your system deletes its local key, its membership record, the list of targets it kept and its history of batches, including the exact JSON you could read.
-3. The Network pages show you as not a member.
+2. Your node deletes its local key, its membership record, the list of targets it kept and its history of batches, including the exact JSON you could read.
+3. The Network pages show that you have not joined.
 
 If the hub cannot be reached, the worker retries each cycle for up to seven days. After that it deletes everything locally and records `leave_unconfirmed`. The hub removes a node that stays silent for 30 days, so nothing stays active.
 
@@ -271,9 +271,9 @@ The pages are in the **Defend** space. The **Network** entry has two tabs: **Ove
 
 ### Overview
 
-- **Not a member.** The page shows the join card and the explanation: what the network does, what is shared, what is never shared and the one residual risk. It shows no network figures, and it does not ask the hub for anything.
-- **A member.** The first line says what the network did in the last 30 days, and what your sensor helped confirm. Under it:
-  - a row of figures (active members this week, confirmed, reported, taken down, median time to takedown);
+- **Not joined.** The page shows the join card and the explanation: what the network does, what is shared, what is never shared and the one residual risk. It shows no network figures, and it does not ask the hub for anything.
+- **Joined.** The first line says what the network did in the last 30 days, and what your sensor helped confirm. Under it:
+  - a row of figures (active nodes this week, confirmed, reported, taken down, median time to takedown);
   - a weekly chart of confirmed, reported and taken-down targets;
   - a list of recently taken down targets, filtered in the URL by state, kind and "mine";
   - the **Your node** card: fingerprint, pseudonym (you can edit it), country, date you joined, eligibility, standing, last batch, and **See exactly what was sent**, which shows the stored JSON of your last batch with a copy button;
@@ -281,7 +281,7 @@ The pages are in the **Defend** space. The **Network** entry has two tabs: **Ove
 
 ### Members
 
-A list of members with their pseudonym (or node number), country flag or a dash, date of joining, seven dots for the active days of last week, and a tier from 0 to 4. The tier is a count range, not a score. The list is sorted by pseudonym. There is no ranking by activity. The country filter is in the URL.
+A list of nodes with their pseudonym (or node number), country flag or a dash, date of joining, seven dots for the active days of last week, and a tier from 0 to 4. The tier is a count range, not a score. The list is sorted by pseudonym. There is no ranking by activity. The country filter is in the URL.
 
 ### Settings, Network
 
@@ -289,48 +289,48 @@ The same join and leave controls as on the Overview, with the node card. The "Wh
 
 ### Setup checklist
 
-The setup checklist has a Network item. It is off when this system is not a member, green when it is a member and sent a batch in the last two days, and a warning with the reason when batches are waiting. The first-run setup has an optional Network step after Alerts. Its own "Skip for now" moves on and shares nothing. When `NETWORK_ENABLED` is false and no hub is configured, the step only says that the network is off.
+The setup checklist has a Network item. It is off when this install has not joined, green when it has joined and sent a batch in the last two days, and a warning with the reason when batches are waiting. The first-run setup has an optional Network step after Alerts. Its own "Skip for now" moves on and shares nothing. When `NETWORK_ENABLED` is false and no hub is configured, the step only says that the network is off.
 
 ## Takedown checks
 
-The network can follow what happens after a report. Members check their own targets locally, and the hub counts the answers. A target is taken down after at least two nodes say `down` on three different days, with no `up` on the last of them.
+The network can follow what happens after a report. Nodes check their own targets locally, and the hub counts the answers. A target is taken down after at least two nodes say `down` on three different days, with no `up` on the last of them.
 
 Two parts exist, and only one is active.
 
-- **Local takedown tracking works.** In a full install with a VPN, your own system re-checks the targets in your reports (M27) and shows their state in the dashboard.
+- **Local takedown tracking works.** In a full install with a VPN, your own node re-checks the targets in your reports (M27) and shows their state in the dashboard.
 - **Network-wide confirmation is not active yet.** Nodes do not send their re-check results to the hub yet. Until they do:
   - every re-check a node would share answers `unknown`;
   - the node sends a re-check only for `up` or `down`, so it sends nothing for this box;
-  - no target moves to `taken_down` because of a member.
+  - no target moves to `taken_down` because of a node.
 
 The box stays in the join form so that the consent list does not change later. Ticking it now sends nothing.
 
 ## Threat model
 
-This section answers one question for each party: what can they learn, and what can they do? The full analysis is in [M29, section 3](design/m29.md#3-threat-model).
+This section answers one question for each party: what can they learn, and what can they do? The full analysis is in [M29, section 3](dev/design/m29.md#3-threat-model).
 
 ### Who we worry about
 
 | Party | What they have |
 | --- | --- |
-| **A1. Attacker** | Source addresses and download links they control. They know which addresses they hit and when. They can be a member. |
-| **A2. Malicious member or a farm of fake members** | Many enrolled systems and forged sightings. |
+| **A1. Attacker** | Source addresses and download links they control. They know which addresses they hit and when. They can be a node. |
+| **A2. Malicious node or a farm of fake nodes** | Many enrolled installs and forged sightings. |
 | **A3. Curious hub operator** | The hub database and the hub's traffic. |
 | **A4. Hub seized or compromised** | A full copy of the database at one moment. |
-| **A5. Network observer** | Sees traffic between your system and the VPN, and between the VPN and the hub. |
+| **A5. Network observer** | Sees traffic between your node and the VPN, and between the VPN and the hub. |
 | **A6. Abuse desk** | Receives a report, and may pass it on to the customer who runs the address. |
-| **A7. Fake hub** | Tries to impersonate the hub to your system. |
+| **A7. Fake hub** | Tries to impersonate the hub to your node. |
 
-### What a malicious member can learn
+### What a malicious node can learn
 
 | Can learn | Cannot learn |
 | --- | --- |
 | Public figures, the target list and their states | Any other node's batches |
-| Pseudonyms, fingerprints, countries that members chose to show, and a member's tier | Which address belongs to which member. A fingerprint is a hash of a public key, not an address |
-| Whether an address they probed is listed, once it is confirmed | Which member saw an attacker, or when, at a finer level than a day |
-| Whether their own sightings contributed to a listed target (they know their own data) | The sightings of a member they probed |
+| Pseudonyms, fingerprints, countries that nodes chose to show, and a node's tier | Which address belongs to which node. A fingerprint is a hash of a public key, not an address |
+| Whether an address they probed is listed, once it is confirmed | Which node saw an attacker, or when, at a finer level than a day |
+| Whether their own sightings contributed to a listed target (they know their own data) | The sightings of a node they probed |
 
-A member can send many forged sightings. They are weighted by reputation, age, enrolment week and corroboration, so a few members cannot make a target. A large patient farm can. The hub can then refuse, report only with human review, or dispute the target.
+A node can send many forged sightings. They are weighted by reputation, age, enrolment week and corroboration, so a few nodes cannot make a target. A large patient farm can. The hub can then refuse, report only with human review, or dispute the target.
 
 ### What the hub can and cannot learn
 
@@ -352,7 +352,7 @@ A hub operator who turns on logging could also link a VPN exit or a home address
 
 ### What a hub compromise or seizure gives away
 
-- The node public keys, pseudonyms and enrolment days of all members.
+- The node public keys, pseudonyms and enrolment days of all nodes.
 - Fourteen days of observations by node, at the day level.
 - Blinded links. A link with a random token is hard to guess. A guessable link can be checked against a list of candidates, because the hash is fast and not salted. This is a known limit of protocol version 1 ([network-protocol.md](network-protocol.md#blinding)).
 - The report texts and their recipients.
@@ -361,34 +361,34 @@ It does not give away the node keys' private halves, which never leave the nodes
 
 ### What a network observer can learn
 
-- That your system talks to the VPN, and how much.
+- That your node talks to the VPN, and how much.
 - Requests to the hub are padded to a multiple of 4 KiB, so their size says little. The timing of one daily batch is visible.
 - Nothing about the content, as long as the observer is not Cloudflare. TLS protects the path up to Cloudflare, and the hub is behind Cloudflare's tunnel.
 
 ### What an attacker can learn about your sensors
 
-An attacker that probes many addresses can learn that a set of addresses runs a SuckerPot sensor. Many probe addresses over weeks make this more likely. The attacker cannot learn which member runs them. This risk exists because your sensors answer connections, and it is the same with or without the network. The Overview says so before you join.
+An attacker that probes many addresses can learn that a set of addresses runs a SuckerPot sensor. Many probe addresses over weeks make this more likely. The attacker cannot learn which node runs them. This risk exists because your sensors answer connections, and it is the same with or without the network. The Overview says so before you join.
 
 ### What the community lists reveal
 
 The lists are public, so they are visible to everyone, attackers included.
 
-- **Member data:** none. Entries carry no node data. Every attribute that is published (services, tags, families, dates) needs at least five nodes behind it. One node's sighting of an address changes nothing public, not even its expiry.
-- **Timing:** the lists are regenerated on a fixed hourly schedule, and new entries wait 6 hours after confirmation. The publication time says nothing about one member.
+- **Node data:** none. Entries carry no node data. Every attribute that is published (services, tags, families, dates) needs at least five nodes behind it. One node's sighting of an address changes nothing public, not even its expiry.
+- **Timing:** the lists are regenerated on a fixed hourly schedule, and new entries wait 6 hours after confirmation. The publication time says nothing about one node.
 - **Downloads:** the feed site is behind Cloudflare, which sees who fetches the lists. The feed site itself keeps no access log and sets no cookies.
 - **Poisoning:** an attacker who controls many sensors could try to list a third party. Only the hub's own confirmed targets can enter a list, after stricter rules than reports. A text typed into a honeypot command never lists an address by itself. The hub excludes a fixed list of public resolvers and large CDN, cloud and software-hosting names (`hub/hub/data/never.yaml`), the address ranges of three large CDNs, and Tor exit relays (`hub/hub/data/ranges.yaml`). Other shared hosting and ordinary VPS providers are not excluded, because that is where malware lives.
 - **Forgery:** each file is signed with a feed key that is separate from the hub's key. Your node checks the signature, the serial and the expiry before it stores anything.
 
 ### What the public figures reveal
 
-`network.json` follows the same idea as the lists: nothing in it names a member. Figures are network totals from eligible nodes only, at day level, published days later, rounded, and coarse below three nodes ([Public network figures](#public-network-figures)). Someone who sends a lot of traffic (several hundred addresses a day for a week) to an address they suspect is a sensor could look for a jump in the weekly average. That only tells them what they could already learn by probing the address, that it runs a sensor, not who runs it.
+`network.json` follows the same idea as the lists: nothing in it names a node. Figures are network totals from eligible nodes only, at day level, published days later, rounded, and coarse below three nodes ([Public network figures](#public-network-figures)). Someone who sends a lot of traffic (several hundred addresses a day for a week) to an address they suspect is a sensor could look for a jump in the weekly average. That only tells them what they could already learn by probing the address, that it runs a sensor, not who runs it.
 
 ### What is not protected
 
 - The consensus does not yet resist a determined attacker. Identity is free, so one person can create several nodes. Today the network has few nodes, and the hub operator is the single root of trust.
 - A sensor that is reachable from the internet is already visible to every attacker who scans it.
-- The hub operator can see the attacker addresses that nodes submit, and the address each request comes from. These addresses belong to the attackers, not to members.
-- The system's own logs (SSH, the host firewall, the Docker daemon on the host) are outside this design. Keep them private.
+- The hub operator can see the attacker addresses that nodes submit, and the address each request comes from. These addresses belong to the attackers, not to nodes.
+- The host's own logs (SSH, the host firewall, the Docker daemon on the host) are outside this design. Keep them private.
 
 ## Where to go next
 
@@ -398,4 +398,4 @@ The lists are public, so they are visible to everyone, attackers included.
 | [Join the network in three commands](participate.md) | You want to help the network with a small install |
 | `hub/README.md` | You run a hub |
 | [Configuration](configuration.md#suckerpot-network-m29) | You want every `NETWORK_*` variable |
-| [M29 design](design/m29.md) | You want the full analysis and the decisions |
+| [M29 design](dev/design/m29.md) | You want the full analysis and the decisions |

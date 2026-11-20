@@ -4,7 +4,7 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 
 ## 2026-10-24 — M0 Bootstrap
 
-- Created `.gitignore` first, then `CLAUDE.md`, project subagents in `.claude/agents/`, roadmap, architecture and security docs, README skeleton, MIT licence and `.env.example` (placeholders only).
+- Created `.gitignore` first, then the project rules and review checklists, roadmap, architecture and security docs, README skeleton, MIT licence and `.env.example` (placeholders only).
 - Added a gitleaks pre-commit hook (`scripts/install-hooks.sh`, custom rule for private IPv4 ranges) and a CI workflow (gitleaks over full history, Python/web lint and tests, compose config check).
 - Left open: CI to be confirmed green on GitHub; secret scanning and push protection to be enabled in the repo settings by the owner.
 
@@ -80,12 +80,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 ## 2026-10-25 — M15 to M19: campaigns, ATT&CK, Defend, scripts, alerts, Today
 
 - **M15 Campaigns and ATT&CK.** A shared command normaliser, a bounded clustering job that groups finished sessions by shared keys (script, exploit, credential list, payload host, file hash, malware family), campaign pages with a plain-English story, an ATT&CK catalogue synced hourly and event rules that tag sessions with techniques, and a Techniques heatmap. Migration 0011.
-- **M16 Defend.** Scored blocklists (addresses, hosts, URLs, hashes) with a reason for every point, a never-list for resolvers, big SaaS and CDN names and the owner's own addresses, overrides with audit entries, exports for OPNsense and pfSense aliases, plain text and CSV, an opt-in token feed under `/feeds` (off by default), Sigma and Suricata rules marked "review before deploying", and "Your exposure", an inventory compared with recorded attacks. Migration 0012. Documented in [Defend](defend.md).
+- **M16 Defend.** Scored blocklists (addresses, hosts, URLs, hashes) with a reason for every point, a never-list for resolvers, big SaaS and CDN names and the owner's own addresses, overrides with audit entries, exports for OPNsense and pfSense aliases, plain text and CSV, an opt-in token feed under `/feeds` (off by default), Sigma and Suricata rules marked "review before deploying", and "Your exposure", an inventory compared with recorded attacks. Migration 0012. Documented in [Defend](../defend.md).
 - **M17 Script library.** Sessions with two or more commands are fingerprinted into scripts, explained by a declarative annotation base, with an optional LLM explainer (`LLM_ENABLED`, off by default) that sees only the normalised script text, under a daily call quota and a monthly token cap. Migration 0013.
 - **M18 Alerts and weekly report.** Discord, Microsoft Teams and e-mail (TLS only) channels with validated, encrypted targets, four event alert rules and a weekly report rule, all off until switched on, a rate-limited outbox with a test button, and a weekly report with a printable view. Migration 0014.
 - **M19 Today, search and research scanners.** A Today home page, a global search box, a glossary, and research scanners (for example known internet crawlers) labelled benign by the network that owns them. Benign is an allowlist of harmless behaviour, decided on what the session did, never on its user agent. Migration 0015.
 - **Security reviews.** Each milestone went through a security review. The first pass of each one returned FAIL or findings, which were fixed. A second pass returned PASS.
-- **Left open.** The campaign cap per network and ASN, commit per chunk in clustering, and payload analysis in quarantine (to be framed with the owner). See the [roadmap](ROADMAP.md) "Later" list. The M14 security and UI reviews are still unticked.
+- **Left open.** The campaign cap per network and ASN, commit per chunk in clustering, and payload analysis in quarantine (to be framed with the owner). See the [roadmap](roadmap-history.md) "Later" list. The M14 security and UI reviews are still unticked.
 
 ## 2026-10-27 — Simpler navigation and a story-style Today
 
@@ -96,7 +96,7 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 
 ## 2026-10-30 — M20 Synology NAS sensor and CVE watch fixes
 
-- **Synology sensor.** A twelfth sensor that looks like an unpatched Synology NAS on DSM 7.2.1 (Update 11). It serves the DSM login page and the Web API on HTTP 5000 and HTTPS 5001. Logins always fail with real DSM error codes, and the credentials are recorded. Nothing a client sends is run, written or fetched. Documented in [Synology](sensors/synology.md).
+- **Synology sensor.** A twelfth sensor that looks like an unpatched Synology NAS on DSM 7.2.1 (Update 11). It serves the DSM login page and the Web API on HTTP 5000 and HTTPS 5001. Logins always fail with real DSM error codes, and the credentials are recorded. Nothing a client sends is run, written or fetched. Documented in [Synology](../sensors/synology.md).
 - **Tags for the C3RB3R campaign.** Forged session IDs and SCGI header injections (CVE-2026-13639 and CVE-2026-13684) are tagged `synology-exploit`, and ransomware indicators `c3rb3r`. Both are severe. DSM API calls are tagged `synology-dsm`. ATT&CK mapping: T1190 and T1486. Migration 0017 adds the sensor to the inventory.
 - **Compose and ports.** `sensor-synology` with its own network, Redis user and volume, `SYNOLOGY_*` settings in `.env.example`, and 5000 and 5001 in the port guard.
 - **CVE watch.** The NVD window is 60 days. It is read in one-day chunks, oldest first, with a page budget, so a busy feed no longer loses CVEs silently at 10,000 results. A partial run resumes from its last complete chunk. GitHub advisories are read in seven-day chunks. A one-time start-up rewind refills shallow history, and watched CVEs missing from the table are fetched by id.
@@ -111,7 +111,7 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - **Collector and analyzer.** The collector fetches captured download URLs through the proxy with an SSRF validator, size, time, redirect and rate caps, and writes files to a quarantine volume under their sha256 name (mode 0400, never executed). The analyzer has no network. It identifies the type and architecture, hashes (sha256, sha1, md5, TLSH), extracts strings, runs YARA rules, deobfuscates shell scripts as text and extracts next-stage URLs and C2 addresses, in a resource-limited child process. Migration 0018 and two new database roles.
 - **API and UI.** `/api/v1/samples`, the chain, an admin-only password-protected archive download, and `/api/v1/egress`. A Samples tab on Malware, a sample page and an Egress card in Settings.
 - **Reviews.** Security review passed (egress, quarantine, parser safety on hostile files). UI review passed.
-- **Not deployed.** The owner still has to add the VPN settings, apply the new host firewall rules and run `just egress-check`. See [Deployment](deployment.md#anonymous-egress-vpn). TFTP and FTP URLs are recorded but not fetched.
+- **Not deployed.** The owner still has to add the VPN settings, apply the new host firewall rules and run `just egress-check`. See [Deployment](../deployment.md#anonymous-egress-vpn). TFTP and FTP URLs are recorded but not fetched.
 
 ## 2026-10-31 — M22 Anonymous reporting
 
@@ -120,9 +120,9 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - **Wording.** The package ships none. The owner writes the introduction, closing text, note and subject template in Settings > Reporting, because shipped text in a public repo could be searched. Times are rounded to the minute by default.
 - **UI.** The Abuse reports page and report page, Export for CERT, the sample bundle dialog and the Settings > Reporting tab.
 - **Decisions.** X-ARF v0.2 by mail only, domains go to the registrar only, CERT exports default to TLP:GREEN with both STIX and MISP.
-- **Known limit.** A reported network can match times and ports against its flow logs. See [Security](SECURITY.md#anonymous-reporting-m22).
+- **Known limit.** A reported network can match times and ports against its flow logs. See [Security](../SECURITY.md#anonymous-reporting-m22).
 - **Reviews.** Security review passed.
-- **Not deployed.** The owner still has to turn the worker on, fill Settings > Reporting, confirm the self terms and run `just abuse-guard-check`. See [Deployment](deployment.md#anonymous-reporting).
+- **Not deployed.** The owner still has to turn the worker on, fill Settings > Reporting, confirm the self terms and run `just abuse-guard-check`. See [Reporting attacks](../reporting.md).
 
 ## 2026-11-01 — M23 Upload the VPN configuration from the dashboard
 
@@ -254,7 +254,7 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 
 ## 2026-11-07 - M34 (public network observatory)
 
-- The hub worker can publish `network.json` (schema `selfhostr-network-stats/1`, CC0) on the feed site, once a day and independent of `HUB_FEED_MODE`; off by default (`HUB_OBSERVATORY_ENABLED`). Caddy serves it to one browser origin (`HUB_OBSERVATORY_ORIGIN`), `GET` only. Design: `docs/design/m34.md`.
+- The hub worker can publish `network.json` (schema `selfhostr-network-stats/1`, CC0) on the feed site, once a day and independent of `HUB_FEED_MODE`; off by default (`HUB_OBSERVATORY_ENABLED`). Caddy serves it to one browser origin (`HUB_OBSERVATORY_ORIGIN`), `GET` only. Design: `docs/dev/design/m34.md`.
 - Final days are aggregated once from consensus-eligible nodes into `observatory_daily` (migration `h0010`, 400 days, no UPDATE grant). Figures are rounded, published with a delay, coarse (complete ISO weeks, one significant figure, small figures left out) below three eligible nodes, and outcomes are exact only with production consensus thresholds. Bootstrap figures are counted once a week, from Thursday on.
 - Security review: first pass FAIL (Sybils could unlock precision, exact outcomes with relaxed thresholds, a daily-moving bootstrap, movable small figures, CVE tags, partial weeks, an UPDATE grant); all fixed. Second pass PASS; its two low findings (sliding rounded totals, a weekly count taken before late batches) fixed as well.
 - Lint, full typecheck, hub unit tests and hub integration tests green.

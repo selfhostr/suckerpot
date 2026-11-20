@@ -1,4 +1,4 @@
-"""The public community blocklist feed, node side (M30, ``docs/design/m30.md`` section 10.3).
+"""The public community blocklist feed, node side (M30, ``docs/dev/design/m30.md`` section 10.3).
 
 Revision ID: 0029
 Revises: 0028

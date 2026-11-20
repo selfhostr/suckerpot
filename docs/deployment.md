@@ -356,57 +356,7 @@ Nothing leaves. Lookups wait with a reason in Settings, events are still stored,
 
 ## Anonymous reporting
 
-The stack prepares abuse reports and CERT exports. By default it sends nothing: you read each report and send it yourself, from your own anonymous mailbox, behind your VPN (the To send queue helps). Optional SMTP sending can be set up in Settings > Reporting > Sending; it is off by default and only ever leaves through the VPN. It needs the [anonymous egress](#anonymous-egress-vpn) (RDAP lookups go through the tunnel).
-
-### 1. Turn the worker on
-
-Set `ABUSE_REPORTS_ENABLED=true` in `.env` and restart `ingest`. Tuning variables are in [Configuration](configuration.md#anonymous-reporting-m22). Reports stay locked (`no_self_address`) until the stack knows which address it is guarding.
-
-### 2. Fill Settings > Reporting (admin)
-
-Add a reply contact (an alias that is not on one of your own domains): it is the only required setting. Until it is set, rendering answers `settings_incomplete`, and a report cannot be marked reviewed. The introduction, closing text, note, signature, subject template and X-ARF user agent are optional. The project ships no wording, because shipped text lives in a public repo and could be searched. Leave them empty to send only the facts: an empty part is left out, an empty subject becomes `Abuse report for <address>` and an empty X-ARF user agent becomes `Mozilla/5.0`. If you write your own, make it yours.
-
-### 3. Confirm the self terms
-
-The worker learns the address and names of the monitored system from traffic (an address is stored only when two or more distinct /24 or /48 networks used it, and counts only while seen in the last 72 hours). Learned terms start inactive. Open the "Never in a report" list in Settings > Reporting, check each one and confirm it. If your address just changed, add it by hand: manual terms are active at once.
-
-### 4. Check it
-
-```bash
-just abuse-guard-check
-```
-
-It renders every open report in every format and the last 7 days of STIX and MISP, and prints PASS or FAIL per format with reason codes only. A non-zero exit means something would leak, or no address is confirmed yet. Run it after changing settings or self terms, and before the first real report.
-
-### 5. Send by hand
-
-Open a report at Defend > Abuse reports, check the identity card, copy To, Subject and Body (or download `report.txt` and `evidence.csv` to attach), send it from your alias, then use "Mark sent". Sample bundles are uploaded by hand to the repository you choose. You can also let the dashboard send the mail for you, as described in [Sending reports](#sending-reports).
-
-### Sending reports
-
-By default you send each report yourself. The dashboard can also send it through your VPN, once you save an SMTP profile. Both paths need the [anonymous egress](#anonymous-egress-vpn) to be up.
-
-**The To send queue.** Open Defend > Abuse reports and choose To send. It walks through the ready reports, oldest first, one at a time. For each report it shows the recipient, the subject and the body, with copy buttons. "Open in mail app" opens a `mailto:` link with the recipient and the subject. The full plain-text body is copied to the clipboard on every click, so a long report is one paste away. "Sent, next" marks the report as sent and opens the next one. Check the sender address in your mail app before you send, and connect that mailbox through your VPN.
-
-**The three modes.** Pick the mode in Settings > Reporting > Sending:
-
-| Mode | What happens |
-| --- | --- |
-| `off` (default) | Nothing is sent. Use the To send queue. |
-| `click` | A "Send now" button sends a ready report, after a confirmation. |
-| `auto` | Ready reports are sent after a hold time (default 60 minutes, 10 to 1440). While a report waits, the page shows the time it will go, with a Cancel button. At most `daily_cap` reports are sent per UTC day (default 20, 1 to 200), one at a time: at least 3 minutes apart, so the mailbox provider does not take the reports for spam. |
-
-If the mail server answers "try later" (an SMTP 4xx reply, often a limit on mails per minute or per hour), the send is marked `deferred`, every automatic send waits one hour, and the report is scheduled again by itself (at most 3 times). A refusal (5xx) is never retried by itself. Both show the server's reply code, for example `refused:550` or `deferred:451`.
-
-Automatic sending only takes fresh reports, newest first. A report whose last activity is more than 7 days old is not sent automatically, and one that ages past 7 days while it waits is cancelled (`too_old`). A provider checks the reported host when the mail arrives: weeks later the machine is often cleaned or given to someone else, and the report is closed as "cannot be substantiated". You can still send an older report by hand.
-
-Demo reports are never sent. A report that fails the identity guard, or that has no reply contact, is never sent in any mode. "Send a test" sends a short neutral message to the sender address itself, so you can check the profile first.
-
-**Setting up SMTP.** You need an SMTP server that accepts your login with STARTTLS (usually port 587) or with SMTPS (usually port 465). Enter the server's DNS name, not an IP address, with the port, the security, the login name, the sender address and the password. Saving the profile asks for your dashboard password again. The SMTP password is stored encrypted. The dashboard never shows it again. The API reference is in [Sending abuse reports](api.md#sending-abuse-reports-m25).
-
-**Free Proton has no SMTP.** Proton gives SMTP access only with a paid plan. You also need a custom domain on that plan, and an SMTP token from Proton's settings. The token is the SMTP password. Free Proton addresses have no SMTP access at all, so keep the mode at `off` and use the To send queue with them. The Proton preset in Settings fills in the server and the port for you.
-
-**Mail only leaves through the VPN.** The API has no route out and never connects to a mail server. Ingest sends the mail through the VPN proxy, with the certificate always checked. Before each send, ingest rebuilds the complete message, headers included, and runs the identity guard on it again. While the VPN gate is closed, nothing is sent: a send waits, and a test fails after two minutes.
+Abuse reports are off by default. Their setup, the three ways to send them (by hand, one click or automatic), the pacing rules and the advice on keeping your mailbox from being blocked are in [Reporting attacks](reporting.md). Reports need the [anonymous egress](#anonymous-egress-vpn) above: RDAP lookups and report mail leave only through the VPN.
 
 ## Host safeguards
 

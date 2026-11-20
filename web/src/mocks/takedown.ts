@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M27 takedown endpoints (docs/design/m27.md section 11). Demo data only:
+ * MSW handlers for the M27 takedown endpoints (docs/dev/design/m27.md section 11). Demo data only:
  * hosts and URLs are on documentation ranges and example.net, ASNs are AS64496 to AS64511, and the
  * hashes are generated. Targets are built once per page load from a fixed list, so the summary,
  * the curve, the providers and the target pages always agree.

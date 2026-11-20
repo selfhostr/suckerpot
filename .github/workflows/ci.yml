@@ -380,7 +380,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Participant install, end to end (docs/design/m32.md section 11.3): the real installer in a
+  # Participant install, end to end (docs/dev/design/m32.md section 11.3): the real installer in a
   # temporary copy, a throwaway test hub with TLS from its own CA, containment checks, enrolment, an
   # accepted batch, leave, and the switch to full mode. Hermetic: unique compose project, local
   # volumes, internal networks only; the real hub is never contacted. Image pulls and the base images

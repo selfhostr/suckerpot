@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M29 node API (`/api/v1/network`, docs/design/m29.md section 9.6). Demo data
+ * MSW handlers for the M29 node API (`/api/v1/network`, docs/dev/design/m29.md section 9.6). Demo data
  * only: documentation addresses, invented pseudonyms, scrambled hashes made up on the spot. Every
  * value is typed with the shared types of `lib/network.ts`, so the mock cannot drift from them.
  *

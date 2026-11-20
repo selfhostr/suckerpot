@@ -10,7 +10,7 @@ This page covers:
 - the states a target can have;
 - the statistics, including the 48-hour rule;
 
-Related pages: [Replies to reports](replies.md) (the answers from providers), [Configuration](configuration.md#takedown-tracking-m27), and the design in [docs/design/m27.md](design/m27.md).
+Related pages: [Replies to reports](replies.md) (the answers from providers), [Configuration](configuration.md#takedown-tracking-m27), and the design in [docs/dev/design/m27.md](dev/design/m27.md).
 
 ## What is never contacted
 
@@ -174,4 +174,4 @@ A monthly roll-up keeps the counts per provider, kind and channel. It holds numb
 - [Replies to reports](replies.md): what the providers answered.
 - [Configuration](configuration.md#takedown-tracking-m27): every variable.
 - [Dashboard](ui.md#results-m26-m27): the Results and Target pages.
-- [Design M27](design/m27.md): the full design, with the invariants and the tests.
+- [Design M27](dev/design/m27.md): the full design, with the invariants and the tests.

@@ -1,4 +1,4 @@
-"""Static guarantees of the collector package (docs/design/m21.md sections 3.3, 5.5 and 6.4).
+"""Static guarantees of the collector package (docs/dev/design/m21.md sections 3.3, 5.5 and 6.4).
 
 An AST walk over the package source (calls and imports only, so comments may mention these names):
 

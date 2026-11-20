@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M26 statistics (docs/design/m26.md section 11): outcomes grouped by
+ * MSW handlers for the M26 statistics (docs/dev/design/m26.md section 11): outcomes grouped by
  * provider, country, mailbox or kind, and the weekly timeline. Demo data only: documentation
  * ASNs (AS64496 to AS64511) and invented provider names.
  */

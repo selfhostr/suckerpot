@@ -1,5 +1,5 @@
 /**
- * MSW handler for the M24 setup checklist (docs/design/m24.md section 3). Demo data only.
+ * MSW handler for the M24 setup checklist (docs/dev/design/m24.md section 3). Demo data only.
  * The VPN line follows the mocked gate, so trusting an exit on the VPN tab turns it green.
  * `?setup=done` shows a finished set-up.
  */

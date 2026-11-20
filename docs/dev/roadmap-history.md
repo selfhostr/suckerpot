@@ -1,6 +1,8 @@
-# Roadmap
+# Roadmap history
 
-Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all services healthy, tests/lint/typecheck green, security review passed when relevant, docs updated, this file ticked, an entry in `PROGRESS.md`, merged to `main` and pushed.
+This is the development journal of SuckerPot from M0 to v0.11: every milestone and its checklist, kept as it was written. The public plan is in [Roadmap](../roadmap.md).
+
+Each milestone ended with the Definition of Done described in [Development](development.md#definition-of-done).
 
 ## Blocked — needs owner
 
@@ -22,8 +24,8 @@ Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all servic
 ## M0 — Bootstrap
 
 - [x] `.gitignore` created first; private context file verified ignored with `git check-ignore`.
-- [x] `CLAUDE.md` and project subagents in `.claude/agents/`.
-- [x] `docs/ROADMAP.md`, `docs/PROGRESS.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, skeleton `README.md`, MIT `LICENSE`, `.env.example` (placeholders only).
+- [x] Project rules and review checklists.
+- [x] `docs/dev/roadmap-history.md`, `docs/dev/progress.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, skeleton `README.md`, MIT `LICENSE`, `.env.example` (placeholders only).
 - [x] gitleaks pre-commit hook; GitHub Actions workflow running gitleaks, lint and tests.
 - [x] Staged diff reviewed, `chore: bootstrap repository` committed and pushed.
 
@@ -318,7 +320,7 @@ Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all servic
 - [x] States up, down, changed and unknown; down confirmed by two checks; time to takedown with its bounds; resurrections; monthly roll-up kept forever.
 - [x] Optional abuse.ch submission behind `ABUSECH_SUBMIT_ENABLED` and an explicit owner switch (off, review each, automatic after a hold with a daily cap). Captured malware URLs go to URLhaus (optional C2 `ip:port` to ThreatFox) with an encrypted Auth-Key. A lookup comes first to skip known entries, the identity guard checks every body, delivery is at most once, and submissions show their status and form the audit log.
 - [x] Results page: a finding sentence before each chart ("12 of 31 reported malware URLs went down within 48 h"), a time-to-takedown curve, a per-provider table (median time to takedown, % taken down, % answered), and a timeline per target; a Submissions tab.
-- [x] CLAUDE.md §5 amended (owner approval) to allow takedown re-checks of URLs that served malware; security review and UI review.
+- [x] The project rules amended (owner approval) to allow takedown re-checks of URLs that served malware; security review and UI review.
 
 **Acceptance:** with the flags off nothing is checked or submitted; with tracking on, a reported malware URL that goes offline is shown as down with its time to takedown, an unchanged file is never stored again, and no request ever reaches a C2 or an attacking address; with submission on, a URL is sent to URLhaus only after the guard passes and only if URLhaus did not know it; security review PASS.
 
@@ -367,7 +369,7 @@ Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all servic
 ## Later (not part of the loop)
 
 - Per-/24 or per-ASN daily cap on new campaigns, so one network cannot create many campaigns in a day.
-- Campaigns for credential-only floods (many login-only sessions from a few addresses in one network): a roll-up per sensor and network owner instead of a per-session key, counters on the campaign, no `campaign_id` written on each session. See [Architecture](ARCHITECTURE.md#how-the-features-fit-together).
+- Campaigns for credential-only floods (many login-only sessions from a few addresses in one network): a roll-up per sensor and network owner instead of a per-session key, counters on the campaign, no `campaign_id` written on each session. See [Architecture](../ARCHITECTURE.md#how-the-features-fit-together).
 - An index on `campaign_sessions (src_ip)`, if the table grows large enough for the address-merge check to slow down.
 - ATT&CK per-event mapping: compute the lower-case form of each event field once and share it between rules.
 - Campaign clustering: commit per chunk instead of one transaction per cycle, so a long cycle does not hold locks.
@@ -387,7 +389,7 @@ Each milestone ends with the Definition of Done from `CLAUDE.md` §8: all servic
 
 ## M32 — Join the network in three commands
 
-Design: `docs/design/m32.md`.
+Design: `docs/dev/design/m32.md`.
 
 - [x] Committed network defaults (`suckerpot-hub.selfhostr.io`, `suckerpot-feeds.selfhostr.io`, hub and feed public keys) inside the signed images and mirrored for host scripts; an explicit `.env` value wins. Nodes pin a set of up to three hub keys; the hub signs with a primary and an optional alternate key (`X-SPN-Hub-Signature-Alt`), so a key rollover ships in a release and auto-updated nodes follow.
 - [x] Participant mode: `./scripts/install.sh --participant` with no question but one consent prompt (`--yes` skips it), a random pseudonym, sensors + database + ingest + network node only (no dashboard, no wizard, no API key), about 2 GiB, the consent recorded in `.env`, the port list printed. Re-running converges; `--full` later switches to full mode and keeps the data; full mode is unchanged.
@@ -403,7 +405,7 @@ Design: `docs/design/m32.md`.
 
 ## M33 — Network on by default, one-button join
 
-Owner decision (2026-11-04): joining the network is the recommended default and joining or leaving is one button. Design: `docs/design/m33.md`.
+Owner decision (2026-11-04): joining the network is the recommended default and joining or leaving is one button. Design: `docs/dev/design/m33.md`.
 
 - [x] `NETWORK_ENABLED` defaults to true; an explicit `false` still switches everything off. An install that never answered the question never joins on upgrade.
 - [x] Full installer asks "Join the SuckerPot network? [Y/n]" (default yes, `--no-network` declines) and writes the consent record; ingest joins from it in full mode too, through the VPN only, after a self address is confirmed. A leave is never undone by a restart.
@@ -440,7 +442,7 @@ Owner request (2026-11-04): a second person joins as a participant; the three-co
 
 ## M34 — Public network observatory
 
-Owner request (2026-11-07): the project site shows public, anonymised figures about the network, honest at one node. Design: `docs/design/m34.md`.
+Owner request (2026-11-07): the project site shows public, anonymised figures about the network, honest at one node. Design: `docs/dev/design/m34.md`.
 
 - [x] `network.json` (schema `selfhostr-network-stats/1`, CC0) on the feed site next to `stats.json`: nodes, bootstrap (eligible nodes missing against `HUB_MIN_NODES`, weekly), outcomes over 90 days, attack traffic per day and the 30-day services, tags and families.
 - [x] Anonymity rules: no per-node value, eligible nodes only, day granularity with delay (outcomes 2 days, activity 4 days), final days counted once and never recounted, rounded counts, coarse weekly figures below three eligible nodes, outcome precision tied to the consensus thresholds, weekly bootstrap, minimum support for every named item, node countries only from three members.
@@ -448,7 +450,7 @@ Owner request (2026-11-07): the project site shows public, anonymised figures ab
 - [x] Caddy: one CORS origin (`HUB_OBSERVATORY_ORIGIN`), `GET` only, in both Caddyfiles.
 - [x] Tests: every anonymity rule, a key walker over the whole document, publication with feed mode off, freeze-once, end-to-end through the real Caddyfile.
 - [x] Docs: network guide, feeds guide, hub operator guide, changelog.
-- [ ] Observatory page on the project site.
+- [x] Observatory page on the project site.
 - [x] Security review (PASS after one round of fixes: eligible nodes only, outcome precision tied to the consensus thresholds, weekly bootstrap, coarse low-volume fields, CVE tags, complete weeks, no UPDATE grant; then weekly rounded totals and a settled weekly count).
 
 ## M35 — Easier joining
@@ -457,7 +459,7 @@ The network has one node. The frictions are a spare machine, port forwards on a 
 
 - [x] Lite participant footprint: `install.sh --participant --lite` (1 GiB, four sensors, lower database, Redis and ingest limits), kept in `COMPOSE_FILE`, with guardrail tests; no security setting loosened.
 - [x] VPS and Raspberry Pi guide (`docs/vps.md`), linked from the participant page and the README.
-- [ ] Site join page.
+- [x] Site join page.
 
 ## Audit fixes (v0.11.0)
 

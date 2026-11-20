@@ -1,4 +1,4 @@
-"""Takedown tracking (M27, ``docs/design/m27.md`` sections 5, 6 and 11): what happened to the
+"""Takedown tracking (M27, ``docs/dev/design/m27.md`` sections 5, 6 and 11): what happened to the
 targets that were reported, how fast, and which providers act.
 
 Read-only for both roles, except the two admin actions on one target: ask for an early re-check

@@ -1,5 +1,5 @@
 /**
- * The running version and the update check (M28, docs/design/m28.md section 7): shape of
+ * The running version and the update check (M28, docs/dev/design/m28.md section 7): shape of
  * `GET /api/v1/version` and the words for each check state.
  */
 import { getJson } from "./api"

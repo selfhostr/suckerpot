@@ -2,7 +2,7 @@
 #
 # The participant stack is the base file without the dashboard: sensors, database, ingest and the
 # network node. The installer writes it to .env together with the profile and the egress settings
-# (docs/design/m32.md section 4):
+# (docs/dev/design/m32.md section 4):
 #
 #   COMPOSE_FILE=docker-compose.yml[:docker-compose.lowmem.yml]:docker-compose.participant.yml
 #   COMPOSE_PROFILES=direct    # hubproxy is the only route out (no VPN)

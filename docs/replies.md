@@ -4,7 +4,7 @@ SuckerPot can read the answers to your abuse reports. It reads a mailbox that yo
 
 Replies are optional. Without a mailbox you can still paste a reply, or upload an `.eml` file, on the report page. The outcome is then set the same way.
 
-Related pages: [Takedowns](takedowns.md) (what happens to the reported targets), [Configuration](configuration.md#replies-to-reports-m26) (every variable), and the design in [docs/design/m26.md](design/m26.md).
+Related pages: [Takedowns](takedowns.md) (what happens to the reported targets), [Configuration](configuration.md#replies-to-reports-m26) (every variable), and the design in [docs/dev/design/m26.md](dev/design/m26.md).
 
 ## Before you start
 
@@ -243,4 +243,4 @@ Counters on the card: `fetched`, `relevant`, `matched`, `ignored`, `oversize` an
 - [Takedowns](takedowns.md): what happens to the reported targets after you send.
 - [Configuration](configuration.md#replies-to-reports-m26): every variable and its range.
 - [Dashboard](ui.md#results-m26-m27): the Results page, where the outcomes are counted.
-- [Design M26](design/m26.md): the full design, with the invariants and the tests.
+- [Design M26](dev/design/m26.md): the full design, with the invariants and the tests.

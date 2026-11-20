@@ -589,7 +589,7 @@ Details in [Architecture](ARCHITECTURE.md#anonymous-egress-m21) and [Deployment]
 
 ## Anonymous reporting (M22)
 
-Details in [Architecture](ARCHITECTURE.md#anonymous-reporting-m22), [Deployment](deployment.md#anonymous-reporting) and [Security](SECURITY.md#anonymous-reporting-m22). The worker is off by default. It only prepares drafts; it sends nothing unless you set up SMTP sending in Settings > Reporting (off by default, [M25 design](design/m25.md)). RDAP lookups go through the VPN egress gate, so the `egress` profile must be on.
+Details in [Architecture](ARCHITECTURE.md#anonymous-reporting-m22), [Reporting attacks](reporting.md) and [Security](SECURITY.md#anonymous-reporting-m22). The worker is off by default. It prepares drafts; it sends nothing unless you set up SMTP sending in Settings > Reporting and choose the one-click or automatic mode (off by default, [M25 design](dev/design/m25.md)). RDAP lookups go through the VPN egress gate, so the `egress` profile must be on.
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -678,7 +678,7 @@ Participant mode is described in [Join the network](participate.md). The install
 | `HUBPROXY_ALLOW` | the hub host, port 443 | `hubproxy` | Comma-separated `host:443` pairs, at most two. Direct mode only |
 | `NETWORK_CONSENT` | empty | `ingest` | Consent record `v2:<list>:<UTC day>`, written by the installer (participant mode, or a yes or `--join-network` in full mode) or `participant.sh join`. `ingest` joins from it once, and never again after a leave. `ingest` ignores a record older than 7 days. `just set NETWORK_CONSENT=` clears it; `just set` refuses any non-empty value. `ingest` does not join on a version it does not know (`consent_outdated`) |
 | `NETWORK_PSEUDONYM` | random | `ingest` | Optional pseudonym |
-| `NETWORK_COUNTRY`, `NETWORK_SHOW_COUNTRY` | empty, `false` | `ingest` | Optional two-letter country, shown only if you opt in and enough members share it |
+| `NETWORK_COUNTRY`, `NETWORK_SHOW_COUNTRY` | empty, `false` | `ingest` | Optional two-letter country, shown only if you opt in and enough nodes share it |
 | `NETWORK_VERIFY_REVEALS` | `false` (`true` in participant mode) | `ingest` | Answer the hub when it asks for a link that several sensors saw |
 | `NETWORK_VERIFIER` | `false` | `ingest` | Ask to be a verifier. Needs a VPN and `COLLECTOR_VERIFY_ENABLED`. The hub operator must grant the role (`verifier_needs_vpn` and `verifier_needs_collector` explain a refusal) |
 | `COLLECTOR_VERIFY_ENABLED` | `false` | `collector` | Let the collector fetch links for the network |

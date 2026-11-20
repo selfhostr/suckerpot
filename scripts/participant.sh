@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Manage a participant install (docs/design/m32.md section 5.6).
+# Manage a participant install (docs/dev/design/m32.md section 5.6).
 #
 #   scripts/participant.sh status                    same as ./scripts/status.sh
 #   scripts/participant.sh leave                     leave the network; sensors keep running

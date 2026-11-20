@@ -1,5 +1,5 @@
 /**
- * Abuse reports (M22): shapes of `/api/v1/abuse/*` (docs/design/m22.md section 9.1 is the
+ * Abuse reports (M22): shapes of `/api/v1/abuse/*` (docs/dev/design/m22.md section 9.1 is the
  * contract), the plain-English sentences of the pages, and the calls. Nothing here sends mail:
  * the owner copies the draft into his own webmail. The sentences are pure and tested.
  */

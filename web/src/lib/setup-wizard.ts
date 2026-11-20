@@ -1,5 +1,5 @@
 /**
- * The first-run setup (M28, docs/design/m28.md section 4): shapes of `GET/PUT /api/v1/setup/progress`
+ * The first-run setup (M28, docs/dev/design/m28.md section 4): shapes of `GET/PUT /api/v1/setup/progress`
  * and `GET /api/v1/setup/ports`, the step list, and the host commands the dashboard shows but never
  * runs (it does not edit `.env`).
  */

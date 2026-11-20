@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the M26 endpoints (docs/design/m26.md section 11): the IMAP profile, replies
+ * MSW handlers for the M26 endpoints (docs/dev/design/m26.md section 11): the IMAP profile, replies
  * and the outcome of a report. Demo data only: mailboxes are on example.* domains and no real
  * message appears. State lives for the page load. The password "wrong" fails re-authentication.
  */

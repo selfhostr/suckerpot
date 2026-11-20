@@ -1,4 +1,4 @@
-"""The daily "is there a newer release?" check (M28, ``docs/design/m28.md`` 7.2).
+"""The daily "is there a newer release?" check (M28, ``docs/dev/design/m28.md`` 7.2).
 
 Privacy contract (invariant P4):
 

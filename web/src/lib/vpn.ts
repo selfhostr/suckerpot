@@ -1,5 +1,5 @@
 /**
- * VPN configuration (M23): shapes of `/api/v1/settings/vpn` (docs/design/m23.md section 6 is the
+ * VPN configuration (M23): shapes of `/api/v1/settings/vpn` (docs/dev/design/m23.md section 6 is the
  * contract), the plain-English sentences of the tab, and the calls. The uploaded file text is
  * only ever passed through: it is never stored or logged here.
  */

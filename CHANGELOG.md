@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   automatic updates are off, the host firewall is not installed, or the node runs a release at least
   three days older than the newest one it knows, each with the command that fixes it. Each is a warning
   (exit code 1).
+- The documentation describes one product in four parts: Observe, Defend, Report and Share.
+  A new [Reporting attacks](docs/reporting.md) page explains abuse reports at node and network
+  level, the sending modes and pacing, and how to send without getting a mailbox blocked; the
+  network report rules now match the hub code. The passivity rule is stated precisely (SuckerPot
+  never probes an attacker, with the optional collector named as the one exception; reporting is off by default and the owner chooses manual, one-click
+  or automatic sending). The development journal moved to `docs/dev/` (roadmap history,
+  progress log, design notes), a short public [roadmap](docs/roadmap.md) was added, the docs
+  index is organised by part, and one vocabulary is used (node, full install, participant
+  install, hub, abuse report, sensor).
 
 ## [0.11.13] - 2026-11-19
 
@@ -487,7 +496,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added (M33)
 
-- The network is on by default. The full installer asks "Join the Selfhostr network? [Y/n]" (default yes; `--no-network` declines) and the node joins at first start, through the VPN only. Design: [M33](docs/design/m33.md).
+- The network is on by default. The full installer asks "Join the Selfhostr network? [Y/n]" (default yes; `--no-network` declines) and the node joins at first start, through the VPN only. Design: [M33](docs/dev/design/m33.md).
 - Joining in the dashboard is one button: the dialog lists what is shared and asks for your password. Leaving is one button, and a node that left can join again. Setup step 8 has the join button.
 
 ### Fixed

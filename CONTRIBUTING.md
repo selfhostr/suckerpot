@@ -1,6 +1,6 @@
 # Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/selfhostr/suckerpot). For the architecture and the project rules, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/development.md](docs/development.md). The sensors never execute attacker input, the repository is public (no secrets, real addresses or captured data), and container hardening is not weakened without a stated reason.
+Issues and pull requests are welcome on [GitHub](https://github.com/selfhostr/suckerpot). For the architecture and the project rules, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/development.md](docs/dev/development.md). The sensors never execute attacker input, the repository is public (no secrets, real addresses or captured data), and container hardening is not weakened without a stated reason.
 
 ## Setup
 

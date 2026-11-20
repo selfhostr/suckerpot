@@ -1,6 +1,6 @@
 """Upload the WireGuard configuration of the ``vpn`` service from the dashboard (M23).
 
-Design: ``docs/design/m23.md``. The parser here is strict and pure: it returns a summary or a
+Design: ``docs/dev/design/m23.md``. The parser here is strict and pure: it returns a summary or a
 list of error codes and never echoes the input. The writer drops ``wg.env`` and ``meta.json``
 into ``VPN_CONFIG_DIR`` (the ``vpn-config`` volume, mounted read-write in the API only) with a
 temp file and ``os.replace``, so the ``vpn`` container never reads half a file. The private key

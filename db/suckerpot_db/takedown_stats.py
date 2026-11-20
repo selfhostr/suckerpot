@@ -1,4 +1,4 @@
-"""Takedown statistics (M27, docs/design/m27.md section 6): pure functions, no database.
+"""Takedown statistics (M27, docs/dev/design/m27.md section 6): pure functions, no database.
 
 Used by the API (live numbers) and by the ingest roll-up, so both count the same way.
 

@@ -1,5 +1,5 @@
 /**
- * The guided tour (M24, docs/design/m24.md section 2): its seven steps, and the per-account
+ * The guided tour (M24, docs/dev/design/m24.md section 2): its seven steps, and the per-account
  * "already seen" flag. The flag is one harmless key per username in localStorage; nothing else
  * about the person is stored.
  */

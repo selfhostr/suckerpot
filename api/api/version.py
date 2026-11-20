@@ -1,4 +1,4 @@
-"""The running version and the result of the daily update check (M28, ``docs/design/m28.md`` 7).
+"""The running version and the result of the daily update check (M28, ``docs/dev/design/m28.md`` 7).
 
 The version comes from the image (``SUCKERPOT_RUNNING_VERSION``, baked in at build time). The
 latest release is whatever ingest stored in ``enrichment_status`` row ``update_check``: this

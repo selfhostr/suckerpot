@@ -110,4 +110,4 @@ Host keys and the secret are generated on first start, mode 0600. They are never
 just ssh-test
 ```
 
-The recipe logs in for real from a throwaway container, runs two commands (one is a fake download) and waits until the session shows up in the API. See [Development](../development.md).
+The recipe logs in for real from a throwaway container, runs two commands (one is a fake download) and waits until the session shows up in the API. See [Development](../dev/development.md).

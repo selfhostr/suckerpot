@@ -791,7 +791,7 @@ Statuses: `draft`, `reviewed`, `sent`, `closed`, `discarded`, `superseded`. Kind
 
 ## Sending abuse reports (M25)
 
-Sending is optional and off by default. An administrator saves an SMTP profile and picks a mode in Settings > Reporting > Sending. The API never opens a connection to a mail server: it stores the profile and writes rows in `abuse_send_requests`. Ingest sends the mail through the VPN. Setup steps are in [Deployment](deployment.md#sending-reports).
+Sending is optional and off by default. An administrator saves an SMTP profile and picks a mode in Settings > Reporting > Sending. The API never opens a connection to a mail server: it stores the profile and writes rows in `abuse_send_requests`. Ingest sends the mail through the VPN. Setup steps are in [Reporting attacks](reporting.md#set-up-smtp).
 
 Every route in this section is administrator only, including the `GET` routes. A viewer gets `403` with `admin_required`. Writes need the CSRF header and an allowed origin. Some routes also ask for the administrator's password again:
 
@@ -847,7 +847,7 @@ Saves the profile. The answer is the new `GET` shape.
 | `from_address` | A mailbox on a public domain, for example `reports@example.org` |
 | `from_name` | Optional, up to 100 characters: letters, digits, spaces and `.,'()_-` |
 | `password` | The SMTP password, up to 256 characters. Leave it out to keep the stored one. Required on the first save. Stored encrypted and never returned. |
-| `mode` | `off` (default), `click` or `auto`. See [Sending reports](deployment.md#sending-reports). |
+| `mode` | `off` (default), `click` or `auto`. See [Three ways to send](reporting.md#three-ways-to-send). |
 | `auto_hold_minutes` | 10 to 1440, default 60 |
 | `daily_cap` | 1 to 200, default 20 |
 | `current_password` | The administrator's own password |
@@ -997,7 +997,7 @@ Each change is audited with the actor and the client address: `abuse.smtp.update
 
 ## VPN settings (M23, M24)
 
-Administrators only, for every route below. Writes need the CSRF header and an allowed origin. The WireGuard file itself is never returned or logged. The answers show only the endpoint, the addresses and a short fingerprint of the peer key. The design is in [M23](design/m23.md) and [M24](design/m24.md).
+Administrators only, for every route below. Writes need the CSRF header and an allowed origin. The WireGuard file itself is never returned or logged. The answers show only the endpoint, the addresses and a short fingerprint of the peer key. The design is in [M23](dev/design/m23.md) and [M24](dev/design/m24.md).
 
 | Method | Path | Body | Answer |
 | --- | --- | --- | --- |
@@ -1200,7 +1200,7 @@ The state of the feed, and the public address of each list file. The file addres
 | `error_code` | Set for `error` and `stale`. Codes include `not_configured`, `egress_closed`, `bad_signature`, `feed_rollback`, `feed_expired`, `feed_invalid`, `too_large` and `http_<code>` |
 | `signature` | `verified` when the stored index passed the check, otherwise `null` |
 | `lists[].seen_here` | Entries also seen by this sensor in the last 30 days (local data only) |
-| `lists[].helped` | Entries that this node helped confirm. Members only. `null` for everyone else. |
+| `lists[].helped` | Entries that this node helped confirm. Nodes only. `null` for everyone else. |
 | `local_mirror.feeds_enabled` | Whether the local mirror under `/feeds` is switched on (`FEEDS_ENABLED`) |
 
 ### `GET /api/v1/network/feed/entries`

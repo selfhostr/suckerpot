@@ -1,6 +1,6 @@
 /**
  * The plain-English sentences of the Results page, the outcome card and the target page
- * (docs/design/m26.md section 12, docs/design/m27.md section 12). Pure functions: every card opens
+ * (docs/dev/design/m26.md section 12, docs/dev/design/m27.md section 12). Pure functions: every card opens
  * with one of these, and the tests pin the wording.
  */
 import { plural } from "./format"

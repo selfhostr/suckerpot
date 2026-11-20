@@ -1,7 +1,7 @@
 """The egress gate: a periodic self-check that opens or closes every outbound client.
 
-Check order and reason codes follow docs/design/m21.md section 3.4. A reason is always a constant
-code, never a server answer.
+Check order and reason codes follow docs/dev/design/m21.md section 3.4. A reason is always a
+constant code, never a server answer.
 """
 
 from __future__ import annotations

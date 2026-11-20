@@ -2,7 +2,7 @@
 
 This is the wire protocol between a SuckerPot node and a network hub. It is normative. The reference implementation is the `suckerpot_netproto` package (`netproto/`). Its golden test vectors (`netproto/tests/vectors.json`) are the contract for any other implementation: a client that reproduces every vector byte for byte speaks `spn/1`.
 
-For the design and the threat model, read [M29](design/m29.md). For the user view, read [The SuckerPot network](network.md). For the hub, read `hub/README.md`.
+For the design and the threat model, read [M29](dev/design/m29.md). For the user view, read [The SuckerPot network](network.md). For the hub, read `hub/README.md`.
 
 Every address and name below is a placeholder. The examples use documentation ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) and `example.org`.
 
@@ -375,7 +375,7 @@ To regenerate the file, run `python tests/gen_vectors.py` in `netproto/`. Regene
 
 ## Feeds
 
-The public blocklist feeds are not part of `spn/1`: they are files the hub publishes over plain HTTPS, and anyone can read them. The library is `suckerpot_netproto.feeds` (`models`, `render`, `minisign`, `parse`); the hub renders and signs with it, a node verifies and parses with it. The design is `docs/design/m30.md`.
+The public blocklist feeds are not part of `spn/1`: they are files the hub publishes over plain HTTPS, and anyone can read them. The library is `suckerpot_netproto.feeds` (`models`, `render`, `minisign`, `parse`); the hub renders and signs with it, a node verifies and parses with it. The design is `docs/dev/design/m30.md`.
 
 ### Lists and URLs
 

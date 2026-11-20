@@ -326,7 +326,7 @@ def test_allow_mutation_in_hubproxy_env_is_not_hardcoded() -> None:
 
 # --- The owner's install must not change -----------------------------------------------------
 
-# Environment lines M32 adds to ingest and collector (docs/design/m32.md section 4.4). Their
+# Environment lines M32 adds to ingest and collector (docs/dev/design/m32.md section 4.4). Their
 # defaults reproduce today's behaviour: full mode, VPN egress, no network consent.
 ALLOWED_NEW_ENV = {
     "ingest": {
