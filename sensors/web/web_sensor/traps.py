@@ -24,14 +24,19 @@ log = logging.getLogger("web_sensor.traps")
 BUNDLED = Path(__file__).parent / "data" / "traps-bundled.json"
 # Per-request search budget. A search of one needle costs at most about 3 ns per haystack byte on
 # crafted input (a needle like "aaaa...b" over "aaaa..."), so the budget counts both searches and
-# haystack bytes. Traps with a path share MAX_SEARCHES searches and MAX_SCAN_BYTES; traps without
-# one have their own MAX_UNPATHED_SEARCHES and MAX_SCAN_BYTES, so path traps can never starve them.
-# Worst case: 160 searches and 1 MiB scanned, about 3 ms on the reference host whatever the
-# packs and the request (tested); typical requests stay far below. Traps the budget skips are
-# reported in the event (data.trap_budget) and counted in ``TrapSet.budget_exhausted``.
+# haystack bytes.
+# - The packs that own reserved flags (fmt.CORE_PACKS, the bundled ones) run first and outside the
+#   budget; the loader caps what they can search at fmt.CORE_SCAN_BYTES (256 KiB).
+# - Traps without a path never run out: the loader keeps their distinct needles within 64 and
+#   their worst-case searched bytes within fmt.MAX_SCAN_BYTES (512 KiB).
+# - Traps with a path share MAX_SEARCHES searches and fmt.MAX_SCAN_BYTES, most specific first;
+#   the ones the budget skips are reported in the event (data.trap_budget) and counted in
+#   ``TrapSet.budget_exhausted``.
+# Worst case: 1.25 MiB searched per request, about 3.5 ms on the reference host whatever the
+# packs and the request (tested under 5 ms); typical requests stay far below.
 MAX_SEARCHES = 96
 MAX_UNPATHED_SEARCHES = fmt.MAX_UNPATHED_NEEDLES  # 64: every distinct unpathed needle fits
-MAX_SCAN_BYTES = 512 * 1024  # per class (path traps, unpathed traps)
+MAX_SCAN_BYTES = fmt.MAX_SCAN_BYTES
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +118,7 @@ class TrapSet:
         pairs = tuple(
             sorted(
                 ((p, t) for p in ordered for t in p.traps),
-                key=lambda pt: specificity(Hit(pt[0], pt[1])),
+                key=lambda pt: (pt[0].id not in fmt.CORE_PACKS, specificity(Hit(pt[0], pt[1]))),
             )
         )
         severe = frozenset(f for _, t in pairs if t.level == "exploit" for f in t.flags)
@@ -157,6 +162,7 @@ class TrapSet:
             if trap.methods and method not in trap.methods:
                 continue
             pathed = trap.path is not None
+            core = pack.id in fmt.CORE_PACKS
             if trap.path is not None and not _path_ok(
                 trap.path, areas.path if trap.exact_case else areas.path_low
             ):
@@ -174,10 +180,11 @@ class TrapSet:
                     seen = memo.get(key)
                     if seen is None:
                         cost = max(len(hay), 64)
-                        if budget[pathed] <= 0 or scan[pathed] < cost:
-                            break
-                        budget[pathed] -= 1
-                        scan[pathed] -= cost
+                        if not core:
+                            if budget[pathed] <= 0 or scan[pathed] < cost:
+                                break
+                            budget[pathed] -= 1
+                            scan[pathed] -= cost
                         seen = needle in hay
                         memo[key] = seen
                     if seen:

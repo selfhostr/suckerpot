@@ -360,16 +360,18 @@ class Detector:
         self._dotfiles(path_dec, flags)
         pairs = _query_pairs(req.query)
         if self.traps.size:
+            # Query, body and headers get a separator in front, so anchored "key=value" and
+            # "name: value" needles also match the first parameter or header line.
             areas = Areas(
                 path_dec,
-                query_dec,
-                body_dec,
-                bytes(header_blob),
+                b"&" + query_dec,
+                b"&" + body_dec,
+                b"\n" + bytes(header_blob),
                 orig,
                 path_low,
-                query_dec.lower(),
-                body_dec.lower(),
-                hdr_low,
+                b"&" + query_dec.lower(),
+                b"&" + body_dec.lower(),
+                b"\n" + hdr_low,
                 low,
             )
             qkeys = frozenset(k for k, _ in pairs)

@@ -139,6 +139,17 @@ PACK_OWNED_FLAGS: tuple[tuple[str, str], ...] = (
     ("router_exploit", "router-boaform-gponform"),
 )
 _OWNED = dict(PACK_OWNED_FLAGS)
+# The packs that own those flags run first and outside the per-request search budget, so a crafted
+# request can never make the sensor lose their detection. Their own scan bound is capped.
+CORE_PACKS = frozenset(_OWNED.values())
+CORE_SCAN_BYTES = 256 * 1024
+# The largest haystack of each search area, as the web detector builds it (headers: 32 KiB plus one
+# last "name: value" line of at most 128 + 2 + 1024 + 1 bytes; query, body and headers carry one
+# separator byte in front for anchored needles).
+AREA_CAPS = {"path": 4096, "query": 4097, "body": 16385, "headers": 33924, "blob": 24576}
+# Per request, the bytes searched by traps without a path (all their distinct needles, each over
+# its whole area) must fit this, so they can never run out of search budget. Checked at load.
+MAX_SCAN_BYTES = 512 * 1024
 PATH_MIN_LOOSE = 4  # contains and suffix paths: at least this many bytes
 EVIDENCE_MIN = 6
 # Header names every browser or client sends: a needle on one of them is never specific, whatever
@@ -156,8 +167,11 @@ COMMON_HEADER_PREFIXES = ("accept", "sec-", "if-", "content-")
 # Query and form keys that tracking links, search and paging put in ordinary requests.
 TRACKING_PARAMS = frozenset(
     {"fbclid", "gclid", "msclkid", "yclid", "dclid", "igshid", "mc_cid", "mc_eid", "_ga", "_gl",
-     "ref", "source"}
+     "ref", "source",
+     # The WordPress login form: every brute-force request carries these.
+     "log", "pwd", "wp-submit", "redirect_to", "testcookie", "rememberme"}
 )  # fmt: skip
+_PARAM_KEY = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-[]%")
 TRACKING_PREFIXES = ("utm_",)
 COMMON_PARAMS = frozenset(
     {"page", "paged", "lang", "s", "p", "q", "id", "search", "query", "sort", "order", "format",
@@ -752,6 +766,7 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str], pack_id: str)
         found = tuple(_needle(x, f"{w}.any[{j}]") for j, x in enumerate(items))
         if not exact:
             found = tuple(n.lower() for n in found)
+        found = tuple(anchor(cd["in"], n) for n in found)
         conds.append(Needles(cd["in"], tuple(dict.fromkeys(found))))
     if path is None and not query_keys and not header_names and not conds:
         raise _fail("schema", f"{where}.match: needs a path, query_keys, header_names or needles")
@@ -790,44 +805,82 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str], pack_id: str)
     )
 
 
+def _param_key(n: bytes) -> bytes | None:
+    """The key of a "key=value" needle (a leading ? or & is dropped), or None."""
+    key, sep, _ = n.lstrip(b"?&").partition(b"=")
+    if sep and key and all(chr(b) in _PARAM_KEY for b in key):
+        return key
+    return None
+
+
+def _header_name(n: bytes) -> bytes | None:
+    """The header name of a "name: value" needle, or None."""
+    name, sep, _ = n.partition(b": ")
+    if sep and name and all(chr(b) in _TOKEN for b in name):
+        return name
+    return None
+
+
+def anchor(area: str, n: bytes) -> bytes:
+    """Compile a needle so that a "name: value" header needle matches only at the start of a
+    header line, and a "key=value" query or form needle only at the start of a parameter. The
+    engine searches those areas with a separator byte in front ("\\n" for headers, "&" for query
+    and body), so "-agent: x" can never match inside "user-agent: x"."""
+    if area == "headers" and _header_name(n) is not None:
+        return b"\n" + n
+    if area in ("query", "body") and _param_key(n) is not None:
+        return b"&" + n.lstrip(b"?&")
+    return n
+
+
 def _header_needle_specific(n: bytes) -> bool:
-    """A headers needle names its header, "name: value" with a value of 6 bytes or more, and the
-    header is not one every browser or client sends."""
-    name, sep, value = n.partition(b": ")
+    """A headers needle is anchored "name: value" with a value of 6 bytes or more, on a header
+    that browsers and clients do not all send."""
+    if not n.startswith(b"\n"):
+        return False
+    name = _header_name(n[1:])
+    if name is None:
+        return False
     text = name.decode("latin-1")
+    value = n[1:].partition(b": ")[2]
     return (
-        bool(sep)
-        and bool(name)
-        and all(c in _TOKEN for c in text)
-        and text not in COMMON_HEADERS
+        text not in COMMON_HEADERS
         and not text.startswith(COMMON_HEADER_PREFIXES)
         and len(value.strip()) >= EVIDENCE_MIN
     )
 
 
 def _param_needle_generic(n: bytes) -> bool:
-    """A query or form needle on a tracking key (utm_*, fbclid...), or on a common key (page, s,
-    id...) with a value under 6 bytes: ordinary requests carry those."""
-    key, _, value = n.lstrip(b"?&").partition(b"=")
-    text = key.decode("latin-1")
-    if text in TRACKING_PARAMS or text.startswith(TRACKING_PREFIXES):
-        return True
-    return text in COMMON_PARAMS and len(value) < EVIDENCE_MIN
+    """A query or form needle that ordinary requests carry: any "key=value" part of it on a
+    tracking or login-form key (utm_*, fbclid, log, pwd...), or on a common key (page, s, id...)
+    with a value under 6 bytes. A "key=value" needle is anchored at a parameter start, so a key
+    suffix ("og=admin") cannot match a longer key ("log=admin")."""
+    for part in n.split(b"&"):
+        key, sep, value = part.lstrip(b"?").partition(b"=")
+        text = key.decode("latin-1")
+        if text in TRACKING_PARAMS or text.startswith(TRACKING_PREFIXES):
+            return True
+        if sep and text in COMMON_PARAMS and len(value) < EVIDENCE_MIN:
+            return True
+    return False
 
 
 def strong_condition(c: Needles, t: Trap) -> bool:
     """A needle condition that is specific to an exploit: in the query, body or headers (never
     the path or the whole-request blob), and every one of its needles (any one may match) has 6
-    bytes or more, does not occur in the trap's path, and, in headers, names its header."""
+    bytes or more, does not occur in the trap's path, names its header in headers, and is no
+    tracking, login-form or common short parameter in the query or body."""
     if c.area not in ("query", "body", "headers"):
         return False
     path = t.path.value.lower() if t.path is not None else b""
-    for n in c.any:
-        if len(n) < EVIDENCE_MIN or (path and n.lower() in path):
+    for compiled in c.any:
+        n = compiled.lower()
+        bare = n.lstrip(b"\n&")
+        if len(bare) < EVIDENCE_MIN or (path and bare in path):
             return False
-        if c.area == "headers" and not _header_needle_specific(n.lower()):
+        if c.area == "headers" and not _header_needle_specific(n):
             return False
-        if c.area in ("query", "body") and _param_needle_generic(n.lower()):
+        if c.area in ("query", "body") and _param_needle_generic(n.lstrip(b"&")):
             return False
     return True
 
@@ -1020,26 +1073,39 @@ def safe_id(raw: object) -> str:
     return "?"
 
 
+def scan_bound(keys: set[tuple[str, bool, bytes]]) -> int:
+    """Bytes searched per request, at most, for these distinct (area, case, needle) searches."""
+    return sum(AREA_CAPS[area] for area, _, _ in keys)
+
+
+def _needle_keys(traps: tuple[Trap, ...]) -> set[tuple[str, bool, bytes]]:
+    return {(c.area, t.exact_case, n) for t in traps for c in t.needles for n in c.any}
+
+
 @dataclass
 class _Usage:
     packs: int = 0
     traps: int = 0
     unpathed: int = 0
-    needles: set[tuple[str, bool, bytes]] = field(default_factory=set)
+    needles: set[tuple[str, bool, bytes]] = field(default_factory=set)  # unpathed, not core
     cost: int = 0
+    core: set[tuple[str, bool, bytes]] = field(default_factory=set)  # every needle of core packs
 
     def plus(self, p: Pack) -> _Usage:
-        un = [t for t in p.traps if t.path is None]
+        un = tuple(t for t in p.traps if t.path is None)
         needles = set(self.needles)
-        for t in un:
-            for c in t.needles:
-                needles.update((c.area, t.exact_case, n) for n in c.any)
+        core = set(self.core)
+        if p.id in CORE_PACKS:
+            core |= _needle_keys(p.traps)
+        else:
+            needles |= _needle_keys(un)
         return _Usage(
             self.packs + 1,
             self.traps + len(p.traps),
             self.unpathed + len(un),
             needles,
             self.cost + p.cost,
+            core,
         )
 
     def within(self, share: int, of: int) -> bool:
@@ -1049,6 +1115,8 @@ class _Usage:
             and self.traps * of <= MAX_TRAPS * share
             and self.unpathed * of <= MAX_UNPATHED * share
             and len(self.needles) * of <= MAX_UNPATHED_NEEDLES * share
+            and scan_bound(self.needles) * of <= MAX_SCAN_BYTES * share
+            and scan_bound(self.core) * of <= CORE_SCAN_BYTES * share
             and self.cost * of <= MAX_COMPILED * share
         )
 

