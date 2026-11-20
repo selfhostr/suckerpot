@@ -72,7 +72,7 @@ Step 5 adds three kinds of settings to `.env`, under a comment with the date:
 - `SUCKERPOT_INSTALL_MODE=source`, when it is missing. This keeps an older install on source mode.
 - Any other setting listed in `MIGRATE_DEFAULTS`.
 
-The script then prints the names of what it added. It never prints a value. It also lists the optional settings from `.env.example` that your `.env` does not have yet. Those are only comments, and they can stay that way.
+The script then prints the names of what it added. It never prints a value. It also lists the optional settings from `.env.example` that your `.env` does not have yet. Those are only comments, and they can stay that way. It also removes the lines of the removed LLM explainer (`LLM_*` and `ANTHROPIC_API_KEY`) from your `.env`, and prints their names.
 
 The database password `POSTGRES_PASSWORD` is never generated during an update. The database owner's password lives inside the data volume, so a new value would lock you out. If it is missing, the update prints it as a name to set by hand.
 

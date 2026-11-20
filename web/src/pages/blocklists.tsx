@@ -205,15 +205,16 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
           description={
             off ? (
               <>
-                Set <code className="font-mono text-fg">BLOCKLIST_ENABLED=true</code> in{" "}
-                <code className="font-mono text-fg">.env</code> and restart the stack. The scoring
+                <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code> is set in{" "}
+                <code className="font-mono text-fg">.env</code>. Remove that line, or set it to{" "}
+                <code className="font-mono text-fg">true</code>, and restart the stack. The scoring
                 worker then reads what the decoys recorded and builds the lists.
               </>
             ) : (
               <>
                 The worker scores what the decoys recorded about once an hour. Entries show up here
                 as soon as attackers have earned a score. If it stays empty, check that{" "}
-                <code className="font-mono text-fg">BLOCKLIST_ENABLED=true</code> is set in{" "}
+                <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code> is not set in{" "}
                 <code className="font-mono text-fg">.env</code>.
               </>
             )

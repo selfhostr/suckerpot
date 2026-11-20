@@ -1,6 +1,8 @@
 """Settings and the common worker shape of the M15 to M19 features.
 
-Every feature is off by default (``*_ENABLED=false``). Phase 0 wires one no-op worker per feature
+The local analysis features (ATT&CK, campaigns, blocklists, scripts) are on by default: they read
+only the database and make no outbound request. An explicit ``false`` turns one off. Every other
+feature is off by default (``*_ENABLED=false``). Phase 0 wires one no-op worker per feature
 so the plumbing (settings, status, shutdown) exists before the logic does; later phases replace
 ``run_once`` with the real job. A worker follows the ``IntelWorker`` shape: ``run(publish)``,
 ``status()``, ``apply_settings()`` and ``aclose()``; an error in one cycle is logged and the next
@@ -23,8 +25,12 @@ Publish = Callable[[dict[str, Any]], Awaitable[None]]
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
 
-def _flag(env: Mapping[str, str], name: str) -> bool:
-    return env.get(name, "false").strip().lower() in TRUE_VALUES
+def _flag(env: Mapping[str, str], name: str, default: bool = False) -> bool:
+    """A true/false setting. A missing or empty value gives ``default``; anything else is read."""
+    raw = env.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in TRUE_VALUES
 
 
 def _int(env: Mapping[str, str], name: str, default: int, low: int, high: int) -> int:
@@ -42,14 +48,14 @@ def _int(env: Mapping[str, str], name: str, default: int, low: int, high: int) -
 
 @dataclass(frozen=True, slots=True)
 class FeatureSettings:
-    attack_enabled: bool = False
-    campaigns_enabled: bool = False
+    attack_enabled: bool = True
+    campaigns_enabled: bool = True
     campaign_min_sources: int = 2
     campaign_link_cap: int = 500
-    blocklist_enabled: bool = False
+    blocklist_enabled: bool = True
     blocklist_window_days: int = 30
     blocklist_max_rows: int = 20_000
-    scripts_enabled: bool = False
+    scripts_enabled: bool = True
     alerts_enabled: bool = False
     reports_enabled: bool = False
     abuse_enabled: bool = False
@@ -63,14 +69,14 @@ class FeatureSettings:
     def from_env(cls, env: Mapping[str, str] | None = None) -> FeatureSettings:
         e = os.environ if env is None else env
         return cls(
-            attack_enabled=_flag(e, "ATTACK_ENABLED"),
-            campaigns_enabled=_flag(e, "CAMPAIGNS_ENABLED"),
+            attack_enabled=_flag(e, "ATTACK_ENABLED", True),
+            campaigns_enabled=_flag(e, "CAMPAIGNS_ENABLED", True),
             campaign_min_sources=_int(e, "CAMPAIGN_MIN_SOURCES", 2, 2, 100),
             campaign_link_cap=_int(e, "CAMPAIGN_LINK_CAP", 500, 10, 10_000),
-            blocklist_enabled=_flag(e, "BLOCKLIST_ENABLED"),
+            blocklist_enabled=_flag(e, "BLOCKLIST_ENABLED", True),
             blocklist_window_days=_int(e, "BLOCKLIST_WINDOW_DAYS", 30, 1, 365),
             blocklist_max_rows=_int(e, "BLOCKLIST_MAX_ROWS", 20_000, 100, 1_000_000),
-            scripts_enabled=_flag(e, "SCRIPTS_ENABLED"),
+            scripts_enabled=_flag(e, "SCRIPTS_ENABLED", True),
             alerts_enabled=_flag(e, "ALERTS_ENABLED"),
             reports_enabled=_flag(e, "REPORTS_ENABLED"),
             abuse_enabled=_flag(e, "ABUSE_REPORTS_ENABLED"),

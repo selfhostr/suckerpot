@@ -26,21 +26,28 @@ WORKERS: list[Callable[[FeatureSettings], FeatureWorker]] = [
 ]
 
 
-def test_every_feature_is_off_by_default() -> None:
+def test_local_analysis_is_on_by_default_and_the_rest_is_off() -> None:
     s = FeatureSettings.from_env({})
-    assert not any(
-        (
-            s.attack_enabled,
-            s.campaigns_enabled,
-            s.blocklist_enabled,
-            s.scripts_enabled,
-            s.alerts_enabled,
-            s.reports_enabled,
-        )
+    assert (s.attack_enabled, s.campaigns_enabled, s.blocklist_enabled, s.scripts_enabled) == (
+        True,
+        True,
+        True,
+        True,
     )
+    assert not any((s.alerts_enabled, s.reports_enabled, s.abuse_enabled, s.takedown_enabled))
     assert (s.campaign_min_sources, s.campaign_link_cap) == (2, 500)
     assert (s.blocklist_window_days, s.blocklist_max_rows) == (30, 20_000)
     assert s.site_timezone == "UTC"
+
+
+def test_an_explicit_false_turns_local_analysis_off() -> None:
+    env = {f"{n}_ENABLED": "false" for n in ("ATTACK", "CAMPAIGNS", "BLOCKLIST", "SCRIPTS")}
+    s = FeatureSettings.from_env(env)
+    assert not any((s.attack_enabled, s.campaigns_enabled, s.blocklist_enabled, s.scripts_enabled))
+
+
+def test_an_empty_value_keeps_the_default() -> None:
+    assert FeatureSettings.from_env({"ATTACK_ENABLED": ""}).attack_enabled is True
 
 
 def test_settings_from_env() -> None:
@@ -64,7 +71,13 @@ def test_bad_numbers_are_refused(env: dict[str, str]) -> None:
 async def test_a_disabled_worker_publishes_once_and_returns(
     cls: Callable[[FeatureSettings], FeatureWorker],
 ) -> None:
-    worker = cls(FeatureSettings())
+    off = FeatureSettings(
+        attack_enabled=False,
+        campaigns_enabled=False,
+        blocklist_enabled=False,
+        scripts_enabled=False,
+    )
+    worker = cls(off)
     seen: list[dict[str, Any]] = []
 
     async def publish(detail: dict[str, Any]) -> None:
