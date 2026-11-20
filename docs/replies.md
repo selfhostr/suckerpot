@@ -151,7 +151,7 @@ Each reply gets one class. The class is set by the first rule that fits. The rul
 | Class | Label in the dashboard | Meaning |
 | --- | --- | --- |
 | `resolved` | Resolved | The provider says it acted: suspended, removed, terminated, blocked, null-routed or no longer reachable. |
-| `rejected` | Rejected | The provider says it is not theirs, not hosted by them, or asks you to use a web form (or says the inbox is not monitored). A verified web-form reply also marks the desk as form only, see below. |
+| `rejected` | Rejected | The provider says it is not theirs, not hosted by them, or asks you to use a web form (or says the inbox is not monitored). A matched web-form reply also marks the desk as form only, see below. |
 | `ticket_opened` | Ticket opened | A ticket or case number was found, and the mail is an automatic acknowledgement or says a ticket was created. Also "has been logged as ... is being investigated". |
 | `auto_ack` | Automatic receipt | An automatic reply, an out-of-office message or a bulk receipt, without a ticket. |
 | `bounce` | Bounced | A delivery failure. Your report did not reach the desk. |
