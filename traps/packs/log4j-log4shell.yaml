@@ -1,0 +1,27 @@
+# Log4Shell: a JNDI lookup string anywhere a Java service may log it. Converted from the web
+# sensor's code in M37 phase 1, with the same behaviour. The extraction of the callback URL
+# (download "jndi") stays in the sensor's code.
+schema: suckerpot-trap/1
+id: log4j-log4shell
+version: 1
+engine: 1
+sensor: web
+title: Apache Log4j JNDI lookup remote code execution (Log4Shell)
+cve: [CVE-2021-44228]
+disclosed: 2021-12-10
+product: {vendor: Apache, name: Log4j}
+tag: log4shell
+attack: [T1190]
+traps:
+  - id: jndi-header
+    level: exploit
+    match:
+      needles:
+        - {in: headers, any: ["${jndi:"]}
+    outcome: {flags: [log4shell], claim_cve: false}
+  - id: jndi-request
+    level: exploit
+    match:
+      needles:
+        - {in: blob, any: ["${jndi:", "${${", "${lower:"]}
+    outcome: {flags: [log4shell], claim_cve: false}

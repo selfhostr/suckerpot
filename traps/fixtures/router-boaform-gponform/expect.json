@@ -1,0 +1,5 @@
+{
+ "exploit-1.http": {"hits": ["router-boaform-gponform/boaform"], "flags": ["router_exploit"]},
+ "exploit-2.http": {"hits": ["router-boaform-gponform/gponform"], "flags": ["router_exploit"]},
+ "benign-1.http": {"hits": []}
+}

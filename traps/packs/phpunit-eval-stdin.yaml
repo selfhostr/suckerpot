@@ -1,0 +1,25 @@
+# PHPUnit's eval-stdin.php runs the request body as PHP when the vendor directory is reachable
+# over the web. Converted from the web sensor's code in M37 phase 1, with the same behaviour:
+# the path alone sets phpunit_rce, even on a GET (design decision D9).
+schema: suckerpot-trap/1
+id: phpunit-eval-stdin
+version: 1
+engine: 1
+sensor: web
+title: PHPUnit eval-stdin.php remote code execution
+cve: [CVE-2017-9841]
+disclosed: 2017-06-27
+product: {vendor: PHPUnit, name: PHPUnit}
+tag: phpunit-rce
+attack: [T1190]
+traps:
+  - id: eval-stdin
+    level: exploit
+    match:
+      path: {contains: /vendor/phpunit/phpunit/src/util/php/eval-stdin.php}
+    outcome: {flags: [phpunit_rce], claim_cve: false}
+  - id: vendor-dir
+    level: probe
+    match:
+      path: {contains: /vendor/phpunit}
+    outcome: {flags: [phpunit_probe]}

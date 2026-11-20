@@ -1,0 +1,6 @@
+GET /wp-json/ HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Example-Health-Check/3.1
+Accept: application/json
+Connection: close
+

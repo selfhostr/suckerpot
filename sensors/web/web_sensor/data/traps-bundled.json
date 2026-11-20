@@ -1,0 +1,174 @@
+{
+ "packs": [
+  {
+   "attack": [
+    "T1190"
+   ],
+   "cve": [
+    "CVE-2021-44228"
+   ],
+   "disclosed": "2021-12-10",
+   "engine": 1,
+   "id": "log4j-log4shell",
+   "product": {
+    "name": "Log4j",
+    "vendor": "Apache"
+   },
+   "schema": "suckerpot-trap/1",
+   "sensor": "web",
+   "tag": "log4shell",
+   "title": "Apache Log4j JNDI lookup remote code execution (Log4Shell)",
+   "traps": [
+    {
+     "id": "jndi-header",
+     "level": "exploit",
+     "match": {
+      "needles": [
+       {
+        "any": [
+         "${jndi:"
+        ],
+        "in": "headers"
+       }
+      ]
+     },
+     "outcome": {
+      "claim_cve": false,
+      "flags": [
+       "log4shell"
+      ]
+     }
+    },
+    {
+     "id": "jndi-request",
+     "level": "exploit",
+     "match": {
+      "needles": [
+       {
+        "any": [
+         "${jndi:",
+         "${${",
+         "${lower:"
+        ],
+        "in": "blob"
+       }
+      ]
+     },
+     "outcome": {
+      "claim_cve": false,
+      "flags": [
+       "log4shell"
+      ]
+     }
+    }
+   ],
+   "version": 1
+  },
+  {
+   "attack": [
+    "T1190"
+   ],
+   "cve": [
+    "CVE-2017-9841"
+   ],
+   "disclosed": "2017-06-27",
+   "engine": 1,
+   "id": "phpunit-eval-stdin",
+   "product": {
+    "name": "PHPUnit",
+    "vendor": "PHPUnit"
+   },
+   "schema": "suckerpot-trap/1",
+   "sensor": "web",
+   "tag": "phpunit-rce",
+   "title": "PHPUnit eval-stdin.php remote code execution",
+   "traps": [
+    {
+     "id": "eval-stdin",
+     "level": "exploit",
+     "match": {
+      "path": {
+       "contains": "/vendor/phpunit/phpunit/src/util/php/eval-stdin.php"
+      }
+     },
+     "outcome": {
+      "claim_cve": false,
+      "flags": [
+       "phpunit_rce"
+      ]
+     }
+    },
+    {
+     "id": "vendor-dir",
+     "level": "probe",
+     "match": {
+      "path": {
+       "contains": "/vendor/phpunit"
+      }
+     },
+     "outcome": {
+      "flags": [
+       "phpunit_probe"
+      ]
+     }
+    }
+   ],
+   "version": 1
+  },
+  {
+   "attack": [
+    "T1190"
+   ],
+   "cve": [
+    "CVE-2018-10561",
+    "CVE-2018-10562"
+   ],
+   "disclosed": "2018-05-01",
+   "engine": 1,
+   "id": "router-boaform-gponform",
+   "product": {
+    "name": "GPON home router",
+    "vendor": "Dasan"
+   },
+   "schema": "suckerpot-trap/1",
+   "sensor": "web",
+   "tag": "router-exploit",
+   "title": "Home router web form command injection (Boa and GPON)",
+   "traps": [
+    {
+     "id": "boaform",
+     "level": "exploit",
+     "match": {
+      "path": {
+       "contains": "/boaform/"
+      }
+     },
+     "outcome": {
+      "claim_cve": false,
+      "flags": [
+       "router_exploit"
+      ]
+     }
+    },
+    {
+     "id": "gponform",
+     "level": "exploit",
+     "match": {
+      "path": {
+       "contains": "/gponform/"
+      }
+     },
+     "outcome": {
+      "claim_cve": false,
+      "flags": [
+       "router_exploit"
+      ]
+     }
+    }
+   ],
+   "version": 1
+  }
+ ],
+ "schema": "suckerpot-traps/1",
+ "seq": 0
+}

@@ -1,0 +1,10 @@
+GET /category/news/ HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-GB,en;q=0.7
+Accept-Encoding: gzip, deflate, br
+Referer: http://192.0.2.10/
+Cookie: _ga=GA1.1.123456789.1700000000; wp-settings-1=libraryContent%3Dbrowse
+Connection: close
+

@@ -23,7 +23,7 @@ Nothing in a request is executed or fetched. Request analysis is passive pattern
 | Event `type` | When | Main `data` keys |
 | --- | --- | --- |
 | `connect` | A connection opens | `tls`, `sni`, `tls_version`, `cipher`, `handshake` |
-| `http_request` | Each request | `method`, `path`, `query`, `http_version`, `host`, `headers`, `user_agent`, `status`, `body_preview`, `body_sha256`, `body_length`, `body_truncated`, `tls`, `sni`, `app`, `route`, `flags`, `cve`, and `php2shell` details (the upload-progress findings, also for a probe that is not flagged `php2shell`) |
+| `http_request` | Each request | `method`, `path`, `query`, `http_version`, `host`, `headers`, `user_agent`, `status`, `body_preview`, `body_sha256`, `body_length`, `body_truncated`, `tls`, `sni`, `app`, `route`, `flags`, `cve`, `traps` (the trap pack hits, see [Trap packs](../trap-packs.md)), `trap_budget` (pack traps the per-request search budget skipped, when any), and `php2shell` details (the upload-progress findings, also for a probe that is not flagged `php2shell`) |
 | `login_attempt` | A WordPress login, an XML-RPC call with credentials, or HTTP Basic credentials | `username`, `password`, `success`, `method`, `path`, `user_agent` |
 | `download_attempt` | A URL found in a payload that looks like a fetch | `url`, `path`, `user_agent` |
 | `scan` | Non-TLS bytes on the TLS port, or a failed TLS handshake | `kind` = `non_tls_on_tls_port` or `tls_handshake_failed`, `payload_preview`, `error` |
@@ -38,6 +38,7 @@ Each request is analysed and gets flags. Examples: `php2shell`, `upload_progress
 - `service-probe` is set for a `GET`, `HEAD` or `OPTIONS` that the sensor flags as a probe for a specific application or device (`wordpress`, `phpmyadmin`, `phpinfo_probe`, `spring_probe`, `jenkins_probe`, `vpn_probe`, `router_probe`, `recon` and the other `*_probe` flags), unless the same request also carries an exploit flag. A plain homepage, `robots.txt` or favicon request is not tagged.
 - `scanner` is also set when the sensor flags `scanner_ua` (nikto, sqlmap, gobuster and the other scanner names it knows).
 - The **severe** flags (the exploit ones) get a guaranteed share of the event quota, so a flood of noise cannot hide an exploit attempt.
+- Some detections come from [trap packs](../trap-packs.md): data files bundled in the image, not code. `phpunit_rce` and `phpunit_probe`, `log4shell` and `router_exploit` are set this way, with the same behaviour as before. A pack adds flags (the flags of its `exploit` traps are severe), can add its CVE ids with specific evidence, and can shape a fake answer from a fixed template. It never removes a flag, runs anything or fetches anything. An invalid pack is skipped with a log line (`trap pack rejected: id=... reason=...`) and the others load.
 
 ## Limits and abuse resistance
 

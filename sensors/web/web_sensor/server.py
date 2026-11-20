@@ -435,10 +435,14 @@ class WebSensor:
             data["php2shell"] = p2s
         data["flags"] = sorted(flags)
         data["cve"] = cve
+        if analysis is not None and analysis.traps:
+            data["traps"] = analysis.traps
+        if analysis is not None and analysis.trap_budget:
+            data["trap_budget"] = analysis.trap_budget  # at most the number of traps (512)
         if extra:
             data.update(extra)
         conn.flags |= flags
-        important = bool(flags & _severe())
+        important = bool(flags & self.detector.severe)
         self.emit(conn, EventType.http_request, data, important=important)
 
     # -- connection lifecycle --------------------------------------------------------------
@@ -822,7 +826,9 @@ class WebSensor:
                 try:
                     # What a handler may build is bounded by what the budget can still hold.
                     ctx.max_response = max(0, min(_MAX_RESPONSE, self.budget.available()))
-                    outcome = self.site.handle(req, ctx, analysis)
+                    outcome = self.site.trap_outcome(
+                        req, ctx, analysis.trap_hits, self.detector.traps.groups
+                    ) or self.site.handle(req, ctx, analysis)
                     resp = outcome.resp
                 except HttpError as err:
                     resp = self.site.error_for(err, req, ctx)
@@ -930,12 +936,6 @@ def _tune_socket(sock: socket.socket) -> None:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _SOCK_BUF)
     with contextlib.suppress(OSError):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 30_000)
-
-
-def _severe() -> frozenset[str]:
-    from web_sensor.detect import SEVERE
-
-    return SEVERE
 
 
 async def _peek(loop: asyncio.AbstractEventLoop, sock: socket.socket, wait: float) -> bytes:

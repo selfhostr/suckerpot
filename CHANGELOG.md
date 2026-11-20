@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `scripts/env-migrate.sh` (run by `just update`) now removes the lines of the removed LLM
   explainer (`LLM_*` and `ANTHROPIC_API_KEY`) from `.env`. It prints the names it removed, never a value.
 
+### Added
+
+- Trap packs, phase 1 (M37). A trap pack is a data file that teaches the web sensor a new trap
+  without a code change: byte needles, flags, an optional fake answer from a fixed template. The
+  strict validator (`suckerpot_common.traps`) is shared by the sensor, ingest and the checks, and
+  enforces size, count, memory and cost limits, an evidence rule for CVE claims and content rules
+  for fake answers. An invalid pack is rejected alone with a log line. Packs are bundled in the web
+  sensor image; `just trap-new`, `just trap-build` and `just trap-check` help write them (see
+  [Trap packs](docs/trap-packs.md)). The PHPUnit `eval-stdin.php`, Log4Shell and Boa/GPON router
+  rules moved from the sensor's code into three packs with the same behaviour, proven by a
+  differential test. Requests that hit a pack trap carry `data.traps`.
+
 ### Changed
 
 - `.env.example` is much shorter: it lists only what a normal owner sets or changes (about 120

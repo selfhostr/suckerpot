@@ -1,0 +1,8 @@
+GET /robots.txt HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+Accept: */*
+Accept-Encoding: gzip
+From: crawler@example.net
+Connection: close
+

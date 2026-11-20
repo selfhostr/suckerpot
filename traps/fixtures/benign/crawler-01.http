@@ -1,0 +1,8 @@
+GET / HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)
+Accept: */*
+Accept-Encoding: gzip
+From: crawler@example.net
+Connection: close
+

@@ -1,0 +1,6 @@
+GET /feed/ HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Example-Feed-Reader/5.2 (+https://example.net/reader; 12 subscribers)
+Accept: application/rss+xml, application/atom+xml
+Connection: close
+

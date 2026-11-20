@@ -83,7 +83,7 @@ All events use `suckerpot_common.Event`; `dst_port` is the public port of the li
 | type | data |
 | --- | --- |
 | `connect` | `tls`, `sni`, `tls_version`, `cipher`, `handshake` |
-| `http_request` | `method`, `path`, `query`, `http_version`, `host`, `headers` (dict, wire order, 64 max, values 512 chars), `user_agent`, `body_preview` (2 KB), `body_sha256`, `body_length` (read up to 1 MiB), `body_truncated`, `content_length`, `chunked`, `status`, `tls`, `sni`, `app` (`wordpress`/`phpmyadmin`/`phpinfo`/`apache`), `route`, `flags` (list), `cve` (list), `php2shell` (when relevant), `request_head_preview` (malformed or incomplete requests) |
+| `http_request` | `method`, `path`, `query`, `http_version`, `host`, `headers` (dict, wire order, 64 max, values 512 chars), `user_agent`, `body_preview` (2 KB), `body_sha256`, `body_length` (read up to 1 MiB), `body_truncated`, `content_length`, `chunked`, `status`, `tls`, `sni`, `app` (`wordpress`/`phpmyadmin`/`phpinfo`/`apache`), `route`, `flags` (list), `cve` (list), `traps` (trap pack hits, up to 4 `{pack, v, trap, level}`), `trap_budget` (traps skipped by the search budget), `php2shell` (when relevant), `request_head_preview` (malformed or incomplete requests) |
 | `login_attempt` | `username`, `password`, `success` (always false), `method`, `path`, `user_agent` |
 | `download_attempt` | `url`, `tool` (`wget`, `curl`, `tftp`, `rfi`, `jndi`, `xmlrpc-pingback`, ...), `command`, `via`, `path`, `user_agent` (recorded only) |
 | `scan` | `kind` = `tls_handshake_failed` or `non_tls_on_tls_port` (+ details) |
@@ -94,7 +94,10 @@ Other flags: `recon_dotfile`, `config_leak`, `backup_probe`, `rce`, `php_code`, 
 `no_user_agent`, `wordpress`, `phpmyadmin`, `phpinfo_probe`, `phpunit_rce`, `laravel_rce`,
 `router_probe`, `router_exploit`, `webshell_probe`, `wp_user_enum`, `xmlrpc`, `xmlrpc_multicall`,
 `directory_listing`, `malformed`, `incomplete_request`, `oversized_body`, `plain_http_on_tls`.
-Exploit flags (`SEVERE` in `detect.py`) give an event the guaranteed quota.
+Exploit flags (`SEVERE` in `detect.py`, plus the flags of `exploit` traps in the loaded trap packs)
+give an event the guaranteed quota. `phpunit_rce`, `phpunit_probe`, `log4shell` and `router_exploit`
+come from the trap packs bundled in `web_sensor/data/traps-bundled.json` (engine: `traps.py`;
+format and authoring: `docs/trap-packs.md`).
 
 ## Limits
 

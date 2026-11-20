@@ -1,0 +1,6 @@
+GET /wp-json/wp/v2/posts?per_page=5 HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0
+Accept: application/json
+Connection: close
+

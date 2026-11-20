@@ -15,6 +15,7 @@ from urllib.parse import unquote_to_bytes
 
 from web_sensor.config import Config
 from web_sensor.httpio import Request, to_text
+from web_sensor.traps import Areas, Hit, TrapSet, bundled
 
 CVES = ["CVE-2026-109618", "CVE-2026-109619"]
 
@@ -22,21 +23,20 @@ _BLOB_CAP = 24 * 1024
 _HEADER_BLOB_CAP = 32 * 1024
 _MAX_DOWNLOADS = 8
 _MAX_SESSIDS = 10_000
+_MAX_TRAPS_REPORTED = 4
 
 # Flags that mark a request as an exploit attempt: their events get the guaranteed quota.
+# Flags of exploit-level traps in the loaded trap packs join this set (Detector.severe).
 SEVERE = frozenset(
     {
-        "php2shell", "upload_progress", "rce", "php_code", "rfi", "log4shell", "shellshock",
-        "phpunit_rce", "laravel_rce", "router_exploit", "webshell_probe", "session_include",
+        "php2shell", "upload_progress", "rce", "php_code", "rfi", "shellshock", "laravel_rce",
+        "webshell_probe", "session_include",
     }
 )  # fmt: skip
 
 _PATH_SIGNATURES: list[tuple[bytes, str]] = [
-    (b"/vendor/phpunit/phpunit/src/util/php/eval-stdin.php", "phpunit_rce"),
     (b"/_ignition/execute-solution", "laravel_rce"),
     (b"/cgi-bin/luci", "router_probe"),
-    (b"/boaform/", "router_exploit"),
-    (b"/gponform/", "router_exploit"),
     (b"/hnap1", "router_probe"),
     (b"/setup.cgi", "router_probe"),
     (b"/actuator", "spring_probe"),
@@ -51,7 +51,6 @@ _PATH_SIGNATURES: list[tuple[bytes, str]] = [
     (b"/console/", "console_probe"),
     (b"/jenkins", "jenkins_probe"),
     (b"/geoserver", "geoserver_probe"),
-    (b"/vendor/phpunit", "phpunit_probe"),
     (b"/telescope", "laravel_probe"),
     (b"/.well-known/security.txt", "recon"),
     (b"/server-status", "recon"),
@@ -190,10 +189,14 @@ class Analysis:
     downloads: list[dict[str, Any]] = field(default_factory=list)
     php2shell: dict[str, Any] | None = None
     basic_auth: tuple[str, str] | None = None
+    traps: list[dict[str, Any]] = field(default_factory=list)  # data.traps: pack hits, capped
+    trap_hits: list[Hit] = field(default_factory=list, repr=False, compare=False)
+    trap_budget: int = 0  # traps the per-request search budget skipped (data.trap_budget)
+    severe_flags: frozenset[str] = field(default=SEVERE, repr=False, compare=False)
 
     @property
     def severe(self) -> bool:
-        return any(f in SEVERE for f in self.flags)
+        return any(f in self.severe_flags for f in self.flags)
 
 
 def decode_bytes(raw: str, rounds: int = 2, cap: int = 4096) -> bytes:
@@ -311,10 +314,12 @@ def extract_downloads(orig: bytes, low: bytes, query: str) -> list[dict[str, Any
 class Detector:
     """Stateful analyser. State: which PHP session IDs recent upload-progress requests used."""
 
-    def __init__(self, cfg: Config) -> None:
+    def __init__(self, cfg: Config, traps: TrapSet | None = None) -> None:
         self._cfg = cfg
         self._field = cfg.upload_progress_name.lower().encode()
         self._sessids: OrderedDict[str, str] = OrderedDict()
+        self.traps = bundled() if traps is None else traps
+        self.severe = SEVERE | self.traps.severe
 
     def _remember_sid(self, sid: str, ip: str) -> None:
         if not sid:
@@ -325,7 +330,7 @@ class Detector:
             self._sessids.popitem(last=False)
 
     def analyze(self, req: Request, src_ip: str) -> Analysis:
-        out = Analysis()
+        out = Analysis(severe_flags=self.severe)
         flags: set[str] = set()
         path_dec = decode_bytes(req.path)
         query_dec = decode_bytes(req.query)
@@ -353,8 +358,28 @@ class Detector:
             if name.lower() in path_low and (b".php" in path_low):
                 flags.add("webshell_probe")
         self._dotfiles(path_dec, flags)
-        if b"${jndi:" in hdr_low or b"${jndi:" in low or b"${${" in low or b"${lower:" in low:
-            flags.add("log4shell")
+        pairs = _query_pairs(req.query)
+        if self.traps.size:
+            # Query, body and headers get a separator in front, so anchored "key=value" and
+            # "name: value" needles also match the first parameter or header line.
+            areas = Areas(
+                path_dec,
+                b"&" + query_dec,
+                b"&" + body_dec,
+                b"\n" + bytes(header_blob),
+                orig,
+                path_low,
+                b"&" + query_dec.lower(),
+                b"&" + body_dec.lower(),
+                b"\n" + hdr_low,
+                low,
+            )
+            qkeys = frozenset(k for k, _ in pairs)
+            hnames = frozenset(k.lower() for k, _ in req.headers)
+            out.trap_hits, out.trap_budget = self.traps.match(req.method, areas, qkeys, hnames)
+            for hit in out.trap_hits:
+                flags.update(hit.trap.flags)
+            out.traps = [h.entry() for h in out.trap_hits[:_MAX_TRAPS_REPORTED]]
         if b"() {" in hdr_low or b"() {" in low:
             flags.add("shellshock")
         ua = (req.header("user-agent") or "").encode("latin-1", "replace").lower()
@@ -363,7 +388,7 @@ class Detector:
         if not ua:
             flags.add("no_user_agent")
         # Parameter-based file inclusion.
-        for key, value in _query_pairs(req.query):
+        for key, value in pairs:
             if key in _LFI_PARAMS and (
                 value.startswith(("/", "..")) or "://" in value or "sess_" in value
             ):
@@ -387,6 +412,10 @@ class Detector:
         if in_field or "session_ref_match" in flags:
             flags.add("php2shell")
             out.cve = list(CVES)
+        # A pack's CVEs only for an exploit-level trap that claims them (evidence rule).
+        claimed = [c for h in out.trap_hits if h.trap.claim_cve for c in h.pack.cve]
+        if claimed:
+            out.cve = list(dict.fromkeys([*out.cve, *claimed]))
         out.flags = sorted(flags)
         return out
 

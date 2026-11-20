@@ -1,0 +1,2 @@
+# Raw HTTP fixtures of trap packs: CRLF line ends are part of the request bytes.
+traps/fixtures/**/*.http -text

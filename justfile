@@ -194,6 +194,34 @@ test-backup-restore:
     export COMPOSE_PROJECT_NAME="$br" SUCKERPOT_VOLUME_PREFIX="$br"
     exec bash scripts/test-backup-restore.sh
 
+# Trap packs (M37): scaffold traps/packs/<id>.yaml and traps/fixtures/<id>/ for a CVE (docs/trap-packs.md).
+trap-new cve *id:
+    {{just_executable()}} _trap new "$@"
+
+# Trap packs: compile traps/packs/*.yaml into the bundle shipped in the web sensor image.
+trap-build:
+    {{just_executable()}} _trap build
+
+# Trap packs: validate every pack and the bundle, then run the fixtures, differential, cost and memory tests.
+trap-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{just_executable()}} _trap check
+    for spec in "sensors/common:tests/test_traps.py" "sensors/web:tests/test_traps.py tests/test_zz_trap_differential.py"; do
+      pkg="${spec%%:*}"
+      docker run --rm --user "$(id -u):$(id -g)" \
+        -v "$PWD:/work" -v "{{uv_cache}}:/cache" -w "/work/$pkg" \
+        -e HOME=/tmp -e UV_CACHE_DIR=/cache -e UV_LINK_MODE=copy -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+        {{uv_image}} sh -c "uv sync -q --refresh-package suckerpot-common && uv run pytest -q -p no:cacheprovider ${spec#*:}"
+    done
+
+# Run the trap pack tool (ingest/tools/trap_packs.py) in the pinned uv container.
+_trap *args: _cache
+    docker run --rm --user "$(id -u):$(id -g)" \
+      -v "$PWD:/work" -v "{{uv_cache}}:/cache" -w /work/ingest \
+      -e HOME=/tmp -e UV_CACHE_DIR=/cache -e UV_LINK_MODE=copy -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+      {{uv_image}} sh -c 'uv sync -q --refresh-package suckerpot-common && uv run python -m tools.trap_packs "$@"' sh "$@"
+
 # HTTP requests (WordPress login + PHP upload-progress) against the web sensor, then check the API.
 http-test:
     scripts/web-test.sh

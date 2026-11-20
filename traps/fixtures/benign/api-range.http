@@ -1,0 +1,6 @@
+GET /readme.html HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0
+Range: bytes=0-499
+Connection: close
+

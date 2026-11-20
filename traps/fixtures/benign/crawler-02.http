@@ -1,0 +1,8 @@
+GET /sitemap.xml HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)
+Accept: */*
+Accept-Encoding: gzip
+From: crawler@example.net
+Connection: close
+

@@ -1,0 +1,9 @@
+POST /wp-login.php HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36
+Content-Type: application/x-www-form-urlencoded
+Cookie: wordpress_test_cookie=WP%20Cookie%20check
+Content-Length: 118
+Connection: close
+
+log=admin&pwd=admin&wp-submit=Log+In&redirect_to=http%3A%2F%2F192.0.2.10%2Fwp-admin%2F&testcookie=1&rememberme=forever
