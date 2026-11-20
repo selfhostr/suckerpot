@@ -144,6 +144,9 @@ def test_builtin_flags_are_listed_in_the_shared_format() -> None:
     assert found <= fmt.WEB_BUILTIN_FLAGS, found - fmt.WEB_BUILTIN_FLAGS
     pack_flags = {f for p in traps.bundled().packs for t in p.traps for f in t.flags}
     assert not pack_flags & fmt.WEB_BUILTIN_FLAGS
+    # M3: the converted flags are owned by their bundled pack, and no other pack may set them.
+    owners = {f: p.id for p in traps.bundled().packs for t in p.traps for f in t.flags}
+    assert dict(fmt.PACK_OWNED_FLAGS) == owners
 
 
 def _fixture_cases() -> list[tuple[str, str]]:
@@ -253,7 +256,9 @@ def test_match_conditions() -> None:
     assert _match(ts, req(path="/q", query="aa=1", headers=[("X-B", "bb")])) == {"m-and"}
 
 
-def test_search_budget_bounds_the_work() -> None:
+def test_search_budget_bounds_the_work_and_never_starves_unpathed_traps() -> None:
+    """L2: a request crafted to match many path traps spends the shared budget; the traps the
+    budget skipped are reported, and traps without a path still run on their own budget."""
     obj = edgegate()
     probe = obj["traps"][0]
     obj["traps"] = [
@@ -262,11 +267,29 @@ def test_search_budget_bounds_the_work() -> None:
             "id": f"b{i}",
             "match": {"path": {"prefix": "/"}, "needles": [{"in": "blob", "any": [f"nope{i}-{n}" for n in range(16)]}]},
         }
-        for i in range(16)
+        for i in range(15)
+    ] + [
+        {**copy.deepcopy(probe), "id": "unpathed", "match": {"needles": [{"in": "headers", "any": ["x-mark: yes"]}]}},
     ]  # fmt: skip
     ts = trapset(obj)
-    Detector(Config(), ts).analyze(req(path="/x"), "192.0.2.1")
-    assert ts.budget_exhausted == 1  # 256 distinct searches wanted, 160 allowed
+    a = Detector(Config(), ts).analyze(req(path="/x", headers=[("X-Mark", "yes")]), "192.0.2.1")
+    assert ts.budget_exhausted == 1  # 240 distinct searches wanted, 128 allowed
+    assert a.trap_budget == 15 - 128 // 16  # the path traps that did not get their searches
+    assert [h.trap.id for h in a.trap_hits] == ["unpathed"]
+
+
+async def test_budget_marker_reaches_the_event(start_with: StartWith) -> None:
+    obj = edgegate()
+    probe = obj["traps"][0]
+    obj["traps"] = [
+        {**copy.deepcopy(probe), "id": f"b{i}", "match": {"path": {"prefix": "/"}, "needles": [{"in": "blob", "any": [f"nope{i}-{n}" for n in range(16)]}]}}
+        for i in range(10)
+    ]  # fmt: skip
+    async with start_with() as h:
+        h.sensor.detector = Detector(h.cfg, trapset(obj))
+        await h.raw(b"GET /x HTTP/1.1\r\nHost: 192.0.2.10\r\nConnection: close\r\n\r\n")
+        data = (await h.events("http_request"))[0].data
+        assert data["trap_budget"] == 2
 
 
 # -- fake answers ----------------------------------------------------------------------------
@@ -335,7 +358,10 @@ def test_reserved_paths_and_specificity() -> None:
     obj = edgegate()
     probe = obj["traps"][0]
     obj["traps"] = [
-        {**copy.deepcopy(probe), "id": "login", "match": {"path": {"exact": "/wp-login.php"}}},
+        {**copy.deepcopy(probe), "id": "login", "match": {"path": {"contains": "login.php"}}},
+        {**copy.deepcopy(probe), "id": "login-pathneedle", "match": {"path": {"contains": "login.php"}, "needles": [{"in": "path", "any": ["/wp-login.php"]}]}},
+        {**copy.deepcopy(probe), "id": "login-anyheader", "match": {"path": {"contains": "login.php"}, "needles": [{"in": "headers", "any": [": "]}]}},
+        {**copy.deepcopy(probe), "id": "login-blob", "match": {"path": {"contains": "login.php"}, "needles": [{"in": "blob", "any": ["wp-login"]}]}},
         {**copy.deepcopy(probe), "id": "login-q", "match": {"path": {"exact": "/wp-login.php"}, "query_keys": ["edge"]}},
         {**copy.deepcopy(probe), "id": "broad", "match": {"path": {"contains": "/api/"}}},
         {**copy.deepcopy(probe), "id": "narrow", "match": {"path": {"exact": "/api/v1/version"}}},
@@ -344,7 +370,9 @@ def test_reserved_paths_and_specificity() -> None:
     ]  # fmt: skip
     ts = trapset(obj)
     site = _site()
+    # M2: on a page the site serves, path, blob or generic header needles cannot take over.
     assert _answer(site, ts, req(path="/wp-login.php")) is None  # the site keeps its login page
+    assert _answer(site, ts, req(path="/x/login.php")) is not None  # not a reserved path
     out = _answer(site, ts, req(path="/wp-login.php", query="edge=1"))
     assert out is not None and out.route.endswith("/login-q")
     assert _answer(site, ts, req(path="/api/v1/version")).route.endswith("/narrow")

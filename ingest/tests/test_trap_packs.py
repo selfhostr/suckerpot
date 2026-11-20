@@ -72,3 +72,28 @@ def test_sources_are_checked(scratch: Path) -> None:
     assert "broken.yaml: YAML" in joined
     assert "invalid.yaml: schema: version" in joined
     assert "wrong-name.yaml: the file name must be the pack id" in joined
+
+
+def test_flags_with_a_meaning_in_ingest_rules_are_reserved() -> None:
+    """Security review M3: every flag the web tagging rules test is set by the sensor's code or
+    owned by one bundled pack, so no other pack can make the rules fire."""
+    import yaml
+
+    rules = yaml.safe_load((Path(__file__).resolve().parents[1] / "rules" / "web.yaml").read_text())
+    found: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("field") == "data.flags" and "has" in node:
+                has = node["has"]
+                found.update(has if isinstance(has, list) else [has])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(rules)
+    owned = dict(traps.PACK_OWNED_FLAGS)
+    assert found and found <= traps.WEB_BUILTIN_FLAGS | set(owned), found - traps.WEB_BUILTIN_FLAGS
+    assert set(owned) <= found  # the owned flags are the ones the rules use

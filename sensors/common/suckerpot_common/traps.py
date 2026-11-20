@@ -55,6 +55,7 @@ AREAS = ("path", "query", "body", "headers", "blob")
 PATH_OPS = ("exact", "prefix", "suffix", "contains")
 KINDS = ("php", "static", "error")
 STATUSES = (200, 201, 204, 301, 302, 400, 401, 403, 404, 405, 500, 503)
+REDIRECTS = (301, 302, 303, 307, 308)  # need a Location (only 301 and 302 are allowed today)
 CONTENT_TYPES = (
     "text/html; charset=UTF-8",
     "text/plain",
@@ -129,7 +130,21 @@ WEB_BUILTIN_FLAGS = frozenset(
     }
 )  # fmt: skip
 
-# Content rules: what a fake answer may never contain (checked lowercased, placeholders masked).
+# Flags a bundled pack owns. Ingest rules give them a meaning (web.yaml, scanners.py), so only
+# that pack may set them, like the built-in flags above.
+PACK_OWNED_FLAGS: tuple[tuple[str, str], ...] = (
+    ("log4shell", "log4j-log4shell"),
+    ("phpunit_probe", "phpunit-eval-stdin"),
+    ("phpunit_rce", "phpunit-eval-stdin"),
+    ("router_exploit", "router-boaform-gponform"),
+)
+_OWNED = dict(PACK_OWNED_FLAGS)
+PATH_MIN_LOOSE = 4  # contains and suffix paths: at least this many bytes
+EVIDENCE_MIN = 6
+
+# Content rules: what a fake answer may never contain. Checked lowercased with placeholders masked,
+# both as written and with every ASCII whitespace removed (browsers drop tabs and newlines inside
+# URLs, and "src= //host" is a link like "src=//host").
 _BANNED_TEXT = (
     "http:",
     "https:",
@@ -143,11 +158,26 @@ _BANNED_TEXT = (
     "<embed",
     "<applet",
     "<base",
+    "<svg",
+    "<math",
+    "<meta",
+    "<link",
+    "<style",
+    "url(",
+    "@import",
+    "expression(",
     "suckerpot",
     "selfhostr",
     "honeypot",
 )
-_PROTOCOL_RELATIVE = ('"//', "'//", "=//", "(//", "\\\\")
+# A URL that starts like these leaves the site: protocol-relative ("//host"), backslash variants
+# browsers read as slashes, and data: URLs. Checked at every place a URL value can start.
+_URL_STARTS = ("//", "/\\", "\\/", "\\\\", "data:")
+_URL_OPENERS = ('"', "'", "=", "(", ",")
+# The only character references allowed: a numeric or other named one could spell anything.
+_ENTITIES = ("&amp;", "&lt;", "&gt;", "&quot;", "&apos;", "&nbsp;")
+_WS = " \t\r\n\f\v"
+_ATTR_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-:.")
 _SIMPLE_SLOTS = (
     "hostname",
     "server_ip",
@@ -494,21 +524,44 @@ def _masked(tpl: Template) -> str:
 
 def _check_content(tpl: Template, where: str) -> None:
     text = _masked(tpl)
+    tight = "".join(c for c in text if c not in _WS)
     for bad in _BANNED_TEXT:
-        if bad in text:
+        if bad in text or bad in tight:
             raise _fail("content", f"{where}: {bad!r} is not allowed in a fake answer")
-    for bad in _PROTOCOL_RELATIVE:
-        if bad in text or text.startswith("//"):
+    for start in _URL_STARTS:
+        if tight.startswith(start) or any(o + start in tight for o in _URL_OPENERS):
             raise _fail("content", f"{where}: links to another host are not allowed")
+    # Character references: only the few that cannot spell a URL or a tag.
+    pos = text.find("&")
+    while pos != -1:
+        nxt = text[pos + 1 : pos + 2]
+        if nxt == "#" or (nxt.isascii() and nxt.isalpha() and not text.startswith(_ENTITIES, pos)):
+            raise _fail("content", f"{where}: character references other than &amp; &lt; "
+                        "&gt; &quot; &apos; &nbsp; are not allowed")  # fmt: skip
+        pos = text.find("&", pos + 1)
+    # Event handler attributes: on<letters>, optional whitespace, "=" (a byte scan).
+    pos = text.find("on")
+    while pos != -1:
+        before = text[pos - 1] if pos else " "
+        end = pos + 2
+        while end < len(text) and "a" <= text[end] <= "z":
+            end += 1
+        eq = end
+        while eq < len(text) and text[eq] in _WS:
+            eq += 1
+        if before not in _ATTR_CHARS and end > pos + 2 and eq < len(text) and text[eq] == "=":
+            raise _fail("content", f"{where}: event handler attributes (on...=) are not allowed")
+        pos = text.find("on", pos + 1)
     # A form may only post to this site.
     pos = 0
     while True:
-        at = text.find("action=", pos)
+        at = tight.find("action=", pos)
         if at == -1:
             break
         pos = at + 7
-        rest = text[pos : pos + 3].lstrip("\"'")
-        if rest and not (rest[0] in "#\x01\"'" or (rest[0] == "/" and rest[1:2] != "/")):
+        rest = tight[pos : pos + 3].lstrip("\"'")
+        local = rest[:1] == "/" and rest[1:2] not in ("/", "\\")
+        if rest and not (rest[0] in "#\x01\"'" or local):
             raise _fail("content", f"{where}: a form action must be a path on this site")
     for i, ch in enumerate(text):
         if ch != "\x02":
@@ -588,6 +641,12 @@ def _respond(obj: object, where: str) -> Respond:
         if _template_bound(tpl) > MAX_BODY:
             raise _fail("limits", f"{w}: the rendered body can exceed {MAX_BODY} bytes")
         variants.append(tpl)
+    if status in (204, 304) and any(variants):
+        raise _fail("schema", f"{where}.variants: a {status} answer has an empty body")
+    if status in REDIRECTS and "Location" not in seen:
+        raise _fail("schema", f"{where}.headers: a {status} answer needs a Location header")
+    if "Location" in seen and status not in (*REDIRECTS, 201):
+        raise _fail("schema", f"{where}.headers: Location only with 201 or a redirect status")
     return Respond(d["kind"], status, d["content_type"], tuple(headers), tuple(variants))
 
 
@@ -601,7 +660,7 @@ _PACK_OPTIONAL = {"group", "presence", "attack"}
 _MATCH_KEYS = {"method", "path", "query_keys", "header_names", "needles", "case"}
 
 
-def _trap(obj: object, where: str, reserved_flags: frozenset[str]) -> Trap:
+def _trap(obj: object, where: str, reserved_flags: frozenset[str], pack_id: str) -> Trap:
     d = _dict(obj, where, {"id", "level", "match", "outcome"}, {"respond"})
     tid = _slug(d["id"], f"{where}.id", 1, 32)
     where = f"trap {tid}"
@@ -628,6 +687,8 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str]) -> Trap:
         text = _printable(value, f"{where}.match.path", 1, 256, ascii_only=True)
         if op in ("exact", "prefix") and not text.startswith("/"):
             raise _fail("schema", f"{where}.match.path: exact and prefix paths start with /")
+        if op in ("contains", "suffix") and len(text) < PATH_MIN_LOOSE:
+            raise _fail("limits", f"{where}.match.path: {op} needs {PATH_MIN_LOOSE} bytes or more")
         raw = text.encode("ascii")
         path = PathCond(op, raw if exact else raw.lower())
 
@@ -667,6 +728,8 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str]) -> Trap:
             raise _fail("schema", f"{where}.outcome.flags: {str(f)[:40]!r} is not a flag name")
         if f in reserved_flags:
             raise _fail("schema", f"{where}.outcome.flags: {f} is a built-in flag")
+        if _OWNED.get(f, pack_id) != pack_id:
+            raise _fail("schema", f"{where}.outcome.flags: {f} belongs to pack {_OWNED[f]}")
     if len(set(flags_raw)) != len(flags_raw):
         raise _fail("schema", f"{where}.outcome.flags: duplicates")
     if "claim_cve" in od:
@@ -692,11 +755,51 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str]) -> Trap:
     )
 
 
+def _header_needle_specific(n: bytes) -> bool:
+    """A headers needle names its header: "name: value", with a value of 6 bytes or more."""
+    name, sep, value = n.partition(b": ")
+    return (
+        bool(sep)
+        and bool(name)
+        and all(chr(b) in _TOKEN for b in name)
+        and len(value.strip()) >= EVIDENCE_MIN
+    )
+
+
+def strong_condition(c: Needles, t: Trap) -> bool:
+    """A needle condition that is specific to an exploit: in the query, body or headers (never
+    the path or the whole-request blob), and every one of its needles (any one may match) has 6
+    bytes or more, does not occur in the trap's path, and, in headers, names its header."""
+    if c.area not in ("query", "body", "headers"):
+        return False
+    path = t.path.value.lower() if t.path is not None else b""
+    for n in c.any:
+        if len(n) < EVIDENCE_MIN or (path and n.lower() in path):
+            return False
+        if c.area == "headers" and not _header_needle_specific(n.lower()):
+            return False
+    return True
+
+
+def may_answer_on_reserved_path(t: Trap) -> bool:
+    """On a path the built-in site serves, a trap answers only with a query key condition or a
+    specific needle condition (design 3.6, rule 4)."""
+    return bool(t.query_keys) or any(strong_condition(c, t) for c in t.needles)
+
+
+def _only_reserved(p: PathCond) -> bool:
+    """Every path this condition matches is one the site serves (so the trap could never answer
+    without a specific condition)."""
+    value = p.value.decode("ascii").lower()
+    if p.op == "exact":
+        return is_reserved_path(value)
+    return p.op == "prefix" and any(value.startswith(r) for r in RESERVED_PREFIXES)
+
+
 def _has_evidence(t: Trap) -> bool:
     """A trap that claims a CVE must hold specific evidence (design 3.2, evidence rule)."""
-    for c in t.needles:
-        if c.area != "path" and any(len(n) >= 6 for n in c.any):
-            return True
+    if any(strong_condition(c, t) for c in t.needles):
+        return True
     if t.path is not None and t.path.op in ("exact", "prefix") and len(t.path.value) >= 12:
         return not is_reserved_path(t.path.value.decode("ascii").lower())
     return False
@@ -756,7 +859,7 @@ def validate_pack(
     if not all(_is_technique(a) for a in attack_raw):
         raise _fail("schema", "attack: ATT&CK ids like T1190 or T1059.004")
     traps_raw = _list(d["traps"], "traps", 1, MAX_TRAPS_PER_PACK)
-    traps = tuple(_trap(t, f"traps[{i}]", reserved_flags) for i, t in enumerate(traps_raw))
+    traps = tuple(_trap(t, f"traps[{i}]", reserved_flags, pid) for i, t in enumerate(traps_raw))
     ids = [t.id for t in traps]
     if len(set(ids)) != len(ids):
         raise _fail("schema", "traps: ids must be unique in the pack")
@@ -765,10 +868,22 @@ def validate_pack(
             if t.claim_cve and not _has_evidence(t):
                 raise _fail(
                     "evidence",
-                    f"trap {t.id} claims a CVE without specific evidence (a needle of 6 bytes or "
-                    "more outside the path, or an exact/prefix path of 12 bytes or more that the "
-                    "site does not serve)",
+                    f"trap {t.id} claims a CVE without specific evidence (a condition in the "
+                    "query, body or headers whose needles all have 6 bytes or more, or an "
+                    "exact or prefix path of 12 bytes or more that the site does not serve)",
                 )
+    for t in traps:
+        if (
+            t.respond is not None
+            and t.path is not None
+            and _only_reserved(t.path)
+            and not may_answer_on_reserved_path(t)
+        ):
+            raise _fail(
+                "schema",
+                f"trap {t.id} answers on a page the site serves: it needs query_keys or a "
+                "specific needle condition (query, body or headers, 6 bytes or more)",
+            )
     size = len(canonical(d))
     if size > MAX_PACK_BYTES:
         raise _fail("limits", f"pack is {size} bytes, at most {MAX_PACK_BYTES}")

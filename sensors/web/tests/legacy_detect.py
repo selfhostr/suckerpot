@@ -64,6 +64,7 @@ class LegacyDetector(Detector):
 
     def __init__(self, cfg: Config) -> None:
         super().__init__(cfg, TrapSet.empty())
+        self.severe = LEGACY_SEVERE  # the server's quota decision uses this set
 
     def analyze(self, req: Request, src_ip: str) -> Analysis:
         out = _ANALYZE(self, req, src_ip)

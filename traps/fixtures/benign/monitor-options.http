@@ -1,0 +1,5 @@
+OPTIONS / HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Example-Monitor/1.0
+Connection: close
+

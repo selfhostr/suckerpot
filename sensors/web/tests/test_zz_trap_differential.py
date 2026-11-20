@@ -224,6 +224,23 @@ async def test_corpus_responses_and_events_match_legacy(
     monkeypatch.setattr("web_sensor.site.secrets.token_hex", lambda n=16: "0" * (2 * n))
     async with start_with() as packs, start_with() as legacy:
         legacy.sensor.detector = LegacyDetector(legacy.cfg)
+        quota: dict[str, list[tuple[str, str, str, bool]]] = {"packs": [], "legacy": []}
+
+        def record(h: Harness, name: str) -> None:
+            real = h.sensor.emit
+
+            def emit(
+                conn: Any, type_: Any, data: dict[str, Any], *, important: bool = False
+            ) -> None:
+                if type_ == "http_request":
+                    q = (data.get("method", ""), data.get("path", ""), data.get("query", ""))
+                    quota[name].append((*q, important))
+                real(conn, type_, data, important=important)
+
+            h.sensor.emit = emit  # type: ignore[method-assign]
+
+        record(packs, "packs")
+        record(legacy, "legacy")
         diffs: list[str] = []
         sent = 0
         for source, items in CORPUS.items():
@@ -252,6 +269,9 @@ async def test_corpus_responses_and_events_match_legacy(
             )
 
         assert sorted(map(key, ev_a)) == sorted(map(key, ev_b))
+        # The guaranteed-quota (important) decision is the same for every request.
+        assert sorted(quota["packs"]) == sorted(quota["legacy"])
+        assert any(imp for *_, imp in quota["packs"]) and len(quota["packs"]) >= sent // 2
         assert len(ev_a) >= sent // 2
         assert diffs == []
 

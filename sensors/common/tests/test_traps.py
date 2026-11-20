@@ -263,6 +263,31 @@ def test_get_slash_can_never_be_an_exploit() -> None:
         "{echo:query:a b}",
         "{echo:query:}",
         "{echo:cookie:x}",
+        # Security review of PR 159 (M1): each of these was accepted before.
+        "<svg onload=alert(1)>",
+        '<img src=x onerror="fetch(location)">',
+        '<a href="&#104;ttps://evil.example/x">',
+        '<img src="&#47;&#47;evil.example/x.png">',
+        "<img src= //evil.example/x.png>",
+        '<meta http-equiv=refresh content="0; url= //evil.example/">',
+        "url( //evil.example/a)",
+        'srcset=" //evil.example/a 1x"',
+        # Variants of the same holes.
+        '<img/onerror="x">',
+        "<div onclick =x>",
+        '<p ONMOUSEOVER="x">',
+        "<a href='&#x2f;&#x2f;evil.example'>",
+        "<a href=&sol;&sol;evil.example>",
+        '<a href="/\\evil.example/">',
+        '<a href="\t//evil.example/">',
+        '<img src="/a.png" srcset="/a.png 1x, //evil.example/b.png 2x">',
+        '<a href="ht\ntps://evil.example/">',
+        '<a href="data:text/html,x">',
+        "<link rel=stylesheet href=/a.css>",
+        "<style>body{}</style>",
+        "<math><mi>x</mi></math>",
+        "@import '/a.css';",
+        '<div style="width:expression(1)">',
     ],
 )
 def test_content_rules(body: str) -> None:
@@ -276,7 +301,10 @@ def test_content_rules(body: str) -> None:
     [
         '<form method="post" action="/login.cgi"><input name=u></form>',
         '<form action="{base_url}/login.cgi">',
-        '<link rel="stylesheet" href="/css/main.css">',
+        '<a href="/login.php?a=1&amp;b=2">Log in &gt;</a>',
+        '<img src="/logo.png" alt="Acme" width="120">',
+        '{"session":"x","button":"on","version":"7.2","json_on":1}',
+        "<p>Monitoring is on = yes</p>",
         "<p>{site_title} on {hostname} ({server_ip}), {server_token} PHP {php_version}</p>",
         "{date_http} {year} {install_date}",
         '{"echo":"{echo:query:id}"}',
@@ -313,15 +341,16 @@ def test_response_fields() -> None:
     assert reason(respond(variants=["{echo:query:a}" * 300])) in ("limits", "content")
     traps.validate_pack(
         respond(
+            status=302,
             headers=[
                 ["Location", "{base_url}/login"],
                 ["Set-Cookie", "sid={rand_hex:16}; path=/"],
                 ["Set-Cookie", "lang=en; path=/"],
                 ["Cache-Control", "no-store"],
-            ]
+            ],
         )
     )
-    traps.validate_pack(respond(headers=[["Location", "/login"]]))
+    traps.validate_pack(respond(status=301, headers=[["Location", "/login"]]))
 
 
 # -- bundles and limits ------------------------------------------------------------------------
@@ -505,3 +534,111 @@ def test_reserved_paths() -> None:
         assert traps.is_reserved_path(p)
     for p in ("/api/v1/version", "/cgi-bin/luci", "/vendor/phpunit/"):
         assert not traps.is_reserved_path(p)
+
+
+# -- security review of PR 159 -----------------------------------------------------------------
+
+
+def _claiming(match: dict[str, Any]) -> dict[str, Any]:
+    obj = example()
+    obj["traps"][1]["match"] = match
+    return obj
+
+
+def test_owned_flags_only_in_their_pack() -> None:
+    """M3: flags that ingest rules give a meaning belong to one bundled pack."""
+    for flag, owner in traps.PACK_OWNED_FLAGS:
+        obj = example()
+        obj["traps"][0]["outcome"]["flags"] = [flag]
+        assert reason(obj) == "schema", flag
+        obj["id"] = owner
+        traps.validate_pack(obj)
+
+
+def test_evidence_must_be_specific() -> None:
+    """L1: the accepted examples of the review are refused now."""
+    assert reason(_claiming({"needles": [{"in": "blob", "any": ["/wp-login.php"]}]})) == "evidence"
+    assert reason(_claiming({"needles": [{"in": "headers", "any": ["mozilla"]}]})) == "evidence"
+    # A weak sibling needle makes the whole condition weak (any one needle may match).
+    weak = {"needles": [{"in": "body", "any": ["host=192.0.2", ";"]}]}
+    assert reason(_claiming(weak)) == "limits"  # 1 byte is below the needle minimum anyway
+    weak = {"needles": [{"in": "body", "any": ["host=192.0.2", "id"]}]}
+    assert reason(_claiming(weak)) == "evidence"
+    # The needle must not be the path itself.
+    same = {
+        "path": {"prefix": "/a"},
+        "needles": [{"in": "query", "any": ["/api/v1/diag/ping"]}],
+    }
+    traps.validate_pack(_claiming(same))  # the query is not the path
+    inside = {
+        "path": {"contains": "/x/api/v1/diag/ping"},
+        "needles": [{"in": "query", "any": ["diag/ping"]}],
+    }
+    assert reason(_claiming(inside)) == "evidence"
+    # Header evidence names its header.
+    named = {"needles": [{"in": "headers", "any": ["x-edge-token: ${jndi"]}]}
+    traps.validate_pack(_claiming(named))
+    short = {"needles": [{"in": "headers", "any": ["x-edge-token: ab"]}]}
+    assert reason(_claiming(short)) == "evidence"
+    traps.validate_pack(_claiming({"needles": [{"in": "body", "any": ["host=192.0.2"]}]}))
+
+
+def test_loose_paths_need_four_bytes() -> None:
+    """L2: contains and suffix paths are not a few bytes that every request has."""
+    obj = example()
+    obj["traps"][0]["match"]["path"] = {"contains": "/a/"}
+    assert reason(obj) == "limits"
+    obj["traps"][0]["match"]["path"] = {"suffix": ".cgi"}
+    traps.validate_pack(obj)
+
+
+def test_answer_on_reserved_path_needs_specific_condition() -> None:
+    """M2: a trap that answers on a built-in page needs query keys or a specific needle."""
+    obj = example()
+    probe = obj["traps"][0]
+    probe["match"] = {"path": {"exact": "/wp-login.php"}}
+    assert reason(obj) == "schema"
+    probe["match"] = {
+        "path": {"exact": "/wp-login.php"},
+        "needles": [{"in": "path", "any": ["/wp-login.php"]}],
+    }
+    assert reason(obj) == "schema"
+    probe["match"] = {
+        "path": {"exact": "/wp-login.php"},
+        "needles": [{"in": "headers", "any": [": "]}],
+    }
+    assert reason(obj) == "schema"
+    probe["match"] = {
+        "path": {"prefix": "/wp-admin/"},
+        "needles": [{"in": "blob", "any": ["action=edge"]}],
+    }
+    assert reason(obj) == "schema"
+    probe["match"] = {"path": {"exact": "/wp-login.php"}, "query_keys": ["edge"]}
+    traps.validate_pack(obj)
+    probe["match"] = {
+        "path": {"exact": "/wp-login.php"},
+        "needles": [{"in": "query", "any": ["action=edge"]}],
+    }
+    traps.validate_pack(obj)
+    t = traps.validate_pack(obj).traps[0]
+    assert traps.may_answer_on_reserved_path(t)
+    unpathed = traps.validate_pack(
+        _claiming({"needles": [{"in": "headers", "any": ["x-a: ${jndi"]}]})
+    )
+    assert traps.may_answer_on_reserved_path(unpathed.traps[1])
+
+
+def test_status_and_body_and_location_agree() -> None:
+    """L3: 204 has an empty body; a redirect has a Location; Location only with redirects."""
+
+    def respond(**kw: Any) -> dict[str, Any]:
+        obj = example()
+        obj["traps"][0]["respond"].update(kw)
+        return obj
+
+    assert reason(respond(status=204, variants=["x"])) == "schema"
+    traps.validate_pack(respond(status=204, variants=[""]))
+    assert reason(respond(status=301)) == "schema"
+    assert reason(respond(status=302, headers=[["Cache-Control", "no-store"]])) == "schema"
+    traps.validate_pack(respond(status=302, headers=[["Location", "/login"]]))
+    assert reason(respond(status=200, headers=[["Location", "/login"]])) == "schema"

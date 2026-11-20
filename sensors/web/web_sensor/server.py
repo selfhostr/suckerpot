@@ -437,6 +437,8 @@ class WebSensor:
         data["cve"] = cve
         if analysis is not None and analysis.traps:
             data["traps"] = analysis.traps
+        if analysis is not None and analysis.trap_budget:
+            data["trap_budget"] = analysis.trap_budget  # at most the number of traps (512)
         if extra:
             data.update(extra)
         conn.flags |= flags

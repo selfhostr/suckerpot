@@ -326,7 +326,8 @@ class Site:
         usable = [
             h
             for h in candidates
-            if (not reserved or h.trap.query_keys or h.trap.needles) and self.trap_active(h, groups)
+            if (not reserved or fmt.may_answer_on_reserved_path(h.trap))
+            and self.trap_active(h, groups)
         ]
         if not usable:
             return None

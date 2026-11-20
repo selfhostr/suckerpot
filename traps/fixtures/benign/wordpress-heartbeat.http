@@ -1,0 +1,9 @@
+POST /wp-admin/admin-ajax.php HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+X-Requested-With: XMLHttpRequest
+Content-Length: 123
+Connection: close
+
+data%5Bwp-refresh-post-lock%5D%5Bpost_id%5D=12&interval=60&_nonce=0a1b2c3d4e&action=heartbeat&screen_id=post&has_focus=true

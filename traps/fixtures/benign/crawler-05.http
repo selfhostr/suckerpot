@@ -1,0 +1,8 @@
+GET /2025/03/hello-world/ HTTP/1.1
+Host: 192.0.2.10
+User-Agent: facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)
+Accept: */*
+Accept-Encoding: gzip
+From: crawler@example.net
+Connection: close
+

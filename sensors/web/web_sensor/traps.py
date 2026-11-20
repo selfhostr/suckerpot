@@ -22,10 +22,11 @@ from suckerpot_common import traps as fmt
 log = logging.getLogger("web_sensor.traps")
 
 BUNDLED = Path(__file__).parent / "data" / "traps-bundled.json"
-# Per request, at most this many distinct needle searches run (each over at most 32 KiB). With
-# every load limit filled this keeps the added cost near 1 ms; requests that would need more stop
-# matching and are counted in ``TrapSet.budget_exhausted``.
-MAX_SEARCHES = 160
+# Per request, traps with a path condition share this many distinct needle searches (each over at
+# most 32 KiB); traps without one have their own budget (fmt.MAX_UNPATHED_NEEDLES). With every load
+# limit filled this keeps the added cost near 1 ms. Traps the budget skips are reported in the
+# event (data.trap_budget) and counted in ``TrapSet.budget_exhausted``.
+MAX_SEARCHES = 128
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +104,13 @@ class TrapSet:
         seq: int = 0,
     ) -> TrapSet:
         ordered = sorted(packs, key=lambda p: p.id)
-        pairs = tuple((p, t) for p in ordered for t in p.traps)
+        # Most specific path first (the order of the answer choice), then pack and trap id.
+        pairs = tuple(
+            sorted(
+                ((p, t) for p in ordered for t in p.traps),
+                key=lambda pt: specificity(Hit(pt[0], pt[1])),
+            )
+        )
         severe = frozenset(f for _, t in pairs if t.level == "exploit" for f in t.flags)
         groups: dict[str, list[str]] = {}
         for p in ordered:
@@ -128,14 +135,22 @@ class TrapSet:
         areas: Areas,
         query_keys: frozenset[str],
         header_names: frozenset[str],
-    ) -> list[Hit]:
-        """Every trap whose conditions all hold. Linear in the (bounded) trap and needle data."""
+    ) -> tuple[list[Hit], int]:
+        """Every trap whose conditions all hold, and how many traps the search budget skipped.
+
+        Traps run most specific path first. Traps with a path share ``MAX_SEARCHES`` distinct
+        needle searches; when it is spent, the remaining ones that still need a search are
+        skipped (and counted). Traps without a path have their own budget, as large as their
+        distinct needles may be, so a request crafted to match many path traps can never starve
+        them. Linear in the bounded trap and needle data."""
         hits: list[Hit] = []
         memo: dict[tuple[str, bool, bytes], bool] = {}
-        budget = MAX_SEARCHES
+        budget = {True: MAX_SEARCHES, False: fmt.MAX_UNPATHED_NEEDLES}
+        skipped = 0
         for pack, trap in self._traps:
             if trap.methods and method not in trap.methods:
                 continue
+            pathed = trap.path is not None
             if trap.path is not None and not _path_ok(
                 trap.path, areas.path if trap.exact_case else areas.path_low
             ):
@@ -152,21 +167,26 @@ class TrapSet:
                     key = (cond.area, trap.exact_case, needle)
                     seen = memo.get(key)
                     if seen is None:
-                        if budget <= 0:
-                            self.budget_exhausted += 1
-                            return hits
-                        budget -= 1
+                        if budget[pathed] <= 0:
+                            break
+                        budget[pathed] -= 1
                         seen = needle in hay
                         memo[key] = seen
                     if seen:
                         found = True
                         break
-                if not found:
+                else:
                     ok = False
+                    break
+                if not found:  # the budget ran out inside this condition
+                    ok = False
+                    skipped += 1
                     break
             if ok:
                 hits.append(Hit(pack, trap))
-        return hits
+        if skipped:
+            self.budget_exhausted += 1
+        return hits, skipped
 
 
 def load_bytes(data: bytes, *, today: date | None = None, source: str = "bundled") -> TrapSet:

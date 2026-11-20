@@ -1,0 +1,7 @@
+GET /wp-includes/css/dashicons.min.css HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0
+If-None-Match: "1a2b-5f0e"
+If-Modified-Since: Tue, 01 Jul 2025 10:00:00 GMT
+Connection: close
+

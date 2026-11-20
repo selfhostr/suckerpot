@@ -1,0 +1,8 @@
+POST /xmlrpc.php HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Example-Blog-Client/2.0
+Content-Type: text/xml
+Content-Length: 101
+Connection: close
+
+<?xml version="1.0"?><methodCall><methodName>demo.sayHello</methodName><params></params></methodCall>

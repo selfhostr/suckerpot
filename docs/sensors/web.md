@@ -23,7 +23,7 @@ Nothing in a request is executed or fetched. Request analysis is passive pattern
 | Event `type` | When | Main `data` keys |
 | --- | --- | --- |
 | `connect` | A connection opens | `tls`, `sni`, `tls_version`, `cipher`, `handshake` |
-| `http_request` | Each request | `method`, `path`, `query`, `http_version`, `host`, `headers`, `user_agent`, `status`, `body_preview`, `body_sha256`, `body_length`, `body_truncated`, `tls`, `sni`, `app`, `route`, `flags`, `cve`, `traps` (the trap pack hits, see [Trap packs](../trap-packs.md)), and `php2shell` details (the upload-progress findings, also for a probe that is not flagged `php2shell`) |
+| `http_request` | Each request | `method`, `path`, `query`, `http_version`, `host`, `headers`, `user_agent`, `status`, `body_preview`, `body_sha256`, `body_length`, `body_truncated`, `tls`, `sni`, `app`, `route`, `flags`, `cve`, `traps` (the trap pack hits, see [Trap packs](../trap-packs.md)), `trap_budget` (pack traps the per-request search budget skipped, when any), and `php2shell` details (the upload-progress findings, also for a probe that is not flagged `php2shell`) |
 | `login_attempt` | A WordPress login, an XML-RPC call with credentials, or HTTP Basic credentials | `username`, `password`, `success`, `method`, `path`, `user_agent` |
 | `download_attempt` | A URL found in a payload that looks like a fetch | `url`, `path`, `user_agent` |
 | `scan` | Non-TLS bytes on the TLS port, or a failed TLS handshake | `kind` = `non_tls_on_tls_port` or `tls_handshake_failed`, `payload_preview`, `error` |

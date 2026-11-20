@@ -83,7 +83,7 @@ All events use `suckerpot_common.Event`; `dst_port` is the public port of the li
 | type | data |
 | --- | --- |
 | `connect` | `tls`, `sni`, `tls_version`, `cipher`, `handshake` |
-| `http_request` | `method`, `path`, `query`, `http_version`, `host`, `headers` (dict, wire order, 64 max, values 512 chars), `user_agent`, `body_preview` (2 KB), `body_sha256`, `body_length` (read up to 1 MiB), `body_truncated`, `content_length`, `chunked`, `status`, `tls`, `sni`, `app` (`wordpress`/`phpmyadmin`/`phpinfo`/`apache`), `route`, `flags` (list), `cve` (list), `traps` (trap pack hits, up to 4 `{pack, v, trap, level}`), `php2shell` (when relevant), `request_head_preview` (malformed or incomplete requests) |
+| `http_request` | `method`, `path`, `query`, `http_version`, `host`, `headers` (dict, wire order, 64 max, values 512 chars), `user_agent`, `body_preview` (2 KB), `body_sha256`, `body_length` (read up to 1 MiB), `body_truncated`, `content_length`, `chunked`, `status`, `tls`, `sni`, `app` (`wordpress`/`phpmyadmin`/`phpinfo`/`apache`), `route`, `flags` (list), `cve` (list), `traps` (trap pack hits, up to 4 `{pack, v, trap, level}`), `trap_budget` (traps skipped by the search budget), `php2shell` (when relevant), `request_head_preview` (malformed or incomplete requests) |
 | `login_attempt` | `username`, `password`, `success` (always false), `method`, `path`, `user_agent` |
 | `download_attempt` | `url`, `tool` (`wget`, `curl`, `tftp`, `rfi`, `jndi`, `xmlrpc-pingback`, ...), `command`, `via`, `path`, `user_agent` (recorded only) |
 | `scan` | `kind` = `tls_handshake_failed` or `non_tls_on_tls_port` (+ details) |

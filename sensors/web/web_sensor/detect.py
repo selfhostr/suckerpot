@@ -191,6 +191,7 @@ class Analysis:
     basic_auth: tuple[str, str] | None = None
     traps: list[dict[str, Any]] = field(default_factory=list)  # data.traps: pack hits, capped
     trap_hits: list[Hit] = field(default_factory=list, repr=False, compare=False)
+    trap_budget: int = 0  # traps the per-request search budget skipped (data.trap_budget)
     severe_flags: frozenset[str] = field(default=SEVERE, repr=False, compare=False)
 
     @property
@@ -373,7 +374,7 @@ class Detector:
             )
             qkeys = frozenset(k for k, _ in pairs)
             hnames = frozenset(k.lower() for k, _ in req.headers)
-            out.trap_hits = self.traps.match(req.method, areas, qkeys, hnames)
+            out.trap_hits, out.trap_budget = self.traps.match(req.method, areas, qkeys, hnames)
             for hit in out.trap_hits:
                 flags.update(hit.trap.flags)
             out.traps = [h.entry() for h in out.trap_hits[:_MAX_TRAPS_REPORTED]]

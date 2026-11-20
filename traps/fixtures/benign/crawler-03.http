@@ -1,0 +1,8 @@
+GET /feed/ HTTP/1.1
+Host: 192.0.2.10
+User-Agent: DuckDuckBot/1.1; (+http://duckduckgo.com/duckduckbot.html)
+Accept: */*
+Accept-Encoding: gzip
+From: crawler@example.net
+Connection: close
+

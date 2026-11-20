@@ -21,7 +21,7 @@ A pack **cannot**:
 
 - Run anything. There is no code, no regular expression, no wildcard and no repetition. The engine only searches bytes with `in` and fills fixed templates.
 - Read or name a file, open a connection, fetch a URL or open a port. URLs in a request are still found by the built-in extraction, which only reports them.
-- Remove or change a flag the sensor's own code sets, or set one of those flags.
+- Remove or change a flag the sensor's own code sets, or set one of those flags. The flags of the bundled packs (`phpunit_rce`, `phpunit_probe`, `log4shell`, `router_exploit`) belong to their pack: ingest rules give them a meaning, so no other pack may set them.
 - Keep state across requests, compute anything on the payload, or delay an answer.
 - Serve a link, a script, a frame or a download for another host (see [Content rules](#content-rules)).
 - Replace a page the built-in site serves, such as the login page (see [How packs compose with the site](#how-packs-compose-with-the-site)).
@@ -119,12 +119,12 @@ Unknown fields are refused, everywhere.
 | `id` | 1 to 32 of `a-z 0-9 -`, unique in the pack | |
 | `level` | `probe` or `exploit` | Probe: the client checks whether the product is there. Exploit: the request carries the exploit shape |
 | `match.method` | subset of `GET HEAD POST PUT DELETE PATCH OPTIONS`; empty means any | Methods are case-sensitive, as in HTTP |
-| `match.path` | exactly one of `exact`, `prefix`, `suffix`, `contains`; 1 to 256 printable ASCII bytes | On the path, percent-decoded twice and lowercased. `exact` and `prefix` start with `/` |
+| `match.path` | exactly one of `exact`, `prefix`, `suffix`, `contains`; 1 to 256 printable ASCII bytes (`suffix` and `contains`: 4 or more) | On the path, percent-decoded twice and lowercased. `exact` and `prefix` start with `/` |
 | `match.query_keys` | 0 to 8 names | All must be present (decoded, lowercased) |
 | `match.header_names` | 0 to 8 names | All must be present (any case) |
 | `match.needles` | 0 to 6 conditions, all must hold | Each is `{in, any}`. `in` is `path`, `query`, `body`, `headers` or `blob`. `any` is 1 to 16 needles; the condition holds when one is found |
 | `match.case` | `insensitive` (default) or `exact` | `exact` compares the decoded bytes without lowercasing |
-| `outcome.flags` | 1 to 4, `a-z 0-9 _`, 3 to 32 characters, starting with a letter | Flags added to the event. A flag the sensor's code sets is refused |
+| `outcome.flags` | 1 to 4, `a-z 0-9 _`, 3 to 32 characters, starting with a letter | Flags added to the event. A flag the sensor's code sets, or a flag owned by another pack, is refused |
 | `outcome.claim_cve` | `true` or `false`; default `true` for `exploit`, not allowed on `probe` | Adds the pack's CVE ids to the event's `cve` list |
 | `respond` | optional | The fake answer. Without it the trap only observes and the site answers as before |
 
@@ -144,14 +144,19 @@ A trap needs at least one of `path`, `query_keys`, `header_names` or `needles`.
 
 ### Evidence rule
 
-A trap that claims a CVE must hold specific evidence: a needle of 6 bytes or more in `query`, `body`, `headers` or `blob`, or an `exact` or `prefix` path of 12 bytes or more on a path the built-in site does not serve. The validator refuses a claiming trap without it (`evidence`). A pack can never turn `GET /` into an exploit.
+A trap that claims a CVE must hold specific evidence, one of:
+
+- a **specific needle condition**: in `query`, `body` or `headers` (never `path` or `blob`), and every needle of the condition (any one of them may match) has 6 bytes or more and does not occur in the trap's path. In `headers` each needle names its header, `name: value`, with a value of 6 bytes or more (`x-api-version: ${jndi`), so a generic value such as `mozilla` never counts;
+- an `exact` or `prefix` path of 12 bytes or more on a path the built-in site does not serve.
+
+The validator refuses a claiming trap without it (`evidence`). A pack can never turn `GET /` into an exploit.
 
 ### The fake answer
 
 | Field | Bounds | Meaning |
 | --- | --- | --- |
 | `kind` | `php`, `static` or `error` | Header order and framing from the sensor's Apache model, so the answer looks like the rest of the site |
-| `status` | 200 201 204 301 302 400 401 403 404 405 500 503 | |
+| `status` | 200 201 204 301 302 400 401 403 404 405 500 503 | 204 has an empty body (every variant is `""`). 301 and 302 need a `Location` header; `Location` is allowed only with 201, 301 and 302 |
 | `content_type` | `text/html; charset=UTF-8`, `text/plain`, `application/json`, `text/xml`, `application/xml` | |
 | `headers` | 0 to 6 `[name, value]` pairs | Names: `Cache-Control`, `Set-Cookie`, `WWW-Authenticate`, `X-Frame-Options`, `Location`, `Pragma`, `Expires`. Values: printable ASCII, 512 bytes at most. `Location` is a path or starts with `{base_url}`. Only `Set-Cookie` may repeat |
 | `variants` | 1 to 4 bodies, 16 KiB each at most | One is chosen per install and pack |
@@ -174,13 +179,18 @@ Braces that are not a placeholder stay as text, so JSON bodies need no escaping.
 
 ### Content rules
 
-The validator refuses (`content`) a body or header that contains, in any case:
+The validator refuses (`content`) a body or header that contains, in any case, as written or once every space, tab and line break is removed (browsers drop them inside URLs):
 
-- a URL scheme: `http:`, `https:`, `ftp:`, `javascript:`, `vbscript:`, or a link to another host (`"//`, `'//`, `=//`, `(//`, `\\`);
-- `<script`, `<iframe`, `<frame`, `<object`, `<embed`, `<applet` or `<base`;
+- a URL scheme: `http:`, `https:`, `ftp:`, `javascript:`, `vbscript:`;
+- a URL value that leaves the site: `//`, `/\`, `\/`, `\\` or `data:` at the start of the text or right after `"`, `'`, `=`, `(` or `,` (so `src= //host`, `srcset="/a 1x, //host 2x"` and `url= //host` are refused);
+- a character reference other than `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and `&nbsp;` (no `&#...;`, no `&sol;`), so nothing can be spelled with entities;
+- an event handler attribute: `on` and letters, optional spaces, then `=` (`onload=`, `onerror =`), when it starts an attribute name;
+- `<script`, `<iframe`, `<frame`, `<object`, `<embed`, `<applet`, `<base`, `<svg`, `<math`, `<meta`, `<link`, `<style`, `url(`, `@import` or `expression(`;
 - a form `action` that is not a path on this site or `{base_url}`;
 - an `{echo:...}` next to a letter, digit, `:`, `/`, or another placeholder, or right after `<`, so an echoed value can never complete a tag name, a URL scheme or a word;
 - `suckerpot`, `selfhostr` or `honeypot`.
+
+`Location` is a path (not `//` or `/\`) or starts with `{base_url}`, and `{echo:...}` is never allowed in a header.
 
 A rendered body is at most 16 KiB. A pack can make a node answer like a vulnerable product. It cannot make it host a link, a script or a download for someone else.
 
@@ -189,7 +199,7 @@ A rendered body is at most 16 KiB. A pack can make a node answer like a vulnerab
 1. The built-in detector runs first, unchanged. Pack flags are added; a pack never removes one.
 2. Every loaded trap is matched on every request. Detection never depends on persona or presence.
 3. If matching traps have `respond` and are active on this install, the most specific one answers instead of the site: `exact` path, then `prefix` (longest first), then `suffix`, then `contains`, then no path; then the most conditions; then pack id order. Otherwise the site answers as before.
-4. On a path the built-in site serves (`/`, `/index.php`, `/wp-login.php`, `/xmlrpc.php`, `/wp-admin/`, `/wp-json/`, `/wp-content/`, `/wp-includes/`, `/phpmyadmin/`, `/pma/`, `/robots.txt`, `/favicon.ico`, `/info.php`, `/phpinfo.php`, the static files and listed directories), a trap may answer only if it also has a `query_keys` or `needles` condition.
+4. On a path the built-in site serves (`/`, `/index.php`, `/wp-login.php`, `/xmlrpc.php`, `/wp-admin/`, `/wp-json/`, `/wp-content/`, `/wp-includes/`, `/phpmyadmin/`, `/pma/`, `/robots.txt`, `/favicon.ico`, `/info.php`, `/phpinfo.php`, the static files and listed directories), a trap may answer only if it also has a `query_keys` condition or a specific needle condition (as in the [evidence rule](#evidence-rule): `query`, `body` or `headers`, every needle 6 bytes or more, header needles naming their header). A needle on the path or the blob, or a generic one such as `": "`, never lets a pack replace a built-in page. The validator also refuses a responding trap whose `exact` or `prefix` path only covers such pages without that condition.
 5. The check refuses two responding traps with the same path condition, methods and number of conditions.
 
 **Per-install variation.** The install's private profile secret picks the variant (one per pack, so the probe and exploit answers agree), fills `{rand_hex}` and `{rand_int}`, decides `presence`, and picks one product per `group`. Two installs answer differently; one install always answers the same way.
@@ -204,7 +214,7 @@ A rendered body is at most 16 KiB. A pack can make a node answer like a vulnerab
 | Distinct needles of traps without a path | 128 (they are searched on every request) |
 | Needles | 16 per condition, 6 conditions per trap, 2 to 256 bytes each |
 | Compiled memory | 4 MiB per trap set (an estimate that a test checks is an upper bound) |
-| Work per request | 160 distinct needle searches; past that, matching stops for this request and a counter goes up |
+| Work per request | Traps with a path run most specific first and share 128 distinct needle searches; the traps the budget skips are counted in the event as `data.trap_budget`. Traps without a path have their own budget, as large as their 128 distinct needles, so they always run and a crafted request cannot starve them |
 | Cost | p99 under 2 ms added per request with the limits filled (tested) |
 
 **Room for new flaws.** Packs load newest `disclosed` first. Packs disclosed more than 90 days ago may use only three quarters of each limit, so a new pack always has room. A pack that does not fit is rejected as `over_limit`.
