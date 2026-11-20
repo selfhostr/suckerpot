@@ -18,6 +18,7 @@ These are the design documents written before the larger milestones were built. 
 | [M33](m33.md) | The network on by default (since reverted: the network is off unless you join) |
 | [M34](m34.md) | Public network observatory |
 | [M36](m36.md) | Useful from the first node |
+| [M37](m37.md) | Trap packs for new CVEs |
 
 ```{toctree}
 :maxdepth: 1
@@ -37,4 +38,5 @@ m32
 m33
 m34
 m36
+m37
 ```
