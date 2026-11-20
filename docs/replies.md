@@ -150,9 +150,9 @@ Each reply gets one class. The class is set by the first rule that fits. The rul
 
 | Class | Label in the dashboard | Meaning |
 | --- | --- | --- |
-| `resolved` | Resolved | The provider says it acted: suspended, removed, terminated or null-routed. |
-| `rejected` | Rejected | The provider says it is not theirs, not hosted by them, or asks you to use a web form. |
-| `ticket_opened` | Ticket opened | A ticket or case number was found, and the mail is an automatic acknowledgement or says a ticket was created. |
+| `resolved` | Resolved | The provider says it acted: suspended, removed, terminated, blocked, null-routed or no longer reachable. |
+| `rejected` | Rejected | The provider says it is not theirs, not hosted by them, or asks you to use a web form (or says the inbox is not monitored). A verified web-form reply also marks the desk as form only, see below. |
+| `ticket_opened` | Ticket opened | A ticket or case number was found, and the mail is an automatic acknowledgement or says a ticket was created. Also "has been logged as ... is being investigated". |
 | `auto_ack` | Automatic receipt | An automatic reply, an out-of-office message or a bulk receipt, without a ticket. |
 | `bounce` | Bounced | A delivery failure. Your report did not reach the desk. |
 | `human_reply` | Answered by a person | Not automatic, from a known domain, with at least 20 characters of text. |
@@ -171,6 +171,21 @@ The **outcome** of a report comes from the verified replies. When several replie
 A report with no reply has the outcome **No answer yet**. After 14 days (`ABUSE_NO_ANSWER_DAYS`) it reads **No answer**.
 
 A bounce also marks the report for review, and the report page suggests another mailbox for the recipient.
+
+A delayed notice from a mail system ("Delayed Mail (still being retried)", delivery action `delayed`) is neither a receipt nor a bounce. It is not stored. If the mail later fails for good, that bounce is.
+
+"We forwarded the case details to our end customer" is not a resolution. It is read as a reply from a person (`human_reply`), unless the same mail says the provider acted.
+
+Rules only read what the sender wrote. Anything under a "-----Original message-----" line, after "On ... wrote:" or behind a `>` is the quoted original, often your own report, and is ignored, so a quoted "suspended" never counts as an answer.
+
+### What a reply teaches about the desk
+
+Two kinds of reply change how the node treats the recipient, not only the one report. Both need a reply or bounce that was **matched** to a report, by any method (Message-ID, reference, delivery notice or sender domain). It does not have to be verified, and a reply that matched nothing never counts. This is safe because the effect is small: it only stops automatic sends to that desk, it is shown on the report page, a send you start yourself still goes out, and you can clear it.
+
+- **Web form only.** A rejection of the form-required kind marks the recipient `form_only`, and keeps the first `https` link of the reply as the form address. Automatic sending skips that recipient (`form_only`). The report page shows "This desk only accepts its web form" with the link, so you can submit it by hand. A send you start yourself still goes out.
+- **Undeliverable.** A hard bounce (5.x.x) counts against the address: one for "user unknown" (5.1.1, "550 user not found"), two for any other permanent failure. The address is then `undeliverable` and automatic sending skips it. Typing another mailbox for the recipient resets the count.
+
+Administrators can clear either flag from the report page. The API takes `PATCH /abuse/recipients/{id}` with `{"form_only": false}` or `{"undeliverable": false}`.
 
 SuckerPot never closes a report by itself. A "resolved" outcome does not close it. You decide when to close.
 

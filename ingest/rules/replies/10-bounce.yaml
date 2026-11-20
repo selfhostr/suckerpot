@@ -1,5 +1,16 @@
 # Replies: the mail system could not deliver the report. Runs first.
 rules:
+  - id: delayed-dsn
+    outcome: unknown
+    priority: 5
+    description: The mail system is still retrying. Neither an acknowledgement nor a bounce.
+    when:
+      any:
+        - {field: dsn_action, equals: delayed}
+        - all:
+            - {field: from_local, in: [mailer-daemon, postmaster]}
+            - {field: subject, contains_any: ["delayed mail", "still being retried",
+                                              "delivery status notification (delay)"]}
   - id: bounce-dsn
     outcome: bounce
     priority: 10

@@ -124,6 +124,12 @@ export const SEND_ERROR: Record<string, string> = {
   mode_changed: "The sending mode changed before this went out.",
   too_old:
     "The activity is more than 7 days old: automatic sending skips it, because the provider can no longer check it. You can still send it by hand.",
+  shared_host:
+    "The report names a shared service (a video site, a URL shortener, a file host) or an address on the never list. It is not sent: the service is not the attacker.",
+  form_only:
+    "This desk only accepts its web form, so automatic sending skips it. Open the report to find the link and submit it by hand.",
+  undeliverable:
+    "Mail to this address bounced for good, so automatic sending skips it. Type another address, or clear the flag if the address works again.",
   not_ready: "The report was no longer ready to send.",
   internal: "Something went wrong inside SuckerPot. Try again.",
   unknown_outcome:

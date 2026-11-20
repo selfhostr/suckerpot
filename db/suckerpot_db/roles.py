@@ -250,7 +250,9 @@ BEGIN
             'GRANT SELECT, INSERT, UPDATE, DELETE ON rdap_bootstrap, abuse_networks, '
             'abuse_lookups TO %I', r);
         EXECUTE format('GRANT SELECT, INSERT ON abuse_recipients, abuse_reports TO %I', r);
-        EXECUTE format('GRANT UPDATE (name) ON abuse_recipients TO %I', r);
+        EXECUTE format(
+            'GRANT UPDATE (name, form_only, form_url, undeliverable, hard_bounces) '
+            'ON abuse_recipients TO %I', r);
         EXECUTE format(
             'GRANT UPDATE (status, window_start, window_end, subject_count, evidence, '
             'content_sha256, guard_ok, guard_codes, redaction, options) '
@@ -511,7 +513,8 @@ BEGIN
             'abuse_report_subjects, abuse_reports TO %I', r);
         EXECUTE format('GRANT SELECT, INSERT ON abuse_recipients TO %I', r);
         EXECUTE format(
-            'GRANT UPDATE (override_mailbox, muted, reply_domains) ON abuse_recipients TO %I', r);
+            'GRANT UPDATE (override_mailbox, muted, reply_domains, form_only, form_url, '
+            'undeliverable, hard_bounces) ON abuse_recipients TO %I', r);
         EXECUTE format(
             'GRANT UPDATE (status, notes, options, reviewed_at, reviewed_by, reviewed_revision, '
             'sent_at, sent_by, closed_at, closed_by) ON abuse_reports TO %I', r);

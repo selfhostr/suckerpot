@@ -11,5 +11,6 @@ rules:
                                        "has been removed", "null-routed",
                                        "the server has been shut down",
                                        "issue has been resolved", "customer has been notified and",
-                                       "service was terminated", "content was removed"]}
+                                       "service was terminated", "content was removed",
+                                       "has been blocked", "is no longer reachable"]}
         - {field: subject, contains_any: ["resolved", "closed - action taken"]}

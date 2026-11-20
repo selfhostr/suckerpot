@@ -572,6 +572,47 @@ async def test_self_terms_recipients_and_regenerate(client: httpx.AsyncClient) -
     assert patched.json()["notes"] == "n"
 
 
+async def test_the_owner_clears_what_replies_taught_about_a_desk(
+    client: httpx.AsyncClient,
+) -> None:
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_recipients SET form_only = true, "
+                "form_url = 'https://support.example.net/form', undeliverable = true, "
+                "hard_bounces = 2 WHERE id = 1"
+            )
+        )
+    listed = (await client.get("/api/v1/abuse/recipients")).json()["items"]
+    row = next(r for r in listed if r["id"] == 1)
+    assert row["form_only"] is True and row["form_url"] == "https://support.example.net/form"
+    assert row["undeliverable"] is True
+    # Only false is accepted: the owner clears a flag, never sets one.
+    assert (
+        await client.patch("/api/v1/abuse/recipients/1", json={"form_only": True})
+    ).status_code == 422
+    cleared = await client.patch("/api/v1/abuse/recipients/1", json={"form_only": False})
+    assert cleared.json()["form_only"] is False and cleared.json()["form_url"] is None
+    assert cleared.json()["undeliverable"] is True
+    cleared = await client.patch("/api/v1/abuse/recipients/1", json={"undeliverable": False})
+    assert cleared.json()["undeliverable"] is False
+    async with owner_engine() as owner, owner.connect() as conn:
+        assert (
+            await conn.scalar(text("SELECT hard_bounces FROM abuse_recipients WHERE id = 1")) == 0
+        )
+
+
+async def test_a_new_mailbox_starts_with_a_clean_bounce_record(client: httpx.AsyncClient) -> None:
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(
+            text("UPDATE abuse_recipients SET undeliverable = true, hard_bounces = 1 WHERE id = 1")
+        )
+    typed = await client.patch(
+        "/api/v1/abuse/recipients/1", json={"override_mailbox": "new@example.org"}
+    )
+    assert typed.json()["undeliverable"] is False
+
+
 async def test_exports_stix_misp_and_scope_rules(client: httpx.AsyncClient) -> None:
     await set_intro(client)
     since = (NOW - timedelta(days=1)).isoformat()

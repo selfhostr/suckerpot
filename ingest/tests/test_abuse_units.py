@@ -124,6 +124,57 @@ def test_candidates_never_include_private_demo_or_self() -> None:
     assert origin_of_domain("localhost", None) is None
 
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        "www.youtube.com",
+        "youtu.be",
+        "i.ytimg.com",
+        "r1---sn-abc.googlevideo.com",
+        "is.gd",
+        "v.gd",
+        "bit.ly",
+        "tinyurl.com",
+        "t.co",
+        "cutt.ly",
+        "rebrand.ly",
+        "ow.ly",
+        "goo.gl",
+        "shorturl.at",
+        "rb.gy",
+        "pastebin.com",
+        "raw.githubusercontent.com",
+        "github.com",
+        "gitlab.com",
+        "transfer.sh",
+        "dropbox.com",
+        "drive.google.com",
+        "docs.google.com",
+        "discord.com",
+        "onedrive.live.com",
+        "mega.nz",
+    ],
+)
+def test_shared_services_are_never_candidates(host: str) -> None:
+    assert origin_of_domain(host, None) is None
+    assert origin_of_domain("evil." + host, None) is None
+
+
+def test_a_look_alike_name_is_not_a_shared_service() -> None:
+    assert origin_of_domain("evilyoutube.com", None) == "real"
+    assert origin_of_domain("youtube.com.evil.example.net", None) == "real"
+
+
+def test_the_never_list_applies_to_every_address_and_owner_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert origin_of_ip("8.8.8.8", None, include_demo=False) is None
+    monkeypatch.setenv("BLOCKLIST_NEVER", "8.9.0.0/16, cdn.example.net")
+    assert origin_of_ip("8.9.1.2", None, include_demo=False) is None
+    assert origin_of_domain("x.cdn.example.net", None) is None
+    assert origin_of_domain("x.example.net", None) == "real"
+
+
 def test_options_default_to_minute_precision() -> None:
     assert default_options(AbuseSettings(), None).time_precision == "minute"
     assert default_options(AbuseSettings(round_times=False), None).time_precision == "second"

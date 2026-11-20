@@ -427,10 +427,8 @@ def _part_text(part: Message) -> str:
     return _decode(_payload(part), part.get_content_charset())
 
 
-def make_excerpt(text: str, limit: int) -> str:
+def strip_quoted(text: str) -> str:
     """The reply itself: no quoted lines, cut at the first sign of the quoted original."""
-    if limit <= 0:
-        return ""
     kept: list[str] = []
     previous_blank = False
     for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
@@ -439,15 +437,21 @@ def make_excerpt(text: str, limit: int) -> str:
             continue
         low = stripped.lower()
         if (
-            low == "-----original message-----"
-            or low.startswith("-----original message")
+            (low.startswith("--") and "original message" in low)
             or _WROTE.match(stripped)
             or (previous_blank and low.startswith("from:"))
         ):
             break
         kept.append(line.rstrip())
         previous_blank = not stripped
-    cleaned = clean_text("\n".join(kept), keep_newlines=True)
+    return "\n".join(kept)
+
+
+def make_excerpt(text: str, limit: int) -> str:
+    """The reply itself, cleaned and cut to ``limit`` characters."""
+    if limit <= 0:
+        return ""
+    cleaned = clean_text(strip_quoted(text), keep_newlines=True)
     cleaned = _SPACES.sub("\n", cleaned)
     cleaned = _BLANKS.sub("\n\n", cleaned).strip()
     return cleaned[:limit]

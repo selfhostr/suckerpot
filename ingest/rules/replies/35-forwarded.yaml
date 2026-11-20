@@ -1,0 +1,10 @@
+# Replies: the provider passed the case on. A person answered, nothing is settled yet.
+rules:
+  - id: forwarded-to-customer
+    outcome: human_reply
+    priority: 35
+    description: The provider forwarded the case details to its customer. Not a resolution.
+    when:
+      field: body
+      contains_any: ["forwarded the case details", "forwarded your report to",
+                     "forwarded this report to", "passed your report on to"]

@@ -594,3 +594,20 @@ def test_a_dripping_server_cannot_outlive_the_deadline() -> None:
         drip.close()
     assert err.value.code == "timeout"  # still before the message: a plain timeout
     assert elapsed < 5.0
+
+
+def test_a_stored_subject_is_read_as_a_host() -> None:
+    from ingest.reportmail.sender import _host_of_subject
+
+    assert _host_of_subject("www.youtube.com") == "www.youtube.com"
+    assert _host_of_subject("https://is.gd/abc?x=1") == "is.gd"
+    assert _host_of_subject("http://user@bit.ly:8080/x") == "bit.ly"
+    assert _host_of_subject("198.51.100.7") == "198.51.100.7"
+    assert _host_of_subject("2001:db8::7") == "2001:db8::7"
+    assert _host_of_subject("[2001:db8::7]:443") == "2001:db8::7"
+
+
+def test_the_new_cancel_codes_are_known_to_the_stack() -> None:
+    from ingest.reportmail.outgoing import CODES
+
+    assert {"shared_host", "form_only", "undeliverable"} <= set(CODES)

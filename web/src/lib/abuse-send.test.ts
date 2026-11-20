@@ -128,3 +128,14 @@ describe("queueRefetch", () => {
     ).toBe(4000)
   })
 })
+
+describe("cancel codes of the desk and the never list", () => {
+  it("explains shared_host, form_only and undeliverable", () => {
+    expect(describeSendErrorCode("shared_host")).toMatch(/shared service/)
+    expect(describeSendErrorCode("form_only")).toMatch(/web form/)
+    expect(describeSendErrorCode("undeliverable")).toMatch(/bounced/)
+    expect(describeRequest({ status: "cancelled", error_code: "form_only" } as never)).toBe(
+      "Cancelled. It will not be sent.",
+    )
+  })
+})

@@ -112,6 +112,44 @@ SHARED_HOSTS: frozenset[str] = frozenset(
         "mzstatic.com",
         "fbcdn.net",
         "facebook.com",
+        # Video and social platforms: an attacker types them in a command, the platform is not
+        # the attacker, and a report to a registrar about the whole domain is wrong.
+        "youtube.com",
+        "youtu.be",
+        "ytimg.com",
+        "youtube-nocookie.com",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "t.me",
+        "reddit.com",
+        "vimeo.com",
+        "tiktok.com",
+        "twitch.tv",
+        "linkedin.com",
+        # URL shorteners and similar redirect services.
+        "is.gd",
+        "v.gd",
+        "bit.ly",
+        "tinyurl.com",
+        "t.co",
+        "cutt.ly",
+        "rebrand.ly",
+        "ow.ly",
+        "goo.gl",
+        "shorturl.at",
+        "rb.gy",
+        # File, paste and storage services that host payloads for everybody.
+        "mega.nz",
+        "onedrive.live.com",
+        "1drv.ms",
+        "wetransfer.com",
+        "we.tl",
+        "mediafire.com",
+        "ghostbin.com",
+        "hastebin.com",
+        "gist.github.com",
+        "catbox.moe",
     }
 )
 
@@ -178,6 +216,13 @@ def is_shared_host(host: str) -> bool:
     """True for a shared hosting name or any sub-domain of one."""
     h = host.lower().rstrip(".")
     return any(h == s or h.endswith("." + s) for s in SHARED_HOSTS)
+
+
+def is_excluded_host(host: str) -> bool:
+    """True when a host or address must never be blocked or reported: the never list (public
+    resolvers, the owner's own entries, by address or network) or a shared service."""
+    h = host.lower().rstrip(".")
+    return is_never_host(h) or is_shared_host(h)
 
 
 def blockable_ip(value: str) -> str | None:

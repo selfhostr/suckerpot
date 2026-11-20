@@ -13,6 +13,7 @@ import { Link, useParams } from "react-router"
 import { useAuth } from "@/app/auth"
 import { SettingsCause } from "@/components/abuse/blocked-drafts"
 import { CopyField } from "@/components/abuse/copy-field"
+import { DeskNotice } from "@/components/abuse/desk-notice"
 import { ExportMenu } from "@/components/abuse/export-menu"
 import { OutcomeCard } from "@/components/abuse/outcome-card"
 import { StatusStepper } from "@/components/abuse/status-stepper"
@@ -729,6 +730,7 @@ export function AbuseDetailPage() {
             Demo data, do not send.
           </p>
         ) : null}
+        <DeskNotice recipient={r.recipient} onChanged={() => refresh(null)} />
         {notice ? (
           <p
             role="status"

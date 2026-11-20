@@ -2,7 +2,8 @@
 
 Only these queries decide what is selected; nothing is looked up for an address that did not
 pass them. Research scanners, benign sessions, private and reserved ranges, the never-block list
-and every self term are excluded here, before any contact lookup.
+(public resolvers, shared services such as video sites and URL shorteners, the owner's own
+entries) and every self term are excluded here, before any contact lookup.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Any, Literal
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from suckerpot_db.blocklist_values import is_never_host, valid_domain
+from suckerpot_db.blocklist_values import is_excluded_host, valid_domain
 from suckerpot_db.network_names import host_of_target
 from suckerpot_db.session_counts import sql_sessions_count
 from suckerpot_reporting import SelfTerms
@@ -51,7 +52,7 @@ def origin_of_ip(value: str, terms: SelfTerms | None, *, include_demo: bool) -> 
         addr = addr.ipv4_mapped
     if is_documentation(addr):
         return "demo" if include_demo else None
-    if is_forbidden_range(addr) or is_never_host(str(addr)):
+    if is_forbidden_range(addr) or is_excluded_host(str(addr)):
         return None
     if terms is not None and terms.is_self(addr) is not None:
         return None
@@ -60,7 +61,7 @@ def origin_of_ip(value: str, terms: SelfTerms | None, *, include_demo: bool) -> 
 
 def origin_of_domain(value: str, terms: SelfTerms | None) -> Origin | None:
     host = valid_domain(value)
-    if host is None or is_never_host(host):
+    if host is None or is_excluded_host(host):
         return None
     if terms is not None:
         for term in terms.names:
@@ -197,7 +198,7 @@ async def payload_hosts(
     out: list[Seed] = []
     for r in rows:
         kind = _host_type(r.host)
-        if kind is not None:
+        if kind is not None and not is_excluded_host(r.host):
             out.append(
                 Seed("payload_host", kind, r.host, r.first_ts, r.last_ts, r.sessions, r.events)
             )
@@ -223,7 +224,7 @@ async def c2_subjects(
     out: dict[str, Seed] = {}
     for r in rows:
         kind = _host_type(r.address)
-        if kind is not None:
+        if kind is not None and not is_excluded_host(r.address):
             out[r.address] = Seed("c2", kind, r.address, r.first_ts, r.last_ts, 0, 0)
     # C2 addresses read from analysed samples (high confidence only).
     links = (
@@ -243,7 +244,7 @@ async def c2_subjects(
     ).all()
     for r in links:
         kind = _host_type(r.address)
-        if kind is not None and r.address not in out:
+        if kind is not None and r.address not in out and not is_excluded_host(r.address):
             out[r.address] = Seed("c2", kind, r.address, r.first_ts, r.last_ts, 0, 0)
     return (await without_network(session, list(out.values())))[:limit]
 

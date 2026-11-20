@@ -16,7 +16,7 @@ import yaml
 
 from ingest.tagging.engine import Cond, RuleError, compile_condition, evaluate
 
-from .parse import BODY_FOR_RULES, ParsedReply
+from .parse import BODY_FOR_RULES, ParsedReply, strip_quoted
 
 OUTCOMES: Final = (
     "auto_ack",
@@ -83,6 +83,12 @@ class Verdict:
     ticket_id: str | None
 
 
+def _fresh(reply: ParsedReply) -> str:
+    """What the sender wrote, for the rules: never the quoted original (our own report, which
+    holds words like "suspended" or "abuse" that no rule may read as an answer)."""
+    return strip_quoted(reply.body)[:BODY_FOR_RULES]
+
+
 class ReplyRules:
     def __init__(self, rules: list[ReplyRule], tickets: list[TicketRule]) -> None:
         self.rules = sorted(rules, key=lambda r: (r.priority, r.id))
@@ -94,7 +100,7 @@ class ReplyRules:
     def extract_ticket(self, reply: ParsedReply) -> str | None:
         for rule in self.tickets:
             for name in rule.fields:
-                text = reply.subject if name == "subject" else reply.body[:BODY_FOR_RULES]
+                text = reply.subject if name == "subject" else _fresh(reply)
                 found = find_ticket(text, rule)
                 if found:
                     return found
@@ -107,7 +113,7 @@ class ReplyRules:
             "from_domain": reply.from_domain,
             "from_local": reply.from_local,
             "subject": reply.subject,
-            "body": reply.body[:BODY_FOR_RULES],
+            "body": _fresh(reply),
             "auto_submitted": reply.auto_submitted,
             "precedence": reply.precedence,
             "x_autoreply": reply.x_autoreply,

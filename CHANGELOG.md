@@ -30,6 +30,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   rules moved from the sensor's code into three packs with the same behaviour, proven by a
   differential test. Requests that hit a pack trap carry `data.traps`.
 
+### Fixed
+
+- Abuse reports no longer name shared services. The never-block list now also holds video and
+  social platforms, URL shorteners, and file, paste and code hosts, and every abuse candidate
+  (attack source, payload host, command server) skips it, domain suffixes and addresses alike.
+  A draft or queued send that names such a value is cancelled with the new code `shared_host`
+  and shown as such in the dashboard. The hub's never-list gets the same entries.
+- Replies from desks that only accept a web form ("reports sent to this address will not be
+  processed", "this inbox is not monitored", "submit via our online portal") are now read as
+  rejected. A matched one marks the recipient `form_only`: automatic sending skips it
+  (`form_only`) and the report page shows the form link. Migration 0035.
+- Hard bounces mark the address `undeliverable` (one "user unknown" bounce, or two other 5.x.x
+  bounces) and automatic sending skips it. A delayed-delivery notice is no longer counted as an
+  automatic receipt, and the owner can clear both flags.
+- Reply rules read "has been blocked" and "is no longer reachable" as resolved, "has been logged as
+  ... is being investigated" as a ticket, and "forwarded the case details to our end customer" as
+  an answer from a person, not a resolution. Rules never read the quoted original of a reply.
+
 ### Changed
 
 - `.env.example` is much shorter: it lists only what a normal owner sets or changes (about 120

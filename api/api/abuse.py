@@ -136,6 +136,11 @@ class RecipientOut(BaseModel):
     mailbox: str | None
     source: str
     muted: bool
+    # What replies taught us: the desk takes only its web form (with its link), or the
+    # address bounced for good. Automatic sending skips both; the owner can clear the flags.
+    form_only: bool = False
+    form_url: str | None = None
+    undeliverable: bool = False
 
 
 class AsnOut(BaseModel):
@@ -275,6 +280,9 @@ class RecipientRow(BaseModel):
     # The contact is on a free or shared mail provider: its replies are trusted by exact address
     # only, never by domain.
     shared_mailbox: bool = False
+    form_only: bool = False
+    form_url: str | None = None
+    undeliverable: bool = False
 
 
 class RecipientPage(BaseModel):
@@ -355,6 +363,9 @@ def _recipient_out(r: AbuseRecipientRow) -> RecipientOut:
         mailbox=r.override_mailbox or r.mailbox,
         source=r.source,
         muted=r.muted,
+        form_only=r.form_only,
+        form_url=r.form_url if r.form_only else None,
+        undeliverable=r.undeliverable,
     )
 
 
@@ -1162,6 +1173,9 @@ async def list_recipients(
                 first_seen=r.first_seen,
                 reply_domains=list(r.reply_domains or []),
                 shared_mailbox=_shared(r.override_mailbox or r.mailbox),
+                form_only=r.form_only,
+                form_url=r.form_url if r.form_only else None,
+                undeliverable=r.undeliverable,
             )
             for r in page
         ],
@@ -1211,6 +1225,9 @@ class RecipientPatch(BaseModel):
 
     override_mailbox: str | None = None
     muted: bool | None = None
+    # The owner can only clear what replies set (false); true is refused.
+    form_only: Literal[False] | None = None
+    undeliverable: Literal[False] | None = None
 
     @field_validator("override_mailbox")
     @classmethod
@@ -1234,6 +1251,13 @@ async def patch_recipient(
         values["override_mailbox"] = body.override_mailbox
     if "muted" in sent and body.muted is not None:
         values["muted"] = body.muted
+    if "form_only" in sent and body.form_only is False:
+        values.update(form_only=False, form_url=None)
+    if "undeliverable" in sent and body.undeliverable is False:
+        values.update(undeliverable=False, hard_bounces=0)
+    if "override_mailbox" in sent:
+        # Another address starts with a clean record.
+        values.update(undeliverable=False, hard_bounces=0)
     if values:
         principal = await _principal(request)
         await db.execute(
@@ -1260,6 +1284,9 @@ async def patch_recipient(
         first_seen=rec.first_seen,
         reply_domains=list(rec.reply_domains or []),
         shared_mailbox=_shared(rec.override_mailbox or rec.mailbox),
+        form_only=rec.form_only,
+        form_url=rec.form_url if rec.form_only else None,
+        undeliverable=rec.undeliverable,
     )
 
 

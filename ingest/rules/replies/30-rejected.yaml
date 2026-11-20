@@ -22,4 +22,12 @@ rules:
     description: The provider asks for its own web form or portal.
     when:
       field: body
-      contains_any: ["please use our web form", "submit via our portal"]
+      contains_any: ["please use our web form", "submit via our portal", "will not be processed",
+                     "not be processed", "using webform", "using the webform", "via webform",
+                     "via the webform", "web form", "web-form", "webform", "abuse form",
+                     "reporting form", "complaint form", "contact form", "online form",
+                     "not monitored", "unmonitored", "support portal", "client portal",
+                     "customer portal", "submit all tickets", "submit your report using",
+                     "submit your report via", "submit your report through",
+                     "submit your report at", "submit your report on", "use our portal",
+                     "through our portal", "via our portal"]
