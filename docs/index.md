@@ -19,7 +19,7 @@ SuckerPot is built to be attacked. Deploy it only on a dedicated, isolated machi
 
 ## The one rule
 
-SuckerPot never touches an attacker. It does not scan, counter-scan or hack back, and it never opens a connection to an attacking host to probe or answer it. Attacker input is recorded, never executed.
+SuckerPot never probes an attacker. It does not scan, counter-scan or hack back, and it never opens a connection to an attacking host to probe or answer it. The optional collector is the one exception, and it is off by default: it downloads, once and through the VPN only, the file an attacker told the honeypot to fetch, as the victim would. Attacker input is recorded, never executed.
 
 A report is a mail to the abuse contact that the attacking network publishes in RDAP. Reporting is off by default, and you choose how reports leave: by hand, with one click, or automatically. SuckerPot never reports to AbuseIPDB; it only reads it. The details are in [Reporting attacks](reporting.md#the-rule-report-never-touch).
 

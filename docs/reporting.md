@@ -10,7 +10,7 @@ Reporting is off by default. Nothing is sent until you turn it on and choose how
 
 ## The rule: report, never touch
 
-SuckerPot never touches an attacker. It does not scan, counter-scan or hack back, and it never opens a connection to an attacking host to probe or answer it.
+SuckerPot never probes an attacker. It does not scan, counter-scan or hack back, and it never opens a connection to an attacking host to probe or answer it.
 
 A report is a mail to the abuse contact that the attacking network publishes in RDAP, the public registry of address and domain owners. The network operator decides what to do with it. The mail says what was seen, with times and evidence, and nothing about you.
 

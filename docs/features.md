@@ -3,7 +3,7 @@
 By the end of this page you will know what each part of SuckerPot does and which page covers it. SuckerPot has four parts: **Observe**, **Defend**, **Report** and **Share**. Everything here is off or optional unless the text says otherwise.
 
 ```{warning}
-SuckerPot is built to be attacked. Deploy it only on a dedicated, isolated machine that you are ready to lose. Attacker input is never executed. SuckerPot never touches an attacker: no scan, no counter-scan, no hack back, no connection to an attacking host. Abuse reports are mails to the abuse contact that the attacking network publishes, off by default, and sent the way you choose (see [Reporting attacks](reporting.md)).
+SuckerPot is built to be attacked. Deploy it only on a dedicated, isolated machine that you are ready to lose. Attacker input is never executed. SuckerPot never probes an attacker: no scan, no counter-scan, no hack back, no connection to an attacking host. The optional collector is the one exception, and it is off by default: it downloads, once and through the VPN only, the file an attacker told the honeypot to fetch, as the victim would. Abuse reports are mails to the abuse contact that the attacking network publishes, off by default, and sent the way you choose (see [Reporting attacks](reporting.md)).
 ```
 
 ## Observe

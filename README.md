@@ -19,7 +19,7 @@
 - **Report.** Abuse reports to the abuse contact of the attacking network, sent by hand, with one click or automatically, with replies and takedowns tracked. The goal: get compromised machines cleaned up.
 - **Share.** An opt-in network of independent nodes that confirm targets together, publish a community blocklist, report at network level and feed a public observatory.
 
-`suckerpot` never touches an attacker: no scan, no counter-scan, no hack back, no connection to an attacking host. A report is a mail to the abuse contact the network publishes; reporting is off by default and you choose how it is sent. Free, for good: MIT licence, no paid edition.
+`suckerpot` never probes an attacker: no scan, no counter-scan, no hack back, no connection to an attacking host. The optional collector is the one exception, and it is off by default: it downloads, once and through the VPN only, the file an attacker told the honeypot to fetch, as the victim would. A report is a mail to the abuse contact the network publishes; reporting is off by default and you choose how it is sent. Free, for good: MIT licence, no paid edition.
 
 > **`suckerpot` is meant to be attacked.** Deploy it only on an isolated host or VM that you are ready to lose.
 

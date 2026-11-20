@@ -305,7 +305,7 @@ The sensor's test suite (`sensors/sip/tests/test_reflection.py`) measures the re
 
 ### No offensive behaviour
 
-SuckerPot never touches an attacker. It does not:
+SuckerPot never probes an attacker. It does not:
 
 - scan other hosts, or respond to scans with scans;
 - hack back or run any active countermeasure;
