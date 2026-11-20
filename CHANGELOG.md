@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Participant installs set themselves up without follow-up commands. `install.sh --participant --yes`
+  now installs the host firewall when `sudo` works without a password (otherwise it prints the one
+  command to run), and the interactive question defaults to yes. A failed update schedule no longer
+  switches automatic updates off for good: the flag stays on, the installer prints the fix, and
+  `--repair` tries again.
+- `status.sh` and `participant.sh status` show a "Needs attention" block on a participant node when
+  automatic updates are off, the host firewall is not installed, or the node runs a release at least
+  three days older than the newest one it knows, each with the command that fixes it. Each is a warning
+  (exit code 1).
+
 ## [0.11.13] - 2026-11-19
 
 ### Changed

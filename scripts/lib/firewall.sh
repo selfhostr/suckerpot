@@ -81,10 +81,20 @@ fw_render() {
   return "$rc"
 }
 
-# fw_step MODE [ASK_FD]: render and, when a terminal answers yes, install. ASK_FD is a file
-# descriptor to read the answer from; without it nothing is asked (--yes, no terminal).
+# fw_can_sudo: true when root rights are available without a password prompt (already root, or
+# `sudo -n` works). Used by the unattended install (--yes): it never waits for a password.
+fw_can_sudo() {
+  [ "$(id -u)" = 0 ] && return 0
+  command -v sudo > /dev/null 2>&1 && sudo -n true > /dev/null 2>&1
+}
+
+# fw_step MODE [ASK_FD|auto]: render and, when a terminal answers yes, install. ASK_FD is a file
+# descriptor to read the answer from. With "auto" (--yes) nothing is asked: it installs when sudo
+# works without a password, and otherwise prints the one command to run. With nothing, it only
+# prints the commands (no terminal).
 fw_step() {
-  local mode=$1 fd=${2:-} rc=0 ans=""
+  local mode=$1 fd=${2:-} rc=0 ans="" auto=0
+  if [ "$fd" = auto ]; then auto=1; fd=""; fi
   echo
   echo "Host firewall"
   FW_PORT=22
@@ -94,19 +104,27 @@ fw_step() {
     fw_print_commands "$mode" "$FW_PORT"
     return 0
   fi
-  if [ -z "$fd" ]; then
+  if [ "$auto" = 1 ]; then
+    if ! fw_can_sudo; then
+      echo "  The host firewall needs sudo, which asks for a password here. To install it now, run:"
+      echo "    ./scripts/participant.sh firewall"
+      return 0
+    fi
+  elif [ -z "$fd" ]; then
     fw_print_commands "$mode" "$FW_PORT"
     return 0
   fi
-  printf '  Install the host firewall now? It stops a compromised sensor from reaching this machine or the internet. Needs sudo. [Y/n] ' >&2
-  IFS= read -r ans <&"$fd" || ans=n
-  case $ans in
-    "" | y | Y | yes | YES | Yes) ;;
-    *)
-      fw_print_commands "$mode" "$FW_PORT"
-      return 0
-      ;;
-  esac
+  if [ "$auto" = 0 ]; then
+    printf '  Install the host firewall now? It stops a compromised sensor from reaching this machine or the internet. Needs sudo. [Y/n] ' >&2
+    IFS= read -r ans <&"$fd" || ans=n
+    case $ans in
+      "" | y | Y | yes | YES | Yes) ;;
+      *)
+        fw_print_commands "$mode" "$FW_PORT"
+        return 0
+        ;;
+    esac
+  fi
   rc=0
   bash scripts/host/install-firewall.sh "$FW_FILE" || rc=$?
   if [ "$rc" = 0 ]; then

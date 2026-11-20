@@ -111,15 +111,64 @@ def test_unknown_subcommand_is_a_usage_error(fsb: Sandbox) -> None:
     assert fsb.run("scripts/participant.sh", "firewall", "wipe").returncode != 0
 
 
-def test_the_installer_with_yes_prints_the_commands_and_does_not_load(sandbox: Sandbox) -> None:
+def add_shims(sb: Sandbox, sudo_rc: int, uid: str = "1000") -> None:
+    for name, text in {
+        "sudo": f"#!/bin/sh\nexit {sudo_rc}\n",
+        "id": f"#!/bin/sh\necho {uid}\n",
+    }.items():
+        path = sb.shim / name
+        path.write_text(text)
+        path.chmod(0o755)
+
+
+def test_the_installer_with_yes_installs_when_sudo_needs_no_password(sandbox: Sandbox) -> None:
     add_participant_files(sandbox)
+    loader = sandbox.root / "scripts/host/install-firewall.sh"
+    loader.write_text(STUB_LOADER)
+    loader.chmod(0o755)
+    add_shims(sandbox, 0)
+    rc, out = p_real(sandbox)
+    assert rc == 0, out
+    assert [c for c in sandbox.calls() if c.startswith("install-firewall")] == [
+        f"install-firewall {FILE}"
+    ]
+    assert "The host firewall is loaded" in out
+
+
+def test_the_installer_with_yes_prints_one_command_when_sudo_asks(sandbox: Sandbox) -> None:
+    add_participant_files(sandbox)
+    loader = sandbox.root / "scripts/host/install-firewall.sh"
+    loader.write_text(STUB_LOADER)
+    loader.chmod(0o755)
+    add_shims(sandbox, 1)
+    rc, out = p_real(sandbox)
+    assert rc == 0, out
+    assert not [c for c in sandbox.calls() if c.startswith("install-firewall")]
+    assert "    ./scripts/participant.sh firewall" in out
+
+
+def test_a_failing_loader_never_fails_the_install(sandbox: Sandbox) -> None:
+    add_participant_files(sandbox)
+    loader = sandbox.root / "scripts/host/install-firewall.sh"
+    loader.write_text(STUB_LOADER)
+    loader.chmod(0o755)
+    add_shims(sandbox, 0)
+    sandbox.env["SHIM_FW_RC"] = "5"
+    rc, out = p_real(sandbox)
+    assert rc == 0, out
+    assert "was not installed (exit 5)" in out
+
+
+def test_the_installer_with_yes_does_not_load_without_sudo(sandbox: Sandbox) -> None:
+    add_participant_files(sandbox)
+    add_shims(sandbox, 1)
     loader = sandbox.root / "scripts/host/install-firewall.sh"
     loader.write_text(STUB_LOADER)
     loader.chmod(0o755)
     rc, out = p_real(sandbox)
     assert rc == 0, out
     assert "Host firewall" in out
-    assert "scripts/host/install-firewall.sh" in out
+    assert "./scripts/participant.sh firewall" in out
     assert not [c for c in sandbox.calls() if c.startswith("install-firewall")]
     # The rendered file (it holds the admin port) is in the untracked state folder.
     assert Path(sandbox.root / FILE).exists()

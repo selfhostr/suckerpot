@@ -118,7 +118,7 @@ A release can change the name or the options of a Docker network, and Docker can
 ./scripts/participant.sh auto-update on
 ```
 
-This adds or removes the cron line and sets `AUTO_UPDATE_ENABLED` in `.env`. At install, `--no-auto-update` skips the schedule. A manual `just update` always works.
+This adds or removes the cron line and sets `AUTO_UPDATE_ENABLED` in `.env`. At install, `--no-auto-update` skips the schedule. A manual `just update` always works. On a participant node, `./scripts/status.sh` shows a "Needs attention" block when automatic updates are off, with this command as the fix ([details](participate.md#check-what-it-does)).
 
 ### The risk
 

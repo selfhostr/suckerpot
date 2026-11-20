@@ -1072,8 +1072,9 @@ if [ "$stack" = participant ] || [ "$switching" = 1 ]; then
       if schedule_install "$sh" "$sm"; then
         sched=$(schedule_status || echo off)
       else
-        warn "could not schedule the automatic updates. Update by hand with: just update"
-        env_set_line .env AUTO_UPDATE_ENABLED false
+        # The flag stays on: a later --repair tries the schedule again, and ./scripts/status.sh
+        # reports "off" until a schedule exists.
+        warn "could not schedule the automatic updates. Try again with: ./scripts/participant.sh auto-update on (until then, update by hand with: just update)"
         sched=off
       fi
     fi
@@ -1109,7 +1110,7 @@ if [ "$stack" = participant ]; then
   # The host firewall (scripts/host/): offered here, never fatal, only asked on a terminal.
   # shellcheck source=scripts/lib/firewall.sh
   . scripts/lib/firewall.sh
-  if [ "$assume_yes" = 0 ]; then fw_step participant 3; else fw_step participant; fi
+  if [ "$assume_yes" = 0 ]; then fw_step participant 3; else fw_step participant auto; fi
   echo
   echo "Check it any time:      ./scripts/status.sh"
   sched_when=${sched#* }

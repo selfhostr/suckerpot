@@ -79,6 +79,21 @@ class Status:
             + ' -I -c "$@" ;;',
         )
         (sb.root / ".suckerpot-state").mkdir()
+        self.fw_root = sb.root / "fwroot"
+        self.firewall(installed=True)
+        self.schedule()
+
+    def firewall(self, *, installed: bool) -> None:
+        unit = self.fw_root / "etc/systemd/system/suckerpot-firewall.service"
+        unit.parent.mkdir(parents=True, exist_ok=True)
+        if installed:
+            unit.write_text("[Unit]\n")
+        else:
+            unit.unlink(missing_ok=True)
+
+    def latest(self, tag: str, age: timedelta) -> None:
+        stamp = int((datetime.now(UTC) - age).timestamp())
+        (self.sb.shim / "gitstate" / "refs").write_text(f"{tag} {stamp}\n")
 
     def set_env(self, **extra: str) -> None:
         values = {
@@ -118,7 +133,9 @@ class Status:
         (self.sb.root / ".suckerpot-state" / "auto-update.json").write_text(json.dumps(fields))
 
     def run(self, *args: str) -> tuple[int, str, str]:
-        proc = self.sb.run("scripts/status.sh", *args)
+        proc = self.sb.run(
+            "scripts/status.sh", *args, extra_env={"SUCKERPOT_FW_ROOT": str(self.fw_root)}
+        )
         return proc.returncode, proc.stdout, proc.stderr
 
 
@@ -188,7 +205,7 @@ def test_ingest_down_is_an_error(st: Status) -> None:
     rc, out, _ = st.run()
     assert rc == 2
     assert "Ingest is not running" in out
-    rc, out, _ = st.run("--json")
+    _, out, _ = st.run("--json")
     assert rc == 2
     assert json.loads(out)["errors"] == ["ingest_down"]
 
@@ -313,7 +330,8 @@ def test_auto_update_off_is_a_warning_in_participant_mode_only(st: Status) -> No
     rc, out, _ = st.run()
     assert rc == 1
     assert "Automatic: off" in out
-    assert "update by hand with: just update" in out
+    assert "Needs attention" in out
+    assert "Fix: ./scripts/participant.sh auto-update on" in out
     st.set_env(AUTO_UPDATE_ENABLED="false", SUCKERPOT_STACK_MODE="full")
     st.set_cli(member_cli(state="off"))
     rc, out, _ = st.run()
@@ -368,6 +386,7 @@ def test_updated_result_and_systemd_schedule(st: Status) -> None:
         "[Timer]\nOnCalendar=*-*-* 05:12:00\n"
     )
     st.sb.env["XDG_CONFIG_HOME"] = str(st.sb.root / "home" / ".config")
+    (st.sb.shim / "crontab.txt").write_text("")
     st.auto_state(
         last_run=iso(timedelta(hours=1)),
         last_result="updated",
@@ -445,3 +464,75 @@ def test_renderer_runs_on_the_standard_library_only() -> None:
         if line.startswith(("import ", "from "))
     }
     assert imports <= {"json", "sys", "datetime", "typing"}
+
+
+def test_a_healthy_participant_has_no_needs_attention_block(st: Status) -> None:
+    st.latest("v0.6.0", timedelta(days=30))
+    rc, out, _ = st.run()
+    assert rc == 0, out
+    assert "Needs attention" not in out
+
+
+def test_missing_firewall_is_a_warning_with_its_command(st: Status) -> None:
+    st.firewall(installed=False)
+    rc, out, _ = st.run()
+    assert rc == 1
+    assert "Needs attention" in out
+    assert "The host firewall is not installed" in out
+    assert "Fix: ./scripts/participant.sh firewall" in out
+    assert "Automatic updates are off" not in out
+
+
+def test_a_full_install_does_not_ask_for_the_participant_firewall(st: Status) -> None:
+    st.firewall(installed=False)
+    st.set_env(SUCKERPOT_STACK_MODE="full")
+    _, out, _ = st.run()
+    assert "Needs attention" not in out
+
+
+def test_an_older_release_than_the_newest_known_needs_attention(st: Status) -> None:
+    st.latest("v0.6.2", timedelta(days=10))
+    rc, out, _ = st.run()
+    assert rc == 1
+    assert "runs v0.6.0, the newest release is v0.6.2" in out
+    assert "Fix: just update" in out
+
+
+def test_a_release_younger_than_three_days_is_not_outdated(st: Status) -> None:
+    st.latest("v0.6.2", timedelta(hours=20))
+    rc, out, _ = st.run()
+    assert rc == 0, out
+    assert "Needs attention" not in out
+
+
+def test_a_newer_major_version_is_not_offered(st: Status) -> None:
+    st.latest("v1.0.0", timedelta(days=30))
+    rc, out, _ = st.run()
+    assert rc == 0, out
+
+
+def test_flag_on_without_a_schedule_is_reported_as_off(st: Status) -> None:
+    (st.sb.shim / "crontab.txt").write_text("")
+    rc, out, _ = st.run()
+    assert rc == 1
+    assert "Fix: ./scripts/participant.sh auto-update on" in out
+
+
+def test_source_install_explains_why_updates_are_off(st: Status) -> None:
+    st.set_env(AUTO_UPDATE_ENABLED="false", SUCKERPOT_INSTALL_MODE="source")
+    rc, out, _ = st.run()
+    assert rc == 1
+    assert "this install builds from source" in out
+
+
+def test_json_lists_what_needs_attention(st: Status) -> None:
+    st.firewall(installed=False)
+    _, out, _ = st.run("--json")
+    doc = json.loads(out)
+    assert doc["firewall"] == "missing"
+    assert doc["needs_attention"] == [
+        {
+            "problem": "The host firewall is not installed",
+            "fix": "./scripts/participant.sh firewall",
+        }
+    ]
