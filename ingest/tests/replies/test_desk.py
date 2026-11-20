@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from ingest.replies.desk import form_url_of, hard_bounce, user_unknown
+from ingest.replies.desk import form_url_of, hard_bounce, host_of_url, user_unknown
 from ingest.replies.parse import ParsedReply, parse_message
 
 from . import mails
@@ -51,3 +51,17 @@ def test_a_bounce_without_a_status_is_read_from_its_text() -> None:
     assert hard_bounce(ParsedReply(body="550 Message blocked")) is True
     assert not user_unknown(ParsedReply(body="550 Message blocked"))
     assert not hard_bounce(ParsedReply(body="Thanks for your report"))
+
+
+def test_a_code_inside_a_sentence_or_the_quoted_report_is_not_a_bounce() -> None:
+    assert not hard_bounce(ParsedReply(body="We saw 1550 sessions from your host\r\n"))
+    assert not hard_bounce(ParsedReply(body="Thanks, looking at it.\r\n> 550 User not found\r\n"))
+    assert not hard_bounce(
+        ParsedReply(body="Thanks.\r\n\r\n-----Original message-----\r\n550 User not found\r\n")
+    )
+    assert not hard_bounce(ParsedReply(body="Ports 5500 and 550 were hit"))
+    assert hard_bounce(ParsedReply(body="Delivery failed\r\n554 5.7.1 blocked\r\n"))
+
+
+def test_host_of_url() -> None:
+    assert host_of_url("https://support.example.net:8443/a?b") == "support.example.net"

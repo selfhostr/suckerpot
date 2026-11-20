@@ -87,7 +87,7 @@ def test_resolved_by_subject(rules: ReplyRules) -> None:
         ("Please submit via our portal", "form-required"),
         ("Reports sent to this email address will not be processed", "form-required"),
         ("Please submit your report using webform", "form-required"),
-        ("This email inbox is not monitored", "form-required"),
+        ("This email inbox is not monitored", "form-required-unmonitored"),
         (
             "We require you to submit all tickets via our online client support portal",
             "form-required",
@@ -335,3 +335,18 @@ QUOTED = (
 )
 def test_our_own_quoted_report_never_triggers_a_rule(rules: ReplyRules, body: str) -> None:
     assert classify(rules, mail(body=body)) == ("human_reply", None)
+
+
+def test_a_signature_or_an_acknowledgement_is_not_a_web_form_request(rules: ReplyRules) -> None:
+    ack = mail(
+        subject="[#123] We received your report",
+        extra={"Auto-Submitted": "auto-replied"},
+        body="This mailbox is not monitored. Your ticket #123 was created.\r\n",
+    )
+    assert classify(rules, ack)[0] != "rejected"
+    signature = mail(
+        body="Thanks, we will look.\r\n\r\nFor sales use our web form or the contact form.\r\n"
+    )
+    assert classify(rules, signature) == ("human_reply", None)
+    plain = mail(body="Mail to the old address will not be processed after the move, sorry.\r\n")
+    assert classify(rules, plain)[0] != "rejected"

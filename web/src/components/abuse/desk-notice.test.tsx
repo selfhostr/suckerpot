@@ -84,6 +84,7 @@ describe("DeskNotice", () => {
     const link = screen.getByRole("link", { name: /Open the form/ })
     expect(link).toHaveAttribute("href", "https://support.example.net/abuse")
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    expect(screen.getByText("(support.example.net)")).toBeInTheDocument()
   })
 
   it("never links a URL that is not https", async () => {

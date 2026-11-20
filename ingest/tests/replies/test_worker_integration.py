@@ -1066,7 +1066,8 @@ async def test_a_matched_reply_nobody_vouched_for_still_marks_the_desk(world: Wo
     (row,) = await world.replies()
     assert row.classification == "rejected" and not row.verified and row.report_id == rid
     desk = await _desk(world, rid)
-    assert desk.form_only is True and desk.form_url == "https://support.example.com/f"
+    # The link of a reply nobody vouched for is never kept: it could be an attacker's.
+    assert desk.form_only is True and desk.form_url is None
 
 
 async def test_an_unmatched_reply_never_marks_a_desk(world: World) -> None:
@@ -1150,3 +1151,59 @@ async def test_a_delayed_notice_is_not_stored(world: World) -> None:
     await outcome.ensure_rows(world.factory)
     await outcome.recompute(world.factory)
     assert (await world.outcome(rid)).auto_outcome == "none"
+
+
+async def test_the_form_link_needs_a_verified_reply_on_the_providers_own_domain(
+    world: World,
+) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, token = await world.sent_report("abuse@example.net")
+    off = mail(
+        in_reply_to=None,
+        message_id="<f1@example.net>",
+        subject=f"Re: report (ref {token})",
+        body="Please submit your report using webform at https://evil.example.com/f.\r\n",
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({1: off}))
+    desk = await _desk(world, rid)
+    assert desk.form_only is True and desk.form_url is None  # off-domain: ignored
+    async with world.owner.begin() as conn:
+        await conn.execute(text("DELETE FROM report_imap_state"))
+    first = mail(
+        in_reply_to=None,
+        message_id="<f2@example.net>",
+        subject=f"Re: report (ref {token})",
+        body="Please submit your report using webform at https://help.example.net/one.\r\n",
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({2: first}))
+    assert (await _desk(world, rid)).form_url == "https://help.example.net/one"
+    async with world.owner.begin() as conn:
+        await conn.execute(text("DELETE FROM report_imap_state"))
+    second = mail(
+        in_reply_to=None,
+        message_id="<f3@example.net>",
+        subject=f"Re: report (ref {token})",
+        body="Please submit your report using webform at https://help.example.net/two.\r\n",
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({3: second}))
+    assert (await _desk(world, rid)).form_url == "https://help.example.net/one"  # kept
+
+
+async def test_an_acknowledgement_that_says_not_monitored_does_not_pause_the_desk(
+    world: World,
+) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, token = await world.sent_report("abuse@example.net")
+    ack = mail(
+        in_reply_to=None,
+        subject=f"[#123] Re: report (ref {token})",
+        extra={**AUTHED, "Auto-Submitted": "auto-replied"},
+        body="This mailbox is not monitored, ticket #123 created.\r\n",
+    )
+    await poll(world, FakeMailbox({1: ack}))
+    (row,) = await world.replies()
+    assert row.classification == "auto_ack"
+    assert (await _desk(world, rid)).form_only is False

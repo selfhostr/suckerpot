@@ -153,6 +153,7 @@ async def store_reply(
         session,
         reply,
         report_id=found.report_id,
+        verified=verified,
         outcome=verdict.outcome,
         rule_id=verdict.rule_id,
     )

@@ -222,7 +222,13 @@ def is_excluded_host(host: str) -> bool:
     """True when a host or address must never be blocked or reported: the never list (public
     resolvers, the owner's own entries, by address or network) or a shared service."""
     h = host.lower().rstrip(".")
-    return is_never_host(h) or is_shared_host(h)
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return is_never_host(h) or is_shared_host(h)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped  # ::ffff:8.8.8.8 is 8.8.8.8
+    return is_never_host(str(ip))
 
 
 def blockable_ip(value: str) -> str | None:

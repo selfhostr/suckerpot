@@ -49,6 +49,9 @@ export function DeskNotice({
               <ExternalLink aria-hidden className="size-3.5" />
             </a>
           ) : null}
+          {link ? (
+            <span className="font-mono text-xs text-fg-muted">({new URL(link).host})</span>
+          ) : null}
           {canWrite ? (
             <Button
               size="sm"

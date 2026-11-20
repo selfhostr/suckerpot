@@ -22,12 +22,25 @@ rules:
     description: The provider asks for its own web form or portal.
     when:
       field: body
-      contains_any: ["please use our web form", "submit via our portal", "will not be processed",
-                     "not be processed", "using webform", "using the webform", "via webform",
-                     "via the webform", "web form", "web-form", "webform", "abuse form",
-                     "reporting form", "complaint form", "contact form", "online form",
-                     "not monitored", "unmonitored", "support portal", "client portal",
-                     "customer portal", "submit all tickets", "submit your report using",
+      contains_any: ["please use our web form", "submit via our portal", "fill in our web form",
+                     "complete our web form", "via our web form", "through our web form", "via the web form",
+                     "using our web form", "using our online form", "via our online form",
+                     "through our online form", "using webform", "using the webform",
+                     "via webform", "via the webform", "through the webform",
+                     "sent to this email address will not be processed",
+                     "sent to this address will not be processed",
+                     "sent to this mailbox will not be processed",
+                     "submit all tickets", "submit your report using",
                      "submit your report via", "submit your report through",
-                     "submit your report at", "submit your report on", "use our portal",
-                     "through our portal", "via our portal"]
+                     "submit your report at", "submit your report on",
+                     "through our portal", "via our portal", "online client support portal"]
+  - id: form-required-unmonitored
+    outcome: rejected
+    priority: 33
+    description: The provider says the inbox is not read. Not a ticket or an acknowledgement.
+    when:
+      all:
+        - {field: body, contains_any: ["inbox is not monitored", "mailbox is not monitored",
+                                       "address is not monitored", "email is not monitored"]}
+        - not: {field: ticket_id, exists: true}
+        - not: {field: body, contains_any: ["ticket", "case number", "was created"]}
