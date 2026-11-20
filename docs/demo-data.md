@@ -30,7 +30,7 @@ Some demo droppers use a few shared hosts (documentation addresses and example d
 
 ## Campaigns and techniques in the demo
 
-Telnet loaders reuse a few probe words and several droppers share hosts, so with `ATTACK_ENABLED=true` and `CAMPAIGNS_ENABLED=true` in `.env` the Campaigns and Techniques pages fill with demo campaigns a few minutes after `just demo` (ingest groups finished sessions every five minutes).
+Telnet loaders reuse a few probe words and several droppers share hosts, so with `ATTACK_ENABLED` and `CAMPAIGNS_ENABLED` on (the default) the Campaigns and Techniques pages fill with demo campaigns a few minutes after `just demo` (ingest groups finished sessions every five minutes).
 
 ## What it generates
 

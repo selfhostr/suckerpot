@@ -37,9 +37,12 @@ const SettingsPage = lazy(() =>
   import("@/pages/settings").then((m) => ({ default: m.SettingsPage })),
 )
 const SetupPage = lazy(() => import("@/pages/setup").then((m) => ({ default: m.SetupPage })))
-const StyleguidePage = lazy(() =>
-  import("@/pages/styleguide").then((m) => ({ default: m.StyleguidePage })),
-)
+// The styleguide is for development and the mock builds only. Both flags are replaced by constants
+// at build time, so a production build drops the dynamic import and the page never ships.
+const SHOW_STYLEGUIDE = import.meta.env.DEV || import.meta.env.VITE_MOCK === "1"
+const StyleguidePage = SHOW_STYLEGUIDE
+  ? lazy(() => import("@/pages/styleguide").then((m) => ({ default: m.StyleguidePage })))
+  : null
 
 const CampaignsPage = lazy(() =>
   import("@/pages/campaigns").then((m) => ({ default: m.CampaignsPage })),
@@ -210,14 +213,18 @@ function appRoutes(): RouteObject {
           </Lazy>
         ),
       },
-      {
-        path: "styleguide",
-        element: (
-          <Lazy>
-            <StyleguidePage />
-          </Lazy>
-        ),
-      },
+      ...(StyleguidePage
+        ? [
+            {
+              path: "styleguide",
+              element: (
+                <Lazy>
+                  <StyleguidePage />
+                </Lazy>
+              ),
+            },
+          ]
+        : []),
       {
         path: "campaigns",
         element: (

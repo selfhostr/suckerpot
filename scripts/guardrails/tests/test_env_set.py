@@ -354,3 +354,29 @@ def test_migrate_keeps_a_fork_prefix(
     env = parse_env(sandbox.root / ".env")
     assert env["SUCKERPOT_IMAGE_PREFIX"] == "ghcr.io/someone/suckerpot"
     assert env["UPDATE_CHECK_REPO"] == "someone/suckerpot"
+
+
+def test_migrate_drops_the_variables_of_the_removed_llm_explainer(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    sandbox.write_env(
+        BASE_ENV
+        + "LLM_ENABLED=false\nLLM_MODEL=some-model\nANTHROPIC_API_KEY=not-a-real-key\n"
+        + "# LLM_DAILY_QUOTA=5\nLLMX=keep\nKEEP_LLM_ENABLED=1\n"
+    )
+    proc = sandbox.run("scripts/env-migrate.sh")
+    assert proc.returncode == 0, proc.stderr
+    text = (sandbox.root / ".env").read_text()
+    env = parse_env(sandbox.root / ".env")
+    for gone in ("LLM_ENABLED", "LLM_MODEL", "ANTHROPIC_API_KEY"):
+        assert gone not in env
+    assert "not-a-real-key" not in text and "not-a-real-key" not in proc.stdout
+    assert "LLM_ENABLED" in proc.stdout and "LLM_MODEL" in proc.stdout
+    # Comments and unrelated names stay.
+    assert "# LLM_DAILY_QUOTA=5" in text
+    assert env["LLMX"] == "keep" and env["KEEP_LLM_ENABLED"] == "1"
+    assert stat.S_IMODE((sandbox.root / ".env").stat().st_mode) == 0o600
+    # A second run finds nothing to remove.
+    again = sandbox.run("scripts/env-migrate.sh")
+    assert again.returncode == 0 and "LLM" not in again.stdout
+    assert (sandbox.root / ".env").read_text() == text

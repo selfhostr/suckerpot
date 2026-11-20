@@ -103,6 +103,21 @@ env_set_line() {
   mv "$tmp" "$file"
 }
 
+# env_drop_lines FILE REGEX: removes every active line whose name matches the extended regex
+# REGEX (an exact variable name or a prefix pattern, matched against the text before the "=").
+# Other lines are kept as they are, in order. Prints the removed NAMES (never a value), one per
+# line. Nothing is written when no line matches.
+env_drop_lines() {
+  local file=$1 pattern=$2 tmp names
+  names=$(sed -nE "s/^(${pattern})=.*/\\1/p" "$file")
+  [ -n "$names" ] || return 0
+  tmp=$(mktemp "${file}.XXXXXX")
+  grep -vE "^(${pattern})=" "$file" > "$tmp" || true
+  chmod --reference="$file" "$tmp" 2>/dev/null || chmod 600 "$tmp"
+  mv "$tmp" "$file"
+  printf '%s\n' "$names"
+}
+
 # Prints a random alphanumeric secret of LEN characters.
 gen_secret() {
   ( set +o pipefail; LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$1" )

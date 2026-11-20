@@ -313,8 +313,9 @@ test-integration:
         -v "$PWD:/work" -v "{{uv_cache}}:/cache" -w "/work/$pkg" \
         -e HOME=/tmp -e UV_CACHE_DIR=/cache -e UV_LINK_MODE=copy -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
         -e POSTGRES_HOST=db -e POSTGRES_PORT=5432 \
-        -e POSTGRES_DB -e POSTGRES_USER -e POSTGRES_PASSWORD \
-        -e POSTGRES_INGEST_USER -e POSTGRES_INGEST_PASSWORD -e POSTGRES_API_USER -e POSTGRES_API_PASSWORD \
+        -e "POSTGRES_DB=${POSTGRES_DB:-suckerpot}" -e "POSTGRES_USER=${POSTGRES_USER:-suckerpot}" -e POSTGRES_PASSWORD \
+        -e "POSTGRES_INGEST_USER=${POSTGRES_INGEST_USER:-suckerpot_ingest}" -e POSTGRES_INGEST_PASSWORD \
+        -e "POSTGRES_API_USER=${POSTGRES_API_USER:-suckerpot_api}" -e POSTGRES_API_PASSWORD \
         -e SUCKERPOT_ALLOW_DEFAULT_SECRETS -e DB_DIR=/work/db -e COMPOSE_PROJECT_NAME \
         -e REDIS_HOST=redis -e REDIS_PORT=6379 -e REDIS_USER=admin -e "REDIS_PASSWORD=$REDIS_PASSWORD" -e REDIS_ADMIN_USER=admin -e "REDIS_ADMIN_PASSWORD=$REDIS_PASSWORD" \
         {{uv_image}} sh -c "uv sync --refresh-package suckerpot-common --refresh-package suckerpot-db --refresh-package suckerpot-api --refresh-package suckerpot-netproto && uv run pytest -q -p no:cacheprovider -m integration; rc=\$?; [ \$rc -eq 5 ] && exit 0; exit \$rc")

@@ -276,15 +276,17 @@ services:
       API_ALLOWED_ORIGINS: ${API_ALLOWED_ORIGINS:-}
       INDICATORS_LINK_CAP: ${INDICATORS_LINK_CAP:-500}
       # Campaigns, ATT&CK, blocklists, scripts, alerts and reports (M15 to M19).
-      # Everything is off by default; the keys are optional and can also be set in Settings.
-      ATTACK_ENABLED: ${ATTACK_ENABLED:-false}
-      CAMPAIGNS_ENABLED: ${CAMPAIGNS_ENABLED:-false}
+      # ATT&CK, campaigns, blocklists and scripts are local analysis (no outbound traffic) and are on
+      # by default. Alerts and reports are off by default. The keys are optional and can also be set
+      # in Settings.
+      ATTACK_ENABLED: ${ATTACK_ENABLED:-true}
+      CAMPAIGNS_ENABLED: ${CAMPAIGNS_ENABLED:-true}
       CAMPAIGN_MIN_SOURCES: ${CAMPAIGN_MIN_SOURCES:-2}
       CAMPAIGN_LINK_CAP: ${CAMPAIGN_LINK_CAP:-500}
-      BLOCKLIST_ENABLED: ${BLOCKLIST_ENABLED:-false}
+      BLOCKLIST_ENABLED: ${BLOCKLIST_ENABLED:-true}
       BLOCKLIST_WINDOW_DAYS: ${BLOCKLIST_WINDOW_DAYS:-30}
       BLOCKLIST_MAX_ROWS: ${BLOCKLIST_MAX_ROWS:-20000}
-      SCRIPTS_ENABLED: ${SCRIPTS_ENABLED:-false}
+      SCRIPTS_ENABLED: ${SCRIPTS_ENABLED:-true}
       ALERTS_ENABLED: ${ALERTS_ENABLED:-false}
       REPORTS_ENABLED: ${REPORTS_ENABLED:-false}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}

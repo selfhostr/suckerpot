@@ -9,7 +9,7 @@ The Defend pages turn what the honeypot saw into things you can use at work: lis
 ```
 
 
-Ingest scores every source address, host name, download URL and file hash seen in the last `BLOCKLIST_WINDOW_DAYS` days (default 30) and stores the result in `blocklist_entries`. It runs every 15 minutes and is off by default: set `BLOCKLIST_ENABLED=true`.
+Ingest scores every source address, host name, download URL and file hash seen in the last `BLOCKLIST_WINDOW_DAYS` days (default 30) and stores the result in `blocklist_entries`. It runs every 15 minutes. It is on by default and local: it reads your own database and sends nothing out. Set `BLOCKLIST_ENABLED=false` to turn it off.
 
 A score runs from 0 to 100. Each point has a reason, shown in plain English on the page: brute-forcing, a login that worked, commands run, malware dropped, an exploit attempt, a bad AbuseIPDB score, several sensors hit, part of a campaign, and so on. Addresses that malware dropped on your decoys is said to contact (probable C2) are scored too: 75 when ThreatFox lists them as a botnet C2, 40 when only a VirusTotal sandbox saw the contact (below the default feed threshold of 50). See {ref}`Security <probable-c2-addresses>`. Mass scanners that did no harm are capped at 35. Entries below 10 are not listed. At most `BLOCKLIST_MAX_ROWS` entries are kept (default 20,000), best score first.
 
@@ -107,7 +107,7 @@ The inventory is free text that is stored and shown. It is only compared with ou
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `BLOCKLIST_ENABLED` | `false` | Score indicators into blocklists (ingest) |
+| `BLOCKLIST_ENABLED` | `true` | Score indicators into blocklists (ingest) |
 | `BLOCKLIST_WINDOW_DAYS` | `30` | How far back to look |
 | `BLOCKLIST_MAX_ROWS` | `20000` | Most entries kept |
 | `FEEDS_ENABLED` | `false` | Serve the token-protected feed (API) |

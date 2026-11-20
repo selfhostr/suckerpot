@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Upgrading
+
+- ATT&CK labels, campaigns, blocklist scoring and the script library are now on by default.
+  They only read your own database and make no outbound request. An install that never set
+  `ATTACK_ENABLED`, `CAMPAIGNS_ENABLED`, `BLOCKLIST_ENABLED` or `SCRIPTS_ENABLED` starts running
+  them after the update (the first campaign and script passes can use some CPU for a few minutes
+  on a large database). To keep one off, set it to `false` in `.env`; an explicit `false` always
+  wins.
+- `scripts/env-migrate.sh` (run by `just update`) now removes the lines of the removed LLM
+  explainer (`LLM_*` and `ANTHROPIC_API_KEY`) from `.env`. It prints the names it removed, never a value.
+
 ### Changed
+
+- `.env.example` is much shorter: it lists only what a normal owner sets or changes (about 120
+  names instead of 305). Limits, timeouts, rates, intervals, container ports, per-role database
+  names and other tuning knobs are no longer in the template. They keep working with the same
+  names and defaults, and are documented in the new "Advanced tuning" part of
+  `docs/configuration.md`, which now starts with "Common settings". Documentation drift is fixed:
+  `BACKUP_KEEP`, `AUTO_UPDATE_MIN_AGE_H`, `EGRESS_DENY_ASNS`, `NETWORK_DEFAULT_PINNED` and
+  `RDP_NLA_MODE` are documented, and the empty "not used yet" section is gone.
+- The `/styleguide` page is no longer part of the production web bundle. It loads only in
+  `just web-dev` and the mock and demo builds.
+- The ATT&CK, campaign, blocklist and script workers default to on (see Upgrading).
 
 - Participant installs set themselves up without follow-up commands. `install.sh --participant --yes`
   now installs the host firewall when `sudo` works without a password (otherwise it prints the one
@@ -27,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   progress log, design notes), a short public [roadmap](docs/roadmap.md) was added, the docs
   index is organised by part, and one vocabulary is used (node, full install, participant
   install, hub, abuse report, sensor).
+
+### Removed
+
+- The last mentions of the LLM explainer (removed in 0.11.0) in the configuration reference.
 
 ## [0.11.13] - 2026-11-19
 

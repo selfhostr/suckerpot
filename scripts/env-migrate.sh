@@ -9,6 +9,7 @@
 # - Pins NETWORK_ENABLED=false on an install that predates the network default (see below).
 # - Moves the two repository settings of the Theroxat -> selfhostr move (image prefix and update
 #   check repository) when they hold exactly the old default value; any other value is yours and stays.
+# - Removes the variables of the LLM explainer (LLM_*, ANTHROPIC_API_KEY), which was removed in v0.11.0.
 # - Never changes any other line that already exists.
 # - Prints the NAMES it added, empty secrets it left alone, and optional variables that
 #   .env.example has and .env does not. Never prints a value.
@@ -102,6 +103,13 @@ fi
 if [ "$(env_get UPDATE_CHECK_REPO)" = "Theroxat/suckerpot" ]; then
   env_set_line .env UPDATE_CHECK_REPO "selfhostr/suckerpot"
   echo "env-migrate: UPDATE_CHECK_REPO now points at selfhostr/suckerpot (the project moved)"
+fi
+
+# The LLM explainer was removed in v0.11.0: nothing reads these lines any more. Drop them so the
+# file does not suggest a feature that is gone. Only the names are printed.
+dropped=$(env_drop_lines .env 'LLM_[A-Z0-9_]*|ANTHROPIC_API_KEY' | tr '\n' ' ')
+if [ -n "$dropped" ]; then
+  echo "env-migrate: removed variables of the removed LLM explainer: ${dropped% }"
 fi
 chmod 600 .env
 

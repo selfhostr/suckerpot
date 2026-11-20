@@ -341,7 +341,7 @@ A **session** is one connection. It is the unit the dashboard tells as a story, 
 
 ## Analysis workers (M15 to M19)
 
-Ingest runs one background worker per feature. Each one is off until its `*_ENABLED` variable is `true` (see [Configuration](configuration.md)). A worker that is off does nothing and holds no secret. The first cycle starts at start-up, and the next one follows the interval below. An error in one cycle is logged with its exception type, and the next cycle runs.
+Ingest runs one background worker per feature. The ATT&CK, campaign, blocklist and script workers are on by default (they read only your own database and make no outbound request); the others are off until their `*_ENABLED` variable is `true`. An explicit `false` turns any of them off (see [Configuration](configuration.md)). A worker that is off does nothing and holds no secret. The first cycle starts at start-up, and the next one follows the interval below. An error in one cycle is logged with its exception type, and the next cycle runs.
 
 | Worker | Switch | Interval | What it does |
 | --- | --- | --- | --- |
