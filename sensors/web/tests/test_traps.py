@@ -748,26 +748,38 @@ def test_bundled_detection_survives_a_padded_request_and_filler_packs() -> None:
     assert all(p.id in fmt.CORE_PACKS for p, _ in ts._traps[:6])
 
 
-def test_suffix_header_needles_do_not_match_common_headers() -> None:
-    """F1 at run time: an anchored "-agent: mozilla/5.0" needle does not match "User-Agent"."""
+def _observer(area: str, needle: str) -> traps.TrapSet:
     obj = edgegate()
-    obj["traps"][1]["match"] = {"needles": [{"in": "headers", "any": ["-agent: mozilla/5.0"]}]}
-    obj["traps"][0]["match"] = {"needles": [{"in": "headers", "any": ["x-edge: mozilla/5.0"]}]}
-    ts = trapset(obj)
+    obj["traps"] = [
+        {"id": "obs", "level": "exploit", "outcome": {"flags": ["obs_hit"], "claim_cve": False},
+         "match": {"needles": [{"in": area, "any": [needle]}]}}
+    ]  # fmt: skip
+    return trapset(obj)
+
+
+def test_explicit_header_anchor_at_run_time() -> None:
+    """F1 / L-a at run time: "\\n-agent: mozilla/5.0" matches only a header named "-agent";
+    the same needle without the anchor is searched raw (and is weak as evidence)."""
     browser = req(headers=[("Host", "h"), ("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")])
-    assert _match(ts, browser) == set()
+    assert _match(_observer("headers", "\n-agent: mozilla/5.0"), browser) == set()
+    assert _match(_observer("headers", "-agent: mozilla/5.0"), browser) == {"obs"}
     first = req(headers=[("X-Edge", "Mozilla/5.0 (x)"), ("Host", "h")])
-    assert _match(ts, first) == {"version-probe"}  # also the first header line
+    assert _match(_observer("headers", "\nx-edge: mozilla/5.0"), first) == {"obs"}  # first line
 
 
-def test_param_needles_match_only_whole_keys() -> None:
-    """F2 at run time: "og=admin" matches the key "og", never "log=admin"; the first parameter
-    matches too."""
-    obj = edgegate()
-    obj["traps"][1]["match"] = {"needles": [{"in": "body", "any": ["og=admin"]}]}
-    obj["traps"][1]["outcome"]["claim_cve"] = False
-    obj["traps"][1].pop("respond")
-    ts = trapset(obj)
-    assert _match(ts, req("POST", "/q", body=b"log=admin&pwd=x")) == set()
-    assert _match(ts, req("POST", "/q", body=b"og=admin&pwd=x")) == {"diag-rce"}
-    assert _match(ts, req("POST", "/q", body=b"a=1&og=admin")) == {"diag-rce"}
+def test_explicit_param_anchor_at_run_time() -> None:
+    """F2 / L-a at run time: "&og=admin" matches the key "og" only (also the first parameter);
+    "allow_url_include=1" without the anchor also matches inside "-d allow_url_include=1"."""
+    anchored = _observer("body", "&og=admin")
+    assert _match(anchored, req("POST", "/q", body=b"log=admin&pwd=x")) == set()
+    assert _match(anchored, req("POST", "/q", body=b"og=admin&pwd=x")) == {"obs"}
+    assert _match(anchored, req("POST", "/q", body=b"a=1&og=admin")) == {"obs"}
+    raw = _observer("query", "allow_url_include=1")
+    php_cgi = req(
+        path="/php-cgi/php-cgi.exe", query="-d allow_url_include=1 -d auto_prepend_file=php://input"
+    )
+    assert _match(raw, php_cgi) == {"obs"}
+    strict = _observer("query", "&allow_url_include=1")
+    assert _match(strict, php_cgi) == set()
+    assert _match(strict, req(path="/x", query="a=b&allow_url_include=1")) == {"obs"}
+    assert _match(strict, req(path="/x", query="allow_url_include=1")) == {"obs"}

@@ -212,7 +212,7 @@ def test_evidence_rule() -> None:
     traps.validate_pack(obj)
     rce["match"]["path"] = {"exact": "/index.php"}
     assert reason(obj) == "evidence"  # a page the site serves, short needles only
-    rce["match"]["needles"][0]["any"] = ["host=192"]
+    rce["match"]["needles"][0]["any"] = ["&host=192"]
     traps.validate_pack(obj)  # a 6+ byte needle outside the path
     rce["match"] = {"path": {"contains": "/api/v1/diag/ping"}}
     assert reason(obj) == "evidence"  # contains/suffix paths never count
@@ -566,12 +566,12 @@ def test_evidence_must_be_specific() -> None:
     # A weak sibling needle makes the whole condition weak (any one needle may match).
     weak = {"needles": [{"in": "body", "any": ["host=192.0.2", ";"]}]}
     assert reason(_claiming(weak)) == "limits"  # 1 byte is below the needle minimum anyway
-    weak = {"needles": [{"in": "body", "any": ["host=192.0.2", "id"]}]}
+    weak = {"needles": [{"in": "body", "any": ["&host=192.0.2", "id"]}]}
     assert reason(_claiming(weak)) == "evidence"
     # The needle must not be the path itself.
     same = {
         "path": {"prefix": "/a"},
-        "needles": [{"in": "query", "any": ["/api/v1/diag/ping"]}],
+        "needles": [{"in": "query", "any": ["&next=/api/v1/diag/ping"]}],
     }
     traps.validate_pack(_claiming(same))  # the query is not the path
     inside = {
@@ -580,11 +580,11 @@ def test_evidence_must_be_specific() -> None:
     }
     assert reason(_claiming(inside)) == "evidence"
     # Header evidence names its header.
-    named = {"needles": [{"in": "headers", "any": ["x-edge-token: ${jndi"]}]}
+    named = {"needles": [{"in": "headers", "any": ["\nx-edge-token: ${jndi"]}]}
     traps.validate_pack(_claiming(named))
-    short = {"needles": [{"in": "headers", "any": ["x-edge-token: ab"]}]}
+    short = {"needles": [{"in": "headers", "any": ["\nx-edge-token: ab"]}]}
     assert reason(_claiming(short)) == "evidence"
-    traps.validate_pack(_claiming({"needles": [{"in": "body", "any": ["host=192.0.2"]}]}))
+    traps.validate_pack(_claiming({"needles": [{"in": "body", "any": ["&host=192.0.2"]}]}))
 
 
 def test_loose_paths_need_four_bytes() -> None:
@@ -621,13 +621,13 @@ def test_answer_on_reserved_path_needs_specific_condition() -> None:
     traps.validate_pack(obj)
     probe["match"] = {
         "path": {"exact": "/wp-login.php"},
-        "needles": [{"in": "query", "any": ["action=edge"]}],
+        "needles": [{"in": "query", "any": ["&action=edge"]}],
     }
     traps.validate_pack(obj)
     t = traps.validate_pack(obj).traps[0]
     assert traps.may_answer_on_reserved_path(t)
     unpathed = traps.validate_pack(
-        _claiming({"needles": [{"in": "headers", "any": ["x-a: ${jndi"]}]})
+        _claiming({"needles": [{"in": "headers", "any": ["\nx-a: ${jndi"]}]})
     )
     assert traps.may_answer_on_reserved_path(unpathed.traps[1])
 
@@ -682,6 +682,7 @@ def test_base_url_cannot_name_another_host() -> None:
 def test_common_header_needles_are_never_specific(needle: str) -> None:
     """Re-review M2(a) and L5: needles on headers every client sends are neither evidence nor
     enough to answer on a page the site serves."""
+    needle = "\n" + needle  # explicitly anchored, so only the denylist can refuse it
     assert reason(_claiming({"needles": [{"in": "headers", "any": [needle]}]})) == "evidence"
     obj = example()
     obj["traps"][0]["match"] = {
@@ -706,13 +707,15 @@ def test_tracking_and_common_query_needles_are_not_evidence(needle: str) -> None
     """Re-review L5."""
     for area in ("query", "body"):
         assert reason(_claiming({"needles": [{"in": area, "any": [needle]}]})) == "evidence"
+        anchored = "&" + needle.lstrip("?&")
+        assert reason(_claiming({"needles": [{"in": area, "any": [anchored]}]})) == "evidence"
 
 
 def test_specific_query_needles_still_count() -> None:
-    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["page=../../../etc"]}]}))
-    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["cmd=wget%20"]}]}))
+    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&page=../../../etc"]}]}))
+    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&cmd=wget "]}]}))
     traps.validate_pack(
-        _claiming({"needles": [{"in": "headers", "any": ["x-api-version: ${jndi"]}]})
+        _claiming({"needles": [{"in": "headers", "any": ["\nx-api-version: ${jndi"]}]})
     )
 
 
@@ -756,23 +759,6 @@ def test_core_packs_have_their_own_capped_scan() -> None:
     assert [p.id for p in res.packs] == ["log4j-log4shell"]
 
 
-def test_header_needles_are_anchored_to_the_line_start() -> None:
-    """F1: "name: value" header needles compile to "\\nname: value"; a suffix of a common header
-    name ("-agent: mozilla/5.0", "okie: ...") names another header and can no longer match it."""
-    for needle in ("-agent: mozilla/5.0", "agent: mozilla/5.0", "t: mozilla/5.0", "ept: text/html",
-                   "ection: keep-alive", "okie: wordpress_test_cookie",
-                   "hex:" + b"agent: mozilla/5.0".hex()):  # fmt: skip
-        t = traps.validate_pack(_claiming({"needles": [{"in": "headers", "any": [needle]}]})).traps[
-            1
-        ]
-        assert t.needles[0].any[0].startswith(b"\n"), needle
-    plain = _claiming({"needles": [{"in": "headers", "any": ["${jndi:ldap"]}]})
-    plain["traps"][1]["outcome"]["claim_cve"] = False
-    t = traps.validate_pack(plain).traps[1]
-    assert t.needles[0].any == (b"${jndi:ldap",)  # not "name: value": a plain substring
-    assert reason(_claiming({"needles": [{"in": "headers", "any": ["${jndi:ldap"]}]})) == "evidence"
-
-
 @pytest.mark.parametrize(
     "needle",
     [
@@ -780,7 +766,7 @@ def test_header_needles_are_anchored_to_the_line_start() -> None:
         "pwd=hunter22",
         "1&pwd=hunter2",
         "wp-submit=Log+In",
-        "redirect_to=%2Fwp-admin",
+        "redirect_to=/wp-admin/",
         "testcookie=1",
         "rememberme=forever",
         "a=b&log=admin123",
@@ -790,13 +776,65 @@ def test_login_form_needles_are_not_evidence(needle: str) -> None:
     """F2: the WordPress login form keys never count, also inside a longer needle."""
     for area in ("query", "body"):
         assert reason(_claiming({"needles": [{"in": area, "any": [needle]}]})) == "evidence"
+        anchored = "&" + needle.lstrip("&")
+        assert reason(_claiming({"needles": [{"in": area, "any": [anchored]}]})) == "evidence"
 
 
-def test_param_needles_are_anchored_to_a_parameter_start() -> None:
-    """F2: "og=admin" compiles to "&og=admin", the key "og": it cannot match "log=admin"."""
-    t = traps.validate_pack(_claiming({"needles": [{"in": "body", "any": ["og=admin"]}]})).traps[1]
-    assert t.needles[0].any == (b"&og=admin",)
-    t = traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["?cmd=wget"]}]})).traps[
-        1
+# -- fourth review: explicit anchors -----------------------------------------------------------
+
+
+def _claim_needle(area: str, needle: str) -> dict[str, Any]:
+    return _claiming({"needles": [{"in": area, "any": [needle]}]})
+
+
+def test_needles_are_compiled_exactly_as_written() -> None:
+    """L-a: no implicit anchoring; the engine searches the bytes the author wrote."""
+    cases = [
+        ("query", "allow_url_include=1"),
+        ("body", "&allow_url_include=1"),
+        ("headers", "-agent: mozilla/5.0"),
+        ("headers", "\nx-api: ${jndi"),
     ]
-    assert t.needles[0].any == (b"&cmd=wget",)
+    for area, needle in cases:
+        obj = _claim_needle(area, needle)
+        obj["traps"][1]["outcome"]["claim_cve"] = False
+        t = traps.validate_pack(obj).traps[1]
+        assert t.needles[0].any == (needle.lower().encode(),)
+
+
+def test_only_explicitly_anchored_needles_are_strong() -> None:
+    """L-a: an unanchored "name: value" or "key=value" needle is searched raw and is weak."""
+    assert reason(_claim_needle("headers", "-agent: mozilla/5.0")) == "evidence"
+    assert reason(_claim_needle("headers", "x-api-version: ${jndi")) == "evidence"
+    assert reason(_claim_needle("headers", "\nuser-agent: mozilla/5.0")) == "evidence"  # denied
+    traps.validate_pack(_claim_needle("headers", "\nx-api-version: ${jndi"))
+    assert reason(_claim_needle("query", "allow_url_include=1")) == "evidence"
+    traps.validate_pack(_claim_needle("query", "&allow_url_include=1"))
+
+
+@pytest.mark.parametrize(
+    "needle", ["admin&pw", "=admin&wp-subm", "&=admin1", "&cmd=", "&a b=cdefg"]
+)
+def test_param_evidence_needs_a_full_anchored_key_value(needle: str) -> None:
+    """L-b: strong query and body evidence is a whole "&key=value" on a key that is not denied."""
+    for area in ("query", "body"):
+        assert reason(_claim_needle(area, needle)) == "evidence"
+
+
+@pytest.mark.parametrize("area", ["query", "body", "path", "blob"])
+def test_percent_escapes_are_refused_in_decoded_areas(area: str) -> None:
+    """L-c: those areas are percent-decoded before matching, so "%2e" could never match."""
+    obj = _claim_needle(area, "&file=%2e%2e/etc")
+    with pytest.raises(PackError) as err:
+        traps.validate_pack(obj)
+    assert err.value.reason == "schema" and "percent-decoded" in err.value.detail
+    obj["traps"][1]["match"]["needles"][0]["any"] = ["hex:" + b"%2e%2e/etc".hex()]
+    assert reason(obj) == "schema"
+    obj["traps"][1]["match"]["needles"][0]["any"] = ["100% sure"]  # a lone % is fine
+    obj["traps"][1]["outcome"]["claim_cve"] = False
+    traps.validate_pack(obj)
+
+
+def test_newline_anchor_only_in_headers() -> None:
+    assert reason(_claim_needle("query", "\n&cmd=x")) == "schema"
+    traps.validate_pack(_claim_needle("headers", "\nx-forwarded-host: evil.example"))

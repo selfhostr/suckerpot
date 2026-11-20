@@ -52,6 +52,7 @@ REASONS: tuple[str, ...] = (
 
 METHODS = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
 AREAS = ("path", "query", "body", "headers", "blob")
+DECODED_AREAS = ("path", "query", "body", "blob")  # percent-decoded (twice) before matching
 PATH_OPS = ("exact", "prefix", "suffix", "contains")
 KINDS = ("php", "static", "error")
 STATUSES = (200, 201, 204, 301, 302, 400, 401, 403, 404, 405, 500, 503)
@@ -461,7 +462,9 @@ def _day(value: object, where: str) -> date:
     raise _fail("schema", f"{where}: must be a day, YYYY-MM-DD")
 
 
-def _needle(value: object, where: str) -> bytes:
+def _needle(value: object, where: str, area: str) -> bytes:
+    """One needle, exactly as written. In ``headers`` a needle may start with one newline (an
+    explicit header line start); otherwise needles are printable ASCII or ``hex:``."""
     if not isinstance(value, str):
         raise _fail("schema", f"{where}: must be text")
     if value.startswith("hex:"):
@@ -470,12 +473,32 @@ def _needle(value: object, where: str) -> bytes:
             raise _fail("limits", f"{where}: hex needles have 4 to 512 hex digits, even count")
         if not all(c in _HEX for c in digits):
             raise _fail("schema", f"{where}: not hex")
-        return bytes.fromhex(digits)
-    if not value.isascii() or not value.isprintable():
-        raise _fail("schema", f"{where}: needles are printable ASCII (or hex:...)")
-    if not NEEDLE_MIN <= len(value) <= NEEDLE_MAX:
-        raise _fail("limits", f"{where}: needles are {NEEDLE_MIN} to {NEEDLE_MAX} bytes")
-    return value.encode("ascii")
+        raw = bytes.fromhex(digits)
+    else:
+        text = value[1:] if area == "headers" and value.startswith("\n") else value
+        if not text.isascii() or not text.isprintable():
+            raise _fail("schema", f"{where}: needles are printable ASCII (or hex:...); in headers "
+                        "one leading newline marks a header line start")  # fmt: skip
+        if not NEEDLE_MIN <= len(value) <= NEEDLE_MAX:
+            raise _fail("limits", f"{where}: needles are {NEEDLE_MIN} to {NEEDLE_MAX} bytes")
+        raw = value.encode("ascii")
+    if area in DECODED_AREAS and _has_percent_escape(raw):
+        raise _fail(
+            "schema",
+            f"{where}: the {area} is percent-decoded before matching: write the decoded bytes, "
+            "not %xx",
+        )
+    return raw
+
+
+def _has_percent_escape(raw: bytes) -> bool:
+    pos = raw.find(b"%")
+    while pos != -1:
+        pair = raw[pos + 1 : pos + 3]
+        if len(pair) == 2 and all(chr(b) in _HEX for b in pair):
+            return True
+        pos = raw.find(b"%", pos + 1)
+    return False
 
 
 def is_reserved_path(path: str) -> bool:
@@ -763,10 +786,9 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str], pack_id: str)
         if cd["in"] not in AREAS:
             raise _fail("schema", f"{w}.in: one of {', '.join(AREAS)}")
         items = _list(cd["any"], f"{w}.any", 1, MAX_NEEDLES)
-        found = tuple(_needle(x, f"{w}.any[{j}]") for j, x in enumerate(items))
+        found = tuple(_needle(x, f"{w}.any[{j}]", cd["in"]) for j, x in enumerate(items))
         if not exact:
             found = tuple(n.lower() for n in found)
-        found = tuple(anchor(cd["in"], n) for n in found)
         conds.append(Needles(cd["in"], tuple(dict.fromkeys(found))))
     if path is None and not query_keys and not header_names and not conds:
         raise _fail("schema", f"{where}.match: needs a path, query_keys, header_names or needles")
@@ -805,32 +827,12 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str], pack_id: str)
     )
 
 
-def _param_key(n: bytes) -> bytes | None:
-    """The key of a "key=value" needle (a leading ? or & is dropped), or None."""
-    key, sep, _ = n.lstrip(b"?&").partition(b"=")
-    if sep and key and all(chr(b) in _PARAM_KEY for b in key):
-        return key
-    return None
-
-
 def _header_name(n: bytes) -> bytes | None:
     """The header name of a "name: value" needle, or None."""
     name, sep, _ = n.partition(b": ")
     if sep and name and all(chr(b) in _TOKEN for b in name):
         return name
     return None
-
-
-def anchor(area: str, n: bytes) -> bytes:
-    """Compile a needle so that a "name: value" header needle matches only at the start of a
-    header line, and a "key=value" query or form needle only at the start of a parameter. The
-    engine searches those areas with a separator byte in front ("\\n" for headers, "&" for query
-    and body), so "-agent: x" can never match inside "user-agent: x"."""
-    if area == "headers" and _header_name(n) is not None:
-        return b"\n" + n
-    if area in ("query", "body") and _param_key(n) is not None:
-        return b"&" + n.lstrip(b"?&")
-    return n
 
 
 def _header_needle_specific(n: bytes) -> bool:
@@ -865,11 +867,24 @@ def _param_needle_generic(n: bytes) -> bool:
     return False
 
 
+def _param_needle_specific(n: bytes) -> bool:
+    """An explicitly anchored "&key=value" needle with a non-empty value, whose key (and the key
+    of every further "&key=value" part) is not generic."""
+    if not n.startswith(b"&"):
+        return False
+    key, sep, value = n[1:].partition(b"=")
+    if not sep or not value or not key or not all(chr(b) in _PARAM_KEY for b in key):
+        return False
+    return not _param_needle_generic(n[1:])
+
+
 def strong_condition(c: Needles, t: Trap) -> bool:
     """A needle condition that is specific to an exploit: in the query, body or headers (never
     the path or the whole-request blob), and every one of its needles (any one may match) has 6
-    bytes or more, does not occur in the trap's path, names its header in headers, and is no
-    tracking, login-form or common short parameter in the query or body."""
+    bytes or more, does not occur in the trap's path, and is explicitly anchored: in headers
+    "\nname: value" on a header clients do not all send, in the query or body "&key=value" on a
+    key that is no tracking, login-form or common short parameter. The engine searches exactly
+    these bytes (the areas start with "\n" and "&"), so what is checked here is what matches."""
     if c.area not in ("query", "body", "headers"):
         return False
     path = t.path.value.lower() if t.path is not None else b""
@@ -880,7 +895,7 @@ def strong_condition(c: Needles, t: Trap) -> bool:
             return False
         if c.area == "headers" and not _header_needle_specific(n):
             return False
-        if c.area in ("query", "body") and _param_needle_generic(n.lstrip(b"&")):
+        if c.area in ("query", "body") and not _param_needle_specific(n):
             return False
     return True
 
@@ -973,8 +988,9 @@ def validate_pack(
                 raise _fail(
                     "evidence",
                     f"trap {t.id} claims a CVE without specific evidence (a condition in the "
-                    "query, body or headers whose needles all have 6 bytes or more, or an "
-                    "exact or prefix path of 12 bytes or more that the site does not serve)",
+                    "query, body or headers whose needles all have 6 bytes or more and are "
+                    "anchored as \\nname: value or &key=value, or an exact or prefix path of 12 "
+                    "bytes or more that the site does not serve)",
                 )
     for t in traps:
         if (
