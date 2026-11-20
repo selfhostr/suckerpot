@@ -39,7 +39,7 @@ It then creates every secret on this machine, starts the sensors, the database, 
 
 A machine sold as "2 GB" reports about 1.9 GiB and runs the default setup with the low-memory limits: add swap (the installer warns and asks when there is less than 512 MiB). If the machine reports less than 1.75 GiB, the installer says so and offers the lite setup in one question (default yes; `--yes` takes it and prints a note). Accepting it is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
 
-Near the end it offers the **host firewall**: `Install the host firewall now? ... Needs sudo. [Y/n]`. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. It asks for your `sudo` password on the terminal. If you say no, or run with `--yes`, it prints the two commands to run later; you can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
+Near the end it offers the **host firewall**: `Install the host firewall now? ... Needs sudo. [Y/n]`. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. The default answer is yes. It asks for your `sudo` password on the terminal. With `--yes` it installs the firewall by itself when `sudo` works without a password, and otherwise prints the one command to run (`./scripts/participant.sh firewall`). If you say no, it prints the two commands to run later; you can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
 
 After that, your only job is to open the printed ports.
 
@@ -115,6 +115,8 @@ It shows the sensors and their ports, your standing in the network, the last con
 
 Right after the install, the network section may say `Joining as <your pseudonym>: not accepted by the hub yet`, with the last problem (for example a closed path to the hub). Your agreement is already recorded: SuckerPot keeps trying by itself, and a problem makes the exit code 1 until the hub accepts the node.
 
+If something needs your action, the report ends with a **Needs attention** block. Each item comes with the one command that fixes it. It lists three things: automatic updates are off (`./scripts/participant.sh auto-update on`), the host firewall is not installed (`./scripts/participant.sh firewall`), and the node runs a release at least three days older than the newest one it knows (`just update`). Any of them makes the exit code 1. The "newest release it knows" comes from the tags this checkout already has; the update job fetches new ones. An empty block means nothing to do.
+
 By default, your sensor counts toward confirmations after 14 days of regular batches. Until then its standing is `new`.
 
 ## Automatic updates
@@ -131,7 +133,7 @@ There is a risk to know about. If the release channel of the project were ever c
 ./scripts/participant.sh auto-update off
 ```
 
-You can also install with `--no-auto-update`. You then update by hand with `just update`.
+You can also install with `--no-auto-update`. You then update by hand with `just update`. A participant install turns automatic updates on by default. They stay off only with `--no-auto-update`, with `--source` (a source build has no signed images to update to), or when no crontab or systemd user session could hold the schedule. In that last case the installer prints the command to run, and `./scripts/install.sh --repair` tries the schedule again.
 
 ## Verifier nodes
 

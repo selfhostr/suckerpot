@@ -9,6 +9,8 @@ Reads one JSON document on stdin, written by status.sh:
     ports                          [[router_port, host_port, protocol, sensor], ...]
     auto_enabled, auto_schedule    AUTO_UPDATE_ENABLED and `schedule_status` ("cron 04:37/6h", "off")
     auto_state_raw                 text of .suckerpot-state/auto-update.json, or ""
+    firewall                       "installed" or "missing" (the host firewall unit)
+    latest, latest_age_h           newest known release of the same major version, and its age
     cli_raw, cli_error             output of `python -m ingest.network.cli status --json`, or ""
 
 The network shape (written by ingest/network/cli.py) is read defensively: every key is optional.
@@ -30,6 +32,9 @@ HUB_STALE_HOURS = 26
 # Refusals that only mean "not yet": the release is younger than the minimum age. The next run
 # takes it, so the status does not call the update failed.
 WAITING_REFUSALS = {"too_young"}
+# A newer release is only "outdated" once the automatic updater would have taken it: it waits 48 h
+# and runs every 6 h, so give it three days.
+OUTDATED_AFTER_H = 72
 ERROR_CODES = {"hub_signature", "guard_failed"}
 KNOWN_TEXT = {
     "consent_outdated": "the consent text is newer than your agreement: run ./scripts/participant.sh join",
@@ -44,6 +49,8 @@ KNOWN_TEXT = {
     "db_down": "the database is not running or not healthy: docker compose logs db",
     "stack_not_running": "the stack is not running: ./scripts/install.sh --repair",
     "network_status_unavailable": "ingest did not answer the network status request",
+    "firewall_missing": "the host firewall is not installed",
+    "release_outdated": "this node runs an older release than the newest one it knows",
     "auto_update_failed": "the last automatic update did not complete: .suckerpot-state/auto-update.log",
 }
 
@@ -99,6 +106,13 @@ def _ago(then: datetime, now: datetime) -> str:
         return f"{minutes} min ago"
     hours = minutes // 60
     return f"{hours} h ago" if hours < 48 else f"{hours // 24} days ago"
+
+
+def _ver(tag: Any) -> tuple[int, ...] | None:
+    parts = str(tag or "").removeprefix("v").split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
 
 
 def _n(value: Any) -> int:
@@ -160,7 +174,7 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
 
     auto_state = _parse(doc.get("auto_state_raw"))
     if stack == "participant":
-        if not doc.get("auto_enabled"):
+        if not doc.get("auto_enabled") or str(doc.get("auto_schedule") or "off") == "off":
             warnings.append("auto_update_off")
         elif auto_state and (
             auto_state.get("last_result") == "failed"
@@ -170,6 +184,17 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
             )
         ):
             warnings.append("auto_update_failed")
+    if stack == "participant":
+        if doc.get("firewall") == "missing":
+            warnings.append("firewall_missing")
+        running, newest = _ver(doc.get("version")), _ver(doc.get("latest"))
+        if (
+            running
+            and newest
+            and newest > running
+            and _n(doc.get("latest_age_h")) >= OUTDATED_AFTER_H
+        ):
+            warnings.append("release_outdated")
     code = 2 if errors else (1 if warnings else 0)
     return {
         "stack": stack,
@@ -185,6 +210,33 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
         "join_error": join_error,
         "hub": hub,
     }
+
+
+def needs_attention(doc: dict[str, Any], info: dict[str, Any]) -> list[tuple[str, str]]:
+    """(problem, the one command that fixes it) for each thing a participant should act on."""
+    items: list[tuple[str, str]] = []
+    if "auto_update_off" in info["warnings"]:
+        if doc.get("install") not in (None, "images"):
+            items.append(
+                (
+                    "Automatic updates are off: this install builds from source",
+                    "just update   (automatic updates need the release images, see docs/updates.md)",
+                )
+            )
+        else:
+            items.append(
+                ("Automatic updates are off", "./scripts/participant.sh auto-update on")
+            )
+    if "firewall_missing" in info["warnings"]:
+        items.append(("The host firewall is not installed", "./scripts/participant.sh firewall"))
+    if "release_outdated" in info["warnings"]:
+        items.append(
+            (
+                f"This node runs {doc.get('version')}, the newest release is {doc.get('latest')}",
+                "just update",
+            )
+        )
+    return items
 
 
 def _sensor_ports(doc: dict[str, Any], sensor: str) -> str:
@@ -316,8 +368,13 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
 
     out.append("Updates")
     out.append(f"  {_auto_line(doc, info)}")
-    if "auto_update_off" in info["warnings"]:
-        out.append("  ! automatic updates are off: update by hand with: just update")
+    attention = needs_attention(doc, info) if info["stack"] == "participant" else []
+    if attention:
+        out.append("")
+        out.append("Needs attention")
+        for problem, command in attention:
+            out.append(f"  ! {problem}")
+            out.append(f"    Fix: {command}")
     out.append("")
     out.append("Exit code 0 = OK, 1 = warning, 2 = error.")
     return "\n".join(out)
@@ -344,6 +401,12 @@ def main(argv: list[str]) -> int:
                 "schedule": doc.get("auto_schedule"),
                 "last": info["auto_state"],
             },
+            "firewall": doc.get("firewall"),
+            "needs_attention": [
+                {"problem": p, "fix": c} for p, c in needs_attention(doc, info)
+            ]
+            if info["stack"] == "participant"
+            else [],
             "warnings": info["warnings"],
             "errors": info["errors"],
             "exit": info["exit"],

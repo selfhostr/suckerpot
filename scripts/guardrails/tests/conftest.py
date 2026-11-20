@@ -128,6 +128,7 @@ case "$*" in
   "describe --tags --exact-match HEAD") exit 128 ;;
   "status --porcelain"*) rd dirty ;;
   "fetch "*) ;;
+  "for-each-ref "*) rd refs ;;
   "tag -l v*.*.* --sort"*) rd tags | sort -rV ;;
   "tag -l --format="*) rd notes ;;
   "checkout --quiet --detach "*) printf '%s' "$4" > "$SHIM_DIR/gitstate/head"; rewrite ;;

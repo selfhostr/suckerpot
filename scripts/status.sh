@@ -94,15 +94,41 @@ if [ -f scripts/lib/schedule.sh ]; then
 fi
 if [ "$(env_get AUTO_UPDATE_ENABLED false)" = true ]; then auto_enabled=true; else auto_enabled=false; fi
 
+# The host firewall is a systemd unit of its own (scripts/host/install-firewall.sh). The unit file
+# is readable without root; SUCKERPOT_FW_ROOT only exists for the tests.
+if [ -f "${SUCKERPOT_FW_ROOT:-}/etc/systemd/system/suckerpot-firewall.service" ]; then
+  firewall=installed
+else
+  firewall=missing
+fi
+
+# The newest release of the same major version that this checkout knows (local tags only, no
+# network; the automatic updater fetches them), and how old it is. Tags marked bad are skipped.
+latest=""
+latest_age_h=0
+if [[ $version =~ ^v([0-9]{1,3})\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && command -v git > /dev/null 2>&1; then
+  major=${BASH_REMATCH[1]}
+  now_s=$(date +%s)
+  while read -r tag ts; do
+    [[ $tag =~ ^v${major}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || continue
+    [[ ${ts:-} =~ ^[0-9]{1,12}$ ]] || continue
+    if [ -f .suckerpot-state/bad-versions ] && grep -qxF "$tag" .suckerpot-state/bad-versions; then continue; fi
+    latest=$tag
+    latest_age_h=$(((now_s - ts) / 3600))
+    break
+  done < <(git for-each-ref --sort=-v:refname --format='%(refname:short) %(creatordate:unix)' 'refs/tags/v*' 2> /dev/null || true)
+fi
+
 ports_json=""
 while read -r rp hp proto sname; do
   [ -n "${rp:-}" ] || continue
   ports_json+="${ports_json:+,}[$(json_str "$rp"),$(json_str "$hp"),$(json_str "$proto"),$(json_str "$sname")]"
 done < <(ports_table)
 
-doc=$(printf '{"stack":%s,"install":%s,"version":%s,"ps":[%s],"ports":[%s],"auto_enabled":%s,"auto_schedule":%s,"auto_state_raw":%s,"cli_raw":%s,"cli_error":%s}' \
+doc=$(printf '{"stack":%s,"install":%s,"version":%s,"ps":[%s],"ports":[%s],"auto_enabled":%s,"auto_schedule":%s,"auto_state_raw":%s,"cli_raw":%s,"cli_error":%s,"firewall":%s,"latest":%s,"latest_age_h":%s}' \
   "$(json_str "$stack")" "$(json_str "$install")" "$(json_str "$version")" "$ps_json" "$ports_json" \
-  "$auto_enabled" "$(json_str "$auto_schedule")" "$(json_str "$auto_state")" "$(json_str "$cli_raw")" "$(json_str "$cli_error")")
+  "$auto_enabled" "$(json_str "$auto_schedule")" "$(json_str "$auto_state")" "$(json_str "$cli_raw")" "$(json_str "$cli_error")" \
+  "$(json_str "$firewall")" "$(json_str "$latest")" "$latest_age_h")
 
 src=$(cat scripts/lib/status_render.py)
 rc=0
