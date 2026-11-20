@@ -12,14 +12,17 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, quote
 
+from suckerpot_common import traps as fmt
+
 from web_sensor import apache, xmlrpc
 from web_sensor.assets import css, jquery, js, png
 from web_sensor.config import Config
 from web_sensor.content import phpinfo, pma, wordpress
-from web_sensor.detect import Analysis
+from web_sensor.detect import Analysis, _query_pairs
 from web_sensor.httpio import HttpError, Request, to_text
 from web_sensor.profile import Profile
 from web_sensor.response import Response
+from web_sensor.traps import Hit, RenderValues, render_template, specificity
 
 NOCACHE = [
     ("Expires", "Wed, 11 Jan 1984 05:00:00 GMT"),
@@ -285,6 +288,94 @@ class Site:
             headers=headers or [],
             kind="php",
             close=close,
+        )
+
+    # -- trap packs ------------------------------------------------------------------------
+
+    def serves(self, path: str) -> bool:
+        """A path the built-in site answers itself: a trap needs more than a path there."""
+        low = path.lower()
+        return fmt.is_reserved_path(low) or path in self.static or path in self.dirs
+
+    def trap_active(self, hit: Hit, groups: dict[str, tuple[str, ...]]) -> bool:
+        """Whether this install answers as the pack's product (presence and persona group).
+        Detection never depends on it."""
+        pack = hit.pack
+        if pack.presence < 1.0 and self.p.rng(f"trap:presence:{pack.id}").random() >= pack.presence:
+            return False
+        if pack.group:
+            members = groups.get(pack.group, (pack.id,))
+            label = f"trap:group:{pack.group}:"
+            return max(members, key=lambda m: self.p.derive(label + m, 32)) == pack.id
+        return True
+
+    def trap_outcome(
+        self, req: Request, ctx: Ctx, hits: list[Hit], groups: dict[str, tuple[str, ...]]
+    ) -> Outcome | None:
+        """The fake answer of the most specific responding trap, or None (the site answers)."""
+        if not hits or req.method not in apache.KNOWN_METHODS or req.target == "*":
+            return None
+        candidates = [h for h in hits if h.trap.respond is not None]
+        if not candidates:
+            return None
+        try:
+            path = normalize_path(req.path)
+        except HttpError:
+            return None
+        reserved = self.serves(path)
+        usable = [
+            h
+            for h in candidates
+            if (not reserved or h.trap.query_keys or h.trap.needles) and self.trap_active(h, groups)
+        ]
+        if not usable:
+            return None
+        hit = min(usable, key=specificity)
+        route = f"trap:{hit.pack.id}/{hit.trap.id}"
+        return Outcome(self._trap_response(hit, req, ctx), app="trap", route=route)
+
+    def _trap_response(self, hit: Hit, req: Request, ctx: Ctx) -> Response:
+        r = hit.trap.respond
+        if r is None:  # checked by the caller
+            raise ValueError("trap without respond")
+        p = self.p
+        query: dict[str, str] = {}
+        for key, value in _query_pairs(req.query):
+            query.setdefault(key, value)
+        values = RenderValues(
+            self.cfg.hostname,
+            p.server_ip,
+            p.site_title,
+            self.base_url(req, ctx),
+            self.cfg.server_token,
+            self.cfg.php_version,
+            ctx.now,
+            p.install_ts,
+            query,
+        )
+        # One variant per install and pack: the probe and exploit answers of a pack agree.
+        idx = p.rng(f"trap:{hit.pack.id}").randrange(65536) % len(r.variants)
+        label = f"trap:{hit.pack.id}:{hit.trap.id}"
+        text = render_template(r.variants[idx], values, p.derive, p.rng, label)
+        body = text.encode("utf-8")[: fmt.MAX_BODY].decode("utf-8", "ignore").encode("utf-8")
+        headers: list[tuple[str, str]] = []
+        if r.kind == "static":
+            headers += [
+                ("Last-Modified", apache.http_date(p.install_ts)),
+                ("ETag", apache.etag(len(body), p.install_ts)),
+                ("Accept-Ranges", "bytes"),
+            ]
+        for name, tpl in r.headers:
+            value = render_template(tpl, values, p.derive, p.rng, f"{label}:{name}")
+            headers.append((name, "".join(c for c in value if " " <= c <= "~")[:512]))
+        return Response(
+            status=r.status,
+            body=body,
+            content_type=r.content_type,
+            headers=headers,
+            kind="php" if r.kind == "php" else ("static" if r.kind == "static" else "error"),
+            app="trap",
+            route=f"trap:{hit.pack.id}/{hit.trap.id}",
         )
 
     def _wp_link(self, base: str) -> tuple[str, str]:

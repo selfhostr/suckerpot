@@ -497,3 +497,21 @@ def test_hardening_guard_pins_the_healthcheck(tmp_path: Path) -> None:
     ):
         files = {"healthcheck.py": probe, "other.py": imp + "\n"}
         assert any(v.startswith("other.py") for v in _h_case(tmp_path, files, outbound=True)), imp
+
+
+# --- Trap packs (M37): the shared validator is pure data handling --------------------------------
+_TRAPS_IMPORTS = {"__future__", "json", "dataclasses", "datetime", "typing"}
+
+
+def test_trap_validator_imports_only_plain_data_modules() -> None:
+    """No regex (ReDoS on pack data), no I/O, no network, no code loading in the validator."""
+    tree = ast.parse((PKG / "traps.py").read_text())
+    mods: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            mods |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            mods.add(node.module.split(".")[0])
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            assert node.func.id not in {"getattr", "setattr", "open", "eval", "exec"}, node.lineno
+    assert mods <= _TRAPS_IMPORTS, mods - _TRAPS_IMPORTS

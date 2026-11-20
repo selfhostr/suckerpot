@@ -1,0 +1,7 @@
+{
+ "exploit-1.http": {"hits": ["log4j-log4shell/jndi-header"], "flags": ["log4shell"]},
+ "exploit-2.http": {"hits": ["log4j-log4shell/jndi-request"], "flags": ["log4shell"]},
+ "exploit-3.http": {"hits": ["log4j-log4shell/jndi-request"], "flags": ["log4shell"]},
+ "exploit-4.http": {"hits": ["log4j-log4shell/jndi-header"], "flags": ["log4shell"]},
+ "benign-1.http": {"hits": []}
+}

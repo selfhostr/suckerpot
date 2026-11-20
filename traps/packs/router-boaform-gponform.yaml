@@ -1,0 +1,25 @@
+# Command injection through the web forms of Boa based and GPON home routers. Converted from the
+# web sensor's code in M37 phase 1, with the same behaviour: the form path alone sets
+# router_exploit.
+schema: suckerpot-trap/1
+id: router-boaform-gponform
+version: 1
+engine: 1
+sensor: web
+title: Home router web form command injection (Boa and GPON)
+cve: [CVE-2018-10561, CVE-2018-10562]
+disclosed: 2018-05-01
+product: {vendor: Dasan, name: GPON home router}
+tag: router-exploit
+attack: [T1190]
+traps:
+  - id: boaform
+    level: exploit
+    match:
+      path: {contains: /boaform/}
+    outcome: {flags: [router_exploit], claim_cve: false}
+  - id: gponform
+    level: exploit
+    match:
+      path: {contains: /gponform/}
+    outcome: {flags: [router_exploit], claim_cve: false}

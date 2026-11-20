@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import socket
 import ssl
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -133,3 +133,13 @@ def start_with(
         return _start(tls_files, overrides)
 
     return factory
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _record_trap_differential() -> Iterator[None]:
+    """Every request the suite sends is replayed against the pre-pack reference at the end
+    (test_zz_trap_differential.py): flags, CVEs and the SEVERE decision must be identical."""
+    from legacy_detect import recording
+
+    with recording():
+        yield

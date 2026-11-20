@@ -69,6 +69,7 @@ updates
 features
 ui
 sensors/index
+trap-packs
 event-schema
 retention
 ```

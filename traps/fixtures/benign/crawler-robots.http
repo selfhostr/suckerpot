@@ -1,0 +1,5 @@
+GET /robots.txt HTTP/1.1
+Host: 192.0.2.10
+User-Agent: Mozilla/5.0 (compatible; ExampleBot/2.1; +https://example.net/bot)
+Connection: close
+

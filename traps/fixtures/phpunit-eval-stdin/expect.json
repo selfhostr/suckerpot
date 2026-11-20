@@ -1,0 +1,7 @@
+{
+ "exploit-1.http": {"hits": ["phpunit-eval-stdin/eval-stdin", "phpunit-eval-stdin/vendor-dir"], "flags": ["phpunit_rce", "phpunit_probe", "php_code"]},
+ "exploit-2.http": {"hits": ["phpunit-eval-stdin/eval-stdin", "phpunit-eval-stdin/vendor-dir"], "flags": ["phpunit_rce", "phpunit_probe"]},
+ "probe-1.http": {"hits": ["phpunit-eval-stdin/vendor-dir"], "flags": ["phpunit_probe"]},
+ "probe-2.http": {"hits": ["phpunit-eval-stdin/vendor-dir"], "flags": ["phpunit_probe"]},
+ "benign-1.http": {"hits": []}
+}

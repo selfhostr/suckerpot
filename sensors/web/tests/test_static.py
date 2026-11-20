@@ -563,3 +563,34 @@ def test_hardening_guard_pins_the_healthcheck(tmp_path: Path) -> None:
     ):
         files = {"healthcheck.py": probe, "other.py": imp + "\n"}
         assert any(v.startswith("other.py") for v in _h_case(tmp_path, files, outbound=True)), imp
+
+
+# --- Trap packs (M37) ----------------------------------------------------------------------------
+
+
+def test_trap_engine_and_shared_validator_obey_the_same_bans(tmp_path: Path) -> None:
+    """The pack engine (web_sensor/traps.py, scanned with the package above) and the shared
+    validator it runs: no regex, no exec or eval, no process, no code loading."""
+    import suckerpot_common.traps as shared
+
+    assert (PKG / "traps.py").is_file()
+    (tmp_path / "shared_traps.py").write_text(Path(shared.__file__).read_text())
+    assert _violations(tmp_path) == []
+
+
+def test_trap_engine_has_no_io_beyond_reading_its_bundle() -> None:
+    """Packs are data: the engine reads one bundle file and opens no socket or process."""
+    tree = ast.parse((PKG / "traps.py").read_text())
+    mods: set[str] = set()
+    calls: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            mods |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            mods.add(node.module.split(".")[0])
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            calls.add(node.func.attr)
+    assert mods <= {"__future__", "logging", "time", "dataclasses", "datetime", "functools",
+                    "pathlib", "typing", "suckerpot_common"}, mods  # fmt: skip
+    assert not calls & {"write_bytes", "write_text", "unlink", "mkdir", "rename", "replace"}
+    assert calls & {"read_bytes"} == {"read_bytes"}
