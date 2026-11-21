@@ -113,6 +113,15 @@ if [ -n "$dropped" ]; then
 fi
 chmod 600 .env
 
+# A release can add an external data volume (trap-packs, M37). The update that runs this script
+# may be an older update.sh that does not know about it, so create the missing volumes here, before
+# the restart. ensure-volumes.sh only creates; it never changes or removes an existing volume.
+prefix=$(env_get SUCKERPOT_VOLUME_PREFIX)
+if [ -n "$prefix" ] && [ -f scripts/ensure-volumes.sh ]; then
+  SUCKERPOT_VOLUME_PREFIX=$prefix bash scripts/ensure-volumes.sh \
+    || echo "env-migrate: could not create the new data volumes; run: just up" >&2
+fi
+
 new_optional=()
 if [ -f .env.example ]; then
   while IFS= read -r name; do

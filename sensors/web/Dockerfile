@@ -16,8 +16,8 @@ FROM python:3.15.2-slim-trixie
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid 10001 --no-create-home app \
-    && mkdir -p /data \
-    && chown -R 10001:10001 /data \
+    && mkdir -p /data /traps \
+    && chown -R 10001:10001 /data /traps \
     && chmod 700 /data
 COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app

@@ -68,6 +68,7 @@ volumes:
   rdp-data: !override { name: "test-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_rdp-data" }
   telnet-data: !override { name: "test-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_telnet-data" }
   web-data: !override { name: "test-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_web-data" }
+  trap-packs: !override { name: "test-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_trap-packs" }
   redis-sensor-data: !override { name: "test-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_redis-sensor-data" }
   docker-sensor-data: !override { name: "test-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_docker-sensor-data" }
   mysql-sensor-data: !override { name: "test-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_mysql-sensor-data" }

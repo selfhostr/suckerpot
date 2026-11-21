@@ -780,6 +780,8 @@
     "TAKEDOWN_QUIET_DAYS": "${TAKEDOWN_QUIET_DAYS:-7}",
     "TAKEDOWN_TRACK_DAYS": "${TAKEDOWN_TRACK_DAYS:-30}",
     "TELNET_HOST_PORT": "${TELNET_HOST_PORT:-23}",
+    "TRAP_PACKS_REMOTE": "${TRAP_PACKS_REMOTE:-true}",
+    "TRAP_PACK_KEY": "${TRAP_PACK_KEY:-}",
     "UPDATE_CHECK_ENABLED": "${UPDATE_CHECK_ENABLED:-false}",
     "UPDATE_CHECK_REPO": "${UPDATE_CHECK_REPO:-selfhostr/suckerpot}",
     "VIRUSTOTAL_API_KEY": "${VIRUSTOTAL_API_KEY:-}",
@@ -826,7 +828,8 @@
    ],
    "user": "10001:10001",
    "volumes": [
-    "geoip-data:/data/geoip"
+    "geoip-data:/data/geoip",
+    "trap-packs:/traps"
    ]
   },
   "migrate": {
@@ -1978,6 +1981,8 @@
     "REDIS_PASSWORD": "${REDIS_SENSOR_WEB_PASSWORD:?REDIS_SENSOR_WEB_PASSWORD must be set in .env}",
     "REDIS_PORT": "6379",
     "REDIS_USER": "sensor-web",
+    "TRAP_PACKS_DISABLED": "${TRAP_PACKS_DISABLED:-}",
+    "TRAP_PACK_KEY": "${TRAP_PACK_KEY:-}",
     "WEB_DATA_DIR": "/data",
     "WEB_HOSTNAME": "${WEB_HOSTNAME:-srv-web01}",
     "WEB_HTTPS_PORT": "8443",
@@ -2032,7 +2037,8 @@
    ],
    "user": "10001:10001",
    "volumes": [
-    "web-data:/data"
+    "web-data:/data",
+    "trap-packs:/traps:ro"
    ]
   },
   "vpn": {

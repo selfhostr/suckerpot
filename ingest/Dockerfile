@@ -25,8 +25,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH \
     RULES_DIR=/app/rules GEOIP_DIR=/data/geoip
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid 10001 --no-create-home app
 COPY --from=builder /opt/venv /opt/venv
-# /data/geoip is the mount point of the geoip-data volume (initial ownership comes from here).
-RUN mkdir -p /data/geoip && chown -R 10001:10001 /data
+# /data/geoip and /traps are the mount points of the geoip-data and trap-packs volumes (initial
+# ownership comes from here).
+RUN mkdir -p /data/geoip /traps && chown -R 10001:10001 /data /traps
 WORKDIR /app
 COPY ingest/rules /app/rules
 # Build metadata (M28): passed by compose or the release workflow, read by the api and ingest.

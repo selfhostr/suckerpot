@@ -34,6 +34,7 @@ DATA_VOLUMES = {
     "quarantine",
     "vpn-config",
     "backups",
+    "trap-packs",
 }
 
 

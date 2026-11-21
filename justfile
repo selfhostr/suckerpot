@@ -215,6 +215,17 @@ trap-check:
         {{uv_image}} sh -c "uv sync -q --refresh-package suckerpot-common && uv run pytest -q -p no:cacheprovider ${spec#*:}"
     done
 
+# Trap packs: load a signed bundle downloaded elsewhere (no egress route): just trap-import traps.json traps.json.minisig
+trap-import bundle sig: _need-project
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bundle=$1 sig=$2
+    [ -f "$bundle" ] && [ -f "$sig" ] || { echo "usage: just trap-import traps.json traps.json.minisig" >&2; exit 2; }
+    [ "$(stat -c %s "$bundle")" -le 1048576 ] || { echo "the bundle is larger than 1 MiB" >&2; exit 1; }
+    [ "$(stat -c %s "$sig")" -le 4096 ] || { echo "the signature file is larger than 4 KiB" >&2; exit 1; }
+    # Ingest checks the signature (pack key), the seq and every pack, exactly as for a download.
+    docker compose exec -T ingest python -m ingest.trappacks import --sig-b64 "$(base64 -w0 < "$sig")" < "$bundle"
+
 # Run the trap pack tool (ingest/tools/trap_packs.py) in the pinned uv container.
 _trap *args: _cache
     docker run --rm --user "$(id -u):$(id -g)" \

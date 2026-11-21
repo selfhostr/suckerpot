@@ -322,6 +322,11 @@ services:
       NETWORK_FEED_KEY: ${NETWORK_FEED_KEY:-}
       NETWORK_FEED_INTERVAL_S: ${NETWORK_FEED_INTERVAL_S:-3600}
       NETWORK_FEED_LISTS: ${NETWORK_FEED_LISTS:-inbound,outbound,outbound-domains}
+      # Signed trap packs (M37): fetched from the feed host through the same route as the feed
+      # (VPN egress, or hubproxy in participant direct mode). TRAP_PACK_KEY defaults to the
+      # release key; empty in both places keeps downloaded packs off.
+      TRAP_PACKS_REMOTE: ${TRAP_PACKS_REMOTE:-true}
+      TRAP_PACK_KEY: ${TRAP_PACK_KEY:-}
       ABUSE_MAX_SUBJECTS: ${ABUSE_MAX_SUBJECTS:-100}
       ABUSE_MAX_OPEN_DRAFTS: ${ABUSE_MAX_OPEN_DRAFTS:-200}
       ABUSE_RDAP_DAILY_QUOTA: ${ABUSE_RDAP_DAILY_QUOTA:-1000}
@@ -390,8 +395,11 @@ services:
       SELF_TERMS_AUTO_CONFIRM: ${SELF_TERMS_AUTO_CONFIRM:-false}
       SELF_ADDRESS: ${SELF_ADDRESS:-}
     volumes:
-      # GeoIP databases downloaded by ingest (the only writable path besides /tmp).
+      # GeoIP databases downloaded by ingest and the trap pack bundle (the only writable paths
+      # besides /tmp).
       - geoip-data:/data/geoip
+      # Signed trap pack bundle for the sensors (M37): ingest writes it, the sensors read it.
+      - trap-packs:/traps
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001
     # Both networks are internal. External names do not resolve here (Docker's embedded
@@ -767,6 +775,9 @@ services:
       WEB_MAX_PER_IP: ${WEB_MAX_PER_IP:-10}
       # Keep equal to mem_limit below: the sensor sheds load as it nears this figure.
       WEB_MEMORY_LIMIT_MB: "256"
+      # Trap packs (M37): the pack public key defaults to the one the release ships in the image.
+      TRAP_PACK_KEY: ${TRAP_PACK_KEY:-}
+      TRAP_PACKS_DISABLED: ${TRAP_PACKS_DISABLED:-}
     # Explicit IPv4 so Docker does not also publish on [::]. No capability needed.
     ports:
       - "0.0.0.0:${HTTP_HOST_PORT:-80}:8080"
@@ -778,6 +789,9 @@ services:
     volumes:
       # Profile secret and TLS certificate, generated on first start. Never committed.
       - web-data:/data
+      # Signed trap pack bundle written by ingest (M37). Read-only here: the sensor checks the
+      # signature itself and never writes it.
+      - trap-packs:/traps:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001
     mem_limit: 256m
@@ -1847,3 +1861,8 @@ volumes:
   backups:
     external: true
     name: ${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set in .env}_backups
+  # The signed trap pack bundle (M37): read-write in ingest, read-only in the web sensor. Public,
+  # signed data; owned by uid 10001 (see ensure-volumes.sh).
+  trap-packs:
+    external: true
+    name: ${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set in .env}_trap-packs
