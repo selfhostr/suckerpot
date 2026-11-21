@@ -1,9 +1,18 @@
 # Loads the SuckerPot host firewall table after Docker has set up its own rules.
 # Install: scripts/host/install-firewall.sh FILE (or see scripts/host/README.md, "Persist across reboots").
+#
+# The stock nftables.service starts with "flush ruleset", which also removes this table. So this
+# unit starts after it, PartOf= restarts it (loads the table again) whenever nftables.service is
+# restarted and stops it when nftables.service is stopped, and ReloadPropagatedFrom= reloads it when
+# nftables.service is reloaded. On Podman, suckerpot-stack.service
+# is bound to this unit: when it stops, the stack stops.
 [Unit]
 Description=SuckerPot host firewall (nftables table inet suckerpot_host)
-After=docker.service network-online.target
+After=docker.service network-online.target nftables.service
 Wants=network-online.target
+PartOf=nftables.service
+# A reload of nftables.service also starts with "flush ruleset": load the table again after it.
+ReloadPropagatedFrom=nftables.service
 
 [Service]
 Type=oneshot
@@ -12,6 +21,11 @@ RemainAfterExit=yes
 ExecStartPre=/bin/sh -c '! grep -q CHANGE_ME /etc/suckerpot-firewall.nft'
 ExecStartPre=/usr/sbin/nft -c -f /etc/suckerpot-firewall.nft
 ExecStart=/usr/sbin/nft -f /etc/suckerpot-firewall.nft
+# A new file is loaded in one nft transaction (the file deletes and defines its own tables), so a
+# reload never leaves a moment without rules, and never stops what is bound to this unit.
+ExecReload=/bin/sh -c '! grep -q CHANGE_ME /etc/suckerpot-firewall.nft'
+ExecReload=/usr/sbin/nft -c -f /etc/suckerpot-firewall.nft
+ExecReload=/usr/sbin/nft -f /etc/suckerpot-firewall.nft
 ExecStop=/usr/sbin/nft delete table inet suckerpot_host
 # Podman renderings only (sensor-to-sensor drops); "-": absent on Docker.
 ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge

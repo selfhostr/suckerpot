@@ -37,7 +37,7 @@
 #podman: #   7. Containers resolve service names through aardvark-dns, a host process on the gateway
 #podman: #      address of each bridge with DNS on: only port 53, only to the address of the bridge
 #podman: #      the query came in on, only on the internal bridges and sp-hubgate.
-#podman: #   8. Containers on Podman's own networks (podman*) cannot reach the protected ports.
+#podman: #   8. Containers on Podman's own networks (podman*, cni-podman*) cannot reach the protected ports.
 #podman: #   9. Table "bridge suckerpot_bridge": no frame between two members of sp-ingress,
 #podman: #      sp-dashboard, sp-vpn or sp-hubgate (what enable_icc=false does on Docker).
 
@@ -76,7 +76,7 @@ table inet suckerpot_host {
     ct state established,related accept
 
 #podman:     # (7) DNS to aardvark-dns on the bridge's own gateway address, before the drops below.
-#podman:     iifname { "sp-s-*", "sp-backend", "sp-tools", "sp-egress", "sp-samples", "sp-hubproxy", "sp-hubgate" } ct state new fib daddr . iif type local meta l4proto { tcp, udp } th dport 53 counter accept
+#podman:     iifname { "sp-s-*", "sp-backend", "sp-tools", "sp-egress", "sp-samples", "sp-hubproxy", "sp-hubgate" } ct state new meta nfproto ipv4 fib daddr . iif type local meta l4proto { tcp, udp } th dport 53 counter accept
 #podman:
     # (1) Sensor and dashboard containers may not talk to the host at all. Every rule below
     #     that names an sp-* bridge drops everything that is not a reply (new, invalid or
@@ -103,7 +103,7 @@ table inet suckerpot_host {
     #     picks, and it never touches your LAN.
     iifname { "docker0", "br-*", "sp-*" } ct state new tcp dport @protected_ports counter drop
 #podman:     # (8) Nor any container on Podman's own networks.
-#podman:     iifname "podman*" ct state new tcp dport @protected_ports counter drop
+#podman:     iifname { "podman*", "cni-podman*" } ct state new tcp dport @protected_ports counter drop
   }
 
   chain forward {

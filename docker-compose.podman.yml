@@ -19,9 +19,10 @@
 #    `!override` replaces the list: the base list would otherwise be kept next to it.
 # 5. backup's healthcheck without start_interval, which docker-compose refuses on Podman 5.4
 #    (Docker API 1.41), and with a 1 minute interval instead.
-# 6. /run and /var/tmp as small noexec tmpfs mounts in every service. With read_only, Podman adds
-#    its own writable /run and /var/tmp (read-only-tmpfs), without noexec and without a size
-#    limit: a compromised sensor could write a program there and run it. Docker adds neither.
+# 6. /tmp, /run and /var/tmp as small noexec tmpfs mounts in every service. With read_only, Podman
+#    adds its own writable /tmp, /run and /var/tmp (read-only-tmpfs) where the service has none,
+#    without noexec and without a size limit: a compromised sensor could write a program there and
+#    run it. Docker adds none of them.
 # 7. Logs go to journald (design D7). Podman keeps json-file's max-size but ignores max-file:
 #    checked on Podman 5.4, a log past 10 MB is cut and restarted in one file. journald's own size
 #    and rate limits then apply.
@@ -35,6 +36,9 @@ services:
       options: !reset {}
     tmpfs: !override
       - /run/redis:rw,noexec,nosuid,nodev,size=1m,mode=0700,U
+      # Not in docker-compose.yml: there redis has no writable /tmp at all (read-only root). Podman
+      # would add an executable one without a size limit; this one is tiny and noexec.
+      - /tmp:rw,noexec,nosuid,nodev,size=1m,U
       - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
       - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
   db:

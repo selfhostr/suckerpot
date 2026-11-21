@@ -227,7 +227,19 @@ What differs, for reference:
 - The networks are created by `scripts/ensure-networks.sh`, not by compose
   (`docker-compose.podman.yml` marks them external).
 - `install-stack-unit.sh USER CHECKOUT` installs `suckerpot-stack.service`, which starts the stack
-  at boot only after `suckerpot-firewall.service` (Podman has no daemon to do it).
+  at boot only after `suckerpot-firewall.service` and once its tables are loaded (Podman has no
+  daemon to do it). The stack unit is bound to the firewall unit: stopping or restarting the
+  firewall (also through a restart of the stock `nftables.service`, which flushes every table)
+  stops or restarts the stack. Load a new rendering with `install-firewall.sh FILE`: it reloads
+  the unit (one nft transaction) and never stops the stack. `install-firewall.sh --uninstall`
+  refuses while SuckerPot containers run on Podman, unless `SUCKERPOT_NO_FIREWALL=1`.
+- Every start of the stack on Podman goes through `scripts/ensure-networks.sh`, which refuses
+  when the firewall unit is not active or its tables are gone (`SUCKERPOT_NO_FIREWALL=1` skips the
+  check). Without root or passwordless sudo the tables cannot be read; an active unit is then
+  accepted, and the boot unit checks the tables as root.
+- The group that may use the root Podman socket is **root-equivalent**: any member can start a
+  privileged container that mounts the host's `/`. Add only the installing user, as with the
+  `docker` group.
 - Check it: `just isolation-check` (no outside DNS, no way out, no other sensor, no host port
   from each sensor; on Podman also the networks, the firewall and the boot unit).
 

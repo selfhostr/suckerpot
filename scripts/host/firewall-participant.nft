@@ -43,7 +43,7 @@
 #podman: #   7. Containers resolve service names through aardvark-dns, a host process on the gateway
 #podman: #      address of each bridge with DNS on: only port 53, only to the address of the bridge
 #podman: #      the query came in on, only on the internal bridges and sp-hubgate.
-#podman: #   8. Containers on Podman's own networks (podman*) cannot reach the admin SSH port.
+#podman: #   8. Containers on Podman's own networks (podman*, cni-podman*) cannot reach the admin SSH port.
 #podman: #   9. Table "bridge suckerpot_bridge": no frame between two members of sp-ingress,
 #podman: #      sp-dashboard, sp-vpn or sp-hubgate (what enable_icc=false does on Docker).
 
@@ -65,7 +65,7 @@ table inet suckerpot_host {
     iifname "sp-hubgate" ct state new ip daddr $HUBGATE_DNS udp dport 53 counter accept
 
 #podman:     # (7) DNS to aardvark-dns on the bridge's own gateway address.
-#podman:     iifname { "sp-s-*", "sp-backend", "sp-tools", "sp-egress", "sp-samples", "sp-hubproxy", "sp-hubgate" } ct state new fib daddr . iif type local meta l4proto { tcp, udp } th dport 53 counter accept
+#podman:     iifname { "sp-s-*", "sp-backend", "sp-tools", "sp-egress", "sp-samples", "sp-hubproxy", "sp-hubgate" } ct state new meta nfproto ipv4 fib daddr . iif type local meta l4proto { tcp, udp } th dport 53 counter accept
 #podman:
     # (1) Nothing else from a SuckerPot network reaches the host: new, invalid or untracked.
     iifname "sp-*" counter drop
@@ -73,7 +73,7 @@ table inet suckerpot_host {
     # (2) Other Docker networks never reach the admin SSH port.
     iifname { "docker0", "br-*" } ct state new tcp dport $ADMIN_SSH_PORT counter drop
 #podman:     # (8) Nor Podman's own networks.
-#podman:     iifname "podman*" ct state new tcp dport $ADMIN_SSH_PORT counter drop
+#podman:     iifname { "podman*", "cni-podman*" } ct state new tcp dport $ADMIN_SSH_PORT counter drop
   }
 
   chain forward {

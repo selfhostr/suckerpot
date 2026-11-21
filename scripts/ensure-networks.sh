@@ -23,12 +23,15 @@
 # compose_up_recreating (scripts/lib/env.sh) does exactly that.
 #
 # Exit codes: 0 done (or nothing to do on Docker); 1 error or (--check) a problem found;
-# 2 bad arguments; 3 a network in use must be recreated.
+# 2 bad arguments; 3 a network in use must be recreated; 4 the host firewall is not in force
+# (scripts/lib/fwcheck.sh; SUCKERPOT_NO_FIREWALL=1 skips that check).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/engine.sh
 . scripts/lib/engine.sh
+# shellcheck source=scripts/lib/fwcheck.sh
+. scripts/lib/fwcheck.sh
 
 check=0
 case ${1:-} in
@@ -59,6 +62,13 @@ case ":$compose_file:" in
     exit 1
     ;;
 esac
+
+# Every start of the stack on Podman comes through here (just up, update, rollback, the boot unit,
+# compose-fresh): refuse when the host firewall is not in force (scripts/lib/fwcheck.sh).
+if [ "$check" = 0 ] && ! fw_guard; then
+  echo "ensure-networks: refusing to prepare the networks without the host firewall (SUCKERPOT_NO_FIREWALL=1 if you filter elsewhere)" >&2
+  exit 4
+fi
 
 # Bump when a network's options change: networks with an older value are recreated.
 NETSPEC=1
@@ -92,11 +102,13 @@ want_line() {
   local name=$1 internal=$2 dns=$3 int=false dnson=false
   [ "$internal" = 1 ] && int=true
   [ "$dns" = 1 ] && dnson=true
-  echo "bridge $name $int $dnson false strict $NETSPEC"
+  echo "bridge $name $int $dnson false opts=isolate=strict; routes=0 managed=1 spec=$NETSPEC"
 }
 
 have_line() {
-  ctr network inspect --format '{{.Driver}} {{.NetworkInterface}} {{.Internal}} {{.DNSEnabled}} {{.IPv6Enabled}} {{index .Options "isolate"}} {{index .Labels "io.suckerpot.netspec"}}' "$1" 2> /dev/null
+  # The whole options map (nothing but isolate=strict), no static route, and our own label.
+  # shellcheck disable=SC2016 # a Go template, not shell
+  ctr network inspect --format '{{.Driver}} {{.NetworkInterface}} {{.Internal}} {{.DNSEnabled}} {{.IPv6Enabled}} opts={{range $k, $v := .Options}}{{$k}}={{$v}};{{end}} routes={{len .Routes}} managed={{index .Labels "io.suckerpot.managed"}} spec={{index .Labels "io.suckerpot.netspec"}}' "$1" 2> /dev/null
 }
 
 # Containers (any state) attached to network $1.
@@ -141,7 +153,7 @@ while read -r name internal dns; do
       echo "ensure-networks: network $name is missing" >&2
       problems=$((problems + 1))
     elif [ "$have" != "$want" ]; then
-      echo "ensure-networks: network $name differs: have '$have', want '$want' (driver interface internal dns ipv6 isolate netspec)" >&2
+      echo "ensure-networks: network $name differs: have '$have', want '$want' (driver interface internal dns ipv6 options routes labels)" >&2
       problems=$((problems + 1))
     fi
     if [ -n "$others" ]; then

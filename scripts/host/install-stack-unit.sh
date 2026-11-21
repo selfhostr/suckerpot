@@ -97,8 +97,16 @@ fi
 tmp=$(umask 022 && mktemp "$(dirname "$unit_path")/.suckerpot-stack.XXXXXX") ||
   fail 5 "cannot create a temporary file next to $unit_path"
 trap 'rm -f "$tmp"' EXIT
+nft=$(command -v nft || echo /usr/sbin/nft)
+nofw_sed=()
+if [ -z "$fw_line" ]; then
+  # No firewall: drop every line that ties the stack to it, and tell ensure-networks.sh.
+  nofw_sed=(-e '/^BindsTo=suckerpot-firewall\.service$/d' -e '/^PartOf=suckerpot-firewall\.service$/d'
+    -e '/^ExecStartPre=+.* list table /d' -e 's/ suckerpot-firewall\.service$//'
+    -e 's/^Environment=DOCKER_HOST=\(.*\)$/Environment=DOCKER_HOST=\1 SUCKERPOT_NO_FIREWALL=1/')
+fi
 sed -e "s|@USER@|$user|g" -e "s|@CHECKOUT@|$checkout|g" -e "s|@COMPOSE@|$compose|g" \
-  -e "s| @FIREWALL_UNIT@|${fw_line:+ $fw_line}|g" "$here/$unit" > "$tmp"
+  -e "s|@NFT@|$nft|g" "${nofw_sed[@]}" "$here/$unit" > "$tmp"
 if grep -q '@[A-Z_]*@' "$tmp"; then
   fail 5 "a placeholder is left in the unit (template changed?)"
 fi

@@ -30,6 +30,7 @@ EXTRA_TMPFS = [
     "/run:rw,noexec,nosuid,nodev,size=1m,mode=0755",
     "/var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777",  # noqa: S108 (a mount target)
 ]
+TMP_ADDED = "/tmp:rw,noexec,nosuid,nodev,size=1m,U"  # noqa: S108 (a mount target)
 DNS_OFF = {"sp-ingress", "sp-dashboard", "sp-vpn"}
 
 
@@ -95,7 +96,7 @@ def test_bind_mounts_get_the_selinux_option_and_nothing_else_changes() -> None:
         assert all(v.endswith(":ro") for v in binds), name
 
 
-def test_tmpfs_lists_are_the_base_ones_owned_by_the_user_plus_run_and_var_tmp() -> None:
+def test_tmpfs_lists_are_the_base_ones_owned_by_the_user_plus_tmp_run_and_var_tmp() -> None:
     base = _raw(BASE)["services"]
     over = _raw(PODMAN)["services"]
     for name, svc in base.items():
@@ -109,7 +110,12 @@ def test_tmpfs_lists_are_the_base_ones_owned_by_the_user_plus_run_and_var_tmp() 
                 assert user == f"{found.group(1)}:{found.group(2)}", (name, entry)
                 entry = entry.replace(found.group(0), ",U")
             want.append(entry)
+        # Podman adds a writable, executable /tmp, /run and /var/tmp where the service has none.
+        if not any(e.split(":", 1)[0] == "/tmp" for e in want):  # noqa: S108
+            want.append(TMP_ADDED)
         assert list(over[name]["tmpfs"]) == want + EXTRA_TMPFS, name
+        targets = {e.split(":", 1)[0] for e in over[name]["tmpfs"]}
+        assert {"/tmp", "/run", "/var/tmp"} <= targets, name  # noqa: S108 (mount targets)
         for entry in over[name]["tmpfs"]:
             assert "noexec" in entry and "nosuid" in entry and "size=" in entry, (name, entry)
 
@@ -210,7 +216,7 @@ case "$1 $2" in
       esac
       shift
     done
-    echo "bridge $iface $int $dns false strict $spec" > "$nets/$1" ;;
+    echo "bridge $iface $int $dns false opts=isolate=strict; routes=0 managed=1 spec=$spec" > "$nets/$1" ;;
   "ps -a")
     want=${!#}; want=${want#network=}
     for u in ${SHIM_USED:-}; do [ "$u" = "$want" ] && echo "c0ffee"; done ;;
@@ -219,10 +225,30 @@ exit 0
 """
 
 
+# The host firewall as fwcheck.sh sees it: unit active unless SHIM_FW=1; `sudo -n nft list tables`
+# prints SHIM_TABLES (default: both SuckerPot tables) or fails with SHIM_NFT_RC.
+SYSTEMCTL_FW = r"""#!/bin/sh
+case "$1 $2 $3" in
+  "is-active --quiet suckerpot-firewall.service") exit "${SHIM_FW:-0}" ;;
+  "show -p BindsTo") echo "${SHIM_BINDS:-}" ;;
+  is-active*) exit 3 ;;
+esac
+exit 0
+"""
+SUDO_NFT = r"""#!/bin/sh
+if [ "$*" = "-n nft list tables" ]; then
+  [ "${SHIM_NFT_RC:-0}" = 0 ] || exit "$SHIM_NFT_RC"
+  printf '%s\n' "${SHIM_TABLES-table inet suckerpot_host;table bridge suckerpot_bridge}" | tr ';' '\n'
+  exit 0
+fi
+exit 1
+"""
+
+
 @pytest.fixture
 def netbox(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
-    for rel in ("scripts/ensure-networks.sh", "scripts/lib/engine.sh"):
+    for rel in ("scripts/ensure-networks.sh", "scripts/lib/engine.sh", "scripts/lib/fwcheck.sh"):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, root / rel)
     (root / ".env").write_text(
@@ -232,6 +258,8 @@ def netbox(tmp_path: Path) -> Path:
     shim.mkdir()
     _write_exec(shim / "podman", PODMAN_NET_SHIM)
     _write_exec(shim / "docker", '#!/bin/sh\necho "docker $*" >> "$SHIM_LOG"\nexit 1\n')
+    _write_exec(shim / "systemctl", SYSTEMCTL_FW)
+    _write_exec(shim / "sudo", SUDO_NFT)
     return root
 
 
@@ -275,7 +303,9 @@ def test_networks_are_created_with_netavark_options(netbox: Path) -> None:
 def test_a_wrong_network_is_recreated_when_unused(netbox: Path) -> None:
     assert _nets(netbox).returncode == 0
     nets = netbox.parent / "shim" / "nets"
-    (nets / "sp-ingress").write_text("bridge sp-ingress false true false strict 1\n")  # DNS on
+    (nets / "sp-ingress").write_text(
+        "bridge sp-ingress false true false opts=isolate=strict; routes=0 managed=1 spec=1\n"
+    )  # DNS on
     check = _nets(netbox, "--check")
     assert check.returncode == 1 and "sp-ingress differs" in check.stderr
     result = _nets(netbox)
@@ -287,7 +317,9 @@ def test_a_wrong_network_is_recreated_when_unused(netbox: Path) -> None:
 def test_a_wrong_network_in_use_stops_with_exit_3(netbox: Path) -> None:
     assert _nets(netbox).returncode == 0
     nets = netbox.parent / "shim" / "nets"
-    (nets / "sp-s-ssh").write_text("bridge sp-s-ssh true true false strict 0\n")  # old spec
+    (nets / "sp-s-ssh").write_text(
+        "bridge sp-s-ssh true true false opts=isolate=strict; routes=0 managed=1 spec=0\n"
+    )  # old spec
     result = _nets(netbox, SHIM_USED="sp-s-ssh")
     assert result.returncode == 3
     assert "containers use it" in result.stderr
@@ -317,6 +349,59 @@ def test_ensure_networks_does_nothing_on_docker(netbox: Path) -> None:
     result = _nets(netbox)
     assert result.returncode == 0
     assert _log(netbox) == []
+
+
+@pytest.mark.parametrize(
+    ("env", "why"),
+    [
+        ({"SHIM_FW": "1"}, "is not active"),
+        ({"SHIM_TABLES": "table inet suckerpot_host"}, "bridge suckerpot_bridge are not loaded"),
+        ({"SHIM_TABLES": ""}, "inet suckerpot_host,bridge suckerpot_bridge are not loaded"),
+    ],
+    ids=["unit-stopped", "bridge-table-gone", "flushed"],
+)
+def test_no_network_is_made_without_the_firewall_in_force(
+    netbox: Path, env: dict[str, str], why: str
+) -> None:
+    result = _nets(netbox, **env)
+    assert result.returncode == 4, result.stderr
+    assert why in result.stderr
+    assert not [c for c in _log(netbox) if " create " in c]
+    # --check only reads: it never needs the firewall.
+    assert _nets(netbox, "--check", **env).returncode == 1  # networks missing, not refused
+
+
+def test_the_firewall_guard_accepts_an_active_unit_when_tables_cannot_be_read(
+    netbox: Path,
+) -> None:
+    result = _nets(netbox, SHIM_NFT_RC="1")
+    assert result.returncode == 0, result.stderr
+    assert "tables were not read" in result.stderr
+
+
+def test_the_firewall_opt_out_skips_the_guard(netbox: Path) -> None:
+    result = _nets(netbox, SHIM_FW="1", SUCKERPOT_NO_FIREWALL="1")
+    assert result.returncode == 0, result.stderr
+    (netbox / ".env").write_text(
+        "SUCKERPOT_ENGINE=podman\nSUCKERPOT_NO_FIREWALL=1\n"
+        "COMPOSE_FILE=docker-compose.yml:docker-compose.podman.yml\n"
+    )
+    assert _nets(netbox, SHIM_FW="1").returncode == 0
+
+
+def test_a_network_with_extra_options_routes_or_without_our_label_is_wrong(netbox: Path) -> None:
+    assert _nets(netbox).returncode == 0
+    nets = netbox.parent / "shim" / "nets"
+    good = (nets / "sp-backend").read_text()
+    for bad in (
+        good.replace("opts=isolate=strict;", "opts=isolate=strict;mtu=9000;"),
+        good.replace("routes=0", "routes=1"),
+        good.replace("managed=1", "managed="),
+    ):
+        (nets / "sp-backend").write_text(bad)
+        check = _nets(netbox, "--check")
+        assert check.returncode == 1 and "sp-backend differs" in check.stderr, bad
+    (nets / "sp-backend").write_text(good)
 
 
 # --- Firewall: Docker unchanged, Podman additions ---------------------------------------------
@@ -417,6 +502,7 @@ def test_podman_rendering_adds_dns_podman_bridges_and_the_bridge_table(
     rules = _rules(text)
     dns = [r for r in rules if "th dport 53" in r]
     assert len(dns) == 1
+    assert "ct state new meta nfproto ipv4 fib daddr . iif" in dns[0]
     # Only DNS, only to the address of the bridge the query came in on, never on the sensor uplink.
     assert (
         "fib daddr . iif type local meta l4proto { tcp, udp } th dport 53 counter accept" in dns[0]
@@ -429,7 +515,8 @@ def test_podman_rendering_adds_dns_podman_bridges_and_the_bridge_table(
     first_drop = min(i for i, r in enumerate(_rules(input_chain)) if r.endswith("drop"))
     assert _rules(input_chain).index(dns[0]) < first_drop
     assert any(
-        r.startswith('iifname "podman*" ct state new tcp dport') and r.endswith("drop")
+        r.startswith('iifname { "podman*", "cni-podman*" } ct state new tcp dport')
+        and r.endswith("drop")
         for r in rules
     )
     bridge = text.split("table bridge suckerpot_bridge {", 1)[1]
@@ -532,6 +619,12 @@ def test_the_firewall_unit_also_removes_the_bridge_table() -> None:
     unit = (HOST / "suckerpot-firewall.service").read_text()
     assert "ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge" in unit
     assert "ExecStop=/usr/sbin/nft delete table inet suckerpot_host" in unit
+    # A restart of the stock nftables service (flush ruleset) restarts this unit after it.
+    assert "PartOf=nftables.service\n" in unit
+    assert "ReloadPropagatedFrom=nftables.service\n" in unit
+    assert re.search(r"^After=.*\bnftables\.service\b", unit, re.M)
+    # A new file is loaded by a reload: one nft transaction, nothing bound to the unit stops.
+    assert "ExecReload=/usr/sbin/nft -f /etc/suckerpot-firewall.nft\n" in unit
 
 
 # --- install-firewall.sh with a Podman rendering ----------------------------------------------
@@ -546,8 +639,15 @@ def shims(tmp_path: Path) -> Path:
     _write_exec(
         shim / "id", SHIM + 'case "$*" in -u) echo "${SHIM_UID:-0}" ;; "-u "*) echo 1000 ;; esac\n'
     )
-    for name in ("sudo", "install", "systemctl", "chown"):
+    for name in ("sudo", "install", "chown"):
         _write_exec(shim / name, SHIM + "exit 0\n")
+    _write_exec(
+        shim / "systemctl",
+        SHIM + 'case "$1" in is-active) exit "${SHIM_ACTIVE:-1}" ;; esac\nexit 0\n',
+    )
+    _write_exec(
+        shim / "podman", SHIM + 'case "$1" in ps) printf "%s" "${SHIM_RUNNING:-}" ;; esac\n'
+    )
     _write_exec(
         shim / "nft",
         SHIM
@@ -633,7 +733,14 @@ def test_stack_unit_requires_the_firewall_and_runs_compose_as_the_user(
     result = _stack(shims, fsroot, _user(), str(checkout))
     assert result.returncode == 0, result.stderr
     unit = (fsroot / "etc/systemd/system/suckerpot-stack.service").read_text()
-    assert "Requires=podman.socket suckerpot-firewall.service\n" in unit
+    assert "Requires=podman.socket\n" in unit
+    # Bound to the firewall: the stack stops when the firewall unit stops, fails or restarts.
+    assert "BindsTo=suckerpot-firewall.service\n" in unit
+    assert "PartOf=suckerpot-firewall.service\n" in unit
+    assert f"ExecStop={shims}/docker-compose stop\n" in unit
+    # The tables are checked as root before anything starts.
+    assert re.search(r"^ExecStartPre=\+\S*nft list table inet suckerpot_host$", unit, re.M)
+    assert re.search(r"^ExecStartPre=\+\S*nft list table bridge suckerpot_bridge$", unit, re.M)
     assert "After=network-online.target podman.socket suckerpot-firewall.service\n" in unit
     assert f"User={_user()}\n" in unit and f"WorkingDirectory={checkout}\n" in unit
     assert f"ExecStartPre=/bin/bash {checkout}/scripts/ensure-networks.sh\n" in unit
@@ -661,8 +768,12 @@ def test_no_firewall_drops_the_requirement_with_a_warning(
     assert result.returncode == 0, result.stderr
     assert "WARNING" in result.stderr
     unit = (fsroot / "etc/systemd/system/suckerpot-stack.service").read_text()
-    assert "suckerpot-firewall" not in unit
-    assert "Requires=podman.socket\n" in unit
+    lines = [ln for ln in unit.splitlines() if not ln.startswith("#")]
+    assert not [ln for ln in lines if "suckerpot-firewall" in ln or "list table" in ln]
+    assert "Requires=podman.socket" in lines
+    assert "ExecStop=" + str(shims) + "/docker-compose stop" in lines
+    # ensure-networks.sh must not refuse at boot for the missing firewall.
+    assert "Environment=DOCKER_HOST=unix:///run/podman/podman.sock SUCKERPOT_NO_FIREWALL=1" in lines
 
 
 @pytest.mark.parametrize(
@@ -709,6 +820,7 @@ LIB_FILES = [
     "scripts/host/firewall-participant.nft",
     "scripts/egress-check.sh",
     "scripts/ensure-networks.sh",
+    "scripts/lib/fwcheck.sh",
 ]
 LOADER_STUB = '#!/bin/sh\necho "install-firewall $*" >> "$SHIM_LOG"\nexit "${SHIM_FW_RC:-0}"\n'
 UNIT_STUB = '#!/bin/sh\necho "install-stack-unit $*" >> "$SHIM_LOG"\nexit 0\n'
@@ -858,7 +970,7 @@ set -- "${args[@]}"
 case "$me $1" in
   "compose ps")
     case "$*" in
-      *"--status running"*) printf 'sensor-ssh\nsensor-web\n' ;;
+      *"--status running"*) [ -n "${SHIM_NO_SENSORS:-}" ] || printf 'sensor-ssh\nsensor-web\n' ;;
       "ps -q "*) echo "cid-${!#}" ;;
     esac ;;
   "compose exec")
@@ -880,22 +992,24 @@ case "$me $1" in
 esac
 exit 0
 """
-SYSTEMCTL_FAKE = r"""#!/bin/sh
-case "$1" in
-  is-active) exit "${SHIM_FW:-1}" ;;
-  show) echo "${SHIM_REQUIRES:-}" ;;
-esac
-exit 0
-"""
 
 
 def _isolation(root: Path, env_file: str, **env: str) -> subprocess.CompletedProcess[str]:
     shim = root.parent / "shim"
     for name in ("docker", "docker-compose", "podman"):
         _write_exec(shim / name, FAKE_ENGINE)
-    _write_exec(shim / "systemctl", SYSTEMCTL_FAKE)
+    _write_exec(shim / "systemctl", SYSTEMCTL_FW)
+    _write_exec(shim / "sudo", SUDO_NFT)
+    _write_exec(
+        shim / "sshd",
+        '#!/bin/sh\n[ -n "${SHIM_SSHD_PORT:-}" ] || exit 1\necho "port $SHIM_SSHD_PORT"\n',
+    )
+    _write_exec(shim / "sudo", SUDO_NFT)
     _write_exec(root / "scripts/ensure-networks.sh", '#!/bin/sh\nexit "${SHIM_NETS_RC:-0}"\n')
     (root / ".env").write_text(env_file + "DASHBOARD_PORT=8443\n")
+    fw_root = root.parent / "fwroot"
+    (fw_root / "etc/systemd/system").mkdir(parents=True, exist_ok=True)
+    env = {"SHIM_FW": "1", "SUCKERPOT_FW_ROOT": str(fw_root), **env}
     return subprocess.run(  # noqa: S603
         ["bash", str(root / "scripts/egress-check.sh"), "--isolation"],  # noqa: S607
         cwd=root,
@@ -956,21 +1070,19 @@ def test_isolation_on_podman_checks_networks_firewall_and_boot_unit(libbox: Path
         libbox,
         PODMAN_ENV,
         SHIM_FW="0",
-        SHIM_REQUIRES="podman.socket sysinit.target suckerpot-firewall.service",
+        SHIM_BINDS="suckerpot-firewall.service",
     )
     assert good.returncode == 0, good.stdout
-    assert "PASS  podman: host firewall loaded" in good.stdout
-    assert (
-        "PASS  podman: the boot unit starts the stack only after the host firewall" in good.stdout
-    )
+    assert "PASS  host firewall loaded" in good.stdout
+    assert "PASS  podman: the boot unit is bound to the host firewall" in good.stdout
     bad = _isolation(
         libbox, PODMAN_ENV, SHIM_FW="1", SHIM_NETS_RC="1", SHIM_YES="connect:192.0.2.1:2200"
     )
     assert bad.returncode == 1
     for line in (
         "podman: every sp-* network has its options",
-        "podman: host firewall loaded",
-        "podman: the boot unit starts the stack only after the host firewall",
+        "host firewall loaded",
+        "podman: the boot unit is bound to the host firewall",
         "sensor-ssh: cannot reach the host's SSH or dashboard port (reached port(s) 2200)",
     ):
         assert f"FAIL  {line}" in bad.stdout
@@ -979,8 +1091,125 @@ def test_isolation_on_podman_checks_networks_firewall_and_boot_unit(libbox: Path
 def test_a_port_a_sensor_publishes_is_not_probed_as_a_host_port(libbox: Path) -> None:
     """Without ADMIN_SSH_PORT the admin port is 22, which the SSH sensor publishes here: a probe
     there would reach the sensor (and add a fake event), not the host."""
+    conf = Path("/etc/ssh/sshd_config")
+    if conf.exists() and re.search(r"^\s*Port\s+\d+", conf.read_text(errors="replace"), re.M):
+        pytest.skip("this machine's sshd_config names a port")
     result = _isolation(
         libbox, "SUCKERPOT_ENGINE=docker\n", SHIM_YES="connect:192.0.2.1:22", SHIM_FW="0"
     )
     assert result.returncode == 0, result.stdout
     assert "PASS  sensor-ssh: cannot reach the host's SSH or dashboard port" in result.stdout
+    assert "NOTE  the admin SSH port is unknown" in result.stdout
+
+
+def test_the_configured_sshd_port_is_probed_without_admin_ssh_port(libbox: Path) -> None:
+    """ADMIN_SSH_PORT empty, a sensor on 22: the port sshd is configured with is still probed."""
+    result = _isolation(
+        libbox,
+        "SUCKERPOT_ENGINE=docker\n",
+        SHIM_SSHD_PORT="2022",
+        SHIM_YES="connect:192.0.2.1:2022",
+        SHIM_FW="0",
+    )
+    assert result.returncode == 1
+    assert "reached port(s) 2022" in result.stdout
+
+
+def test_install_starts_an_inactive_unit_and_reloads_an_active_one(
+    tmp_path: Path, resolv: Path, shims: Path, fsroot: Path
+) -> None:
+    rendered = tmp_path / "fw.nft"
+    rendered.write_text(_podman(tmp_path, resolv, "participant"))
+    assert _run(HOST / "install-firewall.sh", shims, fsroot, str(rendered)).returncode == 0
+    assert "systemctl start suckerpot-firewall.service" in _calls(shims)
+    (shims / "log").unlink()
+    ok = _run(HOST / "install-firewall.sh", shims, fsroot, str(rendered), SHIM_ACTIVE="0")
+    assert ok.returncode == 0, ok.stderr
+    calls = _calls(shims)
+    assert "systemctl reload suckerpot-firewall.service" in calls
+    # Never a restart or a stop: on Podman the stack is bound to the unit.
+    assert not [c for c in calls if " restart " in c or " stop " in c]
+
+
+def test_uninstall_refuses_while_podman_containers_run(shims: Path, fsroot: Path) -> None:
+    unit = fsroot / "etc/systemd/system/suckerpot-firewall.service"
+    unit.write_text("x")
+    result = _run(
+        HOST / "install-firewall.sh", shims, fsroot, "--uninstall", SHIM_RUNNING="c0ffee\n"
+    )
+    assert result.returncode == 6
+    assert "SUCKERPOT_NO_FIREWALL=1" in result.stderr
+    assert unit.exists()
+    assert not [c for c in _calls(shims) if c.startswith(("systemctl disable", "nft delete"))]
+    forced = _run(
+        HOST / "install-firewall.sh",
+        shims,
+        fsroot,
+        "--uninstall",
+        SHIM_RUNNING="c0ffee\n",
+        SUCKERPOT_NO_FIREWALL="1",
+    )
+    assert forced.returncode == 0, forced.stderr
+    assert not unit.exists()
+
+
+def test_uninstall_keeps_the_opt_out_through_sudo(shims: Path, fsroot: Path) -> None:
+    result = _run(
+        HOST / "install-firewall.sh",
+        shims,
+        fsroot,
+        "--uninstall",
+        SHIM_UID="1000",
+        SUCKERPOT_NO_FIREWALL="1",
+    )
+    assert result.returncode == 0, result.stderr
+    assert _calls(shims)[-1] == (
+        f"sudo -- env SUCKERPOT_NO_FIREWALL=1 {HOST}/install-firewall.sh --uninstall"
+    )
+
+
+def test_docker_firewall_installed_but_not_in_force_fails(libbox: Path) -> None:
+    fw_root = libbox.parent / "fwroot" / "etc/systemd/system"
+    fw_root.mkdir(parents=True, exist_ok=True)
+    (fw_root / "suckerpot-firewall.service").write_text("[Unit]\n")
+    stopped = _isolation(libbox, DOCKER_ENV, SHIM_FW="1")
+    assert stopped.returncode == 1
+    assert "FAIL  host firewall loaded (suckerpot-firewall.service is installed but not active" in (
+        stopped.stdout
+    )
+    flushed = _isolation(libbox, DOCKER_ENV, SHIM_FW="0", SHIM_TABLES="")
+    assert flushed.returncode == 1
+    assert "table(s) inet suckerpot_host are gone" in flushed.stdout
+    # Docker needs only the inet table.
+    good = _isolation(libbox, DOCKER_ENV, SHIM_FW="0", SHIM_TABLES="table inet suckerpot_host")
+    assert good.returncode == 0, good.stdout
+    assert "PASS  host firewall loaded" in good.stdout
+
+
+def test_unreadable_tables_fail_on_podman_and_note_on_docker(libbox: Path) -> None:
+    podman = _isolation(
+        libbox, PODMAN_ENV, SHIM_FW="0", SHIM_NFT_RC="1", SHIM_BINDS="suckerpot-firewall.service"
+    )
+    assert podman.returncode == 1
+    assert "FAIL  host firewall loaded (unit active; its tables cannot be read" in podman.stdout
+    docker = _isolation(libbox, DOCKER_ENV, SHIM_FW="0", SHIM_NFT_RC="1")
+    assert docker.returncode == 0, docker.stdout
+    assert "NOTE  host firewall unit active; its tables were not read" in docker.stdout
+
+
+def test_podman_with_the_bridge_table_gone_fails(libbox: Path) -> None:
+    result = _isolation(
+        libbox,
+        PODMAN_ENV,
+        SHIM_FW="0",
+        SHIM_TABLES="table inet suckerpot_host",
+        SHIM_BINDS="suckerpot-firewall.service",
+    )
+    assert result.returncode == 1
+    assert "table(s) bridge suckerpot_bridge are gone" in result.stdout
+
+
+def test_no_running_sensor_is_a_failure(libbox: Path) -> None:
+    result = _isolation(libbox, DOCKER_ENV, SHIM_NO_SENSORS="1")
+    assert result.returncode == 1
+    assert "FAIL  at least one sensor is running" in result.stdout

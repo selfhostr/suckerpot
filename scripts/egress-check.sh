@@ -19,8 +19,12 @@
 # firewall and the boot unit, which carry guarantees that Docker gives by itself.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-# shellcheck source=scripts/lib/engine.sh
-. scripts/lib/engine.sh || exit 1
+# shellcheck source=scripts/lib/env.sh
+. scripts/lib/env.sh || exit 1
+# shellcheck source=scripts/lib/firewall.sh
+. scripts/lib/firewall.sh
+# shellcheck source=scripts/lib/fwcheck.sh
+. scripts/lib/fwcheck.sh
 
 quick=0
 isolation_only=0
@@ -78,34 +82,61 @@ note() { printf 'NOTE  %s\n' "$1"; }
 probe_ok() { grep -qx "$1 yes" <<< "$out"; }
 
 isolation_checks() {
-  local sensors=() probes=() reached=() host_ports=() s cid gws addrs next i p g a host_strict=0 admin dash target_ports published
+  local sensors=() probes=() reached=() host_ports=() s cid gws addrs next i p g a host_strict=0 admin admin_src dash target_ports published fwst
   echo "-- sensor isolation ($(engine_name))"
   if [ "$ENGINE_ID" = podman ]; then
     check "podman: every sp-* network has its options (isolate=strict, internal, no DNS on sp-ingress, sp-dashboard, sp-vpn)" \
       bash scripts/ensure-networks.sh --check
-    check "podman: host firewall loaded (suckerpot-firewall.service active)" \
-      systemctl is-active --quiet suckerpot-firewall.service
-    if systemctl show -p Requires --value suckerpot-stack.service 2>/dev/null | grep -qw suckerpot-firewall.service; then
-      pass "podman: the boot unit starts the stack only after the host firewall"
+    if systemctl show -p BindsTo --value suckerpot-stack.service 2>/dev/null | grep -qw suckerpot-firewall.service; then
+      pass "podman: the boot unit is bound to the host firewall (starts after it, stops with it)"
     else
-      fail "podman: the boot unit starts the stack only after the host firewall (suckerpot-stack.service missing or without Requires=suckerpot-firewall.service)"
+      fail "podman: the boot unit is bound to the host firewall (suckerpot-stack.service missing or without BindsTo=suckerpot-firewall.service)"
     fi
   fi
-  # The host ports are the host firewall's job. On Docker it is optional: without it, a reachable
-  # port is a NOTE. On Podman it is required: a FAIL.
-  if [ "$ENGINE_ID" = podman ] || systemctl is-active --quiet suckerpot-firewall.service 2>/dev/null; then
-    host_strict=1
-  fi
-  admin=$(env_value ADMIN_SSH_PORT)
+  # The host firewall must be in force, not only its unit active: a flush or an nftables restart
+  # removes the tables and leaves the unit active. Listing tables needs root (or sudo -n).
+  # On Docker the firewall is optional: not installed is fine, installed but not loaded is a FAIL.
+  # On Podman it is required. A reachable host port is then a FAIL; on Docker without the
+  # firewall, a NOTE.
+  fwst=$(fw_state)
+  case $fwst in
+    loaded)
+      pass "host firewall loaded (unit active, tables $(fw_tables_needed | tr '\n' ' ' | sed 's/ $//'))"
+      host_strict=1
+      ;;
+    missing:*)
+      fail "host firewall loaded (the unit is active but table(s) ${fwst#missing:} are gone: sudo systemctl reload $FW_UNIT)"
+      host_strict=1
+      ;;
+    unknown)
+      if [ "$ENGINE_ID" = podman ]; then
+        fail "host firewall loaded (unit active; its tables cannot be read: run this check with sudo)"
+      else
+        note "host firewall unit active; its tables were not read (run this check with sudo to see them)"
+      fi
+      host_strict=1
+      ;;
+    *)
+      if [ "$ENGINE_ID" = podman ]; then
+        fail "host firewall loaded ($FW_UNIT is not active)"
+      elif fw_installed; then
+        fail "host firewall loaded ($FW_UNIT is installed but not active: sudo systemctl start $FW_UNIT)"
+        host_strict=1
+      fi
+      ;;
+  esac
+  [ "$ENGINE_ID" != podman ] || host_strict=1
   dash=$(env_value DASHBOARD_PORT)
   mapfile -t sensors < <(dc ps --status running --format '{{.Service}}' 2>/dev/null | grep '^sensor-' | sort -u)
   if [ "${#sensors[@]}" -eq 0 ]; then
-    note "no sensor is running: sensor isolation not checked"
+    fail "at least one sensor is running (none is: sensor isolation not checked)"
     return 0
   fi
-  # The host ports to probe: the admin SSH port (22 when .env does not say) and the dashboard port,
-  # minus the ports a sensor publishes: a probe there would only reach that sensor (and add a fake
-  # event to its data), not the host.
+  # The host ports to probe: the admin SSH port (ADMIN_SSH_PORT, else what sshd is configured
+  # with, else 22) and the dashboard port. When the port is only the default 22 and a sensor
+  # publishes it, it is skipped: a probe there would only reach that sensor (and add a fake event
+  # to its data), not the host's sshd.
+  read -r admin admin_src <<< "$(fw_admin_port)"
   published=" "
   for s in "${sensors[@]}"; do
     cid=$(dc ps -q "$s" 2>/dev/null | head -n 1)
@@ -113,10 +144,12 @@ isolation_checks() {
     published+=$(ctr inspect -f '{{range $p, $b := .NetworkSettings.Ports}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$cid" 2>/dev/null)" "
   done
   host_ports=()
-  for p in "${admin:-22}" "${dash:-8443}"; do
-    case "$published" in *" $p "*) continue ;; esac
-    host_ports+=("$p")
-  done
+  if [ "$admin_src" != default ]; then
+    host_ports+=("$admin")
+  else
+    case "$published" in *" $admin "*) note "the admin SSH port is unknown (set ADMIN_SSH_PORT in .env) and 22 is a sensor's: host SSH not probed" ;; *) host_ports+=("$admin") ;; esac
+  fi
+  case " ${host_ports[*]} $published" in *" ${dash:-8443} "*) ;; *) host_ports+=("${dash:-8443}") ;; esac
   for i in "${!sensors[@]}"; do
     s=${sensors[$i]}
     cid=$(dc ps -q "$s" 2>/dev/null | head -n 1)

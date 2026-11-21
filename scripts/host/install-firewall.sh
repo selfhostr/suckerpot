@@ -12,7 +12,8 @@
 # are left alone.
 #
 # Exit codes: 0 done; 2 bad arguments; 3 nft or systemctl missing; 4 FILE refused (placeholder
-# left, or `nft -c` failed); 5 loading or verifying failed (the previous table, if any, stays).
+# left, or `nft -c` failed); 5 loading or verifying failed (the previous table, if any, stays);
+# 6 --uninstall refused: SuckerPot containers run on Podman (SUCKERPOT_NO_FIREWALL=1 overrides).
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -41,6 +42,10 @@ if [ "$(id -u)" -ne 0 ]; then
   command -v sudo > /dev/null 2>&1 || fail 3 "run it as root (sudo is not installed)"
   arg=$1
   [ "$arg" = --uninstall ] || arg=$(cd "$(dirname "$arg")" && pwd)/$(basename "$arg")
+  # sudo resets the environment: keep the owner's opt-out for --uninstall (see below).
+  if [ "$arg" = --uninstall ] && [ "${SUCKERPOT_NO_FIREWALL:-}" = 1 ]; then
+    exec sudo -- env SUCKERPOT_NO_FIREWALL=1 "$here/install-firewall.sh" "$arg"
+  fi
   exec sudo -- "$here/install-firewall.sh" "$arg"
 fi
 
@@ -48,6 +53,12 @@ command -v nft > /dev/null 2>&1 || fail 3 "nft not found: install the nftables p
 command -v systemctl > /dev/null 2>&1 || fail 3 "systemctl not found: load it by hand with nft -f (scripts/host/README.md)"
 
 if [ "$1" = --uninstall ]; then
+  # On Podman the firewall carries the isolation of the sensors (design D5): never remove it under
+  # running SuckerPot containers, unless the owner says they filter elsewhere.
+  if [ "${SUCKERPOT_NO_FIREWALL:-}" != 1 ] && command -v podman > /dev/null 2>&1 &&
+    [ -n "$(podman ps -q --filter label=com.docker.compose.project 2> /dev/null || true)" ]; then
+    fail 6 "Podman containers of a compose project are running: on Podman they must not run without this firewall. Stop the stack first (docker-compose down), or set SUCKERPOT_NO_FIREWALL=1 if you filter elsewhere."
+  fi
   systemctl disable --now "$unit" > /dev/null 2>&1 || true
   nft delete table inet suckerpot_host > /dev/null 2>&1 || true
   nft delete table bridge suckerpot_bridge > /dev/null 2>&1 || true
@@ -80,8 +91,13 @@ trap - EXIT
 install -m 0644 -o root -g root "$here/suckerpot-firewall.service" "$unit_path"
 systemctl daemon-reload
 systemctl enable "$unit" > /dev/null 2>&1 || fail 5 "systemctl enable $unit failed"
-# restart: loads the new file even when the unit was already active (the file is idempotent).
-systemctl restart "$unit" || fail 5 "the unit failed to load the table: journalctl -u $unit"
+# Active: reload, which loads the new file in one transaction and never stops what is bound to the
+# unit (on Podman, the stack). Not active: start.
+if systemctl is-active --quiet "$unit"; then
+  systemctl reload "$unit" || fail 5 "the unit failed to load the new file: journalctl -u $unit"
+else
+  systemctl start "$unit" || fail 5 "the unit failed to load the table: journalctl -u $unit"
+fi
 nft list table inet suckerpot_host > /dev/null 2>&1 || fail 5 "table inet suckerpot_host is not loaded"
 # A Podman rendering also holds the bridge table (sensor-to-sensor drops).
 if grep -q '^table bridge suckerpot_bridge' "$target"; then
@@ -91,6 +107,6 @@ fi
 cat << EOF
 install-firewall: loaded table inet suckerpot_host; it is reloaded after every reboot ($unit).
   See the rules and counters: sudo nft list table inet suckerpot_host
-  Undo for this boot only:    sudo nft delete table inet suckerpot_host
+  Undo for this boot only:    sudo systemctl stop $unit   (on Podman this also stops the stack)
   Undo for good:              sudo $here/install-firewall.sh --uninstall
 EOF

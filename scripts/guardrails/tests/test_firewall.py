@@ -528,6 +528,7 @@ def shims(tmp_path: Path) -> Path:
     _write_exec(shim / "systemctl", SHIM)
     _write_exec(shim / "chown", SHIM)
     _write_exec(shim / "nft", NFT_SHIM)
+    _write_exec(shim / "podman", SHIM)
     return shim
 
 
@@ -603,7 +604,9 @@ def test_install_checks_a_private_copy_then_moves_it_into_place(
     assert calls[3:] == [
         "systemctl daemon-reload",
         "systemctl enable suckerpot-firewall.service",
-        "systemctl restart suckerpot-firewall.service",
+        "systemctl is-active --quiet suckerpot-firewall.service",
+        # Active: a reload loads the new file in one transaction (never a stop and start).
+        "systemctl reload suckerpot-firewall.service",
         "nft list table inet suckerpot_host",
     ]
     target = fsroot / "etc" / "suckerpot-firewall.nft"
@@ -678,6 +681,8 @@ def test_uninstall(shims: Path, fsroot: Path) -> None:
     result = install(shims, fsroot, "--uninstall")
     assert result.returncode == 0
     calls = _calls(shims)
+    # Podman is asked first whether SuckerPot containers run (none here).
+    assert calls.pop(0) == "podman ps -q --filter label=com.docker.compose.project"
     assert calls[0] == "systemctl disable --now suckerpot-firewall.service"
     assert "nft delete table inet suckerpot_host" in calls
     assert calls[-1] == "systemctl daemon-reload"

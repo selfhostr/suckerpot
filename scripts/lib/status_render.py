@@ -9,7 +9,7 @@ Reads one JSON document on stdin, written by status.sh:
     ports                          [[router_port, host_port, protocol, sensor], ...]
     auto_enabled, auto_schedule    AUTO_UPDATE_ENABLED and `schedule_status` ("cron 04:37/6h", "off")
     auto_state_raw                 text of .suckerpot-state/auto-update.json, or ""
-    firewall                       "installed" or "missing" (the host firewall unit)
+    firewall                       "installed", "missing" or "not_loaded" (unit stopped or tables gone)
     latest, latest_age_h           newest known release of the same major version, and its age
     cli_raw, cli_error             output of `python -m ingest.network.cli status --json`, or ""
 
@@ -50,6 +50,7 @@ KNOWN_TEXT = {
     "stack_not_running": "the stack is not running: ./scripts/install.sh --repair",
     "network_status_unavailable": "ingest did not answer the network status request",
     "firewall_missing": "the host firewall is not installed",
+    "firewall_not_loaded": "the host firewall is installed but its rules are not loaded: sudo systemctl reload-or-restart suckerpot-firewall.service",
     "release_outdated": "this node runs an older release than the newest one it knows",
     "auto_update_failed": "the last automatic update did not complete: .suckerpot-state/auto-update.log",
 }
@@ -184,6 +185,9 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
             )
         ):
             warnings.append("auto_update_failed")
+    # Installed but not in force (unit stopped, tables flushed): a warning on every stack.
+    if doc.get("firewall") == "not_loaded":
+        warnings.append("firewall_not_loaded")
     if stack == "participant":
         if doc.get("firewall") == "missing":
             warnings.append("firewall_missing")
@@ -229,6 +233,13 @@ def needs_attention(doc: dict[str, Any], info: dict[str, Any]) -> list[tuple[str
             )
     if "firewall_missing" in info["warnings"]:
         items.append(("The host firewall is not installed", "./scripts/participant.sh firewall"))
+    if "firewall_not_loaded" in info["warnings"]:
+        items.append(
+            (
+                "The host firewall is installed but its rules are not loaded",
+                "sudo systemctl reload-or-restart suckerpot-firewall.service",
+            )
+        )
     if "release_outdated" in info["warnings"]:
         items.append(
             (

@@ -177,13 +177,13 @@ else
 fi
 foreign=()
 for b in "${bridges[@]}"; do
-  case $b in br-* | sp-*) ;; podman*) [ "$engine" = podman ] || continue ;; *) continue ;; esac
+  case $b in br-* | sp-*) ;; podman* | cni-podman*) [ "$engine" = podman ] || continue ;; *) continue ;; esac
   for a in "${allow_bridges[@]}"; do [ "$a" != "$b" ] || continue 2; done
   if [ "$docker_ok" = 1 ]; then
     for k in "${docker_known[@]}"; do [ "$k" != "$b" ] || continue 2; done
   else
     [[ $b =~ ^br-[0-9a-f]{12}$ ]] && continue
-    [ "$engine" = podman ] && [[ $b =~ ^podman[0-9]+$ ]] && continue
+    [ "$engine" = podman ] && [[ $b =~ ^(cni-)?podman[0-9]+$ ]] && continue
     for k in $SP_BRIDGES; do [ "$k" != "$b" ] || continue 2; done
   fi
   foreign+=("$b")
@@ -191,7 +191,7 @@ done
 if [ "${#foreign[@]}" -gt 0 ]; then
   [ "$docker_ok" = 1 ] || note "$(engine_name) could not be asked which bridges it owns; judged by name only"
   wild="br-* or sp-*"
-  [ "$engine" = docker ] || wild="br-*, sp-* or podman*"
+  [ "$engine" = docker ] || wild="br-*, sp-*, podman* or cni-podman*"
   die "host bridge(s) ${foreign[*]} match the firewall's $wild wildcard but are not $(engine_name)'s.
   The rules would drop their traffic to the host, and if your admin SSH arrives through one of
   them you would lock yourself out. Rename the bridge, or, if you are sure nothing you need
