@@ -251,6 +251,22 @@ export interface Recipient {
   muted: boolean
   /** A free or shared mailbox: replies are trusted by exact address only. */
   shared_mailbox?: boolean
+  /** Replies said this desk takes reports only through its web form (automatic sending skips it). */
+  form_only?: boolean
+  /** The form link found in the reply (https only), when there was one. */
+  form_url?: string | null
+  /** Mail to this address bounced for good (automatic sending skips it). */
+  undeliverable?: boolean
+}
+
+/** The form link is shown only when it is a plain https URL (the server checks it too). */
+export function safeFormUrl(url: string | null | undefined): string | null {
+  if (!url?.startsWith("https://")) return null
+  try {
+    return new URL(url).protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
 }
 
 export interface AsnRef {
@@ -588,6 +604,9 @@ export const abuseApi = {
   regenerate: (id: string) => sendJson("POST", `/abuse/reports/${id}/regenerate`),
   setMailbox: (recipientId: number, mailbox: string) =>
     sendJson("PATCH", `/abuse/recipients/${recipientId}`, { override_mailbox: mailbox }),
+  /** The owner clears what replies taught the node about a desk. */
+  clearDesk: (recipientId: number, flag: "form_only" | "undeliverable") =>
+    sendJson("PATCH", `/abuse/recipients/${recipientId}`, { [flag]: false }),
   settings: () => getJson<ReportSettings>("/abuse/settings"),
   saveSettings: (body: ReportSettings) => {
     // `field_issues` is an answer, not an input: the server refuses unknown keys.

@@ -1013,3 +1013,197 @@ async def test_one_failing_pasted_reply_does_not_block_the_next(
             for r in await conn.execute(text("SELECT status FROM abuse_reply_imports ORDER BY id"))
         ]
     assert status == ["failed", "done"]
+
+
+AUTHED = {
+    "Authentication-Results": "mx.example.org; dkim=pass header.d=example.net; dmarc=pass header.from=example.net"
+}
+
+
+async def _desk(world: World, rid: int) -> Any:
+    async with world.owner.connect() as conn:
+        return (
+            await conn.execute(
+                text(
+                    "SELECT rec.form_only, rec.form_url, rec.undeliverable, rec.hard_bounces "
+                    "FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id "
+                    "WHERE r.id = :i"
+                ),
+                {"i": rid},
+            )
+        ).one()
+
+
+async def test_a_verified_web_form_reply_marks_the_desk_form_only(world: World) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, token = await world.sent_report("abuse@example.net")
+    reply = mail(
+        in_reply_to=None,
+        subject=f"Re: report (ref {token})",
+        body=(
+            "Reports sent to this email address will not be processed.\r\n"
+            "Please submit your report using webform at https://support.example.net/abuse/new.\r\n"
+        ),
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({1: reply}))
+    (row,) = await world.replies()
+    assert row.classification == "rejected" and row.rule_id == "form-required" and row.verified
+    desk = await _desk(world, rid)
+    assert desk.form_only is True and desk.form_url == "https://support.example.net/abuse/new"
+
+
+async def test_a_matched_reply_nobody_vouched_for_still_marks_the_desk(world: World) -> None:
+    await world.profile()
+    rid, token = await world.sent_report("abuse@example.net")
+    unvouched = mail(
+        from_="Someone <x@example.com>",
+        in_reply_to=None,
+        subject=f"Re: report (ref {token})",
+        body="This email inbox is not monitored. Use https://support.example.com/f\r\n",
+    )
+    await poll(world, FakeMailbox({1: unvouched}))
+    (row,) = await world.replies()
+    assert row.classification == "rejected" and not row.verified and row.report_id == rid
+    desk = await _desk(world, rid)
+    # The link of a reply nobody vouched for is never kept: it could be an attacker's.
+    assert desk.form_only is True and desk.form_url is None
+
+
+async def test_an_unmatched_reply_never_marks_a_desk(world: World) -> None:
+    await world.profile()
+    rid, _ = await world.sent_report("abuse@example.net")
+    stranger = mail(
+        from_="Stranger <x@example.com>",
+        in_reply_to=None,
+        subject="Re: something else",
+        body="This email inbox is not monitored.\r\n",
+    )
+    await poll(world, FakeMailbox({1: stranger}))
+    desk = await _desk(world, rid)
+    assert desk.form_only is False
+
+
+async def test_a_form_reply_without_a_link_still_marks_the_desk(world: World) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, token = await world.sent_report("abuse@example.net")
+    reply = mail(
+        in_reply_to=None,
+        subject=f"Re: report (ref {token})",
+        body="This email inbox is not monitored.\r\n",
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({1: reply}))
+    desk = await _desk(world, rid)
+    assert desk.form_only is True and desk.form_url is None
+
+
+def _bounce(n: int, status: str) -> bytes:
+    return mails.dsn(
+        status=status,
+        extra={
+            "Message-ID": f"<bounce-{n}@mx.example.org>",
+            "Authentication-Results": "mx.example.org; dmarc=pass header.from=example.org",
+        },
+    )
+
+
+async def test_one_user_unknown_bounce_makes_the_address_undeliverable(world: World) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, _ = await world.sent_report("abuse@example.net", message_id=OUR_ID)
+    await poll(world, FakeMailbox({1: _bounce(1, "5.1.1")}))
+    desk = await _desk(world, rid)
+    assert desk.undeliverable is True and desk.hard_bounces == 1
+
+
+async def test_other_hard_bounces_need_two(world: World) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, _ = await world.sent_report("abuse@example.net", message_id=OUR_ID)
+    await poll(world, FakeMailbox({1: _bounce(1, "5.7.1")}))
+    desk = await _desk(world, rid)
+    assert desk.undeliverable is False and desk.hard_bounces == 1
+    # Both again in one later poll (a poll waits for its interval): the second one is the 2nd.
+    async with world.owner.begin() as conn:
+        await conn.execute(text("DELETE FROM report_imap_state"))
+    await poll(world, FakeMailbox({2: _bounce(2, "5.7.1")}))
+    desk = await _desk(world, rid)
+    assert desk.undeliverable is True and desk.hard_bounces == 2
+
+
+async def test_a_soft_bounce_counts_for_nothing_and_an_unauthenticated_hard_one_counts(
+    world: World,
+) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, _ = await world.sent_report("abuse@example.net", message_id=OUR_ID)
+    soft = mails.dsn(status="4.2.2", extra={"Message-ID": "<soft@mx.example.org>"})
+    plain = mails.dsn(status="5.1.1", extra={"Message-ID": "<plain@mx.example.org>"})
+    await poll(world, FakeMailbox({1: soft, 2: plain}))
+    desk = await _desk(world, rid)
+    assert desk.undeliverable is True and desk.hard_bounces == 1  # only the hard one counted
+
+
+async def test_a_delayed_notice_is_not_stored(world: World) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, _ = await world.sent_report("abuse@example.net", message_id=OUR_ID)
+    delayed = mails.dsn(action="delayed", status="4.4.1", extra={"Auto-Submitted": "auto-replied"})
+    await poll(world, FakeMailbox({1: delayed}))
+    assert await world.replies() == []
+    await outcome.ensure_rows(world.factory)
+    await outcome.recompute(world.factory)
+    assert (await world.outcome(rid)).auto_outcome == "none"
+
+
+async def test_the_form_link_needs_a_verified_reply_on_the_providers_own_domain(
+    world: World,
+) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, token = await world.sent_report("abuse@example.net")
+    off = mail(
+        in_reply_to=None,
+        message_id="<f1@example.net>",
+        subject=f"Re: report (ref {token})",
+        body="Please submit your report using webform at https://evil.example.com/f.\r\n",
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({1: off}))
+    desk = await _desk(world, rid)
+    assert desk.form_only is True and desk.form_url is None  # off-domain: ignored
+    async with world.owner.begin() as conn:
+        await conn.execute(text("DELETE FROM report_imap_state"))
+    first = mail(
+        in_reply_to=None,
+        message_id="<f2@example.net>",
+        subject=f"Re: report (ref {token})",
+        body="Please submit your report using webform at https://help.example.net/one.\r\n",
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({2: first}))
+    assert (await _desk(world, rid)).form_url == "https://help.example.net/one"
+    async with world.owner.begin() as conn:
+        await conn.execute(text("DELETE FROM report_imap_state"))
+    second = mail(
+        in_reply_to=None,
+        message_id="<f3@example.net>",
+        subject=f"Re: report (ref {token})",
+        body="Please submit your report using webform at https://help.example.net/two.\r\n",
+        extra=AUTHED,
+    )
+    await poll(world, FakeMailbox({3: second}))
+    assert (await _desk(world, rid)).form_url == "https://help.example.net/one"  # kept
+
+
+async def test_an_acknowledgement_that_says_not_monitored_does_not_pause_the_desk(
+    world: World,
+) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, token = await world.sent_report("abuse@example.net")
+    ack = mail(
+        in_reply_to=None,
+        subject=f"[#123] Re: report (ref {token})",
+        extra={**AUTHED, "Auto-Submitted": "auto-replied"},
+        body="This mailbox is not monitored, ticket #123 created.\r\n",
+    )
+    await poll(world, FakeMailbox({1: ack}))
+    (row,) = await world.replies()
+    assert row.classification == "auto_ack"
+    assert (await _desk(world, rid)).form_only is False

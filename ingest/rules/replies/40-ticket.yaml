@@ -3,7 +3,7 @@
 tickets:
   - id: generic-ticket
     after: ["ticket #", "ticket#", "ticket:", "ticket id:", "case #", "case:", "incident #",
-            "[#", "reference:", "ref#", "ticket number"]
+            "[#", "reference:", "ref#", "ticket number", "logged as", "logged under"]
     fields: [subject, body]
     min_len: 4
     max_len: 32
@@ -20,3 +20,12 @@ rules:
             - {field: auto_submitted, startswith: "auto-"}
             - {field: body, contains_any: ["ticket has been created", "case has been opened",
                                            "we have received your report"]}
+  - id: ticket-logged
+    outcome: ticket_opened
+    priority: 41
+    description: The provider logged the report and says it is being investigated.
+    when:
+      all:
+        - {field: body, contains_any: ["has been logged as", "was logged as"]}
+        - {field: body, contains_any: ["is being investigated", "are investigating",
+                                       "will be investigated"]}

@@ -99,3 +99,13 @@ def test_the_owner_never_list_covers_addresses_networks_and_names(
     assert normalize_value("domain", "x.corp.example") is None
     assert normalize_value("url", "http://partner.example/a.sh") is None
     assert normalize_value("domain", "other.example") == "other.example"
+
+
+def test_an_ipv4_mapped_address_is_checked_as_ipv4() -> None:
+    from suckerpot_db.blocklist_values import is_excluded_host
+
+    assert is_excluded_host("8.8.8.8")
+    assert is_excluded_host("::ffff:8.8.8.8")
+    assert is_excluded_host("::ffff:808:808")
+    assert not is_excluded_host("::ffff:198.51.100.7")
+    assert is_excluded_host("www.youtube.com")

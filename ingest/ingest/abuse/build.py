@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_db.blocklist_values import is_excluded_host
 from suckerpot_reporting import (
     REFERENCE_STYLES,
     Evidence,
@@ -340,7 +341,7 @@ class DraftBuilder:
         ).all()
         out: dict[tuple[str, int], list[Seed]] = defaultdict(list)
         for r in rows:
-            if r.subject_type in ("ip", "domain"):
+            if r.subject_type in ("ip", "domain") and (r.demo or not is_excluded_host(r.value)):
                 out[(r.kind, r.recipient_id)].append(
                     Seed(
                         r.kind,

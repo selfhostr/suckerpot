@@ -52,7 +52,7 @@ Some things are never selected, before any lookup is made:
 
 - known research scanners and sessions marked benign;
 - private, reserved and documentation addresses (documentation addresses only appear in demo drafts, which can never be sent);
-- the never-block list (public resolvers and the entries in `BLOCKLIST_NEVER`) and every term in "Never in a report", such as your own addresses and names.
+- the never-block list and every term in "Never in a report", such as your own addresses and names. The never-block list holds the public resolvers, the entries in `BLOCKLIST_NEVER`, and shared services that attackers type into commands but that are not the attacker: video and social sites, URL shorteners, and file, paste and code hosts (for example a video site, a link shortener or a public paste site). A domain on the list covers every name below it. It applies to all three kinds of report, so a registrar never gets a report about a whole shared service.
 
 The same source is not reported again to the same recipient for 14 days (`ABUSE_RESEND_DAYS`). Every variable is in [Configuration](configuration.md#anonymous-reporting-m22).
 
@@ -109,6 +109,9 @@ These rules hold in every mode:
 Automatic sending is built to look like what it is: a person sending a few reports a day, not a bulk mailer.
 
 - **Fresh reports only.** A report whose last activity is more than 7 days old is never sent automatically. One that ages past 7 days while it waits is cancelled (`too_old`). You can still send it by hand.
+- **Never list, again.** Before any send, by hand or automatic, the subjects of the report are checked against the never-block list. A draft made before an entry was added is cancelled with `shared_host` and never sent.
+- **Desks that take a web form only.** When a reply from a provider that matched the report says it only accepts its web form (for example "this inbox is not monitored" or "submit your report using our portal"), the node remembers it for that recipient. Automatic sending then skips the recipient (cancel code `form_only`), and the report page says "This desk only accepts its web form", with the form link when the reply had one. Submit the report there by hand. A send you start yourself still goes out. **Clear this flag** on the report page when the desk takes mail again.
+- **Dead addresses.** A hard bounce (a 5.x.x failure) from a report sent to an address is remembered too. One bounce of the "user unknown" kind (5.1.1, "550 user not found") marks the address `undeliverable`. Any other permanent failure needs two. Automatic sending then skips it (cancel code `undeliverable`) and the report page says so. Type another address for the recipient, which starts a clean record, or clear the flag. A delayed notice ("still being retried") is not a bounce and is ignored.
 - **Newest first.** The freshest evidence is scheduled and sent first. A report you send by hand goes before the automatic ones.
 - **Spacing.** At most one automatic send every 3 minutes.
 - **Daily cap.** Automatic sends stop for the day once `daily_cap` reports went out through SMTP that UTC day (default 20, 1 to 200). Sends with the "Send now" button count too. A report over the cap waits for the next UTC day.

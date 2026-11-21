@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .desk import learn
 from .match import (
     Match,
     RecentReport,
@@ -29,6 +30,7 @@ from .match import (
 from .parse import HeaderView, ParsedReply
 from .rules import ReplyRules
 
+DELAYED_RULE = "delayed-dsn"
 INSERT_REPLY = """
 INSERT INTO abuse_replies (source, uidvalidity, uid, message_id_sha256, received_at, date_header,
     from_address, from_domain, subject, auth, report_id, match_method, verified, classification,
@@ -110,6 +112,8 @@ async def store_reply(
         if state is None or state.status not in ("sent", "closed"):
             return Stored("not_sent")
     verdict = rules.classify(reply, matched=found.report_id is not None)
+    if verdict.rule_id == DELAYED_RULE and source == "imap":
+        return Stored("dropped")  # still being retried: no answer, no bounce, nothing to keep
     trust = await report_trust(session, found.report_id) if found.report_id is not None else Trust()
     by_owner = source == "paste" and found.report_id is not None
     verified = by_owner or is_verified(found, reply, trust, verdict.outcome)
@@ -145,4 +149,12 @@ async def store_reply(
     ).first()
     if row is None:
         return Stored("duplicate")
+    await learn(
+        session,
+        reply,
+        report_id=found.report_id,
+        verified=verified,
+        outcome=verdict.outcome,
+        rule_id=verdict.rule_id,
+    )
     return Stored("stored", int(row.id), found.report_id, found.report_id is not None)

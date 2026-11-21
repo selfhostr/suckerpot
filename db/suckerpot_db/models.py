@@ -1006,6 +1006,15 @@ class AbuseRecipientRow(Base):
     first_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=_now(), nullable=False
     )
+    # What replies taught us (0035): the desk takes only its web form; the address is dead.
+    form_only: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
+    form_url: Mapped[str | None] = mapped_column(Text)
+    undeliverable: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
+    hard_bounces: Mapped[int] = mapped_column(
+        SmallInteger, server_default=text("0"), nullable=False
+    )
     # Other domains a provider answers from (M26), at most 5.
     reply_domains: Mapped[list[str]] = mapped_column(
         ARRAY(Text), server_default=text("'{}'::text[]"), nullable=False

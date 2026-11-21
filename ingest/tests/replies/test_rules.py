@@ -40,6 +40,8 @@ def test_the_shipped_rules_load(rules: ReplyRules) -> None:
         "rejected",
         "ticket_opened",
         "auto_ack",
+        "human_reply",
+        "unknown",
     }
     assert rules.description("auto-ack") == "An automatic acknowledgement."
 
@@ -60,6 +62,8 @@ def test_bounce_by_dsn_and_by_daemon(rules: ReplyRules) -> None:
         "we have taken action against the customer",
         "traffic is null-routed now",
         "the issue has been resolved",
+        "the reported address has been blocked",
+        "the host is no longer reachable",
     ],
 )
 def test_resolved(rules: ReplyRules, phrase: str) -> None:
@@ -80,7 +84,14 @@ def test_resolved_by_subject(rules: ReplyRules) -> None:
         ("the range is not hosted by us", "not-our-customer"),
         ("we have insufficient evidence", "insufficient-evidence"),
         ("please use our web form", "form-required"),
-        ("Please submit via our portal", "form-required"),
+        ("Please submit via our portal", "form-required-portal"),
+        ("Reports sent to this email address will not be processed", "form-required"),
+        ("Please submit your report using webform", "form-required"),
+        ("This email inbox is not monitored", "form-required-unmonitored"),
+        (
+            "We require you to submit all tickets via our online client support portal",
+            "form-required",
+        ),
     ],
 )
 def test_rejected(rules: ReplyRules, phrase: str, rule: str) -> None:
@@ -257,3 +268,97 @@ def test_the_tagging_loader_ignores_the_replies_folder() -> None:
     from ingest.tagging.engine import load_rules
 
     load_rules(RULES_DIR.parent)  # rules/replies/ is a subfolder: not read as tagging rules
+
+
+def test_a_delayed_notice_is_neither_an_acknowledgement_nor_a_bounce(rules: ReplyRules) -> None:
+    delayed = mails.dsn(action="delayed", status="4.4.1", extra={"Auto-Submitted": "auto-replied"})
+    assert classify(rules, delayed) == ("unknown", "delayed-dsn")
+    # The text-only form: no machine-readable part, only the subject.
+    text_only = mail(
+        from_="MAILER-DAEMON <mailer-daemon@mx.example.org>",
+        subject="Delayed Mail (still being retried)",
+        extra={"Auto-Submitted": "auto-replied"},
+        in_reply_to=None,
+    )
+    assert classify(rules, text_only) == ("unknown", "delayed-dsn")
+    # A real failure still bounces.
+    assert classify(rules, mails.dsn()) == ("bounce", "bounce-dsn")
+
+
+def test_forwarding_the_case_to_the_customer_is_not_a_resolution(rules: ReplyRules) -> None:
+    raw = mail(
+        extra={"Auto-Submitted": "auto-replied"},
+        body="We have forwarded the case details to our end customer.\r\n",
+    )
+    assert classify(rules, raw) == ("human_reply", "forwarded-to-customer")
+    # ... unless the same mail also says the provider acted.
+    acted = mail(body="We forwarded the case details to our customer. It has been suspended.\r\n")
+    assert classify(rules, acted)[0] == "resolved"
+
+
+def test_logged_and_being_investigated_is_a_ticket(rules: ReplyRules) -> None:
+    raw = mail(
+        extra={"Auto-Submitted": "auto-replied"},
+        body="Your report has been logged as 90417 and is being investigated.\r\n",
+    )
+    parsed = parse_message(raw)
+    assert rules.extract_ticket(parsed) == "90417"
+    assert classify(rules, raw) == ("ticket_opened", "ticket-opened")
+    # Without a readable id the two phrases still make a ticket.
+    no_id = mail(body="Your report has been logged as pending and is being investigated.\r\n")
+    assert classify(rules, no_id) == ("ticket_opened", "ticket-logged")
+    # One phrase alone is not enough.
+    assert (
+        classify(rules, mail(body="The case is being investigated by our team, thanks.\r\n"))[0]
+        == "human_reply"
+    )
+
+
+QUOTED = (
+    "> Abuse report: the address 198.51.100.23 has been suspended in our logs,\r\n"
+    "> please use our web form if this is wrong, ticket #99887 is being investigated.\r\n"
+)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Thanks, we will look.\r\n\r\n" + QUOTED,
+        "Thanks, we will look.\r\n\r\n----- Original message -----\r\n"
+        "From: reports@example.org\r\n"
+        "The host has been terminated and has been blocked. Please use our web form.\r\n",
+        "Thanks, we will look.\r\n\r\nOn Sat, 31 Oct 2026 10:00, reports@example.org wrote:\r\n"
+        "The host has been suspended. This is not our customer.\r\n",
+        "Thanks, we will look.\r\n\r\n-----Original Message-----\r\n"
+        "The service was terminated. The case has been logged as 5512 and is being investigated.\r\n",
+    ],
+)
+def test_our_own_quoted_report_never_triggers_a_rule(rules: ReplyRules, body: str) -> None:
+    assert classify(rules, mail(body=body)) == ("human_reply", None)
+
+
+def test_a_signature_or_an_acknowledgement_is_not_a_web_form_request(rules: ReplyRules) -> None:
+    ack = mail(
+        subject="[#123] We received your report",
+        extra={"Auto-Submitted": "auto-replied"},
+        body="This mailbox is not monitored. Your ticket #123 was created.\r\n",
+    )
+    assert classify(rules, ack)[0] != "rejected"
+    signature = mail(
+        body="Thanks, we will look.\r\n\r\nFor sales use our web form or the contact form.\r\n"
+    )
+    assert classify(rules, signature) == ("human_reply", None)
+    plain = mail(body="Mail to the old address will not be processed after the move, sorry.\r\n")
+    assert classify(rules, plain)[0] != "rejected"
+
+
+def test_a_ticket_acknowledgement_that_names_a_portal_is_not_a_web_form_request(
+    rules: ReplyRules,
+) -> None:
+    ack = mail(
+        extra={"Auto-Submitted": "auto-replied"},
+        body="You can follow your ticket #123 via our portal.\r\n",
+    )
+    assert classify(rules, ack)[0] != "rejected"
+    only = mail(body="Reports must go through our portal, nothing else is read.\r\n")
+    assert classify(rules, only) == ("rejected", "form-required-portal")

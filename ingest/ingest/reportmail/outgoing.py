@@ -73,6 +73,9 @@ CODES: Final = (
     "mode_off",
     "mode_changed",
     "too_old",
+    "shared_host",
+    "form_only",
+    "undeliverable",
     "not_ready",
     "internal",
 )

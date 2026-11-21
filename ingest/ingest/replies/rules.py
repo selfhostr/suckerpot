@@ -16,7 +16,7 @@ import yaml
 
 from ingest.tagging.engine import Cond, RuleError, compile_condition, evaluate
 
-from .parse import BODY_FOR_RULES, ParsedReply
+from .parse import BODY_FOR_RULES, ParsedReply, strip_quoted
 
 OUTCOMES: Final = (
     "auto_ack",
@@ -83,6 +83,12 @@ class Verdict:
     ticket_id: str | None
 
 
+def _fresh(reply: ParsedReply) -> str:
+    """What the sender wrote, for the rules: never the quoted original (our own report, which
+    holds words like "suspended" or "abuse" that no rule may read as an answer)."""
+    return strip_quoted(reply.body[: BODY_FOR_RULES * 4])[:BODY_FOR_RULES]
+
+
 class ReplyRules:
     def __init__(self, rules: list[ReplyRule], tickets: list[TicketRule]) -> None:
         self.rules = sorted(rules, key=lambda r: (r.priority, r.id))
@@ -92,22 +98,26 @@ class ReplyRules:
         return next((r.description for r in self.rules if r.id == rule_id), None)
 
     def extract_ticket(self, reply: ParsedReply) -> str | None:
+        return self._ticket(reply, _fresh(reply))
+
+    def _ticket(self, reply: ParsedReply, fresh: str) -> str | None:
         for rule in self.tickets:
             for name in rule.fields:
-                text = reply.subject if name == "subject" else reply.body[:BODY_FOR_RULES]
+                text = reply.subject if name == "subject" else fresh
                 found = find_ticket(text, rule)
                 if found:
                     return found
         return None
 
     def classify(self, reply: ParsedReply, *, matched: bool) -> Verdict:
-        ticket = self.extract_ticket(reply)
+        fresh = _fresh(reply)
+        ticket = self._ticket(reply, fresh)
         values: dict[str, Any] = {
             "from_address": reply.from_address,
             "from_domain": reply.from_domain,
             "from_local": reply.from_local,
             "subject": reply.subject,
-            "body": reply.body[:BODY_FOR_RULES],
+            "body": fresh,
             "auto_submitted": reply.auto_submitted,
             "precedence": reply.precedence,
             "x_autoreply": reply.x_autoreply,

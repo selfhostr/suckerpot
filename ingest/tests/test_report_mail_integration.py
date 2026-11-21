@@ -899,3 +899,100 @@ async def test_the_reference_style_off_prints_no_token(world: World) -> None:
     (sent_conn,) = FakeSMTP.instances
     row = await world.report_row(report)
     assert sent_conn.sent is not None and row.reply_token not in sent_conn.sent[2].decode()
+
+
+async def _subject(world: World, report_id: int, value: str, kind: str = "domain") -> None:
+    async with world.owner.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO abuse_report_subjects (report_id, subject_type, value, first_ts, "
+                "last_ts, sessions, events) VALUES (:r, :t, :v, now(), now(), 1, 1)"
+            ),
+            {"r": report_id, "t": kind, "v": value},
+        )
+
+
+async def _desk(world: World, report_id: int, **flags: Any) -> None:
+    sets = ", ".join(f"{name} = :{name}" for name in flags)
+    async with world.owner.begin() as conn:
+        await conn.execute(
+            text(
+                f"UPDATE abuse_recipients SET {sets} "  # noqa: S608 - fixed column names
+                "WHERE id = (SELECT recipient_id FROM abuse_reports WHERE id = :r)"
+            ),
+            {"r": report_id, **flags},
+        )
+
+
+async def test_a_draft_that_names_a_shared_service_is_cancelled_even_by_hand(
+    world: World,
+) -> None:
+    await world.self_address()
+    await world.profile(mode="click")
+    report = await world.report(status="reviewed")
+    await _subject(world, report, "www.youtube.com")
+    rid = await world.ask(report)
+    await world.sender().run(NOW)
+    req = await world.request(rid)
+    assert (req.status, req.error_code) == ("cancelled", "shared_host")
+    assert FakeSMTP.instances == []
+    assert (await world.report_row(report)).status == "reviewed"
+
+
+async def test_a_url_shortener_and_a_never_listed_address_are_cancelled(world: World) -> None:
+    await world.self_address()
+    await world.profile(mode="click")
+    for value, kind in (("https://is.gd/abc", "url"), ("8.8.8.8", "ip")):
+        report = await world.report(status="reviewed")
+        await _subject(world, report, value, kind)
+        rid = await world.ask(report)
+        await world.sender().run(NOW)
+        assert (await world.request(rid)).error_code == "shared_host"
+    assert FakeSMTP.instances == []
+
+
+async def test_an_ordinary_subject_is_still_sent(world: World) -> None:
+    await world.self_address()
+    await world.profile(mode="click")
+    report = await world.report(status="reviewed")
+    await _subject(world, report, "198.51.100.23", "ip")
+    rid = await world.ask(report)
+    await world.sender().run(NOW)
+    assert (await world.request(rid)).status == "sent"
+
+
+@pytest.mark.parametrize("flag", ["form_only", "undeliverable"])
+async def test_automatic_sending_skips_a_desk_flagged_after_queueing(
+    world: World, flag: str
+) -> None:
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    report = await world.report(status="reviewed")
+    s = world.sender()
+    await s.run(NOW)  # queued
+    await _desk(world, report, **{flag: True})
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    async with world.owner.connect() as conn:
+        row = (await conn.execute(text("SELECT status, error_code FROM abuse_send_requests"))).one()
+    assert (row.status, row.error_code) == ("cancelled", flag)
+    assert FakeSMTP.instances == []
+    await s.run(datetime.now(UTC) + timedelta(hours=2))  # not queued again
+    async with world.owner.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM abuse_send_requests")) == 1
+
+
+@pytest.mark.parametrize("flag", ["form_only", "undeliverable"])
+async def test_a_flagged_desk_is_not_scheduled_and_can_still_be_sent_by_hand(
+    world: World, flag: str
+) -> None:
+    await world.self_address()
+    await world.profile(mode="auto", hold=10, cap=20)
+    report = await world.report(status="reviewed")
+    await _desk(world, report, **{flag: True})
+    s = world.sender()
+    await s.run(NOW)
+    async with world.owner.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM abuse_send_requests")) == 0
+    rid = await world.ask(report)  # the owner decides
+    await s.run(datetime.now(UTC) + timedelta(minutes=11))
+    assert (await world.request(rid)).status == "sent"

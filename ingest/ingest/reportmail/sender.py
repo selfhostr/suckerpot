@@ -25,6 +25,12 @@ than ``AUTO_MAX_AGE`` is never scheduled, and a queued one that aged past it is 
 (``too_old``). Providers check the reported host when the mail arrives; weeks later it is usually
 cleaned or reassigned and the report "cannot be substantiated". The owner can still send it by
 hand. The newest reports are scheduled and sent first.
+
+Before any send, whoever asked for it, the subjects are checked against the never list and the
+shared services (``suckerpot_db.blocklist_values``): a report that names one is cancelled
+(``shared_host``), also a draft made before the list grew. An automatic send is also cancelled
+when its recipient only takes a web form (``form_only``) or its address is dead
+(``undeliverable``).
 """
 
 from __future__ import annotations
@@ -38,7 +44,9 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from suckerpot_db.blocklist_values import is_excluded_host
 from suckerpot_db.locks import ABUSE_SMTP_PROFILE
+from suckerpot_db.network_names import host_of_target
 from suckerpot_db.secretbox import SecretBox, SecretError
 from suckerpot_reporting import (
     Evidence,
@@ -105,6 +113,12 @@ AUTO_PACED = (
     "AND s.status = 'failed' AND s.error_code LIKE 'deferred%' "
     "AND s.done_at > now() - make_interval(secs => :pause))"
 )
+
+
+def _host_of_subject(value: str) -> str:
+    """The host of a stored subject: a bare host or address, or a URL."""
+    rest = value.partition("://")[2] or value
+    return host_of_target(rest.split("/", 1)[0].split("?", 1)[0].rsplit("@", 1)[-1])
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,7 +266,7 @@ class ReportSender:
                     SELECT r.id, 'send', true, 'auto', :at
                     FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id
                     WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
-                      AND NOT rec.muted
+                      AND NOT rec.muted AND NOT rec.form_only AND NOT rec.undeliverable
                       AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
                       AND r.window_end > now() - make_interval(secs => :max_age)
                       -- never had a request, or only automatic sends the server deferred
@@ -338,6 +352,12 @@ class ReportSender:
                 and int(await session.scalar(text(SENT_TODAY)) or 0) >= profile.daily_cap
             ):
                 return  # the cap is per UTC day: it stays pending until tomorrow
+            if req.kind == "send":
+                refusal = await self._desk_refusal(session, req)
+                if refusal is not None:
+                    await self._finish(session, rid, "cancelled", refusal)
+                    log.info("abuse mail request %s cancelled (%s)", rid, refusal)
+                    return
             if req.auto and req.kind == "send" and await self._too_old(session, req):
                 await self._finish(session, rid, "cancelled", "too_old")
                 log.info("abuse mail request %s cancelled (too_old)", rid)
@@ -410,6 +430,39 @@ class ReportSender:
             except DBAPIError:
                 log.warning("abuse report %s was sent but could not be marked", stamp["i"])
         await self._finish(session, req.id, "sent")
+
+    @staticmethod
+    async def _desk_refusal(session: AsyncSession, req: Request) -> str | None:
+        """A cancel code when the report must not go out: a subject is a shared service or on
+        the never list (always, a draft made before the list grew included), or the desk takes
+        only its web form or its address is dead (automatic sends only)."""
+        subjects = (
+            await session.execute(
+                text(
+                    "SELECT s.value FROM abuse_report_subjects s JOIN abuse_reports r "
+                    "ON r.id = s.report_id WHERE s.report_id = :i AND NOT r.demo"
+                ),
+                {"i": req.report_id},
+            )
+        ).scalars()
+        if any(is_excluded_host(_host_of_subject(v)) for v in subjects):
+            return "shared_host"
+        if not req.auto:
+            return None
+        flags = (
+            await session.execute(
+                text(
+                    "SELECT rec.form_only, rec.undeliverable FROM abuse_reports r "
+                    "JOIN abuse_recipients rec ON rec.id = r.recipient_id WHERE r.id = :i"
+                ),
+                {"i": req.report_id},
+            )
+        ).first()
+        if flags is not None and flags.form_only:
+            return "form_only"
+        if flags is not None and flags.undeliverable:
+            return "undeliverable"
+        return None
 
     @staticmethod
     async def _too_old(session: AsyncSession, req: Request) -> bool:

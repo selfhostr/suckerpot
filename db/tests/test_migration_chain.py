@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0034() -> None:
+def test_the_chain_is_linear_up_to_0035() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0034"}
+    assert heads == {"0035"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -103,6 +103,8 @@ def test_the_chain_is_linear_up_to_0034() -> None:
     assert revs["0033"][0] == "0032"
     # Flood groups (kind, connections, fold_session_buckets) follow 0033.
     assert revs["0034"][0] == "0033"
+    # What replies taught us about a recipient (web form only, dead address) follows 0034.
+    assert revs["0035"][0] == "0034"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -444,7 +446,9 @@ def test_m26_reply_columns() -> None:
     assert {"report_id", "classification", "verified", "reviewed_by"} <= api
     assert not api & {"excerpt", "from_address", "message_id_sha256", "received_at"}
     assert "reply_domains" in _update_columns(_GRANTS_API, "abuse_recipients")
-    assert not _update_columns(_GRANTS_INGEST, "abuse_recipients") - {"name"}
+    desk = {"form_only", "form_url", "undeliverable", "hard_bounces"}
+    assert desk <= _update_columns(_GRANTS_API, "abuse_recipients")
+    assert not _update_columns(_GRANTS_INGEST, "abuse_recipients") - {"name"} - desk
 
 
 def test_m26_reply_excerpt_setting() -> None:
