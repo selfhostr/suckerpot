@@ -1247,7 +1247,7 @@ participant_rich() {
     fi
     echo
     printf '  %sNext%s   %s./scripts/participant.sh ports-check%s   once the ports are forwarded\n' "$UI_B" "$UI_R" "$UI_PR" "$UI_R"
-    printf '         %s./scripts/status.sh%s                    any time (probation date, what needs attention)\n' "$UI_PR" "$UI_R"
+    printf '         %s./scripts/status.sh%s                    any time (what needs attention)\n' "$UI_PR" "$UI_R"
     printf '  %sMore%s   docs/participate.md: DMZ, firewall, updates. Take a snapshot of this machine now.\n' "$UI_B" "$UI_R"
     printf '  %sLog%s    %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$LOG")"
   } 1>&"$UI_OUT"

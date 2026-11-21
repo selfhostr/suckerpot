@@ -42,6 +42,8 @@ UI_COLS=80
 UI_LINES=24
 UI_UTF8=0
 UI_NLINES=0
+UI_WIDTHS=""
+UI_STATE_FILE=""
 UI_CUR=-1
 UI_PART=0
 UI_SPIN_PID=""
@@ -84,6 +86,7 @@ ui_init() {
 
   if [ "$UI_MODE" = rich ]; then
     exec {UI_OUT}>&1 {UI_ERR}>&2
+    UI_STATE_FILE=$(mktemp 2> /dev/null || true)
     # From here, anything the script prints by itself lands in the log, never in the display.
     exec >> "$UI_SINK" 2>&1
     _ui_colors
@@ -256,7 +259,7 @@ _ui_progress() {
 
 # _ui_frame SPINFRAME: the list and the bar as one string (one write, so a frame is never cut).
 _ui_frame() {
-  local f=${1:-0} i g col title detail tw=0 line out="" n=0 compact=0 cols=$UI_COLS
+  local f=${1:-0} i g col title detail tw=0 line out="" n=0 compact=0 cols=$UI_COLS widths=""
   for i in "${!UI_TITLES[@]}"; do [ "${#UI_TITLES[$i]}" -le "$tw" ] || tw=${#UI_TITLES[$i]}; done
   tw=$((tw + 3))
   if [ "$cols" -lt 40 ] || [ "$UI_LINES" -lt $((${#UI_IDS[@]} + 6)) ]; then compact=1; fi
@@ -286,6 +289,7 @@ _ui_frame() {
       line="  ${col}${g}${UI_R} ${title}${UI_DIM}${detail}${UI_R}"
     fi
     out+="${line}"$'\n'
+    widths+="$((4 + ${#title} + ${#detail})) "
     n=$((n + 1))
   done
   # The bar: width minus the margins, the percentage and the time.
@@ -306,18 +310,35 @@ _ui_frame() {
       for ((k = full + 1; k < bw; k++)); do bar_rest+=$UI_BAR_EMPTY; done
     fi
   fi
-  if [ "$compact" = 0 ]; then out+=$'\n'; n=$((n + 1)); fi
-  out+="  ${UI_ACC}${bar_done}${UI_R}${UI_DIM}${bar_rest}${UI_R}$(_ui_cut "$tail" $((cols - 3)))"$'\n'
+  if [ "$compact" = 0 ]; then out+=$'\n'; widths+="0 "; n=$((n + 1)); fi
+  tail=$(_ui_cut "$tail" $((cols - 3)))
+  out+="  ${UI_ACC}${bar_done}${UI_R}${UI_DIM}${bar_rest}${UI_R}${tail}"$'\n'
+  [ "$bw" -ge 10 ] || bw=0
+  widths+="$((2 + bw + ${#tail}))"
   n=$((n + 1))
   UI_FRAME_TEXT=$out
   UI_FRAME_LINES=$n
+  UI_FRAME_WIDTHS=$widths
 }
 
 # Erases the list, which ends just above the cursor.
 _ui_clear() {
   [ "$UI_NLINES" -gt 0 ] || return 0
-  printf '\033[%dA\r\033[J' "$UI_NLINES" 1>&"$UI_OUT" 2> /dev/null || true
+  [ "${_ui_resized:-0}" = 0 ] || _ui_size
+  _ui_height
+  printf '\033[%dA\r\033[J' "$UI_H" 1>&"$UI_OUT" 2> /dev/null || true
   UI_NLINES=0
+}
+
+# _ui_height: how many terminal rows the list on screen takes now. A terminal that was made
+# narrower wraps the old lines, so the height is counted with the current width.
+_ui_height() {
+  local w c=$UI_COLS
+  [ "$c" -gt 0 ] || c=80
+  UI_H=0
+  for w in ${UI_WIDTHS:-}; do
+    if [ "$w" -le 0 ]; then UI_H=$((UI_H + 1)); else UI_H=$((UI_H + (w + c - 1) / c)); fi
+  done
 }
 
 _ui_draw() {
@@ -327,6 +348,7 @@ _ui_draw() {
   _ui_clear
   printf '\033[?25l%s' "$UI_FRAME_TEXT" 1>&"$UI_OUT" 2> /dev/null || true
   UI_NLINES=$UI_FRAME_LINES
+  UI_WIDTHS=$UI_FRAME_WIDTHS
 }
 
 # ui_pause: the list leaves the screen and the cursor comes back, so a question or a block of
@@ -375,7 +397,8 @@ _ui_log_count() {
 _ui_spinner() {
   local re=$1 n=$2 expect=$3 off=$4 f=0 c el now
   UI_LOCK_COMPACT=${UI_COMPACT:-0}
-  trap 'exit 0' TERM
+  # On TERM it leaves the widths of its last frame to the main shell, which erases that frame.
+  trap '[ -z "$UI_STATE_FILE" ] || printf "%s" "$UI_WIDTHS" > "$UI_STATE_FILE"; exit 0' TERM
   trap '_ui_resized=1' WINCH
   trap '' INT
   local tick
@@ -392,8 +415,10 @@ _ui_spinner() {
     [ "$UI_PART" -le 950 ] || UI_PART=950
     [ "${_ui_resized:-0}" = 0 ] || _ui_size
     _ui_frame "$f"
-    printf '\033[%dA\r\033[J%s' "$UI_NLINES" "$UI_FRAME_TEXT" 1>&"$UI_OUT" 2> /dev/null || exit 0
+    _ui_height
+    printf '\033[%dA\r\033[J%s' "$UI_H" "$UI_FRAME_TEXT" 1>&"$UI_OUT" 2> /dev/null || exit 0
     UI_NLINES=$UI_FRAME_LINES
+    UI_WIDTHS=$UI_FRAME_WIDTHS
     f=$((f + 1))
     read -r -t 0.12 -u "$tick" _ 2> /dev/null || true
   done
@@ -428,6 +453,7 @@ ui_run() {
   printf -v _ui_run_t0 '%(%s)T' -1
   _ui_in_run=1
   if [ "$UI_ENDED" = 0 ] && [ "$UI_NLINES" -gt 0 ]; then
+    [ -z "$UI_STATE_FILE" ] || : > "$UI_STATE_FILE"
     _ui_spinner "$re" "$n" "$expect" "$off" &
     UI_SPIN_PID=$!
   fi
@@ -446,6 +472,10 @@ _ui_stop_spinner() {
   kill -TERM "$UI_SPIN_PID" 2> /dev/null || true
   wait "$UI_SPIN_PID" 2> /dev/null || true
   UI_SPIN_PID=""
+  local w=""
+  [ -z "$UI_STATE_FILE" ] || w=$(cat "$UI_STATE_FILE" 2> /dev/null || true)
+  [ -z "$w" ] || UI_WIDTHS=$w
+  [ "${_ui_resized:-0}" = 0 ] || _ui_size
 }
 
 # ---------------------------------------------------------------- the end
@@ -539,6 +569,7 @@ _ui_interrupt() {
 ui_exit() {
   [ "$UI_MODE" = rich ] || return 0
   _ui_stop_spinner
+  [ -z "$UI_STATE_FILE" ] || rm -f "$UI_STATE_FILE"
   printf '\033[?25h' 1>&"$UI_OUT" 2> /dev/null || true
   stty echo <&"$UI_OUT" 2> /dev/null || true
 }
