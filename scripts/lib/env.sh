@@ -489,6 +489,20 @@ consent_screen_full() {
 # Needs `set -o pipefail` (every caller has it).
 compose_up_recreating() {
   local out rc=0 down_out net project nets conns c
+  # Podman: the networks are external, made by scripts/ensure-networks.sh, so compose never needs
+  # to recreate one. A network in use that must change (exit 3) stops the stack once first.
+  if [ "${ENGINE_ID:-docker}" = podman ]; then
+    engine_prepare_networks || rc=$?
+    if [ "$rc" = 3 ]; then
+      echo "      a network must be recreated (its options changed): stopping the stack and starting it again once (data volumes are kept)" >&2
+      dc down --remove-orphans || return 1
+      rc=0
+      engine_prepare_networks || rc=$?
+    fi
+    [ "$rc" = 0 ] || return "$rc"
+    dc up "$@"
+    return
+  fi
   out=$(mktemp)
   dc up "$@" 2>&1 | tee "$out" || rc=$?
   if [ "$rc" = 0 ]; then

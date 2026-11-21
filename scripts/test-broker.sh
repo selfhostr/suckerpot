@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/engine.sh
 . scripts/lib/engine.sh
 
-REDIS8_IMAGE=${REDIS8_IMAGE:-redis:8.10.3-alpine3.23@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80}
+REDIS8_IMAGE=${REDIS8_IMAGE:-docker.io/library/redis:8.10.3-alpine3.23@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80}
 P=sp-brokertest-$$
 IMG=$P-image
 NET=$P-net

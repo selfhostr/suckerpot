@@ -8,7 +8,8 @@
 #
 # Needs root: it re-runs itself through sudo when started as another user. It only touches
 # /etc/suckerpot-firewall.nft, /etc/systemd/system/suckerpot-firewall.service and the nftables
-# table "inet suckerpot_host"; Docker's own tables are left alone.
+# table "inet suckerpot_host" (on Podman also "bridge suckerpot_bridge"); the engine's own tables
+# are left alone.
 #
 # Exit codes: 0 done; 2 bad arguments; 3 nft or systemctl missing; 4 FILE refused (placeholder
 # left, or `nft -c` failed); 5 loading or verifying failed (the previous table, if any, stays).
@@ -49,6 +50,7 @@ command -v systemctl > /dev/null 2>&1 || fail 3 "systemctl not found: load it by
 if [ "$1" = --uninstall ]; then
   systemctl disable --now "$unit" > /dev/null 2>&1 || true
   nft delete table inet suckerpot_host > /dev/null 2>&1 || true
+  nft delete table bridge suckerpot_bridge > /dev/null 2>&1 || true
   rm -f "$unit_path" "$target"
   systemctl daemon-reload
   echo "install-firewall: removed; the host firewall table is no longer loaded"
@@ -81,6 +83,10 @@ systemctl enable "$unit" > /dev/null 2>&1 || fail 5 "systemctl enable $unit fail
 # restart: loads the new file even when the unit was already active (the file is idempotent).
 systemctl restart "$unit" || fail 5 "the unit failed to load the table: journalctl -u $unit"
 nft list table inet suckerpot_host > /dev/null 2>&1 || fail 5 "table inet suckerpot_host is not loaded"
+# A Podman rendering also holds the bridge table (sensor-to-sensor drops).
+if grep -q '^table bridge suckerpot_bridge' "$target"; then
+  nft list table bridge suckerpot_bridge > /dev/null 2>&1 || fail 5 "table bridge suckerpot_bridge is not loaded"
+fi
 
 cat << EOF
 install-firewall: loaded table inet suckerpot_host; it is reloaded after every reboot ($unit).

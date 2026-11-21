@@ -1,0 +1,24 @@
+# Starts the SuckerPot stack at boot on Podman (docs/dev/design/podman.md, section 5.7). Docker
+# needs no such unit: its daemon restarts the containers itself. Podman has no daemon, and the
+# containers must not start before the host firewall is loaded: Requires= and After= below.
+# Install: scripts/host/install-stack-unit.sh (it fills in the placeholders).
+[Unit]
+Description=SuckerPot stack (Podman)
+Wants=network-online.target
+After=network-online.target podman.socket @FIREWALL_UNIT@
+Requires=podman.socket @FIREWALL_UNIT@
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The installing user, who reaches the root Podman socket through its group (design D3).
+User=@USER@
+WorkingDirectory=@CHECKOUT@
+Environment=DOCKER_HOST=unix:///run/podman/podman.sock
+# Creates or fixes the sp-* networks; refuses when .env lacks the Podman overlay.
+ExecStartPre=/bin/bash @CHECKOUT@/scripts/ensure-networks.sh
+ExecStart=@COMPOSE@ up -d --no-build --pull never --wait --wait-timeout 600
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

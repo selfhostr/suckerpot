@@ -54,6 +54,8 @@ up *flags: _need-project ports
     set -euo pipefail
     . scripts/lib/engine.sh
     bash scripts/ensure-volumes.sh "$@"
+    # Podman: creates the sp-* networks (docker-compose.podman.yml marks them external).
+    engine_prepare_networks
     if [ "${SUCKERPOT_INSTALL_MODE:-source}" = images ]; then
       # Release images are pulled and verified by the installer and the updater: never build over them.
       # An image that is not local was never verified: --pull never fails instead of fetching it.
@@ -109,6 +111,11 @@ guardrails:
 # Live check of the anonymous egress (needs the stack up with COMPOSE_PROFILES=egress).
 egress-check: _need-project
     scripts/egress-check.sh
+
+# Live check of the sensor isolation only (any profile, Docker or Podman): no outside DNS, no way
+# out, no other sensor, no host port. Also part of egress-check.
+isolation-check: _need-project
+    scripts/egress-check.sh --isolation
 
 # Live identity check of every abuse report and CERT export (M22). Prints reason codes and counts only.
 abuse-guard-check: _need-project

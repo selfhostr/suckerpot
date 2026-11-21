@@ -28,6 +28,18 @@
 #
 # Docker's own rules are left alone. This table only adds drops, at a higher
 # priority than Docker's chains, so it cannot be bypassed by published ports.
+#podman: #
+#podman: # Podman (docs/dev/design/podman.md). Lines that start with "#podman: " are for Podman
+#podman: # nodes only: the renderer turns them into rules there and removes them on Docker. Filled
+#podman: # in by hand, they stay comments. Podman ignores the Docker network options that block
+#podman: # outbound traffic and traffic between containers, and keeps a host address on every
+#podman: # bridge, so on Podman this firewall is required, not optional.
+#podman: #   7. Containers resolve service names through aardvark-dns, a host process on the gateway
+#podman: #      address of each bridge with DNS on: only port 53, only to the address of the bridge
+#podman: #      the query came in on, only on the internal bridges and sp-hubgate.
+#podman: #   8. Containers on Podman's own networks (podman*) cannot reach the protected ports.
+#podman: #   9. Table "bridge suckerpot_bridge": no frame between two members of sp-ingress,
+#podman: #      sp-dashboard, sp-vpn or sp-hubgate (what enable_icc=false does on Docker).
 
 # Replace with the port of the host's admin SSH daemon (a number, e.g. 2200).
 define ADMIN_SSH_PORT = CHANGE_ME
@@ -63,6 +75,9 @@ table inet suckerpot_host {
     iifname "lo" accept
     ct state established,related accept
 
+#podman:     # (7) DNS to aardvark-dns on the bridge's own gateway address, before the drops below.
+#podman:     iifname { "sp-s-*", "sp-backend", "sp-tools", "sp-egress", "sp-samples", "sp-hubproxy", "sp-hubgate" } ct state new fib daddr . iif type local meta l4proto { tcp, udp } th dport 53 counter accept
+#podman:
     # (1) Sensor and dashboard containers may not talk to the host at all. Every rule below
     #     that names an sp-* bridge drops everything that is not a reply (new, invalid or
     #     untracked): containers never need to reach the host.
@@ -87,6 +102,8 @@ table inet suckerpot_host {
     #     interface (not by address) is independent of the address pool Docker
     #     picks, and it never touches your LAN.
     iifname { "docker0", "br-*", "sp-*" } ct state new tcp dport @protected_ports counter drop
+#podman:     # (8) Nor any container on Podman's own networks.
+#podman:     iifname "podman*" ct state new tcp dport @protected_ports counter drop
   }
 
   chain forward {
@@ -126,3 +143,18 @@ table inet suckerpot_host {
   #   udp dport 5060 ct state new meter sip_new { ip saddr timeout 60s limit rate over 20/second burst 40 packets } counter drop
   # }
 }
+#podman:
+#podman: # (9) Podman: no frame between two members of the bridges where Docker turns off
+#podman: #     inter-container traffic. Frames between two ports of one bridge never reach the inet
+#podman: #     forward hook (there is no br_netfilter), so this needs the bridge family. Replies to
+#podman: #     inbound connections and published ports are routed by the host, not bridged: they
+#podman: #     are not affected.
+#podman: add table bridge suckerpot_bridge
+#podman: delete table bridge suckerpot_bridge
+#podman:
+#podman: table bridge suckerpot_bridge {
+#podman:   chain forward {
+#podman:     type filter hook forward priority -10; policy accept;
+#podman:     meta ibrname { "sp-ingress", "sp-dashboard", "sp-vpn", "sp-hubgate" } counter drop
+#podman:   }
+#podman: }

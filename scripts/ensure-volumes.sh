@@ -38,7 +38,7 @@ if [ "${#volumes[@]}" -lt 10 ]; then
   echo "ensure-volumes: could not read the volume names from docker-compose.yml" >&2
   exit 1
 fi
-image=$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)
+image=$(engine_image "$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)")
 if [ -z "$image" ]; then
   echo "ensure-volumes: could not read the db image from docker-compose.yml" >&2
   exit 1

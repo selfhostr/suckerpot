@@ -13,7 +13,7 @@ HTTP_PORT=${HTTP_HOST_PORT:-80}
 API_URL=${API_URL:-http://127.0.0.1:${DASHBOARD_PORT:-8443}}
 
 echo "== HTTP requests against 127.0.0.1:${HTTP_PORT}"
-ctr run --rm --network host --entrypoint sh curlimages/curl:8.11.1 -c "
+ctr run --rm --network host --entrypoint sh docker.io/curlimages/curl:8.11.1 -c "
   set -e
   base=http://127.0.0.1:${HTTP_PORT}
   curl -sS -o /dev/null -w 'wp-login: %{http_code}\n' -A 'Mozilla/5.0 ci-test' \

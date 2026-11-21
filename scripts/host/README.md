@@ -209,6 +209,28 @@ sudo scripts/host/install-firewall.sh --uninstall   # or, for this boot only: su
 By hand: `sudo systemctl disable --now suckerpot-firewall.service`, then
 `sudo rm /etc/systemd/system/suckerpot-firewall.service /etc/suckerpot-firewall.nft && sudo systemctl daemon-reload`.
 
+## Podman (not supported by the installer yet)
+
+Podman support is in progress (`docs/dev/design/podman.md`); the installer still refuses Podman.
+What differs, for reference:
+
+- Podman ignores the Docker network options that block outbound traffic and traffic between
+  sensors, and keeps a host address on every bridge. So on Podman this firewall is **required**:
+  the installer will refuse to finish without it, unless `--no-firewall` says you filter
+  elsewhere (`SUCKERPOT_NO_FIREWALL=1` in `.env`).
+- `render-firewall.sh --engine podman` (the default when `.env` says `SUCKERPOT_ENGINE=podman`)
+  turns the `#podman: ` lines of the templates into rules: DNS to aardvark-dns on the bridge's own
+  address, the `podman*` bridges in the protected-ports rule, and a second table,
+  `bridge suckerpot_bridge`, that drops every frame between two members of `sp-ingress`,
+  `sp-dashboard`, `sp-vpn` and `sp-hubgate`. On Docker those lines are removed: the Docker
+  rendering does not change.
+- The networks are created by `scripts/ensure-networks.sh`, not by compose
+  (`docker-compose.podman.yml` marks them external).
+- `install-stack-unit.sh USER CHECKOUT` installs `suckerpot-stack.service`, which starts the stack
+  at boot only after `suckerpot-firewall.service` (Podman has no daemon to do it).
+- Check it: `just isolation-check` (no outside DNS, no way out, no other sensor, no host port
+  from each sensor; on Podman also the networks, the firewall and the boot unit).
+
 ## Proxmox firewall
 
 The nftables table above runs inside the VM. If the VM runs on Proxmox VE, add the hypervisor

@@ -13,6 +13,8 @@ ExecStartPre=/bin/sh -c '! grep -q CHANGE_ME /etc/suckerpot-firewall.nft'
 ExecStartPre=/usr/sbin/nft -c -f /etc/suckerpot-firewall.nft
 ExecStart=/usr/sbin/nft -f /etc/suckerpot-firewall.nft
 ExecStop=/usr/sbin/nft delete table inet suckerpot_host
+# Podman renderings only (sensor-to-sensor drops); "-": absent on Docker.
+ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge
 
 [Install]
 WantedBy=multi-user.target

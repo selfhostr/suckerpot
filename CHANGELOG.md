@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Podman support, phase 2 (the security core; the installer still refuses Podman):
+  `docker-compose.podman.yml` and `scripts/ensure-networks.sh` (SuckerPot creates the sp-*
+  networks with `isolate=strict`, `--internal` and `--disable-dns`), Podman lines in the host
+  firewall templates (aardvark-dns DNS, `podman*` bridges, a `bridge suckerpot_bridge` table that
+  blocks sensor-to-sensor traffic), the firewall made required on Podman (with an opt-out), and a
+  `suckerpot-stack.service` boot unit that starts the stack only after the firewall. Docker nodes
+  do not change: the Docker firewall rendering is byte-for-byte the same.
+- `just isolation-check` (also part of `just egress-check`): from each running sensor, service
+  names resolve, outside names do not, and there is no connection to the internet, to another
+  sensor, or to the host's SSH and dashboard ports. Runs on Docker too; without the host firewall
+  on Docker, a reachable host port is a note, not a failure.
+
 ### Changed
 
 - Internal, no behaviour change: the host scripts call the container engine through

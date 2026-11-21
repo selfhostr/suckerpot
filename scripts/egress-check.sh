@@ -7,17 +7,27 @@
 #   scripts/egress-check.sh           everything, including the kill-switch tests
 #                                     (briefly takes the tunnel down, then stops/starts vpn)
 #   scripts/egress-check.sh --quick   read-only checks only
+#   scripts/egress-check.sh --isolation   only the sensor isolation checks (any profile, also a
+#                                     full install without the VPN)
 #
 # With COMPOSE_PROFILES=direct (participant stack, M32) it checks the direct mode instead:
 # hubproxy is the only way out, and only to the allowed names. The VPN checks below are
 # then skipped; no kill-switch test applies (there is no tunnel).
+#
+# Both modes also check the isolation of the sensors (no outside DNS, no way out, no other sensor,
+# no host port), on Docker and on Podman. On Podman they also check the sp-* networks, the host
+# firewall and the boot unit, which carry guarantees that Docker gives by itself.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/engine.sh
 . scripts/lib/engine.sh || exit 1
 
 quick=0
-[ "${1:-}" = "--quick" ] && quick=1
+isolation_only=0
+case ${1:-} in
+  --quick) quick=1 ;;
+  --isolation) isolation_only=1 ;;
+esac
 
 fails=0
 pass() { printf 'PASS  %s\n' "$1"; }
@@ -31,6 +41,153 @@ selftest() { local svc=$1; shift; dc exec -T "$svc" python -m suckerpot_egress.s
 
 # Direct mode (M32): ingest has no route and no DNS; hubproxy tunnels to the allowed names only.
 env_value() { local v=${!1:-}; [ -n "$v" ] || v=$(sed -n "s/^$1=//p" .env 2>/dev/null | tail -n 1); printf '%s' "$v"; }
+
+# --- Isolation of the sensors (both engines; docs/dev/design/podman.md, section 7 and D10) -------
+# From inside each running sensor: service names resolve, outside names do not, no connection to
+# the internet, to another sensor, or to the host's SSH and dashboard ports. One python process per
+# sensor runs every probe at once; it prints "probe yes" or "probe no" (did it succeed).
+SENSOR_PROBE='
+import socket, sys, threading
+res = {}
+def run(item):
+    kind, _, target = item.partition(":")
+    try:
+        if kind == "resolve":
+            socket.getaddrinfo(target, None)
+        else:
+            host, _, port = target.rpartition(":")
+            socket.create_connection((host, int(port)), timeout=3).close()
+        res[item] = "yes"
+    except Exception:
+        res[item] = "no"
+threads = [threading.Thread(target=run, args=(i,), daemon=True) for i in sys.argv[1:]]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join(10)
+for i in sys.argv[1:]:
+    print(i, res.get(i, "no"))
+'
+# A public address and name for the "no way out" probes (never contacted when isolation holds).
+PROBE_IP=1.1.1.1
+PROBE_NAME=example.com
+
+# note "label": printed, never counted as a failure.
+note() { printf 'NOTE  %s\n' "$1"; }
+# probe_ok PROBE: the probe succeeded in the last sensor run ($out).
+probe_ok() { grep -qx "$1 yes" <<< "$out"; }
+
+isolation_checks() {
+  local sensors=() probes=() reached=() host_ports=() s cid gws addrs next i p g a host_strict=0 admin dash target_ports published
+  echo "-- sensor isolation ($(engine_name))"
+  if [ "$ENGINE_ID" = podman ]; then
+    check "podman: every sp-* network has its options (isolate=strict, internal, no DNS on sp-ingress, sp-dashboard, sp-vpn)" \
+      bash scripts/ensure-networks.sh --check
+    check "podman: host firewall loaded (suckerpot-firewall.service active)" \
+      systemctl is-active --quiet suckerpot-firewall.service
+    if systemctl show -p Requires --value suckerpot-stack.service 2>/dev/null | grep -qw suckerpot-firewall.service; then
+      pass "podman: the boot unit starts the stack only after the host firewall"
+    else
+      fail "podman: the boot unit starts the stack only after the host firewall (suckerpot-stack.service missing or without Requires=suckerpot-firewall.service)"
+    fi
+  fi
+  # The host ports are the host firewall's job. On Docker it is optional: without it, a reachable
+  # port is a NOTE. On Podman it is required: a FAIL.
+  if [ "$ENGINE_ID" = podman ] || systemctl is-active --quiet suckerpot-firewall.service 2>/dev/null; then
+    host_strict=1
+  fi
+  admin=$(env_value ADMIN_SSH_PORT)
+  dash=$(env_value DASHBOARD_PORT)
+  mapfile -t sensors < <(dc ps --status running --format '{{.Service}}' 2>/dev/null | grep '^sensor-' | sort -u)
+  if [ "${#sensors[@]}" -eq 0 ]; then
+    note "no sensor is running: sensor isolation not checked"
+    return 0
+  fi
+  # The host ports to probe: the admin SSH port (22 when .env does not say) and the dashboard port,
+  # minus the ports a sensor publishes: a probe there would only reach that sensor (and add a fake
+  # event to its data), not the host.
+  published=" "
+  for s in "${sensors[@]}"; do
+    cid=$(dc ps -q "$s" 2>/dev/null | head -n 1)
+    [ -n "$cid" ] || continue
+    published+=$(ctr inspect -f '{{range $p, $b := .NetworkSettings.Ports}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$cid" 2>/dev/null)" "
+  done
+  host_ports=()
+  for p in "${admin:-22}" "${dash:-8443}"; do
+    case "$published" in *" $p "*) continue ;; esac
+    host_ports+=("$p")
+  done
+  for i in "${!sensors[@]}"; do
+    s=${sensors[$i]}
+    cid=$(dc ps -q "$s" 2>/dev/null | head -n 1)
+    [ -n "$cid" ] || continue
+    gws=$(ctr inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}} {{end}}' "$cid" 2>/dev/null)
+    # The next sensor in the list: its addresses and listening ports are the targets.
+    next=${sensors[$(( (i + 1) % ${#sensors[@]} ))]}
+    addrs=""
+    target_ports=""
+    if [ "$next" != "$s" ]; then
+      a=$(dc ps -q "$next" 2>/dev/null | head -n 1)
+      if [ -n "$a" ]; then
+        addrs=$(ctr inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$a" 2>/dev/null)
+        target_ports=$(ctr inspect -f '{{range $p, $c := .NetworkSettings.Ports}}{{$p}} {{end}}' "$a" 2>/dev/null |
+          tr ' ' '\n' | sed -n 's|/tcp$||p')
+      fi
+    fi
+    probes=("resolve:redis" "resolve:$PROBE_NAME" "connect:$PROBE_IP:443")
+    for g in $gws; do
+      for p in "${host_ports[@]}"; do probes+=("connect:$g:$p"); done
+    done
+    for a in $addrs; do
+      for p in $target_ports; do probes+=("connect:$a:$p"); done
+    done
+    out=$(timeout 30 "${ENGINE_DC[@]}" exec -T "$s" python -c "$SENSOR_PROBE" "${probes[@]}" 2>/dev/null)
+    if [ -z "$out" ]; then
+      fail "$s: isolation probe did not run"
+      continue
+    fi
+    if probe_ok "resolve:redis"; then pass "$s: resolves service names (redis)"; else fail "$s: resolves service names (redis)"; fi
+    if probe_ok "resolve:$PROBE_NAME"; then fail "$s: cannot resolve outside names"; else pass "$s: cannot resolve outside names"; fi
+    if probe_ok "connect:$PROBE_IP:443"; then fail "$s: no connection to the internet"; else pass "$s: no connection to the internet"; fi
+    reached=()
+    for g in $gws; do
+      for p in "${host_ports[@]}"; do probe_ok "connect:$g:$p" && reached+=("$p"); done
+    done
+    [ "${#reached[@]}" -eq 0 ] || mapfile -t reached < <(printf '%s\n' "${reached[@]}" | sort -un)
+    if [ -z "$gws" ]; then
+      pass "$s: no host address on its networks"
+    elif [ "${#reached[@]}" -eq 0 ]; then
+      pass "$s: cannot reach the host's SSH or dashboard port"
+    elif [ "$host_strict" = 1 ]; then
+      fail "$s: cannot reach the host's SSH or dashboard port (reached port(s) ${reached[*]})"
+    else
+      note "$s: reaches the host on port(s) ${reached[*]}; install the host firewall (scripts/host/README.md) to close that"
+    fi
+    if [ -z "$addrs" ] || [ -z "$target_ports" ]; then
+      [ "$next" = "$s" ] || note "$s: no address or port of $next to probe"
+    else
+      reached=()
+      for a in $addrs; do
+        for p in $target_ports; do probe_ok "connect:$a:$p" && reached+=("$a:$p"); done
+      done
+      if [ "${#reached[@]}" -eq 0 ]; then
+        pass "$s: cannot reach another sensor ($next)"
+      else
+        fail "$s: cannot reach another sensor ($next; reached ${#reached[@]} address and port pair(s))"
+      fi
+    fi
+  done
+}
+if [ "$isolation_only" -eq 1 ]; then
+  isolation_checks
+  if [ "$fails" -gt 0 ]; then
+    echo "egress-check: $fails check(s) failed" >&2
+    exit 1
+  fi
+  echo "egress-check: all isolation checks passed"
+  exit 0
+fi
+
 direct=0
 case ",$(env_value COMPOSE_PROFILES)," in *,direct,*) direct=1 ;; esac
 if [ "$direct" -eq 1 ]; then
@@ -55,6 +212,7 @@ if [ "$direct" -eq 1 ]; then
   for svc in redis db; do
     check_not "$svc: no direct route out" dc exec -T "$svc" sh -c 'exec 3<>/dev/tcp/1.1.1.1/443' 
   done
+  isolation_checks
   if [ "$fails" -gt 0 ]; then
     echo "egress-check: $fails check(s) failed" >&2
     exit 1
@@ -126,6 +284,8 @@ check "vpn: /vpn-config is read-only" dc exec -T vpn sh -c '! touch /vpn-config/
 
 # The analyzer has no way out at all.
 check "analyzer: no direct route, no proxy" selftest analyzer --direct --no-connect vpn:8888
+
+isolation_checks
 
 if [ "$quick" -eq 0 ]; then
   echo "-- kill switch (the tunnel goes down for a short while)"

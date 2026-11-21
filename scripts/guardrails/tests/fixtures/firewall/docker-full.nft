@@ -1,0 +1,128 @@
+#!/usr/sbin/nft -f
+# SuckerPot host firewall (nftables), full mode (dashboard, optional VPN). Render it with
+#
+#   scripts/host/render-firewall.sh --full --admin-ssh-port <port> [--dashboard-port <port>] \
+#     [--vpn-endpoint <ip>:<port>] --out FILE
+#
+# and install it with `scripts/host/install-firewall.sh FILE`, or fill in the placeholder values by
+# hand. A participant node (no dashboard, no VPN) uses firewall-participant.nft instead.
+# See scripts/host/README.md for how to persist, verify and roll back.
+#
+# What it does
+#   1. Containers on the internet-facing sensor network (sp-ingress) and on the
+#      dashboard network (sp-dashboard) can never open NEW connections to the
+#      host itself. Neither can the internal networks (sp-s-*, sp-backend, sp-tools,
+#      sp-egress, sp-samples, sp-hubproxy): on Docker Engine 28 or later they have no
+#      host address at all (isolated gateway), and this rule covers older engines.
+#   2. Containers on ANY Docker network (docker0, br-*, sp-*) cannot
+#      reach the host's admin SSH port or the dashboard port.
+#   3. Containers on sp-ingress and sp-dashboard cannot open NEW connections
+#      through the host (no egress, no sensor-to-sensor traffic, no scanning of
+#      the LAN). Replies to inbound connections still work.
+#   4. The vpn container (sp-vpn) may only open WireGuard to its one endpoint, and the proxy and
+#      sample networks cannot talk to the host.
+#   5. Participant mode without a VPN (M32): the hubproxy uplink (sp-hubgate) may only open
+#      new TCP connections to port 443 on public addresses, and UDP 53 to the resolvers in
+#      HUBGATE_DNS; its proxy network (sp-hubproxy) cannot talk to the host.
+#   6. No IPv6 is forwarded from any SuckerPot network (the networks have no IPv6).
+#
+# Docker's own rules are left alone. This table only adds drops, at a higher
+# priority than Docker's chains, so it cannot be bypassed by published ports.
+
+# Replace with the port of the host's admin SSH daemon (a number, e.g. 2200).
+define ADMIN_SSH_PORT = 2200
+# Replace with DASHBOARD_PORT from your .env (default 8443).
+define DASHBOARD_PORT = 8443
+# The VPN server your WireGuard config points at (VPN_WG_ENDPOINT_IP / VPN_WG_ENDPOINT_PORT
+# in .env). Example values: 203.0.113.10 and 51820. Without the egress profile, use 127.0.0.1
+# and 51820: a forwarded packet never goes to loopback, so the rule then matches nothing.
+define VPN_ENDPOINT_IP = 203.0.113.10
+define VPN_ENDPOINT_PORT = 51820
+# Only for the `direct` profile (hubproxy): the upstream resolvers Docker's embedded resolver
+# forwards to. That resolver sends each query from the container's own network namespace, so it
+# leaves through sp-hubgate to the servers Docker read from the host (/etc/resolv.conf, or
+# /run/systemd/resolve/resolv.conf when the former only lists the systemd-resolved stub
+# 127.0.0.53). Loopback upstreams are queried from the host namespace and need no entry.
+# render-firewall.sh fills this in; 127.0.0.1 alone means "no DNS from sp-hubgate".
+define HUBGATE_DNS = { 192.0.2.53, 198.51.100.53 }
+
+# Idempotent: create (no-op if it exists), delete, then define again.
+add table inet suckerpot_host
+delete table inet suckerpot_host
+
+table inet suckerpot_host {
+  set protected_ports {
+    type inet_service
+    elements = { $ADMIN_SSH_PORT, $DASHBOARD_PORT }
+  }
+
+  chain input {
+    type filter hook input priority -10; policy accept;
+
+    # Never trust loopback or already-established traffic.
+    iifname "lo" accept
+    ct state established,related accept
+
+    # (1) Sensor and dashboard containers may not talk to the host at all. Every rule below
+    #     that names an sp-* bridge drops everything that is not a reply (new, invalid or
+    #     untracked): containers never need to reach the host.
+    iifname { "sp-ingress", "sp-dashboard" } counter drop
+
+    # (1) Nor may the internal networks (no host address there on Docker Engine 28 or later).
+    iifname { "sp-s-*", "sp-backend", "sp-tools" } counter drop
+
+    # (4) The vpn container never talks to the host. Neither do the proxy and sample networks:
+    #     the bridge gateway is the host, and the proxy could otherwise be asked to CONNECT to
+    #     the host's published ports through it.
+    iifname { "sp-vpn", "sp-egress", "sp-samples" } counter drop
+
+    # (5) Participant mode without a VPN (M32): the proxy network (sp-hubproxy) never talks to
+    #     the host, and hubproxy (sp-hubgate) only asks for DNS, and only if a resolver is the
+    #     host itself. No effect when those networks do not exist.
+    iifname "sp-hubproxy" counter drop
+    iifname "sp-hubgate" ct state new ip daddr $HUBGATE_DNS udp dport 53 counter accept
+    iifname "sp-hubgate" counter drop
+
+    # (2) No container may reach the protected ports of the host. Matching by
+    #     interface (not by address) is independent of the address pool Docker
+    #     picks, and it never touches your LAN.
+    iifname { "docker0", "br-*", "sp-*" } ct state new tcp dport @protected_ports counter drop
+  }
+
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+
+    # Replies to connections that came in from the internet are fine.
+    ct state established,related accept
+
+    # (6) No IPv6 from any SuckerPot network.
+    iifname "sp-*" meta nfproto ipv6 counter drop
+
+    # (3) Nothing but replies may leave the sensor or dashboard networks (new, invalid and
+    #     untracked are dropped). The internal bridges get no forward rule: their members talk
+    #     to each other across the bridge.
+    iifname { "sp-ingress", "sp-dashboard" } counter drop
+
+    # (4) From the vpn uplink, only WireGuard to the one endpoint.
+    iifname "sp-vpn" ct state new ip daddr $VPN_ENDPOINT_IP udp dport $VPN_ENDPOINT_PORT counter accept
+    iifname "sp-vpn" counter drop
+
+    # (5) From the hubproxy uplink, only DNS to the resolvers above, then TCP 443 (the hub and
+    #     feed hosts, which hubproxy itself allow-lists by name) to public unicast addresses.
+    #     Without this table, hubproxy is the only control.
+    iifname "sp-hubgate" ct state new ip daddr $HUBGATE_DNS udp dport 53 counter accept
+    iifname "sp-hubgate" ct state new ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } counter drop  # gitleaks:allow (private ranges are the point of this rule)
+    iifname "sp-hubgate" ct state new tcp dport 443 counter accept
+    iifname "sp-hubgate" counter drop
+  }
+
+  # OPTIONAL: rate-limit new SIP flows (udp/5060) before they reach the sensor. The
+  # sensor already caps its own replies; this protects the conntrack table. Docker
+  # publishes the port through DNAT, so the packets traverse "forward". Uncomment, then
+  # re-apply the file, and check `nft list table inet suckerpot_host` afterwards.
+  #
+  # chain sip_limit {
+  #   type filter hook forward priority -11; policy accept;
+  #   udp dport 5060 ct state new meter sip_new { ip saddr timeout 60s limit rate over 20/second burst 40 packets } counter drop
+  # }
+}

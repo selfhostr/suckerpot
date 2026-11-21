@@ -2,9 +2,10 @@
 # The host firewall step (scripts/host/): render the rules for this install, then offer to load
 # them. Sourced by install.sh and participant.sh; needs scripts/lib/env.sh (env_get).
 #
-# Nothing here is ever fatal: a missing sudo, a refused file or a "no" only prints the two commands
-# to run later. The rendered file holds the admin SSH port, so it stays in the untracked state
-# folder (.suckerpot-state/, listed in .gitignore) with mode 0600.
+# On Docker nothing here is ever fatal: a missing sudo, a refused file or a "no" only prints the two
+# commands to run later. On Podman the firewall is required (fw_step_required): a failure returns 1.
+# The rendered file holds the admin SSH port, so it stays in the untracked state folder
+# (.suckerpot-state/, listed in .gitignore) with mode 0600.
 
 FW_STATE_DIR=.suckerpot-state
 FW_FILE=$FW_STATE_DIR/host-firewall.nft
@@ -54,6 +55,7 @@ fw_render_args() {
   ep_ip=$(env_get VPN_WG_ENDPOINT_IP)
   ep_port=$(env_get VPN_WG_ENDPOINT_PORT)
   if [ -n "$ep_ip" ] && [ -n "$ep_port" ]; then printf '%s\n' --vpn-endpoint "$ep_ip:$ep_port"; fi
+  if [ "${ENGINE_ID:-docker}" = podman ]; then printf '%s\n' --engine podman; fi
 }
 
 # fw_print_commands MODE PORT: what to run later, and why.
@@ -88,12 +90,66 @@ fw_can_sudo() {
   command -v sudo > /dev/null 2>&1 && sudo -n true > /dev/null 2>&1
 }
 
+# fw_opted_out: true when the owner said the host firewall is handled elsewhere (installer flag
+# --no-firewall, which writes SUCKERPOT_NO_FIREWALL=1 to .env; or the variable in the environment).
+fw_opted_out() {
+  [ "${SUCKERPOT_NO_FIREWALL:-$(env_get SUCKERPOT_NO_FIREWALL)}" = 1 ]
+}
+
+# fw_required: true when the install must not finish without the host firewall: on Podman, unless
+# the owner opted out (docs/dev/design/podman.md, decision D5). Never on Docker.
+fw_required() {
+  [ "${ENGINE_ID:-docker}" = podman ] && ! fw_opted_out
+}
+
+# fw_step_required MODE [ASK_FD|auto]: the Podman firewall step. Nothing is asked: the firewall is
+# rendered and installed (sudo may ask for a password on a terminal; with "auto" it must work
+# without one). Returns 1 when the firewall is not loaded, so the caller stops: on Podman the
+# firewall carries guarantees that Docker gives by itself. With the opt-out it only warns.
+fw_step_required() {
+  local mode=$1 fd=${2:-} rc=0
+  echo
+  echo "Host firewall (required on Podman)"
+  if fw_opted_out; then
+    echo "  WARNING: skipped (--no-firewall). On Podman the network options that keep sensors"
+    echo "  off the internet and away from each other are not applied by the engine: without this"
+    echo "  firewall, a compromised sensor can open connections out and reach the other sensors."
+    echo "  Filter the sp-* bridges yourself, or install it later: ./scripts/participant.sh firewall"
+    return 0
+  fi
+  FW_PORT=22
+  fw_render "$mode" || rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "  The firewall rules could not be rendered (exit $rc). On Podman the stack does not start without them."
+    fw_print_commands "$mode" "$FW_PORT"
+    return 1
+  fi
+  if [ "$fd" = auto ] && ! fw_can_sudo; then
+    echo "  The host firewall needs sudo, which asks for a password here. On Podman the stack does not start without it. Run:"
+    echo "    scripts/host/install-firewall.sh $FW_FILE"
+    return 1
+  fi
+  rc=0
+  bash scripts/host/install-firewall.sh "$FW_FILE" || rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "  The host firewall was not installed (exit $rc). On Podman the stack does not start without it."
+    fw_print_commands "$mode" "$FW_PORT"
+    return 1
+  fi
+  echo "  The host firewall is loaded and starts at every boot (on Podman, before the stack)."
+  return 0
+}
+
 # fw_step MODE [ASK_FD|auto]: render and, when a terminal answers yes, install. ASK_FD is a file
 # descriptor to read the answer from. With "auto" (--yes) nothing is asked: it installs when sudo
 # works without a password, and otherwise prints the one command to run. With nothing, it only
-# prints the commands (no terminal).
+# prints the commands (no terminal). On Podman it is fw_step_required instead (never optional).
 fw_step() {
   local mode=$1 fd=${2:-} rc=0 ans="" auto=0
+  if [ "${ENGINE_ID:-docker}" = podman ]; then
+    fw_step_required "$@"
+    return
+  fi
   if [ "$fd" = auto ]; then auto=1; fd=""; fi
   echo
   echo "Host firewall"

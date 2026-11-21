@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 file=${1:-}
-image=$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)
+image=$(engine_image "$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)")
 backups_volume=${SUCKERPOT_BACKUPS_VOLUME:-${SUCKERPOT_VOLUME_PREFIX:?SUCKERPOT_VOLUME_PREFIX must be set}_backups}
 # Runs a command on the backups volume (read-only, no network).
 in_backups() {
