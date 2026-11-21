@@ -268,3 +268,21 @@ async def test_relay_off_contacts_nothing(env_factory: Any, tmp_path: Path) -> N
     async with up.client() as client, env.worker() as ses:
         out = await tr.relay_once(ses, env.settings, NOW, client)
     assert out.status == "off" and up.requests == [] and await _row(env) is None
+
+
+def test_the_signature_is_renamed_in_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security review of #163: the signature, then the bundle right after it."""
+    import os
+
+    from hub import trap_relay
+
+    order: list[str] = []
+    real = os.replace
+
+    def spy(src: object, dst: object) -> None:
+        order.append(Path(str(dst)).name)
+        real(src, dst)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "replace", spy)
+    trap_relay.publish_files(tmp_path, b"{}", b"sig")
+    assert order == ["traps.json.minisig", "traps.json", "traps.json.gz"]

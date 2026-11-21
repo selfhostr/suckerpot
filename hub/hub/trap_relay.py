@@ -173,10 +173,12 @@ def published_ok(root: Path, sha256: str | None, sig_sha256: str | None) -> bool
 
 
 def publish_files(root: Path, data: bytes, sig: bytes) -> None:
-    """Write the bundle, its signature and a gzip copy, each with an atomic rename. The bundle and
-    signature bytes are exactly the ones downloaded."""
+    """Write the signature, the bundle and a gzip copy, each with an atomic rename, the signature
+    first and the bundle right after it, so the window where the two do not match is as short as
+    two renames. The bundle and signature bytes are exactly the ones downloaded."""
     root.mkdir(mode=DIR_MODE, parents=True, exist_ok=True)
-    for name, body in ((tb.FILE + ".gz", gz(data)), (tb.FILE, data), (SIG, sig)):
+    packed = gz(data)
+    for name, body in ((SIG, sig), (tb.FILE, data), (tb.FILE + ".gz", packed)):
         tmp = root / f".tmp-{name}-{secrets.token_hex(4)}"
         try:
             tmp.write_bytes(body)
