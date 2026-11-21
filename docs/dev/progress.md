@@ -386,3 +386,13 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - The reply reader suggests the mail provider name from recent headers, only when several senders agree. The owner set it by hand on the home node the same day.
 - Migrations 0036 (blocklist demo index) and 0037 (`trap_state`). New volume `trap-packs`, created by the update.
 
+## 2026-11-21: v0.12.2 (installer display, network health, Podman groundwork)
+
+- Pull requests #166 to #174 since v0.12.1. The details are in `CHANGELOG.md`.
+- Found on real participant nodes: a reinstalled node was refused with `pseudonym_taken` (its own earlier install held the name), stopped trying, and `status` still said "Member". Status now shows refused joins and network errors, `join` really clears them, the node retries by itself, and the hub frees the name of a never-batched node that has been silent for two served days. Ghost nodes no longer count in the public member numbers.
+- The installer shows a step list with a progress bar and writes the details to `install.log`; plain output is unchanged off a terminal.
+- Podman: the engine abstraction and the isolation core (own networks, required host firewall, stack bound to the firewall). The installer still refuses Podman until phase 3.
+- The blocklist address aggregate is covered by an index (about 27x faster on the home node's data).
+- Lesson: four parallel test runs on the 4-CPU host that also runs the home node and the hub pushed the load to ~20 and made the node's database cycles time out. Heavy test runs now go one at a time.
+- Migrations 0038 (node) and h0013 (hub). The hub needs `hub-migrate` and the new API for the network changes.
+
