@@ -377,3 +377,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - `.env.example` shrank from 305 to about 120 names; local analysis (ATT&CK, campaigns, blocklist, scripts) is on by default.
 - Found by reading two days of real abuse desk replies over IMAP: delayed-delivery notices counted as receipts, web-form-only desks kept receiving mail, dead addresses kept being tried, and reports could name shared platforms (video, file and code hosts). All four are fixed; one provider confirmed a takedown ("IP has been blocked") the same night.
 - Migration 0035 (abuse recipient flags). The home node is updated first and watched before the release reaches other nodes.
+
+## 2026-11-21: v0.12.1 (blocklist on large databases, signed trap packs, provider name hint)
+
+- Four pull requests since v0.12.0 (#161 to #164). The details are in `CHANGELOG.md`.
+- Found while watching the home node after v0.12.0: the blocklist worker had failed every cycle since 2026-11-17, when the database passed about 5 GB. A demo check read the whole 30-day `connect` window seven times per cycle. Fixed with a partial index (migration 0036) and one transaction per step. The live feed backfill had the same kind of unbounded read (5 s, now 0.2 ms).
+- Trap packs phase 2 (M37): signed distribution through a protected GitHub environment, the hub relay and ingest, with hot reload in the web sensor. Two security reviews; the first found that ingest wrote the bundle before recording its state and that the sensor forgot its `seq` floor on restart, both fixed. The pack key is not set yet, so nodes keep their bundled packs.
+- The reply reader suggests the mail provider name from recent headers, only when several senders agree. The owner set it by hand on the home node the same day.
+- Migrations 0036 (blocklist demo index) and 0037 (`trap_state`). New volume `trap-packs`, created by the update.
+
