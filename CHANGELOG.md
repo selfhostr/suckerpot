@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-21
+
 ### Upgrading
 
 - ATT&CK labels, campaigns, blocklist scoring and the script library are now on by default.
@@ -61,7 +63,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The `/styleguide` page is no longer part of the production web bundle. It loads only in
   `just web-dev` and the mock and demo builds.
 - The ATT&CK, campaign, blocklist and script workers default to on (see Upgrading).
-
 - Participant installs set themselves up without follow-up commands. `install.sh --participant --yes`
   now installs the host firewall when `sudo` works without a password (otherwise it prints the one
   command to run), and the interactive question defaults to yes. A failed update schedule no longer
@@ -733,7 +734,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.11.13...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/selfhostr/suckerpot/compare/v0.11.13...v0.12.0
 [0.11.13]: https://github.com/selfhostr/suckerpot/compare/v0.11.12...v0.11.13
 [0.11.12]: https://github.com/selfhostr/suckerpot/compare/v0.11.11...v0.11.12
 [0.11.11]: https://github.com/selfhostr/suckerpot/compare/v0.11.10...v0.11.11
