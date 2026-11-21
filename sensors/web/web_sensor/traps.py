@@ -220,6 +220,27 @@ def load_bytes(data: bytes, *, today: date | None = None, source: str = "bundled
     return ts
 
 
+def load_docs(
+    docs: list[dict[str, Any]],
+    *,
+    disabled: frozenset[str] = frozenset(),
+    today: date | None = None,
+    source: str = "bundled",
+) -> TrapSet:
+    """Compile the packs of several checked bundles (bundled plus downloaded). Never raises."""
+    day = today or datetime.now(UTC).date()
+    result = fmt.load_docs(docs, sensor="web", today=day, disabled=disabled)
+    for pid, reason in result.rejected:
+        log.warning("trap pack rejected: id=%s reason=%s source=%s", pid, reason, source)
+    for pid in result.disabled:
+        log.info("trap pack disabled: id=%s", pid)
+    ts = TrapSet.from_packs(result.packs, result.rejected, result.seq)
+    log.info(
+        "trap packs loaded: %d packs, %d traps, seq %d (%s)", len(ts.packs), ts.size, ts.seq, source
+    )
+    return ts
+
+
 def load_file(path: Path, *, today: date | None = None) -> TrapSet:
     """Read a bundle file (size checked before reading). Never raises."""
     try:

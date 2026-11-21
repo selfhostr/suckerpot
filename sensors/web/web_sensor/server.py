@@ -34,6 +34,7 @@ from web_sensor.httpio import (
 from web_sensor.memguard import MemoryGuard
 from web_sensor.response import RenderContext, Response, render
 from web_sensor.site import Ctx, Outcome, Site
+from web_sensor.traps import TrapSet
 
 log = logging.getLogger("web_sensor.server")
 
@@ -187,11 +188,12 @@ class WebSensor:
         site: Site,
         tls_ctx: ssl.SSLContext | None,
         guard: MemoryGuard | None = None,
+        traps: TrapSet | None = None,
     ) -> None:
         self.cfg = cfg
         self.sink = sink
         self.site = site
-        self.detector = Detector(cfg)
+        self.detector = Detector(cfg, traps)
         self.tls_ctx = tls_ctx
         self.budget = Budget(cfg.memory_budget)
         self.dates = apache.DateCache()
@@ -357,6 +359,8 @@ class WebSensor:
             "memory_peak": self.guard.peak,
             "memory_refused": self.guard.refused,
             "memory_aborted": self.guard.aborted,
+            "trap_seq": self.detector.traps.seq,
+            "trap_packs": len(self.detector.traps.packs),
             **self.sink.stats(),
         }
 
@@ -435,6 +439,7 @@ class WebSensor:
             data["php2shell"] = p2s
         data["flags"] = sorted(flags)
         data["cve"] = cve
+        data["trap_seq"] = self.detector.traps.seq  # which signed bundle this sensor runs
         if analysis is not None and analysis.traps:
             data["traps"] = analysis.traps
         if analysis is not None and analysis.trap_budget:
@@ -442,7 +447,8 @@ class WebSensor:
         if extra:
             data.update(extra)
         conn.flags |= flags
-        important = bool(flags & self.detector.severe)
+        severe = analysis.severe_flags if analysis is not None else self.detector.severe
+        important = bool(flags & (severe | self.detector.severe))
         self.emit(conn, EventType.http_request, data, important=important)
 
     # -- connection lifecycle --------------------------------------------------------------
