@@ -18,6 +18,7 @@ SuckerPot is built to be attacked. Use a dedicated machine that holds nothing el
 | --- | --- |
 | Machine | A Linux VM or small server, `x86_64` or `aarch64`, with 2 GiB of memory (a plan sold as "2 GB", about 1.9 GiB, is fine: add swap) and 15 GiB of free disk. A 1 GiB VPS or Raspberry Pi works with `--lite` |
 | Software | Docker Engine 24+ with the Compose plugin, `git`, `curl`, Bash 4+. Your user must run `docker` without `sudo` |
+| Or | Podman 5.4+ (rootful) with `docker-compose` 2.26+ (experimental): `sudo apt install podman docker-compose nftables` on Debian 13. The installer sets up the rest; the host firewall is required. See [Podman](install.md#podman-experimental). |
 | Router | You can forward ports to this machine (not needed on a VPS) |
 | VPN | Not needed |
 

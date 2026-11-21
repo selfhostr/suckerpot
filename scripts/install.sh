@@ -33,6 +33,8 @@
 #                      [--dry-run --env-out PATH]
 #                      [--plain]  (one line per step, as without a terminal)
 #                      [--no-firewall]  (participant mode: skip the host firewall, installed by default)
+#                      [--engine docker|podman]  (the container engine; Podman is experimental and
+#                                 needs the host firewall; asked only when both are installed)
 #
 #   Participant mode (docs/dev/design/m32.md): sensors, database, ingest and the network node, no
 #   dashboard, no admin account, no VPN needed (the hub is reached through hubproxy):
@@ -165,6 +167,7 @@ lite=0
 plain=0
 update_check_flag=0
 no_firewall=0
+engine_arg=""
 # The arguments as given: the installer starts again with them after installing Docker (O4).
 orig_args=("$@")
 need_value() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
@@ -206,6 +209,7 @@ while [ $# -gt 0 ]; do
     --plain) plain=1 ;;
     --update-check) update_check_flag=1 ;;
     --no-firewall) no_firewall=1 ;;
+    --engine) need_value "$@"; engine_arg=$2; shift ;;
     -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
@@ -352,9 +356,73 @@ fi
 stack=${stack:-full}
 fresh=$((1 - existing))
 # The container engine. An existing install keeps the one in its .env (none there means Docker).
-# A fresh install takes SUCKERPOT_ENGINE from the environment, else the engine this host has.
-if [ "$fresh" = 1 ] && [ "$ENGINE_FROM" = default ]; then engine_use "$(engine_detect)"; fi
-engine_ready || die "$ENGINE_UNREADY_MSG"
+# A fresh install takes --engine, else SUCKERPOT_ENGINE from the environment, else the engine this
+# host has. With both installed (UI phase D), a terminal asks; Docker wins while it is active,
+# because Podman refuses a host where Docker runs too (docs/dev/design/podman.md N3).
+# docker_active: Docker runs, or nothing can tell (no systemd): then Docker is assumed, as before.
+docker_active() {
+  command -v systemctl > /dev/null 2>&1 || return 0
+  systemctl is-active --quiet docker.service 2> /dev/null || systemctl is-active --quiet docker.socket 2> /dev/null
+}
+choose_engine() {
+  local a def=1 dv pv c=${SUCKERPOT_CONF_ROOT:-}
+  if ! command -v docker > /dev/null 2>&1 || ! command -v podman > /dev/null 2>&1; then
+    engine_use "$(engine_detect)"
+    return 0
+  fi
+  # Both commands. Docker while it runs (Podman refuses a host where Docker is active), and also
+  # when this is not a packaged Podman with its socket unit (a podman command alone proves little).
+  if docker_active || { [ ! -e "$c/usr/lib/systemd/system/podman.socket" ] && [ ! -e "$c/lib/systemd/system/podman.socket" ]; }; then
+    log "engine: Docker and Podman are both installed; Docker is used (Docker is active, or Podman has no socket unit; --engine podman chooses Podman)"
+    engine_use docker
+    return 0
+  fi
+  # Docker is off (Fedora's docker-compose package brings the docker command along, for example).
+  # Without a terminal, or with --yes: Podman, the engine this machine can run.
+  if [ "$has_tty" = 0 ] || [ "$assume_yes" = 1 ]; then
+    log "engine: Docker and Podman are both installed and Docker is off: Podman is used (--engine docker chooses Docker)"
+    engine_use podman
+    return 0
+  fi
+  pv=$(podman --version 2> /dev/null | sed -n 's/^podman version \([0-9.]*\).*/\1/p' || true)
+  dv=$(ctr --version 2> /dev/null | sed -n 's/^Docker version \([0-9.]*\).*/\1/p' || true)
+  def=2
+  ui_pause
+  {
+    [ "$UI_MODE" = rich ] || echo
+    echo "${UI_IND}Docker ${dv:-?} and Podman ${pv:-?} are both installed. Docker is not active."
+    echo
+    echo "${UI_IND}  1  Docker"
+    echo "${UI_IND}  2  Podman   experimental; the host firewall is required"
+    echo
+    printf '%sChoose 1 or 2 [%s]: ' "$UI_IND" "$def"
+  } 1>&"$UI_ERR"
+  IFS= read -r a <&3 || a=""
+  answered
+  case ${a:-$def} in
+    1 | d | docker) engine_use docker ;;
+    2 | p | podman) engine_use podman ;;
+    *) die "answer 1 (Docker) or 2 (Podman)" ;;
+  esac
+  log "engine: $ENGINE_ID"
+}
+if [ -n "$engine_arg" ]; then
+  case $engine_arg in docker | podman) ;; *) die "--engine must be docker or podman" ;; esac
+  if [ "$fresh" = 0 ] && [ "$engine_arg" != "$ENGINE_ID" ]; then
+    die "this install runs on $(engine_name); --engine $engine_arg cannot change that. Move it with a backup and a new install (docs/install.md)."
+  fi
+  engine_use "$engine_arg"
+elif [ "$fresh" = 1 ] && [ "$ENGINE_FROM" = default ]; then
+  choose_engine
+fi
+# A fresh Podman install is checked in step 1, once this user can reach the root Podman socket
+# (podman_prepare); an existing one has its overlay in COMPOSE_FILE and is checked here.
+if [ "$ENGINE_ID" != podman ] || [ "$fresh" = 0 ]; then
+  engine_ready || die "$ENGINE_UNREADY_MSG"
+fi
+# The helper scripts (verify-images.sh, ensure-volumes.sh...) run before .env exists: they read
+# the engine from the environment.
+export SUCKERPOT_ENGINE
 
 # The header names the install once its mode is known (an existing install keeps its own).
 if [ "$UI_MODE" = rich ] && [ "$header_done" = 0 ]; then
@@ -558,7 +626,7 @@ docker_plan() {
 # installer starts again under `sg docker`, so this login needs no new session for the group.
 # Without a terminal, on "no", or on an unknown distribution: the commands, and stop. Every path where
 # nothing was installed ends with status 1 (and a plain "result: stopped" line).
-# Podman is not offered yet: it is refused until its isolation work is complete (phase 3).
+# Podman is not offered here (only Docker is installed for the owner); a Podman host is detected.
 offer_docker() {
   local a again user c reason
   docker_test_keys
@@ -626,23 +694,70 @@ offer_docker() {
   exec sg docker -c "SELFHOSTR_DOCKER_INSTALLED=1 $(printf '%q ' bash "${again[@]}")"
 }
 
+# podman_prepare: step 1 on Podman. The scripts talk to the root Podman service through its socket
+# (never a rootless Podman of this user). When the socket does not answer, this user is given
+# access through the group suckerpot-podman (scripts/host/podman-socket.sh, sudo; the group is
+# root-equivalent, like the docker group), and the installer starts again under `sg`, so this
+# login needs no new session. Then the host must pass every check of engine_check_podman.
+podman_prepare() {
+  local again problems reason
+  command -v podman > /dev/null 2>&1 ||
+    die "Podman is not installed. Debian 13 or Ubuntu 26.04: sudo apt install podman docker-compose nftables. Fedora: sudo dnf install podman docker-compose nftables"
+  if ! ctr version > /dev/null 2>&1; then
+    [ "${SELFHOSTR_PODMAN_GROUP:-0}" = 0 ] ||
+      die "the root Podman socket still does not answer for this user. Log out and back in, then run the installer again."
+    command -v sudo > /dev/null 2>&1 || die "sudo is needed to open the root Podman socket to this user. As root: scripts/host/podman-socket.sh USER"
+    if ! sudo -n true > /dev/null 2>&1; then
+      if [ "$has_tty" = 0 ] || [ "$assume_yes" = 1 ]; then
+        die "the root Podman socket is not open to this user, and sudo needs a password. Run: sudo scripts/host/podman-socket.sh $(id -un 2> /dev/null || echo USER), then the installer again."
+      fi
+      ui_pause
+      printf '  Podman: this user needs the group suckerpot-podman (root-equivalent, like the docker group). sudo asks for your password.\n' 1>&"$UI_ERR"
+      # shellcheck disable=SC2024 # the redirects are the terminal, on purpose
+      sudo -v < /dev/tty > /dev/tty 2>&1 || die "sudo failed: the Podman socket was not opened"
+    fi
+    ui_run --expect 10 -- engine_setup_socket_access || die "the root Podman socket could not be opened to this user (see the log)"
+    if ! reason=$(sg suckerpot-podman -c true 2>&1); then
+      say "Podman is ready for this user. Log out and back in, then run the installer again."
+      say "(sg could not start a shell in the group suckerpot-podman: ${reason:-no reason given})"
+      stopped_why=relogin
+      UI_ENDED=1
+      exit 1
+    fi
+    again=("$PWD/scripts/install.sh" "${orig_args[@]}")
+    case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
+    case " ${orig_args[*]} " in *" --engine "*) ;; *) again+=(--engine podman) ;; esac
+    say "Podman is open to this user. The installer starts again in the group suckerpot-podman (sg)."
+    UI_ENDED=1
+    exec 1>&"$UI_OUT" 2>&"$UI_ERR" 3<&-
+    exec sg suckerpot-podman -c "SELFHOSTR_PODMAN_GROUP=1 $(printf '%q ' bash "${again[@]}")"
+  fi
+  problems=$(engine_check_podman) ||
+    die "this host does not meet the Podman requirements: $(printf '%s' "$problems" | tr '\n' ';' | sed 's/;$//; s/;/; /g') (docs/install.md#podman-experimental)"
+  warn "Podman support is experimental (docs/install.md#podman-experimental). The host firewall is required."
+}
+
 mem_kb=0
 if [ "$dry_run" = 1 ]; then
   note "dry run: Docker, memory, disk and volume checks skipped"
 else
-  command -v docker > /dev/null 2>&1 || offer_docker
-  engine=$(ctr version --format '{{.Server.Version}}' 2> /dev/null) \
-    || die "Docker does not answer for this user. Try: sudo usermod -aG docker \$USER, then log in again."
-  if ! ver_ge "${engine%%[-+]*}" 24.0; then
-    # With the podman-docker package, `docker` is Podman and reports the Podman version.
-    case $(ctr --version 2> /dev/null) in [Pp]odman*) die "$ENGINE_UNREADY_MSG (the docker command on this host is Podman $engine)" ;; esac
-    die "Docker Engine 24 or newer is required (found $engine)"
+  if [ "$ENGINE_ID" = podman ]; then
+    podman_prepare
+  else
+    command -v docker > /dev/null 2>&1 || offer_docker
+    engine=$(ctr version --format '{{.Server.Version}}' 2> /dev/null) \
+      || die "Docker does not answer for this user. Try: sudo usermod -aG docker \$USER, then log in again."
+    if ! ver_ge "${engine%%[-+]*}" 24.0; then
+      # With the podman-docker package, `docker` is Podman and reports the Podman version.
+      case $(ctr --version 2> /dev/null) in [Pp]odman*) die "$ENGINE_UNREADY_MSG (the docker command on this host is Podman $engine)" ;; esac
+      die "Docker Engine 24 or newer is required (found $engine)"
+    fi
+    if ! ver_ge "${engine%%[-+]*}" 28.0; then
+      warn "Docker Engine $engine is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended."
+    fi
+    cver=$(dc version --short 2> /dev/null) || die "Docker Compose v2 is not available"
+    ver_ge "${cver#v}" 2.24 || die "Docker Compose 2.24 or newer is required (found $cver)"
   fi
-  if ! ver_ge "${engine%%[-+]*}" 28.0; then
-    warn "Docker Engine $engine is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended."
-  fi
-  cver=$(dc version --short 2> /dev/null) || die "Docker Compose v2 is not available"
-  ver_ge "${cver#v}" 2.24 || die "Docker Compose 2.24 or newer is required (found $cver)"
 
   meminfo=${SELFHOSTR_MEMINFO:-/proc/meminfo}
   mem_kb=$(awk '/^MemTotal:/ {print $2}' "$meminfo" 2> /dev/null || true)
@@ -670,9 +785,9 @@ else
     free_kb=${SELFHOSTR_FREE_DISK_KB:-$(df -Pk "${root:-/}" 2> /dev/null | awk 'NR==2 {print $4}')}
     [[ ${free_kb:-} =~ ^[0-9]+$ ]] || die "cannot read the free disk space"
     if [ "$free_kb" -lt $((15 * 1024 * 1024)) ]; then
-      die "less than 15 GiB free under Docker's data folder"
+      die "less than 15 GiB free under $(engine_name)'s data folder"
     elif [ "$free_kb" -lt $((30 * 1024 * 1024)) ]; then
-      warn "less than 30 GiB free under Docker's data folder; logs and payloads need room"
+      warn "less than 30 GiB free under $(engine_name)'s data folder; logs and payloads need room"
     fi
 
     # Never adopt or mix with an existing install: its database password lives inside the data.
@@ -706,6 +821,8 @@ wg_private="" wg_peer="" wg_addr="" wg_dns="" wg_ep_ip="" wg_ep_port=""
 
 if [ "$fresh" = 1 ]; then
   mode=${mode:-images}
+  # Podman runs the signed release images only (design D6): source builds stay on Docker.
+  [ "$ENGINE_ID" != podman ] || [ "$mode" = images ] || die "--source is not supported on Podman yet: use the release images (the default), or Docker"
 
   if [ -z "$sensors_arg" ]; then
     if [ "$stack" = participant ] && [ "$lite" = 1 ]; then
@@ -1168,6 +1285,15 @@ else
     setv COMPOSE_FILE "$cf:docker-compose.participant-it.yml"
   fi
 
+  # Podman: the overlay that makes every network external (scripts/ensure-networks.sh creates them
+  # with netavark's isolation options). Last, after every other overlay.
+  if [ "$ENGINE_ID" = podman ]; then
+    ENV_FILE=$tmp
+    cf=$(env_get COMPOSE_FILE docker-compose.yml)
+    unset ENV_FILE
+    case ":$cf:" in *:docker-compose.podman.yml:*) ;; *) setv COMPOSE_FILE "$cf:$(engine_compose_overlay)" ;; esac
+  fi
+
   # Final checks on the file before it goes live.
   if grep -v '^[[:space:]]*#' "$tmp" | grep -q 'change-me'; then
     rm -f "$tmp"
@@ -1248,6 +1374,36 @@ if [ "$switching" = 1 ]; then
   dc --profile direct rm -sf hubproxy > /dev/null 2>&1 || true
   up_extra=(--remove-orphans)
 fi
+# Podman (design D5): the host firewall carries isolation that Docker gives by itself, so it is
+# installed before anything starts, then the boot unit that binds the stack to it. --no-firewall
+# (the owner filters elsewhere) skips the firewall with a warning; the unit then does not need it.
+start_cmd=(dc up)
+if [ "$ENGINE_ID" = podman ]; then
+  # shellcheck source=scripts/lib/firewall.sh
+  . scripts/lib/firewall.sh
+  fw_mode=participant
+  [ "$stack" = participant ] || fw_mode=full
+  [ "$(env_get SUCKERPOT_NO_FIREWALL)" != 1 ] || no_firewall=1
+  ui_detail "host firewall (required on Podman)"
+  if [ "$no_firewall" = 1 ]; then
+    warn "--no-firewall on Podman: sensors can reach the internet and each other unless you filter the sp-* bridges elsewhere"
+    ui_run --expect 5 -- engine_install_boot_unit --no-firewall || die "the boot unit could not be installed (see the log)"
+  else
+    if ! fw_can_sudo; then
+      if [ "$has_tty" = 0 ] || [ "$assume_yes" = 1 ] || ! command -v sudo > /dev/null 2>&1; then
+        die "on Podman the host firewall is required, and it needs sudo without a password here. Run the installer on a terminal, or pass --no-firewall if you filter elsewhere."
+      fi
+      ui_pause
+      printf '  The host firewall (required on Podman) needs root rights: sudo asks for your password.\n' 1>&"$UI_ERR"
+      # shellcheck disable=SC2024 # the redirects are the terminal, on purpose
+      sudo -v < /dev/tty > /dev/tty 2>&1 || die "sudo failed: on Podman the host firewall is required"
+    fi
+    ui_run --expect 10 -- fw_step "$fw_mode" auto || die "on Podman the host firewall is required and was not installed (see the log)"
+    ui_run --expect 5 -- engine_install_boot_unit || die "the boot unit could not be installed (see the log)"
+  fi
+  # Every start goes through the boot unit (engine_stack_up): networks, firewall check, then up.
+  start_cmd=(engine_stack_up)
+fi
 ui_begin images
 if [ "$mode" = images ]; then
   if [ "$skip_verify" = 1 ]; then
@@ -1261,14 +1417,14 @@ if [ "$mode" = images ]; then
   fi
   if [ "$skip_verify" = 1 ]; then ui_done "pulled, signatures NOT checked"; else ui_done "${UI_COUNT:-0} signatures valid"; fi
   ui_begin start
-  ui_run --expect 150 -- dc up -d --no-build --pull never --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
+  ui_run --expect 150 -- "${start_cmd[@]}" -d --no-build --pull never --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 else
   SUCKERPOT_BUILD_VERSION=$(git describe --tags --always --dirty 2> /dev/null || echo dev)
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
   ui_skip "source mode: built during the start"
   ui_begin start
-  ui_run --expect 600 -- with_public_umask dc up -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
+  ui_run --expect 600 -- with_public_umask "${start_cmd[@]}" -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 fi
 ui_done "all services healthy"
 if [ "$stack" = full ]; then
@@ -1315,6 +1471,11 @@ fw_rich() {
   . scripts/lib/firewall.sh
   if [ "$no_firewall" = 1 ]; then
     ui_skip "off (--no-firewall): ./scripts/participant.sh firewall installs it"
+    return 0
+  fi
+  # Podman: installed before the start (required there).
+  if [ "$ENGINE_ID" = podman ]; then
+    ui_done "loaded before the start (required on Podman)"
     return 0
   fi
   if ! fw_can_sudo; then
@@ -1526,7 +1687,11 @@ if [ "$stack" = participant ]; then
   # terminal sudo asks for the password; with --yes it installs only when sudo needs none.
   # shellcheck source=scripts/lib/firewall.sh
   . scripts/lib/firewall.sh
-  if [ "$no_firewall" = 1 ]; then
+  if [ "$ENGINE_ID" = podman ] && [ "$no_firewall" = 0 ]; then
+    echo
+    echo "Host firewall"
+    echo "  Loaded before the start (required on Podman); the boot unit starts the stack after it."
+  elif [ "$no_firewall" = 1 ]; then
     echo
     echo "Host firewall"
     echo "  Skipped (--no-firewall). Install it later: ./scripts/participant.sh firewall"

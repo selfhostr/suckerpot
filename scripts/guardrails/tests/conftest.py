@@ -82,6 +82,9 @@ case "$*" in
       else if (NF == 2 && ($2 == "healthy" || $2 == "unhealthy" || $2 == "starting")) print $1, "running", $2;
       else if (NF == 2 && $2 != "") print $1, $2, "";
       else print }' ;;
+  # The ports check pipes its SQL into psql: read it all, as psql does, so the writer never gets
+  # SIGPIPE (that made the participant golden depend on timing).
+  "compose exec -T -e PGOPTIONS="*) cat > /dev/null ;;
   "compose exec -T db sh -c"*) [ -z "${SHIM_ALEMBIC:-}" ] || echo "$SHIM_ALEMBIC" ;;
   "compose exec -T backup /bin/sh /backup-service.sh now preupdate") exit "${SHIM_BACKUP_RC:-0}" ;;
   "compose exec -T backup sh -c"*) echo "/backups/suckerpot-preupdate-20261101T020000Z.dump" ;;

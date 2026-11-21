@@ -1,6 +1,6 @@
 # Podman support
 
-Status: approved on 2026-11-21. The owner's decisions are in section 12. Implemented: phase 1 (engine library), the security core (networks, overlay, Podman firewall, boot unit, isolation checks) and phase 3 outside the installer (update, rollback, restore, status, participant tools, socket group, host checks). The installer wiring is next.
+Status: approved on 2026-11-21. The owner's decisions are in section 12. Implemented: phase 1 (engine library), the security core (networks, overlay, Podman firewall, boot unit, isolation checks) and phase 3 outside the installer (update, rollback, restore, status, participant tools, socket group, host checks). The installer installs on Podman too (UI phase D: the engine question).
 
 ## 1. Problem and goals
 

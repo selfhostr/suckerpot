@@ -26,10 +26,18 @@ The memory figures are sizing targets. Check the real use on your host with `doc
 
 ## Podman (experimental)
 
-SuckerPot also runs on rootful Podman, with the same commands for updates, status and the
-participant tools. Podman support is experimental: the installer support (`--engine podman`) comes
-in the next release step; the update, rollback, restore, status and participant scripts already
-work on an installed Podman node.
+SuckerPot also runs on rootful Podman, with the same commands for the install, updates, status and
+the participant tools. Podman support is experimental.
+
+- On a machine with Podman only, `./scripts/install.sh` uses it without a question.
+- With both commands (Fedora's `docker-compose` package brings the `docker` command along): while
+  Docker runs, Docker is used (Podman needs a machine where Docker is off). When Docker is off and
+  Podman is a packaged install, a terminal install asks (Podman is the default), and an install
+  without a terminal or with `--yes` uses Podman. `--engine podman` or `--engine docker` chooses.
+- The installer gives your user access to the root Podman socket (sudo; see "Socket access"
+  below) and starts itself again in the new group, installs the host firewall and the boot unit
+  before anything starts (sudo; without a terminal, sudo must not need a password), and runs the
+  signed release images only (`--source` is refused on Podman).
 
 Requirements (the scripts check them and refuse with the reason):
 
@@ -144,6 +152,7 @@ Everything else takes a default. Each default has a flag:
 | Admin SSH port | detected (`22` when port 22 is busy, else what sshd is configured for) | `--admin-ssh-port N` |
 | Little swap | a warning, the install goes on | add swap, then `./scripts/install.sh --repair` |
 | Host firewall (participant) | installed; `sudo` may ask for your password | `--no-firewall` |
+| Container engine | the one installed; with both, Docker while it runs, else Podman (asked on a terminal) | `--engine docker\|podman` |
 
 When Docker is not installed, the installer shows the commands that install Docker Engine from Docker's own package repository (Debian, Ubuntu, Fedora and the RHEL family): it downloads Docker's signing key, imports it into a throwaway keyring (a file with more than one key is refused), exports only the key with the fingerprint pinned in the script and gives that export to the package manager, adds the repository and installs `docker-ce`, `docker-ce-cli`, `containerd.io` and `docker-compose-plugin`. No script is piped to a shell. On a terminal it asks once, `Run them now? [Y/n]`, runs them with `sudo`, then starts again in the `docker` group (`sg docker`), so you do not need to log in again; if that is not possible it tells you to log out and back in. Without a terminal, on `n`, or on another distribution, it prints the commands (or the link to Docker's install guide) and stops with exit status 1. Podman is not offered yet.
 
@@ -193,6 +202,7 @@ On a terminal, the installer shows a short list of steps with one progress bar, 
 | `--join-network` | Full mode: join the SuckerPot network (shows the consent screen). Without it, a full install does not join. |
 | `--no-network` | Accepted for older scripts. The network is off unless `--join-network`. |
 | `--no-firewall` | Participant mode: do not install the host firewall (you filter the sp-* bridges elsewhere). Writes `SUCKERPOT_NO_FIREWALL=1` to `.env`. |
+| `--engine docker\|podman` | The container engine of a fresh install. Default: the one this machine has; with both, Docker while it runs, otherwise Podman (a terminal asks). Podman is experimental: see [Podman](#podman-experimental). |
 | `-h`, `--help` | Print the usage. |
 
 ## What the installer refuses
