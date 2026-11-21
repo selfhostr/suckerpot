@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (`traps/disabled.yaml`) and `TRAP_PACKS_DISABLED` turn packs off, bundled ones too. For 48
   hours after a pack first loads, its CVE tags do not count as `exploit` activity (gate G). New
   settings `TRAP_PACKS_REMOTE`, `TRAP_PACK_KEY` and `TRAP_PACKS_DISABLED`, new volume
-  `trap-packs`, new table `trap_state` (migration 0036), new recipe `just trap-import`, and
+  `trap-packs`, new table `trap_state` (migration 0037), new recipe `just trap-import`, and
   `data.trap_seq` on web events. The pack key is not set yet, so downloaded packs stay off until
   a release ships it. See [Trap packs](docs/trap-packs.md#signed-distribution).
 
