@@ -15,6 +15,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   domains and on at least half of them) is shown under the field with a
   **Use it** button, which fills the field but does not save it. While the field is empty, the
   regular check records the same suggestion for the settings page.
+- Trap packs, phase 2: signed distribution (M37). A pack merged on `main` is signed in a
+  protected GitHub environment (`trap-packs`, the owner approves), relayed unchanged by the hub
+  to the feed site, fetched by `ingest` every 30 minutes through the route it already has (VPN
+  egress, or `hubproxy` in participant direct mode), and loaded by the web sensor within 30
+  seconds, without a restart. Ingest and the sensor each check the signature with the pack key
+  and refuse a forged signature, another key or a lower `seq`. A kill list
+  (`traps/disabled.yaml`) and `TRAP_PACKS_DISABLED` turn packs off, bundled ones too. For 48
+  hours after a pack first loads, its CVE tags do not count as `exploit` activity (gate G). New
+  settings `TRAP_PACKS_REMOTE`, `TRAP_PACK_KEY` and `TRAP_PACKS_DISABLED`, new volume
+  `trap-packs`, new table `trap_state` (migration 0036), new recipe `just trap-import`, and
+  `data.trap_seq` on web events. The pack key is not set yet, so downloaded packs stay off until
+  a release ships it. See [Trap packs](docs/trap-packs.md#signed-distribution).
+
+### Changed
+
+- Trap pack evidence: the value of a common parameter (`page`, `id`, `s`, `offset`, ...) is never
+  CVE evidence, however long it is, and `match.path` refuses `%xx` escapes like the needles do.
 
 ### Fixed
 

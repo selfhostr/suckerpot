@@ -5,7 +5,7 @@ A trap pack teaches the web sensor a new trap without a code change. One pack is
 ```{admonition} Status
 :class: note
 
-Phase 1 of M37. Packs are bundled in the web sensor image and change with a release. Signed packs that reach every node without a release, the dashboard view and the banner sensor for non-HTTP flaws come in later phases. The design is in the [M37 design note](dev/design/m37.md).
+Phases 1 and 2 of M37. Packs are bundled in the web sensor image, and signed packs reach every node between releases (see [Signed distribution](#signed-distribution)). The dashboard view and the banner sensor for non-HTTP flaws come in later phases. The design is in the [M37 design note](dev/design/m37.md).
 ```
 
 ## What a pack can and cannot do
@@ -233,7 +233,7 @@ A rendered body is at most 16 KiB. A pack can make a node answer like a vulnerab
 
 ## Loading and errors
 
-The web sensor loads the bundle once at start. Each pack is validated on its own. An invalid pack is skipped with one log line that carries its id and a reason, and the other packs load:
+The web sensor loads its bundled packs at start, then the downloaded bundle whenever it changes (see [Signed distribution](#signed-distribution)). Each pack is validated on its own. An invalid pack is skipped with one log line that carries its id and a reason, and the other packs load:
 
 ```text
 trap pack rejected: id=acme-edgegate-cve-2026-55501 reason=evidence source=traps-bundled.json
@@ -249,6 +249,57 @@ trap pack rejected: id=acme-edgegate-cve-2026-55501 reason=evidence source=traps
 | `over_limit` | The pack is valid but the load limits are full |
 
 An unreadable or invalid bundle file loads no pack at all, and the sensor runs with its built-in detection only.
+
+## Signed distribution
+
+A pack merged on `main` reaches every online node within about an hour, without a release. Nodes keep the packs bundled in their image and add the downloaded ones.
+
+1. **Sign.** The workflow `.github/workflows/trap-packs.yml` runs on a push to `main` that touches `traps/`, or by hand on `main`. It never runs on a pull request. A first job, without any secret, checks every pack and writes `traps.json`: every pack, the kill list `traps/disabled.yaml`, and a new `seq` (the current Unix time, refused unless it is above the published one). A second job runs in the protected GitHub environment `trap-packs`, whose required reviewer is the owner. Only that job sees the pack secret key (the environment secret `TRAP_PACK_SECRET_KEY`). It signs the file with minisign, checks the signature against the public key in `config/network-defaults.env`, and attaches `traps.json` and `traps.json.minisig` to the fixed GitHub release `trap-packs`.
+2. **Relay.** The hub worker reads that release every 10 minutes, verifies the signature and the `seq`, and copies the bytes unchanged to the feed site, `https://<feed host>/v1/traps/`. The hub holds no private key: it cannot sign.
+3. **Fetch.** `ingest` fetches `traps.json` and its signature every 30 minutes (plus up to 5 minutes of jitter, and once at start), with a conditional `GET`, from the host of `NETWORK_FEED_URL` only. In full mode it goes through the VPN egress gate; in participant direct mode through `hubproxy`, which already allows the feed host. The sensors never fetch anything.
+4. **Verify and hand over.** `ingest` checks the signature with the pack public key (`TRAP_PACK_KEY`), refuses a `seq` lower than the last one it accepted, runs the same validator as the sensor, and writes `active.json` and `active.json.minisig` to the `trap-packs` volume (temporary file, `fsync`, rename).
+5. **Load.** The web sensor mounts that volume read-only. Every 30 seconds it looks at the files; when they change, it checks the signature itself, validates and compiles a new set of traps and swaps it in. Requests in flight finish with the old set, and no connection is dropped.
+
+The sensor and `ingest` each refuse a bundle with a forged signature, a signature from another key, or a `seq` lower than the one they have. A compromised `ingest` or hub can withhold a bundle or delete it (the sensor then falls back to its bundled packs), but cannot add a trap. Packs never expire: a node that is offline keeps its last bundle and fetches the newest when it is back.
+
+A bad pack inside a good bundle is rejected alone, with its id and reason in the log; the other packs load. Per pack id, the higher `version` wins, whether it is bundled or downloaded. A downloaded bundle older than the image's bundled packs is ignored.
+
+**Every event** of the web sensor carries `data.trap_seq`, the `seq` of the bundle the sensor runs (`0` for the bundled packs alone).
+
+### Gate G: 48 hours before a CVE counts as an exploit
+
+For 48 hours after a pack version first loads on a node, the CVE tags its hits produce are shared with the network as usual, but they do not make the source's activity `exploit`. So a new pack cannot make anyone reportable before it has run for 48 hours, the same delay as the release floor. Detection and the dashboard are immediate. If `ingest` cannot read the trap state, no CVE tag counts as an exploit (fail closed).
+
+### Turning a pack off
+
+| Scope | How | Delay |
+| --- | --- | --- |
+| Every node | Add `{id: <pack id>, reason: <short reason>}` to `traps/disabled.yaml` and merge. Bundled packs are turned off too | Within the hour |
+| This node | `TRAP_PACKS_DISABLED=id,id` in `.env`, then restart the web sensor | At once |
+| This node, every downloaded pack | `TRAP_PACKS_REMOTE=false` in `.env`. Ingest stops fetching and removes the downloaded bundle; the bundled packs keep running | At once |
+| A stolen pack key | A release that changes `TRAP_PACK_KEY` | A release |
+
+### Settings
+
+| Setting | Default | Where | Meaning |
+| --- | --- | --- | --- |
+| `TRAP_PACKS_REMOTE` | `true` | `ingest` | Fetch the signed bundle. Nothing is fetched without a route (VPN egress, or `hubproxy` in participant direct mode) |
+| `TRAP_PACK_KEY` | the release's key | `ingest`, `sensor-web` | The pack public key (`RW...`). Empty in `.env` and in `config/network-defaults.env`: downloaded packs stay off |
+| `TRAP_PACKS_DISABLED` | empty | `sensor-web` | Pack ids to turn off on this node, comma-separated |
+
+### No route out: import a bundle by hand
+
+A full install without the `egress` profile has the bundled packs only. Download `traps.json` and `traps.json.minisig` elsewhere (from the `trap-packs` release) and load them:
+
+```bash
+just trap-import traps.json traps.json.minisig
+```
+
+The same checks apply: signature, `seq` and every pack. An imported bundle stays when `TRAP_PACKS_REMOTE=false`.
+
+### The pack key (owner)
+
+`ingest/tools/trap_packs.py keygen --out <file>` creates a key pair: it prints the `TRAP_PACK_KEY=RW...` line for `config/network-defaults.env` and writes the secret key file (mode 0600). Put the content of that file into the secret `TRAP_PACK_SECRET_KEY` of the GitHub environment `trap-packs`, and nowhere else. The public key reaches nodes with the next release, which the release manifest covers. Until then, `TRAP_PACK_KEY` is empty and the workflow refuses to sign.
 
 ## What the events show
 
