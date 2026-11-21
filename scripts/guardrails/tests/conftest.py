@@ -263,6 +263,11 @@ def sandbox(tmp_path: Path) -> Sandbox:
         "sshd": HOST_FREE_SHIM,
     }.items():
         _write_exec(shim / name, text)
+    # Hermetic about the engine: the host's Podman (its socket unit, containers.conf) is never
+    # seen. With the fake podman shadowing a real one on PATH, the sandbox is a Docker-only host;
+    # a test that wants Podman sets these up itself (test_install_podman.py).
+    confroot = tmp_path / "confroot"
+    confroot.mkdir()
     meminfo = shim / "meminfo"
     meminfo.write_text("MemTotal:        8000000 kB\n")
     (shim / "etc-ssh").mkdir()
@@ -276,6 +281,8 @@ def sandbox(tmp_path: Path) -> Sandbox:
         "SELFHOSTR_MEMINFO": str(meminfo),
         "SELFHOSTR_FREE_DISK_KB": str(100 * 1024 * 1024),
         "DOCKER_HOST": "unix:///nonexistent/selfhostr-test.sock",
+        "SUCKERPOT_CONF_ROOT": str(confroot),
+        "SUCKERPOT_UNIT_ROOT": str(confroot),
         "SELFHOSTR_SSH_DIR": str(shim / "etc-ssh"),
     }
     return Sandbox(root=root, shim=shim, env=env)

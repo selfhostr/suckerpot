@@ -334,3 +334,40 @@ def test_a_test_install_keeps_the_test_overlay_last(sandbox: Sandbox) -> None:
     text = (Path(__file__).resolve().parents[3] / "scripts/install.sh").read_text()
     block = text.split("*:docker-compose.participant-it.yml:*)", 1)[1].split(";;", 1)[0]
     assert _re.search(r":\$\(engine_compose_overlay\):docker-compose\.participant-it\.yml", block)
+
+
+def test_a_default_sandbox_installs_with_docker_on_a_host_with_a_real_podman(
+    sandbox: Sandbox,
+) -> None:
+    """GitHub's runners have a real podman (and its socket unit). The default sandbox must stay a
+    Docker-only host: the fake podman shadows the real one, and SUCKERPOT_CONF_ROOT hides the
+    host's Podman socket unit, even when systemd reports Docker as stopped."""
+    add_participant_files(sandbox)
+    (sandbox.shim / "systemctl").write_text("#!/bin/sh\nexit 1\n")  # Docker looks stopped
+    (sandbox.shim / "systemctl").chmod(0o755)
+    (sandbox.shim / "podman").write_text(
+        '#!/bin/sh\necho "podman $*" >> "$SHIM_LOG"\n'
+        '[ "$1" = --version ] && echo "podman version 5.4.2"\nexit 0\n'
+    )
+    conf = Path(sandbox.env["SUCKERPOT_CONF_ROOT"])
+    assert conf.is_dir() and not any(conf.iterdir())
+    out = sandbox.root / "out.env"
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--yes", "--dry-run", "--env-out", str(out)),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "SUCKERPOT_ENGINE=docker" in out.read_text()
+    assert "Podman support is experimental" not in proc.stdout + proc.stderr
+    # What the hermetic default prevents: the same host with Podman's socket unit visible.
+    unit = sandbox.shim.parent / "hostconf" / "usr/lib/systemd/system/podman.socket"
+    unit.parent.mkdir(parents=True)
+    unit.write_text("[Socket]\n")
+    out.unlink()
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--yes", "--dry-run", "--env-out", str(out)),
+        extra_env={"SUCKERPOT_CONF_ROOT": str(sandbox.shim.parent / "hostconf")},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "SUCKERPOT_ENGINE=podman" in out.read_text()
