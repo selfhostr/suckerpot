@@ -420,6 +420,10 @@ fi
 if [ "$ENGINE_ID" != podman ] || [ "$fresh" = 0 ]; then
   engine_ready || die "$ENGINE_UNREADY_MSG"
 fi
+# Podman runs the signed release images only (design D6): source builds stay on Docker.
+if [ "$ENGINE_ID" = podman ] && [ "$fresh" = 1 ] && [ "$mode" = source ]; then
+  die "--source is not supported on Podman yet: use the release images (the default), or Docker"
+fi
 # The helper scripts (verify-images.sh, ensure-volumes.sh...) run before .env exists: they read
 # the engine from the environment.
 export SUCKERPOT_ENGINE
@@ -694,25 +698,34 @@ offer_docker() {
   exec sg docker -c "SELFHOSTR_DOCKER_INSTALLED=1 $(printf '%q ' bash "${again[@]}")"
 }
 
-# podman_prepare: step 1 on Podman. The scripts talk to the root Podman service through its socket
-# (never a rootless Podman of this user). When the socket does not answer, this user is given
-# access through the group suckerpot-podman (scripts/host/podman-socket.sh, sudo; the group is
-# root-equivalent, like the docker group), and the installer starts again under `sg`, so this
-# login needs no new session. Then the host must pass every check of engine_check_podman.
+# podman_prepare: a fresh Podman install, after every check that needs no engine (memory, disk,
+# the consent), so that a refused run leaves the host unchanged. The scripts talk to the root
+# Podman service through its socket (never a rootless Podman of this user). When the socket does
+# not answer, this user is given access through the group suckerpot-podman
+# (scripts/host/podman-socket.sh, sudo; the group is root-equivalent, like the docker group), and
+# the installer starts again under `sg`, so this login needs no new session; the answers given so
+# far go with it. Then the host must pass engine_check_podman, and no data of an earlier install
+# may be there.
 podman_prepare() {
-  local again problems reason
-  command -v podman > /dev/null 2>&1 ||
-    die "Podman is not installed. Debian 13 or Ubuntu 26.04: sudo apt install podman docker-compose nftables. Fedora: sudo dnf install podman docker-compose nftables"
+  local again problems reason user
+  user=$(id -un 2> /dev/null) || user=USER
+  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || user=USER
   if ! ctr version > /dev/null 2>&1; then
     [ "${SELFHOSTR_PODMAN_GROUP:-0}" = 0 ] ||
       die "the root Podman socket still does not answer for this user. Log out and back in, then run the installer again."
     command -v sudo > /dev/null 2>&1 || die "sudo is needed to open the root Podman socket to this user. As root: scripts/host/podman-socket.sh USER"
+    if ! sudo -n true > /dev/null 2>&1 && { [ "$has_tty" = 0 ] || [ "$assume_yes" = 1 ]; }; then
+      die "the root Podman socket is not open to this user, and sudo needs a password. Run: sudo scripts/host/podman-socket.sh $user, then the installer again."
+    fi
+    # Always on screen, before anything changes: what is about to be given, and why.
+    ui_pause
+    {
+      echo "${UI_IND}Podman: SuckerPot talks to the root Podman service. This user joins the group"
+      echo "${UI_IND}suckerpot-podman, which may use the root Podman socket. That group is root-equivalent"
+      echo "${UI_IND}(like the docker group): remove it later with sudo scripts/host/podman-socket.sh --uninstall $user."
+    } 1>&"$UI_ERR"
     if ! sudo -n true > /dev/null 2>&1; then
-      if [ "$has_tty" = 0 ] || [ "$assume_yes" = 1 ]; then
-        die "the root Podman socket is not open to this user, and sudo needs a password. Run: sudo scripts/host/podman-socket.sh $(id -un 2> /dev/null || echo USER), then the installer again."
-      fi
-      ui_pause
-      printf '  Podman: this user needs the group suckerpot-podman (root-equivalent, like the docker group). sudo asks for your password.\n' 1>&"$UI_ERR"
+      printf '%ssudo asks for your password.\n' "$UI_IND" 1>&"$UI_ERR"
       # shellcheck disable=SC2024 # the redirects are the terminal, on purpose
       sudo -v < /dev/tty > /dev/tty 2>&1 || die "sudo failed: the Podman socket was not opened"
     fi
@@ -724,17 +737,25 @@ podman_prepare() {
       UI_ENDED=1
       exit 1
     fi
+    # The new run asks nothing again: the type, the engine, the pseudonym and the consent go along.
     again=("$PWD/scripts/install.sh" "${orig_args[@]}")
     case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
     case " ${orig_args[*]} " in *" --engine "*) ;; *) again+=(--engine podman) ;; esac
+    if [ -n "${pseudonym:-}" ] && [ -z "$pseudonym_arg" ] && [ "$no_pseudonym" = 0 ]; then again+=(--pseudonym "$pseudonym"); fi
     say "Podman is open to this user. The installer starts again in the group suckerpot-podman (sg)."
     UI_ENDED=1
     exec 1>&"$UI_OUT" 2>&"$UI_ERR" 3<&-
-    exec sg suckerpot-podman -c "SELFHOSTR_PODMAN_GROUP=1 $(printf '%q ' bash "${again[@]}")"
+    exec sg suckerpot-podman -c "SELFHOSTR_PODMAN_GROUP=1 SELFHOSTR_PODMAN_CONSENT=${consent_given:-0} $(printf '%q ' bash "${again[@]}")"
   fi
   problems=$(engine_check_podman) ||
     die "this host does not meet the Podman requirements: $(printf '%s' "$problems" | tr '\n' ';' | sed 's/;$//; s/;/; /g') (docs/install.md#podman-experimental)"
-  warn "Podman support is experimental (docs/install.md#podman-experimental). The host firewall is required."
+  # Never adopt or mix with an existing install: its database password lives inside the data.
+  if [ -n "$(ctr volume ls -q --filter "name=^${prefix}_" 2> /dev/null | head -n 1)" ]; then
+    die "Data volumes named '${prefix}_*' already exist. Restore your old .env, or pick another --prefix. (They are never adopted: the database password lives inside the data.)"
+  fi
+  if [ -n "$(ctr ps -a -q --filter "label=com.docker.compose.project=$project" 2> /dev/null | head -n 1)" ]; then
+    die "Containers of the compose project '$project' already exist. Pick another --project, or remove that stack yourself first."
+  fi
 }
 
 mem_kb=0
@@ -742,7 +763,11 @@ if [ "$dry_run" = 1 ]; then
   note "dry run: Docker, memory, disk and volume checks skipped"
 else
   if [ "$ENGINE_ID" = podman ]; then
-    podman_prepare
+    # Nothing on this host changes before the checks that need no engine (podman_prepare, step 2).
+    command -v podman > /dev/null 2>&1 ||
+      die "Podman is not installed. Debian 13 or Ubuntu 26.04: sudo apt install podman docker-compose nftables. Fedora: sudo dnf install podman docker-compose nftables"
+    command -v docker-compose > /dev/null 2>&1 || die "docker-compose is not installed (2.26 or newer): sudo apt install docker-compose, or sudo dnf install docker-compose"
+    warn "Podman support is experimental (docs/install.md#podman-experimental). The host firewall is required."
   else
     command -v docker > /dev/null 2>&1 || offer_docker
     engine=$(ctr version --format '{{.Server.Version}}' 2> /dev/null) \
@@ -782,6 +807,8 @@ else
   if [ "$fresh" = 1 ]; then
 
     root=$(engine_data_root 2> /dev/null || true)
+    # Podman before its socket is open to this user (podman_prepare): its default storage folder.
+    if [ -z "$root" ] && [ "$ENGINE_ID" = podman ]; then root=/var/lib/containers; fi
     free_kb=${SELFHOSTR_FREE_DISK_KB:-$(df -Pk "${root:-/}" 2> /dev/null | awk 'NR==2 {print $4}')}
     [[ ${free_kb:-} =~ ^[0-9]+$ ]] || die "cannot read the free disk space"
     if [ "$free_kb" -lt $((15 * 1024 * 1024)) ]; then
@@ -791,10 +818,11 @@ else
     fi
 
     # Never adopt or mix with an existing install: its database password lives inside the data.
-    if [ -n "$(ctr volume ls -q --filter "name=^${prefix}_" 2> /dev/null | head -n 1)" ]; then
+    # (Podman: checked in podman_prepare, once the socket is open to this user.)
+    if [ "$ENGINE_ID" != podman ] && [ -n "$(ctr volume ls -q --filter "name=^${prefix}_" 2> /dev/null | head -n 1)" ]; then
       die "Data volumes named '${prefix}_*' already exist. Restore your old .env, or pick another --prefix. (They are never adopted: the database password lives inside the data.)"
     fi
-    if [ -n "$(ctr ps -a -q --filter "label=com.docker.compose.project=$project" 2> /dev/null | head -n 1)" ]; then
+    if [ "$ENGINE_ID" != podman ] && [ -n "$(ctr ps -a -q --filter "label=com.docker.compose.project=$project" 2> /dev/null | head -n 1)" ]; then
       die "Containers of the compose project '$project' already exist. Pick another --project, or remove that stack yourself first."
     fi
   fi
@@ -821,8 +849,6 @@ wg_private="" wg_peer="" wg_addr="" wg_dns="" wg_ep_ip="" wg_ep_port=""
 
 if [ "$fresh" = 1 ]; then
   mode=${mode:-images}
-  # Podman runs the signed release images only (design D6): source builds stay on Docker.
-  [ "$ENGINE_ID" != podman ] || [ "$mode" = images ] || die "--source is not supported on Podman yet: use the release images (the default), or Docker"
 
   if [ -z "$sensors_arg" ]; then
     if [ "$stack" = participant ] && [ "$lite" = 1 ]; then
@@ -934,12 +960,18 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
   fi
   vpn_flag=0
   [ -z "$wg_conf" ] || vpn_flag=1
-  [ "$assume_yes" = 1 ] || need_tty "the participant consent"
+  # Podman: the run that starts again in the socket group (podman_prepare) keeps the answer given.
+  podman_consent=0
+  [ "${SELFHOSTR_PODMAN_GROUP:-0}" != 1 ] || [ "${SELFHOSTR_PODMAN_CONSENT:-0}" != 1 ] || podman_consent=1
+  [ "$assume_yes" = 1 ] || [ "$podman_consent" = 1 ] || need_tty "the participant consent"
   ui_pause
   say
   show consent_screen "$pseudonym" "$vpn_flag"
   if [ "$assume_yes" = 1 ]; then
     say "--yes was given: this counts as your agreement to join as described above."
+    say
+  elif [ "$podman_consent" = 1 ]; then
+    say "You agreed before the installer started again in the group suckerpot-podman."
     say
   else
     printf '%sJoin the SuckerPot network as described? [y/N] ' "$UI_IND" 1>&"$UI_ERR"
@@ -950,6 +982,7 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
       *) echo "${UI_IND}Not joined. Nothing was installed." 1>&"$UI_ERR"; log "consent declined"; UI_ENDED=1; exit 1 ;;
     esac
   fi
+  consent_given=1
 fi
 
 # Full mode: the SuckerPot network is off unless --join-network says so (decision O2: no question;
@@ -973,6 +1006,12 @@ if [ "$stack" = full ] && [ "$fresh" = 1 ] && [ "$no_network" = 0 ]; then
   else
     note "the SuckerPot network is off: join it later in the dashboard, or install with --join-network"
   fi
+fi
+
+# Podman: the system changes (socket group, membership) come only now, after every refusal that
+# needs no engine (memory, disk, consent), so a refused run leaves the host as it was.
+if [ "$ENGINE_ID" = podman ] && [ "$fresh" = 1 ] && [ "$dry_run" = 0 ]; then
+  podman_prepare
 fi
 
 # ---------------------------------------------------------------- 3. ports
@@ -1291,7 +1330,13 @@ else
     ENV_FILE=$tmp
     cf=$(env_get COMPOSE_FILE docker-compose.yml)
     unset ENV_FILE
-    case ":$cf:" in *:docker-compose.podman.yml:*) ;; *) setv COMPOSE_FILE "$cf:$(engine_compose_overlay)" ;; esac
+    case ":$cf:" in
+      *:docker-compose.podman.yml:*) ;;
+      # A test install (SELFHOSTR_TEST_INSTALL): before the test overlay, whose networks replace
+      # the live sp-* ones with throwaway names.
+      *:docker-compose.participant-it.yml:*) setv COMPOSE_FILE "${cf/:docker-compose.participant-it.yml/:$(engine_compose_overlay):docker-compose.participant-it.yml}" ;;
+      *) setv COMPOSE_FILE "$cf:$(engine_compose_overlay)" ;;
+    esac
   fi
 
   # Final checks on the file before it goes live.

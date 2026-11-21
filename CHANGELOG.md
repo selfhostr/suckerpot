@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Podman socket to this user (group `suckerpot-podman`, sudo) and starts itself again in that
   group, checks the host, writes `docker-compose.podman.yml` into `COMPOSE_FILE`, installs the host
   firewall (required) and the boot unit before anything starts, and starts the stack through
-  `suckerpot-stack.service`. `--source` is refused on Podman. Docker installs do not change.
+  `suckerpot-stack.service`. `--source` is refused on Podman. A refused run (memory, disk,
+  consent, `--source`) changes nothing on the host: the socket group comes after those checks, with
+  an explanation on screen. Docker installs do not change.
 - Installer: `--update-check` (the daily release check of a full install, off by default),
   `--no-firewall` (participant mode: skip the host firewall; writes `SUCKERPOT_NO_FIREWALL=1`),
   and `--self-address` now also in full mode.

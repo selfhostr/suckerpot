@@ -316,9 +316,11 @@ def test_install_detects_a_podman_only_host_and_refuses(sandbox: Sandbox) -> Non
         "--admin-password-stdin",
         stdin=PASSWORD + "\n",
     )
-    # Detected as Podman (no docker command), then refused by the host checks of the fake podman.
+    # Detected as Podman (no docker command), then refused before anything changes: this PATH has
+    # no docker-compose.
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "this host does not meet the Podman requirements" in proc.stderr
+    assert "docker-compose is not installed" in proc.stderr
+    assert not (sandbox.root / ".env").exists()
 
 
 def test_install_refuses_a_docker_command_that_is_podman(sandbox: Sandbox) -> None:

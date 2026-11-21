@@ -23,8 +23,10 @@ case "$*" in
 esac
 exit 0
 """
+# SHIM_SOCKET_CLOSED=1: the root socket does not answer this user yet (`podman version` fails).
 PODMAN = CAPABLE_PODMAN.replace(
     "esac\nexit 0\n",
+    '  *" version") [ "${SHIM_SOCKET_CLOSED:-0}" = 1 ] && exit 125\n    echo "5.4.2" ;;\n'
     '  *) shift 2; exec env SHIM_LOG=/dev/null "$SHIM_DIR/docker-real" "$@" ;;\nesac\nexit 0\n',
 )
 SUDO = '#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\nexit 0\n'
@@ -60,6 +62,7 @@ def _podman_host(sb: Sandbox, *, docker: bool = False) -> None:
     for rel, name in (
         ("scripts/host/install-stack-unit.sh", "install-stack-unit"),
         ("scripts/ensure-networks.sh", "ensure-networks"),
+        ("scripts/host/podman-socket.sh", "podman-socket"),
     ):
         path = sb.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,3 +256,81 @@ def test_a_docker_only_host_never_offers_podman(sandbox: Sandbox) -> None:
     (sandbox.shim / "podman").unlink()
     env = _dry(sandbox)
     assert env["SUCKERPOT_ENGINE"] == "docker"
+
+
+# ------------------------------------------------------------------ nothing changes before the checks
+
+
+def _socket_calls(sb: Sandbox) -> list[str]:
+    return [c for c in sb.calls() if c.startswith("podman-socket")]
+
+
+def test_the_socket_access_is_explained_on_screen_before_it_is_given(sandbox: Sandbox) -> None:
+    _podman_host(sandbox)
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--yes", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        extra_env={"SHIM_SOCKET_CLOSED": "1"},
+    )
+    out = proc.stdout + proc.stderr
+    # sudo needs no password here, and the explanation is still shown, before podman-socket runs.
+    assert "root-equivalent" in out
+    assert "suckerpot-podman" in out
+    assert len(_socket_calls(sandbox)) == 1
+    assert "root-equivalent" in proc.stderr
+    # The new group cannot be entered in this sandbox (no sg): the run stops and says why.
+    assert proc.returncode == 1
+    assert "Log out and back in" in out
+    assert not (sandbox.root / ".env").exists()
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "why"),
+    [
+        (("--source",), {}, "--source is not supported on Podman"),
+        ((), {"SELFHOSTR_FREE_DISK_KB": "1000"}, "less than 15 GiB free"),
+        (("--lite",), {"SELFHOSTR_MEMINFO_KB": "1"}, ""),
+    ],
+    ids=["source", "disk", "memory"],
+)
+def test_a_refused_run_leaves_the_host_unchanged(
+    sandbox: Sandbox, args: tuple[str, ...], env: dict[str, str], why: str
+) -> None:
+    _podman_host(sandbox)
+    if "SELFHOSTR_MEMINFO_KB" in env:
+        (Path(sandbox.env["SELFHOSTR_MEMINFO"])).write_text("MemTotal:         500000 kB\n")
+        env = {}
+        why = "even --lite needs a machine with 1 GiB"
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--yes", "--version", "v0.8.0", *args),
+        extra_env={"SHIM_SOCKET_CLOSED": "1", **env},
+    )
+    assert proc.returncode == 1
+    assert why in proc.stdout + proc.stderr
+    assert _socket_calls(sandbox) == []
+    assert not [c for c in sandbox.calls() if c.startswith(("sudo", "install-firewall"))]
+
+
+def test_a_declined_consent_leaves_the_host_unchanged(sandbox: Sandbox) -> None:
+    _podman_host(sandbox)
+    tty = sandbox.root / "answers"
+    tty.write_text("n\n")
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--version", "v0.8.0"),
+        extra_env={"SHIM_SOCKET_CLOSED": "1", "SELFHOSTR_TTY": str(tty)},
+    )
+    assert proc.returncode == 1
+    assert "Not joined. Nothing was installed." in proc.stdout + proc.stderr
+    assert _socket_calls(sandbox) == []
+
+
+def test_a_test_install_keeps_the_test_overlay_last(sandbox: Sandbox) -> None:
+    """SELFHOSTR_TEST_INSTALL: the test overlay replaces the live sp-* networks with throwaway ones,
+    so the Podman overlay must come before it."""
+    import re as _re
+
+    text = (Path(__file__).resolve().parents[3] / "scripts/install.sh").read_text()
+    block = text.split("*:docker-compose.participant-it.yml:*)", 1)[1].split(";;", 1)[0]
+    assert _re.search(r":\$\(engine_compose_overlay\):docker-compose\.participant-it\.yml", block)
