@@ -39,8 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   conservative value). `hub-admin stats` shows the dormant count.
 - Hub: a pseudonym held by a node that NEVER sent a batch (a reinstall's ghost) is freed for a
   new or renaming node once that holder made no request on two days the hub was serving (days
-  with an outage, or with many address-limiter blocks, do not count; new table
-  `hub_served_days` with two counters per day). A node
+  with an outage, or with many address-limiter blocks or authentication failures, do not
+  count; new table `hub_served_days` with three counters per day). A node
   that ever sent a batch never loses its name. Every other claim is refused with
   `pseudonym_taken`, also when two claims race.
 

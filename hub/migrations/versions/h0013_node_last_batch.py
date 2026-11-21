@@ -12,7 +12,7 @@ an unknown history (its batches may be older than the markers): it gets ``today 
 never a never-batched ghost (it keeps its name) and counts as a member for about three more weeks.
 
 ``hub_served_days``: per UTC day, the authenticated requests the API served and the requests its
-address limiter refused (integers only, no node or address). A pseudonym holder's silence is
+address limiter refused and the authentication failures (integers only, no node or address). A pseudonym holder's silence is
 counted on served days with few blocks only (hub/hub/dormant.py).
 
 ``hub_count_snapshot``: the nodes counted as members for one week (a Monday), taken once by the
@@ -44,7 +44,8 @@ def upgrade() -> None:
         CREATE TABLE hub_served_days (
             day date PRIMARY KEY,
             served bigint NOT NULL DEFAULT 0,
-            blocked bigint NOT NULL DEFAULT 0
+            blocked bigint NOT NULL DEFAULT 0,
+            auth_failures bigint NOT NULL DEFAULT 0
         )
         """
     )

@@ -28,7 +28,7 @@ from starlette.responses import Response
 from suckerpot_netproto import ProtoError, pow, sign
 from suckerpot_netproto.feeds.models import LIST_IDS
 
-from ..auth import MAX_BODY_DEFAULT, read_body, reply
+from ..auth import MAX_BODY_DEFAULT, read_body, record_failure, reply
 from ..context import get_ctx
 from .lookup import limit_unsigned, normalize_value
 
@@ -291,7 +291,7 @@ async def status(request: Request, request_id: str) -> Response:
             ).first()
     # Same answer for an unknown id and a wrong token; a guess counts as an authentication failure.
     if row is None or not token_hash or not hmac.compare_digest(bytes(row.token_hash), token_hash):
-        ctx.address_limiter.record_failure(request)
+        record_failure(ctx, request)
         raise HTTPException(404)
     return reply(
         request,

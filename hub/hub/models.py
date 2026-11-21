@@ -263,13 +263,14 @@ class HubAudit(Base):
 
 class HubServedDay(Base):
     """Per-day counters of the API (migration h0013): authenticated requests served, requests
-    refused by the address limiter. Integers only, no node or address data."""
+    refused by the address limiter, authentication failures. Integers only, no node or address."""
 
     __tablename__ = "hub_served_days"
 
     day: Mapped[date] = mapped_column(Date, primary_key=True)
     served: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
     blocked: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    auth_failures: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
 
 
 class HubCountSnapshot(Base):

@@ -76,6 +76,12 @@ def test_clean_day_rule(served: int, blocked: int, expected: bool) -> None:
     assert dormant.clean_day(served, blocked) is expected
 
 
+def test_a_day_with_many_auth_failures_is_not_clean() -> None:
+    # 30 bad signatures per limiter window from a shared exit block the victim's address all day.
+    assert dormant.clean_day(100_000, 5, 999)
+    assert not dormant.clean_day(100_000, 5, 1000)
+
+
 class _Session:
     def __init__(self) -> None:
         self.rows: list[dict[str, Any]] = []
@@ -93,16 +99,17 @@ async def test_served_days_are_added_up_and_written_once_a_minute() -> None:
     session: Any = _Session()
     now = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
     await days.served(session, now)  # the first one writes at once
-    assert session.rows == [{"d": TODAY, "s": 1, "b": 0}]
+    assert session.rows == [{"d": TODAY, "s": 1, "b": 0, "f": 0}]
     for i in range(50):
         await days.served(session, now + timedelta(seconds=i))
     await days.blocked(session, now + timedelta(seconds=30))
+    days.auth_failure(now + timedelta(seconds=31))
     assert len(session.rows) == 1  # held in memory
     await days.served(session, now + timedelta(seconds=61))
-    assert session.rows[1] == {"d": TODAY, "s": 51, "b": 1}
+    assert session.rows[1] == {"d": TODAY, "s": 51, "b": 1, "f": 1}
     await days.blocked(session, now + timedelta(seconds=62))
     await days.flush(session, now + timedelta(seconds=63))  # what the shutdown does
-    assert session.rows[2] == {"d": TODAY, "s": 0, "b": 1}
+    assert session.rows[2] == {"d": TODAY, "s": 0, "b": 1, "f": 0}
 
 
 class _Orig(Exception):
@@ -194,6 +201,17 @@ async def test_a_node_that_resumes_after_a_gap_stays_counted_all_week(env: Env) 
 
 
 @pytest.mark.integration
+async def test_a_node_enrolled_on_the_snapshot_day_is_counted(env: Env) -> None:
+    async with env.worker() as s:
+        await stats.build_summary(s, date(2026, 10, 30))  # the week's snapshot, taken 10-30
+        await s.commit()
+    (node,) = await env.enrolled()
+    await _set(env, uuid.UUID(node.node_id), enrolled_day=date(2026, 10, 30))
+    async with env.worker() as s:
+        assert (await stats.build_summary(s, date(2026, 10, 31))).totals.members == 1
+
+
+@pytest.mark.integration
 async def test_a_dormant_node_that_sends_counts_again_from_the_next_week(env: Env) -> None:
     (node,) = await env.enrolled()
     async with env.worker() as s:
@@ -217,16 +235,19 @@ async def test_a_dormant_node_that_sends_counts_again_from_the_next_week(env: En
 # --- pseudonyms -------------------------------------------------------------------------------
 
 
-async def _served(env: Env, *days: date, served: int = 100, blocked: int = 0) -> None:
+async def _served(
+    env: Env, *days: date, served: int = 100, blocked: int = 0, failures: int = 0
+) -> None:
     async with env.worker() as s:
         for d in days:
             await s.execute(
                 text(
-                    "INSERT INTO hub_served_days (day, served, blocked) VALUES (:d, :s, :b) "
-                    "ON CONFLICT (day) DO UPDATE SET served = EXCLUDED.served, "
-                    "blocked = EXCLUDED.blocked"
+                    "INSERT INTO hub_served_days (day, served, blocked, auth_failures) "
+                    "VALUES (:d, :s, :b, :f) ON CONFLICT (day) DO UPDATE SET "
+                    "served = EXCLUDED.served, blocked = EXCLUDED.blocked, "
+                    "auth_failures = EXCLUDED.auth_failures"
                 ),
-                {"d": d, "s": served, "b": blocked},
+                {"d": d, "s": served, "b": blocked, "f": failures},
             )
         await s.commit()
 
@@ -236,23 +257,39 @@ async def _silent_since(env: Env, node: NodeClient, last_active: date, **values:
                enrolled_day=TODAY - 10 * D, **values)  # fmt: skip
 
 
-async def _counters(env: Env) -> list[tuple[date, int, int]]:
+async def _counters(env: Env) -> list[tuple[date, int, int, int]]:
     async with env.worker() as s:
-        rows = (await s.execute(text("SELECT day, served, blocked FROM hub_served_days"))).all()
-    return [(r.day, r.served, r.blocked) for r in rows]
+        rows = (
+            await s.execute(text("SELECT day, served, blocked, auth_failures FROM hub_served_days"))
+        ).all()
+    return [(r.day, r.served, r.blocked, r.auth_failures) for r in rows]
 
 
 @pytest.mark.integration
 async def test_requests_are_counted_per_day(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
     (node,) = await env.enrolled()
     assert (await node.call("GET", "/v1/node")).status == 200
-    assert await _counters(env) == [(TODAY, 1, 0)]
+    assert await _counters(env) == [(TODAY, 1, 0, 0)]
+    # An authentication failure (here: no signature headers at all) is counted too.
+    assert (await env.http.get("/v1/node")).status_code >= 400
     # Address-limiter refusals are counted too (in memory first, written about once a minute).
     monkeypatch.setattr(env.ctx.address_limiter, "blocked", lambda _request: 30)
     assert (await node.call("GET", "/v1/node")).error == "rate_limited"
     env.clock.advance(seconds=61)
     assert (await node.call("GET", "/v1/node")).error == "rate_limited"
-    assert await _counters(env) == [(TODAY, 1, 2)]
+    assert await _counters(env) == [(TODAY, 1, 2, 1)]
+
+
+@pytest.mark.integration
+async def test_auth_failures_on_a_shared_exit_do_not_make_a_ghost_silent(env: Env) -> None:
+    (ghost,) = await env.enrolled(pseudonym="shared owl")
+    await _silent_since(env, ghost, TODAY - 3 * D)
+    # An attacker on the holder's exit keeps its address blocked with bad signatures: the hub
+    # served others normally and blocked few requests, but counted tens of thousands of failures.
+    await _served(env, TODAY - 2 * D, TODAY - D, served=5000, blocked=40, failures=40_000)
+    assert (await env.node().enrol(pseudonym="shared owl")).error == "pseudonym_taken"
+    await _served(env, TODAY - 2 * D, TODAY - D, served=5000, blocked=40, failures=12)
+    assert (await env.node().enrol(pseudonym="shared owl")).status == 200
 
 
 @pytest.mark.integration
