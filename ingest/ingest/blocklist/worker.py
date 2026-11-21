@@ -7,20 +7,22 @@ resolved, fetched or contacted, and addresses that must never be listed (private
 reserved) and shared hosting names are dropped before they reach the table.
 
 Row budgets: at most ``BLOCKLIST_MAX_ROWS`` entries, and the candidate queries are capped so one
-cycle cannot grow with the table sizes. Each cycle runs in one transaction with a 30 s statement
-timeout.
+cycle cannot grow with the table sizes. Each step of a cycle (one candidate read, the overrides,
+the write) runs in its own transaction with a 30 s statement timeout. A step that fails stops the
+cycle before anything is written, and the log names the step and the database error.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import RowMapping, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.blocklist_values import is_shared_host, normalize_value
 from suckerpot_db.models import BlocklistEntryRow
@@ -45,6 +47,7 @@ log = logging.getLogger(__name__)
 IP_CANDIDATES = 100_000
 INDICATOR_CANDIDATES = 50_000
 CONTACT_CANDIDATES = 20_000
+DEMO_ADDRESSES = 200_000  # addresses with a demo `connect` (a demo run makes up random ones)
 CHUNK = 2_000
 WRITE_CHUNK = 1_000
 STATEMENT_TIMEOUT = "30s"
@@ -65,84 +68,135 @@ class Candidate:
     demo: bool = False
 
 
+class BlocklistStepError(Exception):
+    """A step of the cycle failed. ``summary`` is safe to log: no statement, no parameters."""
+
+    def __init__(self, step: str, exc: BaseException) -> None:
+        self.step = step
+        self.summary = f"step {step}: {describe_error(exc)}"
+        super().__init__(self.summary)
+
+
+def describe_error(exc: BaseException) -> str:
+    """The error class and, for a database error, the first line of the server message.
+
+    ``str()`` of a SQLAlchemy error carries the statement and its parameters (addresses), so it
+    is never logged. Under a ``DBAPIError`` the driver's own error holds only the server message,
+    such as "canceling statement due to statement timeout". Any other error gives its class only.
+    """
+    if not (isinstance(exc, DBAPIError) and isinstance(exc.orig, BaseException)):
+        return type(exc).__name__
+    inner: BaseException = exc.orig
+    if inner.__cause__ is not None:  # the asyncpg error under SQLAlchemy's adapter
+        inner = inner.__cause__
+    lines = str(inner).strip().splitlines()
+    first = lines[0][:160] if lines else ""
+    return f"{type(inner).__name__}: {first}" if first else type(inner).__name__
+
+
 def _chunks(items: Sequence[str], size: int) -> list[Sequence[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
-async def _ip_candidates(db: AsyncSession, cutoff: datetime) -> list[Candidate]:
-    rows = (
-        (
-            await db.execute(
-                text(
-                    f"""
-                    SELECT host(src_ip) AS ip, {sql_sessions_count()} AS sessions,
-                           count(DISTINCT sensor) AS sensors,
-                           min(started_at) AS first_seen, max(last_event_at) AS last_seen,
-                           coalesce(sum(login_attempts), 0) AS login_attempts,
-                           bool_or(login_success) AS login_success,
-                           coalesce(sum(commands), 0) AS commands,
-                           coalesce(sum(downloads), 0) AS downloads,
-                           max(abuse_score) AS max_abuse,
-                           coalesce(bool_or(known_scanner), false) AS known_scanner,
-                           bool_and(benign) AS benign,
-                           coalesce(array_agg(DISTINCT campaign_id)
-                                    FILTER (WHERE campaign_id IS NOT NULL), '{{}}') AS campaigns
-                    FROM sessions
-                    WHERE started_at >= :cutoff
-                    GROUP BY src_ip
-                    ORDER BY max(last_event_at) DESC
-                    LIMIT :n
-                    """  # noqa: S608 - constant fragments only
-                ),
-                {"cutoff": cutoff, "n": IP_CANDIDATES},
-            )
-        )
-        .mappings()
-        .all()
+async def _ip_rows(db: AsyncSession, cutoff: datetime) -> list[RowMapping]:
+    """One aggregate row per source address of the window, newest first."""
+    result = await db.execute(
+        text(
+            f"""
+            SELECT host(src_ip) AS ip, {sql_sessions_count()} AS sessions,
+                   count(DISTINCT sensor) AS sensors,
+                   min(started_at) AS first_seen, max(last_event_at) AS last_seen,
+                   coalesce(sum(login_attempts), 0) AS login_attempts,
+                   bool_or(login_success) AS login_success,
+                   coalesce(sum(commands), 0) AS commands,
+                   coalesce(sum(downloads), 0) AS downloads,
+                   max(abuse_score) AS max_abuse,
+                   coalesce(bool_or(known_scanner), false) AS known_scanner,
+                   bool_and(benign) AS benign,
+                   coalesce(array_agg(DISTINCT campaign_id)
+                            FILTER (WHERE campaign_id IS NOT NULL), '{{}}') AS campaigns
+            FROM sessions
+            WHERE started_at >= :cutoff
+            GROUP BY src_ip
+            ORDER BY max(last_event_at) DESC
+            LIMIT :n
+            """  # noqa: S608 - constant fragments only
+        ),
+        {"cutoff": cutoff, "n": IP_CANDIDATES},
     )
-    ips = [str(r["ip"]) for r in rows]
+    return list(result.mappings().all())
+
+
+async def _ip_tags(
+    db: AsyncSession, cutoff: datetime, ips: Sequence[str]
+) -> dict[str, frozenset[str]]:
+    """The session tags of each address, read 2,000 addresses at a time (address index)."""
     tags: dict[str, frozenset[str]] = {}
-    demo: dict[str, bool] = {}
     for chunk in _chunks(ips, CHUNK):
-        for r in (
-            (
-                await db.execute(
-                    text(
-                        """
-                        SELECT host(src_ip) AS ip, array_agg(DISTINCT t) AS tags
-                        FROM sessions s CROSS JOIN LATERAL unnest(s.tags) AS t
-                        WHERE s.started_at >= :cutoff
-                          AND s.src_ip = ANY(CAST(CAST(:ips AS text[]) AS inet[]))
-                        GROUP BY s.src_ip
-                        """
-                    ),
-                    {"cutoff": cutoff, "ips": list(chunk)},
-                )
-            )
-            .mappings()
-            .all()
-        ):
+        result = await db.execute(
+            text(
+                """
+                SELECT host(src_ip) AS ip, array_agg(DISTINCT t) AS tags
+                FROM sessions s CROSS JOIN LATERAL unnest(s.tags) AS t
+                WHERE s.started_at >= :cutoff
+                  AND s.src_ip = ANY(CAST(CAST(:ips AS text[]) AS inet[]))
+                GROUP BY s.src_ip
+                """
+            ),
+            {"cutoff": cutoff, "ips": list(chunk)},
+        )
+        for r in result.mappings().all():
             tags[str(r["ip"])] = frozenset(r["tags"])
-        for r in (
-            (
-                await db.execute(
-                    text(
-                        """
-                        SELECT host(src_ip) AS ip,
-                               bool_and(coalesce(data ->> 'demo', 'false') = 'true') AS demo
-                        FROM events
-                        WHERE type = 'connect' AND ts >= :cutoff
-                          AND src_ip = ANY(CAST(CAST(:ips AS text[]) AS inet[]))
-                        GROUP BY src_ip
-                        """
-                    ),
-                    {"cutoff": cutoff, "ips": list(chunk)},
-                )
-            )
-            .mappings()
-            .all()
-        ):
-            demo[str(r["ip"])] = bool(r["demo"])
+    return tags
+
+
+async def _demo_ips(db: AsyncSession, cutoff: datetime, ips: Sequence[str]) -> set[str]:
+    """The addresses among ``ips`` whose every ``connect`` event of the window is demo data.
+
+    Two short reads instead of one pass over every ``connect`` event per 2,000 addresses (that
+    pass timed out on a large node). First the addresses that sent a demo ``connect`` at all, from
+    the partial index ``ix_events_demo_connect_ts`` (empty on a node that never ran ``just
+    demo``). Then, only for those, whether one of them also sent a real ``connect``.
+    """
+    if not ips:
+        return set()
+    flagged = {
+        str(r.ip)
+        for r in await db.execute(
+            text(
+                """
+                SELECT DISTINCT host(src_ip) AS ip FROM events
+                WHERE type = 'connect' AND (data ->> 'demo') = 'true' AND ts >= :cutoff
+                LIMIT :n
+                """
+            ),
+            {"cutoff": cutoff, "n": DEMO_ADDRESSES},
+        )
+    } & set(ips)
+    if not flagged:
+        return set()
+    mixed = {
+        str(r.ip)
+        for r in await db.execute(
+            text(
+                """
+                SELECT DISTINCT host(src_ip) AS ip FROM events
+                WHERE type = 'connect' AND (data ->> 'demo') IS DISTINCT FROM 'true'
+                  AND ts >= :cutoff AND src_ip = ANY(CAST(CAST(:ips AS text[]) AS inet[]))
+                """
+            ),
+            {"cutoff": cutoff, "ips": sorted(flagged)},
+        )
+    }
+    return flagged - mixed
+
+
+def ip_candidates(
+    rows: Sequence[Mapping[Any, Any]],
+    tags: Mapping[str, frozenset[str]],
+    demo: Collection[str],
+) -> list[Candidate]:
+    """Score the address rows of ``_ip_rows`` with their tags and demo flag."""
     out: list[Candidate] = []
     for r in rows:
         value = normalize_value("ip", str(r["ip"]))
@@ -175,10 +229,17 @@ async def _ip_candidates(db: AsyncSession, cutoff: datetime) -> list[Candidate]:
                 int(r["sessions"]),
                 campaigns,
                 bool(r["benign"]),
-                demo.get(str(r["ip"]), False),
+                str(r["ip"]) in demo,
             )
         )
     return out
+
+
+async def _ip_candidates(db: AsyncSession, cutoff: datetime) -> list[Candidate]:
+    """All three address reads on one session (tests and tools; the worker runs them as steps)."""
+    rows = await _ip_rows(db, cutoff)
+    ips = [str(r["ip"]) for r in rows]
+    return ip_candidates(rows, await _ip_tags(db, cutoff, ips), await _demo_ips(db, cutoff, ips))
 
 
 async def _indicator_candidates(db: AsyncSession, cutoff: datetime) -> list[Candidate]:
@@ -499,22 +560,38 @@ class BlocklistWorker(FeatureWorker):
         self.removed = 0
         self.last_run_at: datetime | None = None
 
+    async def _step[T](self, name: str, work: Callable[[AsyncSession], Awaitable[T]]) -> T:
+        """Run one step in its own transaction and statement timeout; name it if it fails."""
+        factory = self.factory
+        if factory is None:
+            raise RuntimeError("no database")
+        try:
+            async with factory() as db, db.begin():
+                await db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+                return await work(db)
+        except Exception as exc:
+            raise BlocklistStepError(name, exc) from exc
+
     async def run_once(self) -> None:
         if self.factory is None:
             return
         now = datetime.now(UTC)
         cutoff = now - timedelta(days=self.settings.blocklist_window_days)
-        async with self.factory() as db, db.begin():
-            await db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-            candidates = await _ip_candidates(db, cutoff)
-            candidates += await _indicator_candidates(db, cutoff)
-            candidates += await _contact_candidates(db, cutoff)
-            candidates = merge_duplicates(candidates)
-            candidates = apply_network(candidates, await _network_confirmed(db))
-            candidates = apply_overrides(candidates, await _overrides(db, now))
-            top = select_top(candidates, self.settings.blocklist_max_rows)
-            self.removed = await write_entries(db, top, now)
-            self.entries = len(top)
+        rows = await self._step("ip-sessions", lambda db: _ip_rows(db, cutoff))
+        ips = [str(r["ip"]) for r in rows]
+        tags = await self._step("ip-tags", lambda db: _ip_tags(db, cutoff, ips))
+        demo = await self._step("ip-demo", lambda db: _demo_ips(db, cutoff, ips))
+        candidates = ip_candidates(rows, tags, demo)
+        candidates += await self._step("indicators", lambda db: _indicator_candidates(db, cutoff))
+        candidates += await self._step("contacts", lambda db: _contact_candidates(db, cutoff))
+        candidates = merge_duplicates(candidates)
+        confirmed = await self._step("network", _network_confirmed)
+        candidates = apply_network(candidates, confirmed)
+        overrides = await self._step("overrides", lambda db: _overrides(db, now))
+        candidates = apply_overrides(candidates, overrides)
+        top = select_top(candidates, self.settings.blocklist_max_rows)
+        self.removed = await self._step("write", lambda db: write_entries(db, top, now))
+        self.entries = len(top)
         self.last_run_at = now
 
     async def status(self) -> dict[str, Any]:

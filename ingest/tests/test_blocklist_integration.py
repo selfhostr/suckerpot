@@ -135,6 +135,56 @@ async def test_sessions_and_indicators_become_scored_entries(
     assert (await w.status())["blocklist"]["entries"] == 4
 
 
+async def test_an_address_is_demo_only_when_every_connect_is_demo(
+    engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await clean(engine)
+    await add_session(engine, "d1", "203.0.113.30", 1, commands=3, downloads=1, demo=True)
+    await add_session(engine, "d2", "203.0.113.30", 2, commands=3, downloads=1, demo=True)
+    await add_session(engine, "m1", "203.0.113.31", 1, commands=3, downloads=1, demo=True)
+    await add_session(engine, "m2", "203.0.113.31", 2, commands=3, downloads=1)
+    await add_session(engine, "r1", "203.0.113.32", 1, commands=3, downloads=1)
+    await worker(factory).run_once()
+    got = await entries(engine)
+    assert got[("ip", "203.0.113.30")]["demo"] is True
+    assert got[("ip", "203.0.113.31")]["demo"] is False  # one real connect: not demo data
+    assert got[("ip", "203.0.113.32")]["demo"] is False
+
+
+async def test_the_demo_read_uses_the_partial_index(engine: AsyncEngine) -> None:
+    async with engine.connect() as conn:
+        trans = await conn.begin()
+        await conn.execute(  # a chunk in the window, so the plan has one to read (rolled back)
+            text(
+                "INSERT INTO events (ts, sensor, session_id, type, src_ip, src_port, dst_port, "
+                "data, tags) VALUES (now(), 'ssh', 'idx-probe', 'connect', '203.0.113.50', "
+                "40000, 2222, '{\"demo\": true}', '{}')"
+            )
+        )
+        idx = (
+            await conn.execute(
+                text(
+                    "SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_events_demo_connect_ts'"
+                )
+            )
+        ).scalar()
+        assert idx is not None and "WHERE" in idx
+        await conn.execute(text("SET LOCAL enable_seqscan = off"))
+        await conn.execute(text("SET LOCAL enable_bitmapscan = off"))
+        plan = "\n".join(
+            str(r[0])
+            for r in await conn.execute(
+                text(
+                    "EXPLAIN SELECT DISTINCT host(src_ip) AS ip FROM events "
+                    "WHERE type = 'connect' AND (data ->> 'demo') = 'true' "
+                    "AND ts >= now() - interval '30 days'"
+                )
+            )
+        )
+        await trans.rollback()
+    assert "ix_events_demo_connect_ts" in plan  # the chunk's copy carries the name as a suffix
+
+
 async def test_overrides_and_stale_rows(
     engine: AsyncEngine, factory: async_sessionmaker[AsyncSession]
 ) -> None:

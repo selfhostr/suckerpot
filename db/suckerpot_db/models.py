@@ -70,6 +70,12 @@ class EventRow(Base):
             text("ts DESC"),
             postgresql_where=text("country IS NOT NULL"),
         ),
+        # The blocklist worker's demo check (0036). Empty on a node that never ran `just demo`.
+        Index(
+            "ix_events_demo_connect_ts",
+            text("ts DESC"),
+            postgresql_where=text("type = 'connect' AND (data ->> 'demo') = 'true'"),
+        ),
     )
 
 
