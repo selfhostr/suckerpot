@@ -131,6 +131,13 @@ WEB_BUILTIN_FLAGS = frozenset(
     }
 )  # fmt: skip
 
+# Network tags that make a source's activity "exploit" (ingest/ingest/network/builder.py,
+# EXPLOIT_TAGS; a test keeps both lists equal). A pack tag may not be one of them or a cve-* tag.
+EXPLOIT_TAGS = frozenset(
+    "php2shell eternalblue bluekeep sql-rce exec-attempt container-escape synology-exploit "
+    "c3rb3r".split()
+)
+
 # Flags a bundled pack owns. Ingest rules give them a meaning (web.yaml, scanners.py), so only
 # that pack may set them, like the built-in flags above.
 PACK_OWNED_FLAGS: tuple[tuple[str, str], ...] = (
@@ -987,6 +994,10 @@ def validate_pack(
     if not 0.05 <= presence <= 1.0:
         raise _fail("schema", "presence: between 0.05 and 1.0")
     tag = _slug(d["tag"], "tag", 3, 40)
+    if tag in EXPLOIT_TAGS or tag.startswith("cve-"):
+        # These tags make a source's activity "exploit" on the network: a pack may not name one,
+        # so its hits can only reach that through its CVE ids and gate G (M37, section 10).
+        raise _fail("schema", "tag: exploit tags and cve-* are reserved")
     attack_raw = _list(d.get("attack", []), "attack", 0, 4)
     if not all(_is_technique(a) for a in attack_raw):
         raise _fail("schema", "attack: ATT&CK ids like T1190 or T1059.004")

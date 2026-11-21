@@ -936,3 +936,14 @@ def test_distributed_bundle_fields() -> None:
                 {"schema": "suckerpot-traps/1", "seq": 1, "packs": [], "bundled_seq_min": "1"}
             ).encode()
         )
+
+
+@pytest.mark.parametrize("tag", ["php2shell", "sql-rce", "cve-2026-55501", "cve-anything"])
+def test_pack_tags_cannot_be_exploit_or_cve_tags(tag: str) -> None:
+    """Security review of #163: a pack tag that makes the activity "exploit" by itself would
+    get past gate G, so the validator refuses it."""
+    obj = example()
+    obj["tag"] = tag
+    with pytest.raises(PackError) as err:
+        traps.validate_pack(obj)
+    assert err.value.reason == "schema" and "reserved" in err.value.detail

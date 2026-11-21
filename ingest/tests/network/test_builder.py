@@ -262,3 +262,11 @@ async def test_gate_g_in_the_batch_keeps_the_tag_but_not_the_activity() -> None:
     assert res.batch is not None and res.batch["sources"][0]["activity"] == ["http"]
     res = await builder(src, trap_gate=Gate(frozenset())).build(DAY)
     assert res.batch is not None and "exploit" in res.batch["sources"][0]["activity"]
+
+
+def test_the_validator_reserves_the_same_exploit_tags() -> None:
+    from suckerpot_common import traps
+
+    from ingest.network.builder import EXPLOIT_TAGS
+
+    assert traps.EXPLOIT_TAGS == EXPLOIT_TAGS
