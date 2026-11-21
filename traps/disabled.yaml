@@ -1,0 +1,4 @@
+# Kill list of the distributed trap pack bundle (docs/trap-packs.md, "Turning a pack off").
+# A pack listed here is turned off on every node within the hour, bundled copies included.
+# Each entry: {id: <pack id>, reason: <short public reason>}. The pack stays in traps/packs/.
+disabled: []
