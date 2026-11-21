@@ -1,3 +1,4 @@
+--- stdout
 [1/10] Checking this machine
 [2/10] Settings
 

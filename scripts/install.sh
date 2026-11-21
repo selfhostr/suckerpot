@@ -85,8 +85,13 @@ note() {
 warn() {
   if [ "$UI_MODE" = plain ]; then echo "      warning: $*" >&2; else echo "      warning: $*"; ui_warn "$*"; fi
 }
-# say: text for the person at the terminal (stdout in plain mode, the display in rich mode).
-say() { echo "$@" 1>&"$UI_OUT"; }
+# say: text for the person at the terminal (stdout in plain mode, the display in rich mode, where it
+# is indented like the rest of the screen).
+say() { if [ -n "$*" ]; then echo "${UI_IND}$*" 1>&"$UI_OUT"; else echo 1>&"$UI_OUT"; fi; }
+# show CMD...: the output of CMD for the terminal, indented in rich mode, unchanged otherwise.
+show() {
+  if [ "$UI_MODE" = rich ]; then "$@" | sed 's/^./  &/' 1>&"$UI_OUT"; else "$@"; fi
+}
 # quiet CMD...: CMD with its stdout dropped (its errors still reach the log).
 quiet() { "$@" > /dev/null; }
 # answered: after an answer read on fd 3. A typed answer ends its line on the terminal; an answer
@@ -175,13 +180,6 @@ if [ "$dry_run" = 0 ] && [ -n "$env_out" ]; then die "--env-out is only for --dr
 
 # The display. The dry run writes no log, as before.
 if [ "$dry_run" = 1 ]; then ui_init "" "$plain"; else ui_init "$LOG" "$plain"; fi
-if [ "$UI_MODE" = rich ]; then
-  case $stack in participant) ui_ctx="participant node" ;; full) ui_ctx="full install" ;; *) ui_ctx="installer" ;; esac
-  [ "$repair" = 0 ] || ui_ctx="$ui_ctx · repair"
-  [ "$dry_run" = 0 ] || ui_ctx="$ui_ctx · dry run"
-  [ "$UI_UTF8" = 1 ] || ui_ctx=${ui_ctx// · / - }
-  ui_header "$ui_ctx"
-fi
 log "install.sh started ($UI_MODE display)"
 case ${lowmem:-auto} in auto | on | off) ;; *) die "--lowmem must be auto, on or off" ;; esac
 lowmem=${lowmem:-auto}
@@ -295,6 +293,15 @@ fresh=$((1 - existing))
 if [ "$fresh" = 1 ] && [ "$ENGINE_FROM" = default ]; then engine_use "$(engine_detect)"; fi
 engine_ready || die "$ENGINE_UNREADY_MSG"
 
+# The header names the install once its mode is known (an existing install keeps its own).
+if [ "$UI_MODE" = rich ]; then
+  if [ "$stack" = participant ]; then ui_ctx="participant node"; else ui_ctx="full install"; fi
+  [ "$switching" = 0 ] || ui_ctx="$ui_ctx · switch from participant mode"
+  [ "$repair" = 0 ] || ui_ctx="$ui_ctx · repair"
+  [ "$dry_run" = 0 ] || ui_ctx="$ui_ctx · dry run"
+  [ "$UI_UTF8" = 1 ] || ui_ctx=${ui_ctx// · / - }
+  ui_header "$ui_ctx"
+fi
 # The rich display: a fixed list of steps (weights for the bar), and where the numbered steps go.
 if [ "$stack" = participant ]; then
   ui_plan "check|Check this machine|4" "settings|Settings and secrets|8" "volumes|Data volumes and checks|4" \
@@ -305,8 +312,9 @@ else
     "volumes|Data volumes and checks|4" "images|Verify and download images|35" "start|Start SuckerPot|30" \
     "dashboard|Dashboard answers|7"
 fi
-STEP_ROW=([1]=check [2]=settings [3]=settings [4]=settings [5]=settings [7]=volumes [8]=volumes)
-if [ "$stack" = full ]; then STEP_ROW[5]="admin"; fi
+STEP_ROW=([1]=check [2]=settings [3]=settings [4]=settings [5]=settings [6]=settings [7]=volumes [8]=volumes)
+# A full install hashes the admin password (step 5) after the settings, then writes .env (step 6).
+if [ "$stack" = full ]; then STEP_ROW[5]="admin" STEP_ROW[6]="admin"; fi
 ui_begin check
 # dash is 1 when the dashboard questions apply: a fresh full install, or the switch to full mode.
 dash=0
@@ -645,17 +653,17 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
   [ -z "$wg_conf" ] || vpn_flag=1
   ui_pause
   say
-  consent_screen "$pseudonym" "$vpn_flag" 1>&"$UI_OUT"
+  show consent_screen "$pseudonym" "$vpn_flag"
   if [ "$assume_yes" = 1 ]; then
     say "--yes was given: this counts as your agreement to join as described above."
     say
   else
-    printf 'Join the SuckerPot network as described? [y/N] ' 1>&"$UI_ERR"
+    printf '%sJoin the SuckerPot network as described? [y/N] ' "$UI_IND" 1>&"$UI_ERR"
     IFS= read -r a <&3 || a=""
     answered
     case $a in
       y | Y | yes | YES | Yes) ;;
-      *) echo "Not joined. Nothing was installed." 1>&"$UI_ERR"; log "consent declined"; exit 1 ;;
+      *) echo "${UI_IND}Not joined. Nothing was installed." 1>&"$UI_ERR"; log "consent declined"; UI_ENDED=1; exit 1 ;;
     esac
   fi
 fi
@@ -672,7 +680,7 @@ if [ "$stack" = full ] && [ "$fresh" = 1 ] && [ "$no_network" = 0 ]; then
     ui_pause
     say
     pseudonym=$(pseudonym_random) || die "could not make a pseudonym"
-    consent_screen_full "$pseudonym" 1>&"$UI_OUT"
+    show consent_screen_full "$pseudonym"
     say "--join-network was given: this counts as your agreement to join as described above."
     say
     join_network=1
@@ -684,8 +692,8 @@ if [ "$stack" = full ] && [ "$fresh" = 1 ] && [ "$no_network" = 0 ]; then
     ui_pause
     say
     pseudonym=$(pseudonym_random) || die "could not make a pseudonym"
-    consent_screen_full "$pseudonym" 1>&"$UI_OUT"
-    printf 'Join the SuckerPot network? [y/N] ' 1>&"$UI_ERR"
+    show consent_screen_full "$pseudonym"
+    printf '%sJoin the SuckerPot network? [y/N] ' "$UI_IND" 1>&"$UI_ERR"
     # End of input is not a yes: only a typed y is.
     IFS= read -r a <&3 || die "no answer to the network question; use --join-network or --no-network"
     answered
@@ -868,7 +876,7 @@ else
   umask 077
   tmp="${target}.tmp"
   rm -f "$tmp"
-  trap 'rm -f "$tmp"; ui_exit' EXIT
+  trap 'rc=$?; rm -f "$tmp"; ui_exit $rc' EXIT
   if [ "$switching" = 1 ]; then cp .env "$tmp"; else cp .env.example "$tmp"; fi
   chmod 600 "$tmp"
 
@@ -1043,7 +1051,7 @@ else
     chmod 600 .env.participant.bak
   fi
   mv "$tmp" "$target"
-  trap ui_exit EXIT
+  trap 'ui_exit $?' EXIT
   chmod 600 "$target"
   note "wrote $target (mode 0600)"
   [ "$dry_run" = 1 ] || env_written=1
@@ -1229,65 +1237,66 @@ participant_rich() {
     ports+="${ports:+   }$line"
   done < <(ports_table)
   adm=$(env_get ADMIN_SSH_PORT)
-  {
-    echo
-    if [ "$repair" = 1 ]; then
-      printf '  %sSuckerPot is repaired and running in participant mode (%s).%s\n' "$UI_B" "${version:-source build}" "$UI_R"
-    else
-      printf '  %sSuckerPot is running in participant mode (%s).%s\n' "$UI_B" "${version:-source build}" "$UI_R"
-    fi
-    printf '    Pseudonym  %s\n    Path       %s\n    Hub        %s\n    Updates    %s\n' "${pseudonym:-none}" "$path" "${hub_host:-unknown}" "$(sched_text)"
-    echo
-    echo "  Forward these router ports to this machine (port forwards, not a DMZ):"
-    printf '%s\n' "$ports" | fold -s -w $((UI_COLS > 20 ? UI_COLS - 5 : 60)) | sed 's/^/    /'
-    if [ -n "$adm" ]; then
-      echo "  Never forward your admin SSH port ($adm on this machine)."
-    else
-      echo "  Never forward the admin SSH port of this machine."
-    fi
-    echo
-    printf '  %sNext%s   %s./scripts/participant.sh ports-check%s   once the ports are forwarded\n' "$UI_B" "$UI_R" "$UI_PR" "$UI_R"
-    printf '         %s./scripts/status.sh%s                    any time (what needs attention)\n' "$UI_PR" "$UI_R"
-    printf '  %sMore%s   docs/participate.md: DMZ, firewall, updates. Take a snapshot of this machine now.\n' "$UI_B" "$UI_R"
-    printf '  %sLog%s    %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$LOG")"
-  } 1>&"$UI_OUT"
+  echo 1>&"$UI_OUT"
+  if [ "$repair" = 1 ]; then
+    ui_wrap 2 "SuckerPot is repaired and running in participant mode (${version:-source build})." b
+  else
+    ui_wrap 2 "SuckerPot is running in participant mode (${version:-source build})." b
+  fi
+  ui_kv 4 11 Pseudonym "${pseudonym:-none}"
+  ui_kv 4 11 Path "$path"
+  ui_kv 4 11 Hub "${hub_host:-unknown}"
+  ui_kv 4 11 Updates "$(sched_text)"
+  ui_wrap 2 ""
+  ui_wrap 2 "Forward these router ports to this machine (port forwards, not a DMZ):"
+  ui_wrap 4 "$ports"
+  if [ -n "$adm" ]; then
+    ui_wrap 2 "Never forward your admin SSH port ($adm on this machine)."
+  else
+    ui_wrap 2 "Never forward the admin SSH port of this machine."
+  fi
+  ui_wrap 2 ""
+  ui_kv 2 7 Next "./scripts/participant.sh ports-check   once the ports are forwarded"
+  ui_kv 2 7 "" "./scripts/status.sh   any time (what needs attention)"
+  ui_kv 2 7 More "docs/participate.md (DMZ, firewall, updates). Take a snapshot of this machine now."
+  ui_kv 2 7 Log "$(_ui_abs "$LOG")"
 }
 
 full_rich() {
   ui_end
-  {
-    echo
-    printf '  %sSuckerPot is running.%s\n' "$UI_B" "$UI_R"
-    if [ -n "$public_host" ]; then
-      printf '    Dashboard   %shttps://%s%s  (through your tunnel to http://%s:%s)\n' "$UI_PR" "$public_host" "$UI_R" "$hbind" "$dport"
-    else
-      printf '    Dashboard   %shttp://%s:%s%s\n' "$UI_PR" "$hbind" "$dport" "$UI_R"
-      if [ "$bind" = 127.0.0.1 ]; then
-        printf '    Tunnel      ssh -L %s:127.0.0.1:%s <you>@<this-host>   (on a remote machine)\n' "$dport" "$dport"
-      fi
+  echo 1>&"$UI_OUT"
+  ui_wrap 2 "SuckerPot is running." b
+  if [ -n "$public_host" ]; then
+    ui_kv 4 12 Dashboard "https://$public_host (through your tunnel to http://$hbind:$dport)"
+  else
+    ui_kv 4 12 Dashboard "http://$hbind:$dport"
+    if [ "$bind" = 127.0.0.1 ]; then
+      ui_kv 4 12 Tunnel "ssh -L $dport:127.0.0.1:$dport <you>@<this-host>   (on a remote machine)"
     fi
-    printf '    Admin user  %s\n' "$(env_get ADMIN_USERNAME)"
-    if [ "$pw_generated" = 1 ]; then
-      echo "  Admin password (shown once, store it in your password manager now): $pw"
-    fi
-    if [ "$switching" = 1 ]; then
-      echo
-      echo "  Switched from participant mode to full mode. Your data and your network membership are kept."
-      echo "  The participant settings are in .env.participant.bak (delete it once all is well)."
-    fi
-    if [ "${join_network:-0}" = 1 ]; then
-      echo "  Network     joined; it starts once a VPN is configured (Settings > VPN)"
-    elif [ "$fresh" = 1 ]; then
-      echo "  Network     not joined (you can join later in the dashboard)"
-    fi
-    echo
-    printf '  %sNext%s   1. Sign in. The setup opens by itself.\n' "$UI_B" "$UI_R"
-    echo "         2. Forward the ports listed on the Ports page (never $dport or your admin SSH port)."
-    printf '         3. %s./scripts/participant.sh firewall%s   (the host firewall)\n' "$UI_PR" "$UI_R"
-    echo "         4. Take a snapshot of the machine."
-    printf '  %sLog%s    %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$LOG")"
-  } 1>&"$UI_OUT"
+  fi
+  ui_kv 4 12 "Admin user" "$(env_get ADMIN_USERNAME)"
+  if [ "${join_network:-0}" = 1 ]; then
+    ui_kv 4 12 Network "joined; it starts once a VPN is configured (Settings > VPN)"
+  elif [ "$fresh" = 1 ]; then
+    ui_kv 4 12 Network "not joined (you can join later in the dashboard)"
+  fi
+  if [ "$pw_generated" = 1 ]; then
+    # The label wraps; the password stays whole on its own line.
+    ui_wrap 2 ""
+    ui_wrap 2 "Admin password (shown once, store it in your password manager now):"
+    printf '    %s\n' "$pw" 1>&"$UI_OUT"
+  fi
   pw=""
+  if [ "$switching" = 1 ]; then
+    ui_wrap 2 ""
+    ui_wrap 2 "Switched from participant mode to full mode. Your data and your network membership are kept. The participant settings are in .env.participant.bak (delete it once all is well)."
+  fi
+  ui_wrap 2 ""
+  ui_kv 2 7 Next "1. Sign in. The setup opens by itself."
+  ui_kv 2 7 "" "2. Forward the ports listed on the Ports page (never $dport or your admin SSH port)."
+  ui_kv 2 7 "" "3. ./scripts/participant.sh firewall   (the host firewall)"
+  ui_kv 2 7 "" "4. Take a snapshot of the machine."
+  ui_kv 2 7 Log "$(_ui_abs "$LOG")"
 }
 
 # ---------------------------------------------------------------- 10. summary
@@ -1319,7 +1328,15 @@ if [ "$stack" = participant ] || [ "$switching" = 1 ]; then
     fi
   fi
 fi
-if [ "$stack" = participant ]; then ui_done "$(sched_text)"; fi
+if [ "$stack" = participant ]; then
+  if [ "$sched" != off ]; then
+    ui_done "$(sched_text)"
+  elif [ "$(env_get AUTO_UPDATE_ENABLED false)" = true ]; then
+    ui_skip "not scheduled: ./scripts/participant.sh auto-update on"
+  else
+    ui_skip "off (on: ./scripts/participant.sh auto-update on)"
+  fi
+fi
 
 if [ "$stack" = participant ]; then
   hub_host=$(url_host "$(env_get NETWORK_HUB_URL "$(network_default NETWORK_HUB_URL)")")

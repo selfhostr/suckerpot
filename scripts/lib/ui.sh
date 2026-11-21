@@ -47,6 +47,8 @@ UI_STATE_FILE=""
 UI_CUR=-1
 UI_PART=0
 UI_SPIN_PID=""
+UI_CHILD=""
+UI_IND=""
 UI_T0=0
 UI_ENDED=0
 UI_IDS=()
@@ -80,23 +82,29 @@ ui_init() {
     # The log is private: it holds the full output of every command.
     (umask 077 && : >> "$UI_LOG") 2> /dev/null || true
     chmod 600 "$UI_LOG" 2> /dev/null || true
-    UI_LOG_OFF=$(wc -c < "$UI_LOG" 2> /dev/null || echo 0)
+    UI_LOG_OFF=$(wc -c 2> /dev/null < "$UI_LOG" || echo 0)
+    [[ $UI_LOG_OFF =~ ^[0-9]+$ ]] || UI_LOG_OFF=0
     UI_SINK=$UI_LOG
   fi
 
   if [ "$UI_MODE" = rich ]; then
+    # shellcheck disable=SC2034 # read by the caller (the indent of its own text)
+    UI_IND="  "
     exec {UI_OUT}>&1 {UI_ERR}>&2
     UI_STATE_FILE=$(mktemp 2> /dev/null || true)
-    # From here, anything the script prints by itself lands in the log, never in the display.
+    trap 'ui_exit $?' EXIT
+    # From here, anything the script prints by itself lands in the log, never in the display. A
+    # log that cannot be opened (a full disk, a read-only file) must not stop the display here.
+    { : >> "$UI_SINK"; } 2> /dev/null || UI_SINK=/dev/null
     exec >> "$UI_SINK" 2>&1
     _ui_colors
     _ui_size
     trap '_ui_resized=1' WINCH
     trap '_ui_signal 130' INT
-    trap '_ui_quit 143' TERM
-    trap '_ui_quit 129' HUP
+    trap '_ui_signal 143' TERM
+    trap '_ui_signal 129' HUP
   fi
-  trap ui_exit EXIT
+  trap 'ui_exit $?' EXIT
 }
 
 # shellcheck disable=SC2034 # the colour variables are used by the scripts that source this file
@@ -189,9 +197,9 @@ _ui_abs() { case $1 in /*) printf %s "$1" ;; *) printf '%s/%s' "$PWD" "$1" ;; es
 # _ui_cut TEXT WIDTH: TEXT cut to WIDTH characters (an ellipsis marks the cut).
 _ui_cut() {
   local t=$1 w=$2
-  [ "$w" -gt 0 ] || { printf ''; return; }
-  if [ "${#t}" -le "$w" ]; then printf %s "$t"; return; fi
-  if [ "$w" -le 1 ]; then printf %s "${t:0:$w}"; return; fi
+  [ "$w" -gt 0 ] || { printf ''; return 0; }
+  if [ "${#t}" -le "$w" ]; then printf %s "$t"; return 0; fi
+  if [ "$w" -le 1 ]; then printf %s "${t:0:$w}"; return 0; fi
   if [ "$UI_UTF8" = 1 ]; then printf '%s…' "${t:0:$((w - 1))}"; else printf %s "${t:0:$w}"; fi
 }
 
@@ -253,7 +261,7 @@ _ui_progress() {
       run) done=$((done + UI_WEIGHTS[i] * UI_PART)) ;;
     esac
   done
-  [ "$total" -gt 0 ] || { echo 0; return; }
+  [ "$total" -gt 0 ] || { echo 0; return 0; }
   echo $((done / total))
 }
 
@@ -374,6 +382,52 @@ ui_warn() {
   _ui_draw
 }
 
+# Final-screen helpers (rich only). No line is wider than the terminal.
+# ui_wrap INDENT TEXT [b]: TEXT wrapped at word boundaries, in bold with "b".
+ui_wrap() {
+  [ "$UI_MODE" = rich ] || return 0
+  local ind=$1 text=$2 st="" l w pad
+  [ "${3:-}" != b ] || st=$UI_B
+  printf -v pad '%*s' "$ind" ''
+  w=$((UI_COLS - 1 - ind))
+  [ "$w" -ge 10 ] || w=10
+  if [ -z "$text" ]; then echo 1>&"$UI_OUT"; return 0; fi
+  while IFS= read -r l; do
+    printf '%s%s%s%s\n' "$pad" "$st" "${l% }" "$UI_R"
+  done < <(printf '%s\n' "$text" | fold -s -w "$w") 1>&"$UI_OUT"
+}
+
+# ui_kv INDENT WIDTH LABEL VALUE: "LABEL  VALUE" with the label padded to WIDTH. When it does not
+# fit, the label goes on its own line and the value on the next one. The value is never cut
+# (a password, a path, a command must stay whole).
+ui_kv() {
+  [ "$UI_MODE" = rich ] || return 0
+  local ind=$1 lw=$2 label=$3 value=$4 pad lab hang w l first=1
+  printf -v pad '%*s' "$ind" ''
+  printf -v lab "%-${lw}s" "$label"
+  printf -v hang '%*s' $((ind + ${#lab})) ''
+  w=$((UI_COLS - 1 - ind - ${#lab}))
+  if [ $((ind + ${#lab} + ${#value})) -lt "$UI_COLS" ]; then
+    printf '%s%s%s%s%s\n' "$pad" "$UI_B" "$lab" "$UI_R" "$value" 1>&"$UI_OUT"
+  elif [[ $value == *" "* ]] && [ "$w" -ge 20 ]; then
+    # Words: wrapped beside the label, the next lines aligned under the first.
+    while IFS= read -r l; do
+      if [ "$first" = 1 ]; then
+        printf '%s%s%s%s%s\n' "$pad" "$UI_B" "$lab" "$UI_R" "${l% }" 1>&"$UI_OUT"
+      else
+        printf '%s%s\n' "$hang" "${l% }" 1>&"$UI_OUT"
+      fi
+      first=0
+    done < <(printf '%s\n' "$value" | fold -s -w "$w")
+  else
+    [ -z "$label" ] || printf '%s%s%s%s\n' "$pad" "$UI_B" "$(_ui_cut "$label" $((UI_COLS - 1 - ind)))" "$UI_R" 1>&"$UI_OUT"
+    case $value in
+      *" "*) ui_wrap $((ind + 2)) "$value" ;;
+      *) printf '%s  %s\n' "$pad" "$value" 1>&"$UI_OUT" ;;
+    esac
+  fi
+}
+
 ui_end() {
   [ "$UI_MODE" = rich ] || return 0
   [ "$UI_ENDED" = 0 ] || return 0
@@ -388,7 +442,7 @@ ui_end() {
 # ---------------------------------------------------------------- commands
 
 _ui_log_count() {
-  [ -n "$UI_LOG" ] && [ -f "$UI_LOG" ] || { echo 0; return; }
+  [ -n "$UI_LOG" ] && [ -f "$UI_LOG" ] || { echo 0; return 0; }
   tail -c +"$(($2 + 1))" "$UI_LOG" 2> /dev/null | grep -cE -- "$1" || true
 }
 
@@ -404,6 +458,8 @@ _ui_spinner() {
   local tick
   exec {tick}<> <(:)
   while :; do
+    # $$ is the installer: if it is gone (even killed with SIGKILL), the spinner goes too.
+    kill -0 "$$" 2> /dev/null || exit 0
     if [ -n "$re" ] && [ "$n" -gt 0 ]; then
       c=$(_ui_log_count "$re" "$off")
       UI_PART=$((c * 1000 / n))
@@ -435,11 +491,13 @@ ui_run() {
       *) break ;;
     esac
   done
-  [ -z "$UI_LOG" ] || printf '+ %s\n' "$*" >> "$UI_LOG"
+  [ -z "$UI_LOG" ] || printf '+ %s\n' "$*" >> "$UI_LOG" 2> /dev/null || true
   if [ "$UI_MODE" = plain ]; then
     if [ -z "$UI_LOG" ]; then
       "$@" || rc=$?
-    elif "$@" 2>&1 | tee -a "$UI_LOG"; then
+    # stdout and stderr stay apart on the screen, as before; both are copied into the log. Both
+    # tees are members of the pipelines, so the output is complete when ui_run returns.
+    elif { "$@" 2>&1 1>&8 8>&- | tee -a "$UI_LOG" 1>&2; } 8>&1 | tee -a "$UI_LOG"; then
       rc=0
     else
       rc=${PIPESTATUS[0]}
@@ -447,7 +505,7 @@ ui_run() {
     fi
     return "$rc"
   fi
-  off=$(wc -c < "$UI_SINK" 2> /dev/null || echo 0)
+  off=$(wc -c 2> /dev/null < "$UI_SINK" || echo 0)
   [[ $off =~ ^[0-9]+$ ]] || off=0
   _ui_draw
   printf -v _ui_run_t0 '%(%s)T' -1
@@ -457,7 +515,22 @@ ui_run() {
     _ui_spinner "$re" "$n" "$expect" "$off" &
     UI_SPIN_PID=$!
   fi
-  "$@" >> "$UI_SINK" 2>&1 < /dev/null || rc=$?
+  # The command runs in a subshell in the background, so a signal reaches the trap at once (wait
+  # returns). trap - INT gives the command back the Ctrl-C that bash takes from background jobs:
+  # the terminal sends Ctrl-C to the whole foreground group, the command included.
+  ( trap - INT QUIT; "$@" ) >> "$UI_SINK" 2>&1 < /dev/null &
+  UI_CHILD=$!
+  while :; do
+    if wait "$UI_CHILD"; then
+      rc=0
+      break
+    else
+      rc=$?
+    fi
+    # A trapped signal ended the wait early: wait again for the command itself.
+    kill -0 "$UI_CHILD" 2> /dev/null || break
+  done
+  UI_CHILD=""
   _ui_stop_spinner
   _ui_in_run=0
   if [ -n "${_ui_sig:-}" ]; then _ui_interrupt "$_ui_sig"; fi
@@ -490,52 +563,97 @@ ui_fail() {
     _ui_fail_log
     exit 1
   fi
+  _ui_fail_screen "$msg" "$fix" "failed"
+  _ui_fail_log
+  exit 1
+}
+
+# _ui_fail_screen MESSAGE FIX DETAIL: marks the current step failed and shows the message, the
+# last lines of this run's log, the fix and the log path. It writes to the terminal only and never
+# needs a write to the log to succeed (a full disk must still show the screen).
+_ui_fail_screen() {
+  local msg=$1 fix=$2 lines="" l
   _ui_stop_spinner
   if [ "$UI_ENDED" = 0 ]; then
     if [ "$UI_CUR" -ge 0 ]; then
       UI_STATES[UI_CUR]=bad
-      UI_DETAILS[UI_CUR]="failed"
+      UI_DETAILS[UI_CUR]=$3
     fi
     _ui_draw
     UI_NLINES=0
     UI_ENDED=1
   fi
+  if [ -n "$UI_LOG" ] && [ -f "$UI_LOG" ]; then
+    lines=$(tail -c +"$((UI_LOG_OFF + 1))" "$UI_LOG" 2> /dev/null | grep -v '^[[:space:]]*$' | tail -n 15 || true)
+  fi
   {
     printf '\033[?25h\n  %s%s %s%s\n' "$UI_BAD" "$UI_G_BAD" "$msg" "$UI_R"
-    if [ -n "$UI_LOG" ] && [ -f "$UI_LOG" ]; then
-      local lines l
-      lines=$(tail -c +"$((UI_LOG_OFF + 1))" "$UI_LOG" 2> /dev/null | grep -v '^[[:space:]]*$' | tail -n 15 || true)
-      if [ -n "$lines" ]; then
-        printf '\n'
-        while IFS= read -r l; do
-          printf '    %s%s %s%s\n' "$UI_DIM" "$UI_V" "$(_ui_cut "$l" $((UI_COLS - 7)))" "$UI_R"
-        done <<< "$lines"
-      fi
+    if [ -n "$lines" ]; then
       printf '\n'
-      [ -z "$fix" ] || printf '  %sFix%s   %s%s%s\n' "$UI_B" "$UI_R" "$UI_PR" "$fix" "$UI_R"
-      printf '  %sLog%s   %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$UI_LOG")"
+      while IFS= read -r l; do
+        printf '    %s%s %s%s\n' "$UI_DIM" "$UI_V" "$(_ui_cut "$l" $((UI_COLS - 7)))" "$UI_R"
+      done <<< "$lines"
     fi
+    printf '\n'
+    [ -z "$fix" ] || printf '  %sFix%s   %s%s%s\n' "$UI_B" "$UI_R" "$UI_PR" "$fix" "$UI_R"
+    [ -z "$UI_LOG" ] || printf '  %sLog%s   %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$UI_LOG")"
   } 1>&"$UI_OUT" 2> /dev/null || true
-  _ui_fail_log
-  exit 1
 }
 
 _ui_fail_log() {
-  if [ -n "${UI_FAIL_LOGLINE:-}" ] && [ -n "$UI_LOG" ]; then printf '%s\n' "$UI_FAIL_LOGLINE" >> "$UI_LOG"; fi
+  if [ -n "${UI_FAIL_LOGLINE:-}" ] && [ -n "$UI_LOG" ]; then
+    printf '%s\n' "$UI_FAIL_LOGLINE" >> "$UI_LOG" 2> /dev/null || true
+  fi
 }
 
 # Signals. Bash may stop a trap handler that waits for a command substitution after a Ctrl-C, so
 # the handlers run no command substitution. During ui_run, Ctrl-C has reached the command too:
 # the handler only notes it, and ui_run draws the interrupted step once the command has ended.
+#
+# During ui_run: Ctrl-C (INT) already reached the command through the terminal; it is also sent to
+# the command's subshell, for an INT sent to the installer alone. TERM and HUP stop the command
+# and everything it started. ui_run then shows the interrupted step.
 _ui_signal() {
-  if [ "${_ui_in_run:-0}" = 1 ]; then _ui_sig=$1; return 0; fi
+  if [ "${_ui_in_run:-0}" = 1 ]; then
+    _ui_sig=$1
+    if [ -n "$UI_CHILD" ]; then
+      if [ "$1" = 130 ]; then
+        kill -INT "$UI_CHILD" 2> /dev/null || true
+      else
+        _ui_kill_tree "$UI_CHILD" TERM
+      fi
+    fi
+    return 0
+  fi
   _ui_quit "$1"
+}
+
+# _ui_kill_tree PID SIGNAL: PID and all its descendants (read from /proc; no subshell, no ps).
+_ui_kill_tree() {
+  local todo=("$1") all=() p f line rest ppid
+  while [ "${#todo[@]}" -gt 0 ]; do
+    p=${todo[0]}
+    todo=("${todo[@]:1}")
+    all+=("$p")
+    for f in /proc/[0-9]*/stat; do
+      IFS= read -r line 2> /dev/null < "$f" || continue
+      rest=${line##*) }
+      ppid=${rest#* }
+      ppid=${ppid%% *}
+      if [ "$ppid" = "$p" ]; then
+        rest=${f#/proc/}
+        todo+=("${rest%/stat}")
+      fi
+    done
+  done
+  for p in "${all[@]}"; do kill -"$2" "$p" 2> /dev/null || true; done
 }
 
 # _ui_quit CODE: leave at once (a question, shell code, or TERM and HUP).
 _ui_quit() {
   local p=$UI_LOG
   trap '' INT TERM HUP
+  UI_ENDED=1
   [ -z "$UI_SPIN_PID" ] || kill -TERM "$UI_SPIN_PID" 2> /dev/null || true
   UI_SPIN_PID=""
   case $p in "" | /*) ;; *) p=$PWD/$p ;; esac
@@ -557,6 +675,7 @@ _ui_interrupt() {
     UI_NLINES=0
     UI_ENDED=1
   fi
+  UI_ENDED=1
   {
     printf '\033[?25h\n  %s%s Interrupted.%s' "$UI_BAD" "$UI_G_BAD" "$UI_R"
     [ -z "$UI_LOG" ] || printf ' Log: %s' "$(_ui_abs "$UI_LOG")"
@@ -565,9 +684,15 @@ _ui_interrupt() {
   exit "$code"
 }
 
-# ui_exit: the exit trap. Callers with their own exit work call it at the end of their trap.
+# ui_exit [STATUS]: the exit trap (trap 'ui_exit $?' EXIT). A caller with its own exit work keeps
+# the status first: trap 'rc=$?; ...; ui_exit $rc' EXIT. When the script stops on an error that
+# no ui_fail reported (set -e: a failed cp, a full disk), the failure screen still shows it.
 ui_exit() {
+  local rc=${1:-0}
   [ "$UI_MODE" = rich ] || return 0
+  if [ "$rc" != 0 ] && [ "$UI_ENDED" = 0 ]; then
+    _ui_fail_screen "Stopped by an unexpected error (exit $rc). The last lines of the log show the cause." "" "stopped"
+  fi
   _ui_stop_spinner
   [ -z "$UI_STATE_FILE" ] || rm -f "$UI_STATE_FILE"
   printf '\033[?25h' 1>&"$UI_OUT" 2> /dev/null || true

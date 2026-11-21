@@ -156,7 +156,8 @@ def test_without_a_terminal_ui_is_plain_and_tees_into_the_log(tmp_path: Path) ->
     assert proc.returncode == 0, proc.stderr
     assert ESC not in proc.stdout + proc.stderr
     assert "\r" not in proc.stdout + proc.stderr
-    assert "out" in proc.stdout and "err" in proc.stdout and "rc=3" in proc.stdout
+    assert proc.stdout == "out\nrc=3\n"  # stderr stays on stderr
+    assert proc.stderr == "err\n"
     log = (tmp_path / "log.txt").read_text()
     assert "+ sh -c" in log and "out" in log and "err" in log
     assert oct((tmp_path / "log.txt").stat().st_mode & 0o777) == "0o600"
@@ -254,13 +255,38 @@ def test_plain_failure_keeps_the_prefix_and_names_the_log(tmp_path: Path) -> Non
 # ------------------------------------------------------------------ plain mode: golden output
 
 
-def test_plain_full_install(sandbox: Sandbox) -> None:
-    proc = sandbox.run(
-        "scripts/install.sh",
-        *("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh,web"),
-    )
-    assert proc.returncode == 0, proc.stderr
-    check_golden("full-yes", normalise(proc.stdout + "--- stderr\n" + proc.stderr, sandbox))
+def streams(proc: subprocess.CompletedProcess[str], sb: Sandbox) -> str:
+    """stdout and stderr, each on its own: plain mode keeps them apart, as before."""
+    return normalise("--- stdout\n" + proc.stdout + "--- stderr\n" + proc.stderr, sb)
+
+
+FULL = ("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh,web")
+
+
+@pytest.mark.parametrize(
+    ("name", "env", "rc"),
+    [
+        ("full-yes", {}, 0),
+        # The failures end with one more line than before: "      log: <path>" (on stderr).
+        ("full-failed-start", {"SHIM_UP_RC": "1"}, 1),
+        ("full-failed-signature", {"SHIM_COSIGN_NODIGEST": "1"}, 1),
+        ("full-failed-dashboard", {"SHIM_CURL_RC": "7"}, 1),
+    ],
+)
+def test_plain_full_install(sandbox: Sandbox, name: str, env: dict[str, str], rc: int) -> None:
+    sandbox.env.update(env)
+    proc = sandbox.run("scripts/install.sh", *FULL)
+    assert proc.returncode == rc, proc.stderr
+    check_golden(name, streams(proc, sandbox))
+
+
+def test_plain_keeps_the_stderr_of_commands_on_stderr(sandbox: Sandbox) -> None:
+    sandbox.env["SHIM_COSIGN_NODIGEST"] = "1"
+    proc = sandbox.run("scripts/install.sh", *FULL)
+    assert proc.returncode == 1
+    assert "  FAILED  api (no single verified digest" in proc.stderr
+    assert "FAILED  api" not in proc.stdout
+    assert "FAILED  api" in (sandbox.root / "install.log").read_text()
 
 
 def test_plain_participant_install(sandbox: Sandbox) -> None:
@@ -270,19 +296,7 @@ def test_plain_participant_install(sandbox: Sandbox) -> None:
         *("--participant", "--yes", "--version", "v0.8.0", "--sensors", "ssh,web"),
     )
     assert proc.returncode == 0, proc.stderr
-    check_golden("participant-yes", normalise(proc.stdout + "--- stderr\n" + proc.stderr, sandbox))
-
-
-def test_plain_failed_start(sandbox: Sandbox) -> None:
-    sandbox.env["SHIM_UP_RC"] = "1"
-    proc = sandbox.run(
-        "scripts/install.sh",
-        *("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh,web"),
-    )
-    assert proc.returncode == 1
-    check_golden(
-        "full-failed-start", normalise(proc.stdout + "--- stderr\n" + proc.stderr, sandbox)
-    )
+    check_golden("participant-yes", streams(proc, sandbox))
 
 
 def test_plain_dry_run(sandbox: Sandbox) -> None:
@@ -291,7 +305,7 @@ def test_plain_dry_run(sandbox: Sandbox) -> None:
         *("--yes", "--dry-run", "--env-out", str(sandbox.root / "out.env")),
     )
     assert proc.returncode == 0, proc.stderr
-    check_golden("dry-run", normalise(proc.stdout + "--- stderr\n" + proc.stderr, sandbox))
+    check_golden("dry-run", streams(proc, sandbox))
 
 
 @pytest.mark.parametrize("how", ["--plain", "TERM=dumb"])
@@ -332,9 +346,12 @@ def test_rich_full_install(sandbox: Sandbox, parse_env: Callable[[Path], dict[st
     ):
         assert row in text, text
     assert "100%" in text
+    assert "full install" in text.splitlines()[2]  # the header names the mode
     assert "SuckerPot is running." in text
-    assert "Dashboard   http://127.0.0.1:8443" in text
-    printed = re.findall(r"password .*: (\S+)", text)
+    assert "    Dashboard   http://127.0.0.1:8443" in text
+    assert "    Network     not joined" in text
+    # The password stands alone on the line under its label, never cut.
+    printed = re.findall(r"password manager now\):\n    (\S+)\n", text)
     assert len(printed) == 1 and len(printed[0]) >= 24
     for line in list_lines(text):
         assert len(line) < 90, line
@@ -432,3 +449,218 @@ def test_the_questions_are_never_hidden(sandbox: Sandbox) -> None:
     assert "Join the SuckerPot network? [y/N]" in text
     assert PASSWORD not in raw
     assert "✓ Dashboard answers" in text
+
+
+# ------------------------------------------------------------------ review fixes
+
+
+def _not_root() -> None:
+    if os.geteuid() == 0:
+        pytest.skip("root reads files whatever their mode")
+
+
+def test_an_unexpected_error_shows_the_failure_screen(sandbox: Sandbox) -> None:
+    """set -e stops the script on a failed cp: the screen says so, with the log tail."""
+    _not_root()
+    (sandbox.root / ".env.example").chmod(0)
+    rc, raw = run_pty(sandbox, *FULL)
+    assert rc == 1, raw
+    s = screen(raw, 100)
+    text = s.text()
+    assert s.cursor_visible
+    assert "✗ Admin account                stopped" in text
+    assert "✗ Stopped by an unexpected error (exit 1)" in text
+    assert "Permission denied" in text
+    assert f"Log   {sandbox.root}/install.log" in text
+    assert not (sandbox.root / ".env.tmp").exists()
+
+
+def test_a_log_that_cannot_be_written_still_shows_the_failure(sandbox: Sandbox) -> None:
+    """Like a full disk: every write to install.log fails, the screen still explains."""
+    (sandbox.root / "install.log").mkdir()  # no write to it can succeed
+    rc, raw = run_pty(sandbox, *FULL)
+    assert rc != 0, raw
+    s = screen(raw, 100)
+    assert s.cursor_visible
+    assert "Stopped by an unexpected error" in s.text()
+
+
+def test_ctrl_c_stops_a_shell_function_at_once(sandbox: Sandbox) -> None:
+    """dashboard_wait is a loop in the installer: Ctrl-C must not wait for its 10 tries."""
+    marker = sandbox.shim / "curl-started"
+    curl = sandbox.shim / "curl"
+    curl.write_text(f'#!/bin/sh\ntouch "{marker}"\n/bin/sleep 5\nexit 7\n')
+    curl.chmod(0o755)
+    start = time.monotonic()
+    rc, raw = run_pty(sandbox, *FULL, interrupt_when=marker.exists)
+    assert rc == 130, raw
+    assert time.monotonic() - start < 25
+    text = screen(raw, 100).text()
+    assert "✗ Dashboard answers            interrupted" in text
+
+
+def _run_and_signal(
+    sb: Sandbox, sig: int, pidfile: Path
+) -> tuple[int, float, subprocess.Popen[bytes]]:
+    """Starts install.sh on a terminal, sends SIG to the installer alone once compose up runs."""
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
+
+    def controlling_tty() -> None:
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+    proc = subprocess.Popen(  # noqa: S603
+        ["bash", str(sb.root / "scripts/install.sh"), *FULL],  # noqa: S607
+        cwd=sb.root,
+        env={**sb.env, "TERM": "xterm-256color", "LANG": "C.UTF-8"},
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        preexec_fn=controlling_tty,
+        close_fds=True,
+    )
+    os.close(slave)
+    deadline = time.monotonic() + 60
+    while not pidfile.exists():
+        select.select([master], [], [], 0.1)
+        try:
+            os.read(master, 65536)
+        except OSError:
+            break
+        assert time.monotonic() < deadline, "compose up never started"
+    start = time.monotonic()
+    os.kill(proc.pid, sig)
+    while proc.poll() is None and time.monotonic() - start < 30:
+        if select.select([master], [], [], 0.1)[0]:
+            try:
+                os.read(master, 65536)
+            except OSError:
+                break
+    rc = proc.wait(timeout=30)
+    os.close(master)
+    return rc, time.monotonic() - start, proc
+
+
+def _gone(pid: int) -> bool:
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def test_term_stops_the_running_command_at_once(sandbox: Sandbox) -> None:
+    pidfile = sandbox.shim / "up.pid"
+    wrap_docker(sandbox, f'  "compose up"*) echo $$ > "{pidfile}"; exec /bin/sleep 60 ;;')
+    rc, took, _ = _run_and_signal(sandbox, 15, pidfile)
+    assert rc == 143
+    assert took < 10
+    assert _gone(int(pidfile.read_text()))
+
+
+def test_the_spinner_does_not_outlive_a_killed_installer(sandbox: Sandbox) -> None:
+    # Pipes, not a terminal: a dying session leader would send SIGHUP and hide the bug.
+    pidfile = sandbox.shim / "up.pid"
+    wrap_docker(sandbox, f'  "compose up"*) echo $$ > "{pidfile}"; exec /bin/sleep 60 ;;')
+    proc = subprocess.Popen(  # noqa: S603
+        ["bash", str(sandbox.root / "scripts/install.sh"), *FULL],  # noqa: S607
+        cwd=sandbox.root,
+        env={**sandbox.env, "SUCKERPOT_UI": "rich", "TERM": "xterm", "LANG": "C.UTF-8"},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 60
+    while not pidfile.exists():
+        assert time.monotonic() < deadline, "compose up never started"
+        time.sleep(0.1)
+    proc.kill()
+    proc.wait(timeout=10)
+    # The subshell that runs the command itself (the parent of the fake compose) may stay until
+    # the command ends: SIGKILL cannot be caught. Only the spinner must go.
+    stat = Path(f"/proc/{pidfile.read_text().strip()}/stat").read_text()
+    command_shell = stat.rsplit(") ", 1)[1].split()[1]
+    script = str(sandbox.root / "scripts/install.sh")
+    deadline = time.monotonic() + 5
+    while True:
+        left = []
+        for cmdline in Path("/proc").glob("[0-9]*/cmdline"):
+            try:
+                if (
+                    script in cmdline.read_bytes().decode(errors="replace")
+                    and cmdline.parent.name != command_shell
+                ):
+                    left.append(cmdline.parent.name)
+            except OSError:
+                continue
+        if not left or time.monotonic() > deadline:
+            break
+        time.sleep(0.2)
+    for pid in [*left, command_shell, pidfile.read_text().strip()]:
+        try:
+            os.kill(int(pid), 9)
+        except ProcessLookupError, ValueError:
+            pass
+    assert not left, f"processes of the installer still run: {left}"
+
+
+def test_every_numbered_step_has_a_row() -> None:
+    text = (ROOT / "scripts/install.sh").read_text()
+    m = re.search(r"^STEP_ROW=\((.*)\)$", text, re.MULTILINE)
+    assert m
+    keys = {int(k) for k in re.findall(r"\[(\d+)\]=", m.group(1))}
+    assert keys == set(range(1, 9))
+
+
+def test_the_final_screen_fits_a_narrow_terminal(sandbox: Sandbox) -> None:
+    rc, raw = run_pty(sandbox, *FULL, cols=60)
+    assert rc == 0, raw
+    text = screen(raw, 60).text()
+    final = text[text.index("SuckerPot is running.") :].splitlines()
+    log_path = f"{sandbox.root}/install.log"
+    for line in final:
+        if line.strip() != log_path:  # a path is never cut
+            assert len(line) < 60, line
+    assert re.search(r"now\):\n    \S{24,}\n", text)
+
+
+def test_a_failed_schedule_is_not_shown_as_done(sandbox: Sandbox) -> None:
+    quiet_firewall(sandbox)
+    (sandbox.shim / "crontab").write_text(
+        '#!/bin/sh\ncase "$1" in -l) echo "no crontab for user" >&2; exit 1 ;; esac\nexit 1\n'
+    )
+    (sandbox.shim / "systemctl").write_text("#!/bin/sh\nexit 1\n")
+    (sandbox.shim / "systemctl").chmod(0o755)
+    rc, raw = run_pty(sandbox, "--participant", "--yes", "--version", "v0.8.0", "--sensors", "ssh")
+    assert rc == 0, raw
+    text = screen(raw, 100).text()
+    assert "\u2013 Automatic updates            not scheduled" in text
+    assert "✓ Automatic updates" not in text
+
+
+def test_a_missing_log_folder_prints_no_shell_error(tmp_path: Path) -> None:
+    proc = ui_bash("ui_init missing/log.txt 0\necho done", {"TERM": "dumb"}, tmp_path)
+    assert proc.returncode == 0
+    assert proc.stdout == "done\n"
+    assert proc.stderr == ""
+
+
+def test_consent_and_prompts_are_indented_like_the_screen(sandbox: Sandbox) -> None:
+    quiet_firewall(sandbox)
+    answers = sandbox.root / "answers"
+    answers.write_text("y\nn\nc\n")
+    rc, raw = run_pty(
+        sandbox,
+        *("--participant", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        env={"SELFHOSTR_TTY": str(answers)},
+        cols=120,
+    )
+    assert rc == 0, raw
+    text = screen(raw, 120).text()
+    assert "\n  SuckerPot participant mode (experimental preview)\n" in text
+    assert "\n    - source addresses seen by your sensors" in text  # wording unchanged
+    assert "\n  Join the SuckerPot network as described? [y/N]" in text
+    assert "\n  Install the host firewall now?" in text
