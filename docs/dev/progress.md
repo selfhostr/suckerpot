@@ -358,7 +358,9 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Two pull requests since v0.11.11 (#149, #150). The details are in `CHANGELOG.md`.
 - Found on the first automatic run of a real node: the due reports went out about one a second, and the mailbox provider accepted 6 and refused 54. Automatic sends are now at least 3 minutes apart, a 4xx reply pauses them for an hour, and the report is retried later.
 - Found on two 1-core micro VPS nodes: the enrolment proof of work ran past the 10-minute challenge. The node now stops in time. The hub difficulty was also lowered from 27 to 24 (hub `.env`, owner decision 2026-11-18).
-- No database change and no migration.## 2026-11-19: v0.11.13 (automatic abuse mail only for fresh reports)
+- No database change and no migration.
+
+## 2026-11-19: v0.11.13 (automatic abuse mail only for fresh reports)
 
 - One pull request since v0.11.12 (#152). The details are in `CHANGELOG.md`.
 - Found on the first night of paced sending: a large cloud provider closed a report about 17-day-old activity as "cannot be substantiated". Three quarters of the queue described activity older than a week. Automatic sending now takes only reports whose last activity is less than 7 days old, newest first; a queued one that ages past that is cancelled (`too_old`). Manual sends are unchanged.
@@ -366,3 +368,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - A date-dependent ssh sensor test failed on 2026-11-19 (the fake boot date fell on the template's own date); the test now tolerates it.
 - No database change and no migration.
 
+## 2026-11-21: v0.12.0 (one product, trap packs, abuse desk replies)
+
+- Six pull requests since v0.11.13 (#154 to #159). The details are in `CHANGELOG.md`.
+- A review of the whole product after many small releases. One mission in four parts (Observe, Defend, Report, Share), one vocabulary, one reporting doctrine, and the docs, README, website and agent guidelines aligned on it. Automatic abuse reporting stays: cleaning up attacking machines is the goal (owner decision 2026-11-19).
+- Trap packs, phase 1 (M37): new web traps for fresh CVEs become data files instead of code. Three existing rules moved into packs with identical behaviour. Signed distribution to every node is phase 2 (design decisions D1 to D9 in `docs/dev/design/m37.md`).
+- Participant installs need no follow-up command, and `status` lists what needs attention with the fix.
+- `.env.example` shrank from 305 to about 120 names; local analysis (ATT&CK, campaigns, blocklist, scripts) is on by default.
+- Found by reading two days of real abuse desk replies over IMAP: delayed-delivery notices counted as receipts, web-form-only desks kept receiving mail, dead addresses kept being tried, and reports could name shared platforms (video, file and code hosts). All four are fixed; one provider confirmed a takedown ("IP has been blocked") the same night.
+- Migration 0035 (abuse recipient flags). The home node is updated first and watched before the release reaches other nodes.
