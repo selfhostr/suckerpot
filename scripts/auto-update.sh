@@ -36,6 +36,8 @@ set -euo pipefail
 
 export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/snap/bin"
 cd "$(dirname "$0")/.."
+# Read-only: an unknown SUCKERPOT_ENGINE falls back to docker with a warning (scripts/lib/engine.sh).
+ENGINE_LENIENT=1
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
 

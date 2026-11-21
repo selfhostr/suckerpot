@@ -79,7 +79,7 @@ dc() { "${ENGINE_DC[@]}" "$@"; }
 ctr() { "${ENGINE_CTR[@]}" "$@"; }
 
 # Where the engine came from: file (.env), env (the environment) or default.
-_engine=$(sed -n 's/^SUCKERPOT_ENGINE=//p' "${ENV_FILE:-.env}" 2> /dev/null | tail -n 1 | tr -d "\"' \r" || true)
+_engine=$(sed -n 's/^SUCKERPOT_ENGINE=//p' "${ENV_FILE:-.env}" 2> /dev/null | tail -n 1 | sed 's/[[:space:]]#.*//' | tr -d "\"' \r" || true)
 # shellcheck disable=SC2034 # ENGINE_FROM is read by install.sh
 if [ -n "$_engine" ]; then
   ENGINE_FROM="file"
@@ -90,5 +90,11 @@ else
   ENGINE_FROM="default"
   _engine=docker
 fi
-engine_use "$_engine" || return 1
+# A value that is neither docker nor podman stops the script. Read-only scripts (status.sh,
+# auto-update.sh, render-firewall.sh) set ENGINE_LENIENT=1 before sourcing: they warn and use docker.
+if ! engine_use "$_engine"; then
+  [ "${ENGINE_LENIENT:-0}" = 1 ] || return 1
+  echo "warning: using docker for this read-only command" >&2
+  engine_use docker
+fi
 unset _engine

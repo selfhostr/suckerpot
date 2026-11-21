@@ -368,6 +368,12 @@
   ],
   "rc": 0
  },
+ "participant_status": {
+  "calls": [
+   "docker compose exec -T ingest python -m ingest.network.cli status --json"
+  ],
+  "rc": 1
+ },
  "restore_latest": {
   "calls": [
    "docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true --user 70:70 -v demo_backups:/b:ro --entrypoint sh timescale/timescaledb:2.31.0-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538 -c ls -1t /b/suckerpot-*.dump 2>/dev/null | head -n 1",
@@ -440,6 +446,12 @@
    "docker tag ghcr.io/selfhostr/suckerpot-sensor-synology@sha256:0000000000000000000000000000000000000000000000000000000000000000 ghcr.io/selfhostr/suckerpot-sensor-synology:v0.8.0",
    "docker compose pull --policy missing",
    "docker compose up -d --no-build --pull never --wait --wait-timeout 600"
+  ],
+  "rc": 0
+ },
+ "status": {
+  "calls": [
+   "docker compose exec -T ingest python -m ingest.network.cli status --json"
   ],
   "rc": 0
  },
@@ -554,6 +566,65 @@
    "docker tag ghcr.io/selfhostr/suckerpot-sensor-synology@sha256:0000000000000000000000000000000000000000000000000000000000000000 ghcr.io/selfhostr/suckerpot-sensor-synology:v0.9.0",
    "docker compose pull --policy missing",
    "docker compose up -d --no-build --pull never --wait --wait-timeout 600",
+   "docker compose ps --format {{.Service}} {{.State}} {{.Health}}",
+   "docker compose exec -T api printenv SUCKERPOT_RUNNING_VERSION"
+  ],
+  "rc": 0
+ },
+ "update_source": {
+  "calls": [
+   "docker compose ps backup --format {{.Health}}",
+   "docker compose ps --format {{.Service}} {{.State}} {{.Health}}",
+   "docker compose exec -T db sh -c PGPASSWORD=\"$POSTGRES_PASSWORD\" exec psql -q -At -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c \"SELECT version_num FROM alembic_version\"",
+   "docker compose exec -T backup /bin/sh /backup-service.sh now preupdate",
+   "docker compose exec -T backup sh -c ls -1t /backups/suckerpot-preupdate-*.dump 2>/dev/null | head -n 1",
+   "docker compose ps -a --format {{.Service}}={{.Image}}",
+   "docker image inspect --format {{.Id}} shim/api:1",
+   "docker image inspect --format {{.Id}} shim/ingest:1",
+   "docker volume inspect demo_db-data",
+   "docker volume inspect demo_backups",
+   "docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true --user 70:70 --entrypoint sh -v demo_backups:/b:ro timescale/timescaledb:2.31.0-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538 -c ls -1 /b/suckerpot-*.dump 2>/dev/null | wc -l",
+   "docker volume inspect demo_redis-data",
+   "docker volume create demo_redis-data",
+   "docker volume inspect demo_db-data",
+   "docker volume create demo_db-data",
+   "docker volume inspect demo_ssh-hostkeys",
+   "docker volume create demo_ssh-hostkeys",
+   "docker volume inspect demo_rdp-data",
+   "docker volume create demo_rdp-data",
+   "docker volume inspect demo_telnet-data",
+   "docker volume create demo_telnet-data",
+   "docker volume inspect demo_web-data",
+   "docker volume create demo_web-data",
+   "docker volume inspect demo_redis-sensor-data",
+   "docker volume create demo_redis-sensor-data",
+   "docker volume inspect demo_docker-sensor-data",
+   "docker volume create demo_docker-sensor-data",
+   "docker volume inspect demo_mysql-sensor-data",
+   "docker volume create demo_mysql-sensor-data",
+   "docker volume inspect demo_mssql-sensor-data",
+   "docker volume create demo_mssql-sensor-data",
+   "docker volume inspect demo_adb-sensor-data",
+   "docker volume create demo_adb-sensor-data",
+   "docker volume inspect demo_smb-sensor-data",
+   "docker volume create demo_smb-sensor-data",
+   "docker volume inspect demo_sip-sensor-data",
+   "docker volume create demo_sip-sensor-data",
+   "docker volume inspect demo_synology-sensor-data",
+   "docker volume create demo_synology-sensor-data",
+   "docker volume inspect demo_geoip-data",
+   "docker volume create demo_geoip-data",
+   "docker volume inspect demo_quarantine",
+   "docker volume create demo_quarantine",
+   "docker volume inspect demo_vpn-config",
+   "docker volume create demo_vpn-config",
+   "docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true --user 0:0 --entrypoint chown -v demo_vpn-config:/b timescale/timescaledb:2.31.0-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538 10001:10001 /b",
+   "docker volume inspect demo_backups",
+   "docker volume inspect demo_trap-packs",
+   "docker volume create demo_trap-packs",
+   "docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true --user 0:0 --entrypoint chown -v demo_trap-packs:/b timescale/timescaledb:2.31.0-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538 10001:10001 /b",
+   "docker compose build",
+   "docker compose up -d --wait --wait-timeout 600",
    "docker compose ps --format {{.Service}} {{.State}} {{.Health}}",
    "docker compose exec -T api printenv SUCKERPOT_RUNNING_VERSION"
   ],

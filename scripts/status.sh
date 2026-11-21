@@ -14,6 +14,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Read-only: an unknown SUCKERPOT_ENGINE falls back to docker with a warning (scripts/lib/engine.sh).
+ENGINE_LENIENT=1
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
 

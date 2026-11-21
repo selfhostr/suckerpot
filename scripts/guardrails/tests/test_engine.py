@@ -19,8 +19,10 @@ from pathlib import Path
 
 import pytest
 from conftest import ROOT, Sandbox
+from test_auto_update import stage
 from test_env_set import BASE_ENV
 from test_install import PASSWORD, add_participant_files
+from test_status import Status
 from test_update import ENV as UPDATE_ENV
 from test_update import prepare, write_state
 
@@ -97,6 +99,21 @@ def _ensure_volumes(sb: Sandbox) -> int:
     return sb.run("scripts/ensure-volumes.sh").returncode
 
 
+def _update_source(sb: Sandbox) -> int:
+    prepare(sb, mode="source", branch="main")
+    sb.env["SHIM_RUNNING_VERSION"] = "v0.8.0"
+    return sb.run("scripts/update.sh", "--yes").returncode
+
+
+def _status(sb: Sandbox) -> int:
+    return Status(sb).run()[0]
+
+
+def _participant_status(sb: Sandbox) -> int:
+    Status(sb)
+    return sb.run("scripts/participant.sh", "status").returncode
+
+
 def _restore_latest(sb: Sandbox) -> int:
     sb.write_env(BASE_ENV)
     sb.env["SUCKERPOT_VOLUME_PREFIX"] = "demo"
@@ -110,6 +127,9 @@ SCENARIOS = {
     "install_participant": _install_participant,
     "update_images": _update_images,
     "update_unhealthy": _update_unhealthy,
+    "update_source": _update_source,
+    "status": _status,
+    "participant_status": _participant_status,
     "rollback": _rollback,
     "compose_fresh": _compose_fresh,
     "compose_fresh_images": _compose_fresh_images,
@@ -477,3 +497,158 @@ def test_the_developer_recipes_exist() -> None:
     for name in DEV_RECIPES:
         assert re.search(rf"^@?{re.escape(name)}\b[^:=]*:(?!=)", text, re.M), name
     assert literal_docker_calls(text), "the developer recipes still call docker"
+
+
+# ------------------------------------------------------------------ printed commands
+
+HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)(\w+)\2")
+SHELL_FN = re.compile(r"(?<![\w$./{-])(dc|ctr)\s+[a-z-]")
+MESSAGE_CMD = re.compile(r"^\s*(?:\S+\s*\|\|\s*)?(echo|die|warn|note|fatal|printf|log|fail)\b")
+
+
+def printed_shell_functions(text: str) -> list[str]:
+    """Lines of heredocs and of quoted messages that tell the user to run `dc` or `ctr`.
+
+    Those are shell functions of scripts/lib/engine.sh: a user who copies the line gets "command
+    not found" (or GNU dc). Printed commands use ${ENGINE_DC[*]} and ${ENGINE_CTR[*]}.
+    """
+    found: list[str] = []
+    end: str | None = None
+    dash = False
+    for n, line in enumerate(text.splitlines(), 1):
+        if end is not None:
+            if (line.strip() if dash else line) == end:
+                end = None
+            elif SHELL_FN.search(line):
+                found.append(f"{n}: {line.strip()}")
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        m = HEREDOC.search(line)
+        if m and _context_at(line, m.start()) == "code":
+            dash, end = m.group(1) == "-", m.group(3)
+        if MESSAGE_CMD.match(line):
+            for s in re.finditer(r'"((?:[^"\\]|\\.)*)"', line):
+                if SHELL_FN.search(re.sub(r"\$\([^)]*\)", "", s.group(1))):
+                    found.append(f"{n}: {line.strip()}")
+    return found
+
+
+def test_the_printed_command_detector() -> None:
+    assert printed_shell_functions("cat <<EOF\ndc up -d\nEOF\n")
+    assert printed_shell_functions("cat >&2 <<'X'\n  ctr volume rm v\nX\n")
+    assert printed_shell_functions('echo "run: dc ps"\n')
+    assert printed_shell_functions('cmd || die "then: ctr network rm n"\n')
+    assert not printed_shell_functions("cat <<EOF\n${ENGINE_DC[*]} up -d\nEOF\ndc up -d\n")
+    assert not printed_shell_functions('echo "$(dc ps)"\nx=$(dc ps)\n')
+
+
+def test_no_printed_command_names_dc_or_ctr() -> None:
+    offenders = []
+    for path in sorted((ROOT / "scripts").rglob("*.sh")):
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == ENGINE_LIB:
+            continue
+        offenders += [f"{rel}:{hit}" for hit in printed_shell_functions(path.read_text())]
+    assert offenders == [], "print ${ENGINE_DC[*]} / ${ENGINE_CTR[*]}:\n" + "\n".join(offenders)
+
+
+# ------------------------------------------------------------------ .env values and read-only paths
+
+
+def test_an_inline_comment_after_the_engine_is_ignored(sandbox: Sandbox) -> None:
+    sandbox.write_env("COMPOSE_PROJECT_NAME=demo\nSUCKERPOT_ENGINE=docker   # the default\n")
+    assert "engine=docker from=file" in _source_and_run(sandbox, "")
+    sandbox.write_env('SUCKERPOT_ENGINE="podman" # later\n')
+    assert "engine=podman from=file" in _source_and_run(sandbox, "")
+
+
+def test_update_runs_with_a_commented_engine_line(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.write_env(UPDATE_ENV + "SUCKERPOT_ENGINE=docker # default\n")
+    proc = sandbox.run("scripts/update.sh", "--yes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_status_falls_back_to_docker_on_an_unknown_engine(sandbox: Sandbox) -> None:
+    st = Status(sandbox)
+    with (sandbox.root / ".env").open("a") as f:
+        f.write("SUCKERPOT_ENGINE=containerd\n")
+    rc, _, err = st.run()
+    assert rc == 0, err
+    assert "SUCKERPOT_ENGINE must be docker or podman" in err
+    assert "using docker for this read-only command" in err
+    assert "docker compose exec -T ingest python -m ingest.network.cli status --json" in (
+        sandbox.calls()
+    )
+
+
+def test_auto_update_falls_back_to_docker_on_an_unknown_engine(sandbox: Sandbox) -> None:
+    stage(sandbox)
+    with (sandbox.root / ".env").open("a") as f:
+        f.write("SUCKERPOT_ENGINE=containerd\n")
+    proc = sandbox.run("scripts/auto-update.sh", extra_env={"AUTO_UPDATE_JITTER_S": "0"})
+    assert "using docker for this read-only command" in proc.stderr
+    # It went past the library: the tags were fetched.
+    assert "git fetch --tags --quiet" in sandbox.calls()
+
+
+def test_render_firewall_reads_the_env_of_its_checkout(sandbox: Sandbox, tmp_path: Path) -> None:
+    add_participant_files(sandbox)
+    sandbox.write_env("SUCKERPOT_ENGINE=podman\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / ".env").write_text("SUCKERPOT_ENGINE=docker\n")
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("nameserver 192.0.2.53\n")
+    subprocess.run(  # noqa: S603
+        [  # noqa: S607
+            "bash",
+            str(sandbox.root / "scripts/host/render-firewall.sh"),
+            *("--participant", "--admin-ssh-port", "2200", "--resolv-conf", str(resolv)),
+        ],
+        cwd=elsewhere,
+        env=sandbox.env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    calls = sandbox.calls()
+    assert any(c.startswith("podman network ls") for c in calls), calls
+    assert not any(c.startswith("docker network") for c in calls)
+
+
+# ------------------------------------------------------------------ an update from v0.12.1
+
+OLD_TREE = Path(__file__).parent / "fixtures" / "v0.12.1"
+
+GIT_CHECKOUT_BRINGS_NEW_FILES = """\
+case "$*" in "checkout "*) cp -R "$SHIM_DIR/newtree/." . ;; esac
+exit 0
+"""
+
+
+def test_an_update_from_v0_12_1_runs_the_same_docker_calls(sandbox: Sandbox) -> None:
+    """The v0.12.1 update.sh (still running from memory) checks out this tree and goes on.
+
+    Its git checkout brings the new scripts/lib/env.sh, so the new env-migrate.sh and the other
+    new scripts it calls find the engine library. The docker calls are those of a v0.12.1 update.
+    """
+    prepare(sandbox)
+    newtree = sandbox.shim / "newtree" / "scripts" / "lib"
+    newtree.mkdir(parents=True)
+    (newtree / "env.sh").write_text((sandbox.root / "scripts/lib/env.sh").read_text())
+    (sandbox.root / "scripts/update.sh").write_text((OLD_TREE / "update.sh.txt").read_text())
+    (sandbox.root / "scripts/lib/env.sh").write_text((OLD_TREE / "env.sh.txt").read_text())
+    git = sandbox.shim / "git"
+    text = git.read_text()
+    assert text.endswith("esac\nexit 0\n")
+    git.write_text(text[: -len("exit 0\n")] + GIT_CHECKOUT_BRINGS_NEW_FILES)
+    proc = sandbox.run("scripts/update.sh", "--yes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "engine.sh" in (sandbox.root / "scripts/lib/env.sh").read_text()
+    want = json.loads(FIXTURE.read_text())["update_images"]["calls"]
+    assert sorted(_norm(sandbox, sandbox.docker_calls())) == sorted(want)
+    env = (sandbox.root / ".env").read_text()
+    assert re.findall(r"^SUCKERPOT_ENGINE=.*$", env, re.M) == ["SUCKERPOT_ENGINE=docker"]

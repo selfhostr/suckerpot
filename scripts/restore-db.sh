@@ -138,7 +138,7 @@ restore: the database "$prev" exists. It is the copy of the data that an earlier
 Nothing was changed: the live database and the running services are untouched.
 Once you no longer need it, drop it and run the restore again:
 
-dc exec -T db sh -c 'PGPASSWORD="\$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "\$POSTGRES_USER" -d postgres -c "DROP DATABASE \"$prev\" WITH (FORCE)"'
+${ENGINE_DC[*]} exec -T db sh -c 'PGPASSWORD="\$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "\$POSTGRES_USER" -d postgres -c "DROP DATABASE \"$prev\" WITH (FORCE)"'
 
 To go back to it instead, see "If the migration or the start fails after the swap" in docs/deployment.md.
 EOF
@@ -169,16 +169,16 @@ swap_back_help() {
   cat >&2 <<EOF
 restore: both databases are still in place. To go back to the previous database:
 
-dc stop ingest api backup
-dc exec -T db sh -c 'PGPASSWORD="\$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "\$POSTGRES_USER" -d postgres' <<'SQL'
+${ENGINE_DC[*]} stop ingest api backup
+${ENGINE_DC[*]} exec -T db sh -c 'PGPASSWORD="\$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "\$POSTGRES_USER" -d postgres' <<'SQL'
 ALTER DATABASE "$db" ALLOW_CONNECTIONS false;
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid();
 ALTER DATABASE "$db" RENAME TO "$failed";
 ALTER DATABASE "$prev" RENAME TO "$db";
 ALTER DATABASE "$db" ALLOW_CONNECTIONS true;
 SQL
-dc exec -T db sh -c 'PGPASSWORD="\$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "\$POSTGRES_USER" -d "$db" -c "SELECT timescaledb_post_restore()"'
-dc up -d --wait ingest api backup
+${ENGINE_DC[*]} exec -T db sh -c 'PGPASSWORD="\$POSTGRES_PASSWORD" exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "\$POSTGRES_USER" -d "$db" -c "SELECT timescaledb_post_restore()"'
+${ENGINE_DC[*]} up -d --wait ingest api backup
 
 The restored (new) database is kept as "$failed" until you drop it.
 EOF

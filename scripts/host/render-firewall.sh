@@ -37,8 +37,12 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# The engine of this checkout (its .env, whatever the current folder). Read-only: an unknown
+# value falls back to docker with a warning.
+ENV_FILE="$here/../../.env" ENGINE_LENIENT=1
 # shellcheck source=scripts/lib/engine.sh
 . "$here/../lib/engine.sh"
+unset ENV_FILE
 
 die() {
   echo "render-firewall: $*" >&2
