@@ -1,6 +1,6 @@
 # Installer experience
 
-Status: proposal. Nothing here is implemented yet.
+Status: approved by the owner on 2026-11-21 (decisions in section 7). Not implemented yet.
 
 ## 1. Problem and goals
 
@@ -13,7 +13,7 @@ Goals:
 - G1. At most 2 or 3 questions in an interactive run. Everything else takes a smart default or a flag.
 - G2. A short header in the project style, a fixed list of steps with one progress bar, and a short final screen.
 - G3. All verbose output goes to a log file. On error, the screen shows the failing step, the last lines of the log, the log path and the fix.
-- G4. A stable plain mode for CI, scripts and `--yes`, that the guardrails and the participant end-to-end test can rely on.
+- G4. A stable plain mode for CI, scripts and redirected output, that the guardrails and the participant end-to-end test can rely on.
 - G5. Pure bash, no new dependency. Every existing flag keeps working.
 
 Non-goals: a full-screen TUI, mouse or arrow-key menus, translations, and `curl | bash` (`docs/install.md:64` and `docs/dev/design/m28.md:28` rule it out on purpose).
@@ -217,7 +217,7 @@ After installing Docker, the user is in the `docker` group only in a new login. 
 
 ### 3.9 Plain mode
 
-Plain mode is selected when any of these holds: stdout or stderr is not a terminal, `TERM` is empty or `dumb`, `NO_COLOR` is set (decision O5), `--yes` is given, or `SUCKERPOT_UI=plain`. `SUCKERPOT_UI=rich` forces the rich mode (tests).
+Plain mode is selected when any of these holds: stdout or stderr is not a terminal, `TERM` is empty or `dumb`, the new `--plain` flag is given, or `SUCKERPOT_UI=plain`. `SUCKERPOT_UI=rich` forces the rich mode (tests). `--yes` on a terminal keeps the rich display (decision O6). `NO_COLOR` keeps the rich display without any colour (decision O5).
 
 Plain mode writes no escape sequence, no `\r` and no cursor movement, one event per line. Its grammar is fixed and covered by tests:
 
@@ -241,10 +241,10 @@ The last line is always `result:`, for example `result: ok type=participant vers
 - Pure bash 4 and coreutils. No `tput`, `dialog`, `whiptail`, `gum`. Width from `$COLUMNS`, then `stty size < /dev/tty`, then 80.
 - Over SSH and in tmux: only CR, `ESC[nA`, `ESC[2K`, `ESC[J`, `ESC[?25l`/`ESC[?25h` and SGR colours. At most 8 redraws per second, and only the list region. No terminal query that waits for an answer.
 - Lines are cut to the width minus one, so nothing wraps and the cursor arithmetic holds. Below 60 columns the right-hand results are dropped; below 40 columns, or when the terminal is shorter than the list plus 4 lines, the list collapses to the current step and the bar.
-- `NO_COLOR`, `TERM=dumb`, non-TTY, `--yes`: plain mode (3.9).
+- Non-TTY, `TERM=dumb` and `--plain`: plain mode (3.9). `NO_COLOR`: rich display, no colour. `--yes` on a terminal: rich display, no question.
 - Prompts are never hidden: no question is asked while the list is live (3.6).
 - sudo prompts run in the paused state (3.6).
-- Every existing flag keeps its meaning. New flags: `--engine`, `--no-firewall`, `--update-check`, `--verbose` (streams the log to the screen in plain mode), and `--self-address` in full mode.
+- Every existing flag keeps its meaning. New flags (approved): `--plain`, `--engine`, `--no-firewall`, `--update-check`, `--verbose` (streams the log to the screen in plain mode), and `--self-address` in full mode.
 - `SELFHOSTR_TTY` keeps working for the tests.
 
 ## 5. Implementation plan
@@ -283,7 +283,7 @@ The last line is always `result:`, for example `result: ok type=participant vers
 
 ### 5.3 Tests
 
-- `ui.sh` unit tests (guardrails, bash called from pytest): plain grammar; no `\x1b` and no `\r` in plain output under `NO_COLOR=1`, `TERM=dumb`, a pipe, `--yes`; colour tier by `TERM`/`COLORTERM`; line cut at `COLUMNS=30, 50, 80`; `ui_fail` prints the last 15 log lines, `fix:` and `log:`; Ctrl-C during `ui_run` (a fake command that sleeps, then SIGINT): exit 130, `ESC[?25h` printed, child gone, log kept, `.env.tmp` removed.
+- `ui.sh` unit tests (guardrails, bash called from pytest): plain grammar; no `\x1b` and no `\r` in plain output under `TERM=dumb`, a pipe and `--plain`; no colour sequence under `NO_COLOR=1`; colour tier by `TERM`/`COLORTERM`; line cut at `COLUMNS=30, 50, 80`; `ui_fail` prints the last 15 log lines, `fix:` and `log:`; Ctrl-C during `ui_run` (a fake command that sleeps, then SIGINT): exit 130, `ESC[?25h` printed, child gone, log kept, `.env.tmp` removed.
 - Golden plain output: `install.sh` in the existing sandbox for `--participant --yes`, `--yes` (full), `--repair`, a failed start (`SHIM_UP_RC=1`) and `--dry-run`. Pseudonyms, times, durations and paths are normalised. Fixtures in `scripts/guardrails/tests/fixtures/install-plain/`, refreshed with `UPDATE_GOLDEN=1`.
 - Rich mode with `SUCKERPOT_UI=rich` and the answers file: no line longer than `COLUMNS`, the cursor shown at exit, the last frame has every step `✓`.
 - The existing substring and secret tests stay; the secret tests now also read the verbose log.
@@ -481,17 +481,19 @@ SuckerPot is running in participant mode (v0.13.0).
 result: ok type=participant version=v0.13.0 engine=docker log=/home/user/suckerpot/install.log
 ```
 
-## 7. Open decisions for the owner
+## 7. Decisions
 
-| # | Question | Proposal |
+The owner decided on 2026-11-21. The new flags of section 4 (`--plain`, `--engine`, `--no-firewall`, `--update-check`, `--verbose`, `--self-address` in full mode) are approved.
+
+| # | Question | Decision |
 | --- | --- | --- |
-| O1 | Default of the install-type question | Participant, the main audience. Without a terminal and without a flag the default stays full, so existing scripts do not change |
-| O2 | Keep the full-mode network question (15) in the installer? | Remove it: not joined by default, join in the dashboard or with `--join-network`. This saves a 28-line screen |
-| O3 | Admin password in a full install | Always generated and shown once on the final screen; `--admin-password-stdin` for your own. No more typed-twice prompt |
-| O4 | Engine install when none is found | Offer it (Docker by `get.docker.com`, as the website does; Podman from distro packages) and continue under `sg docker`. Alternative: only print the command and stop |
-| O5 | `NO_COLOR` | Plain mode, as asked. Alternative: keep the live list without colour, since `NO_COLOR` is only about colour |
-| O6 | `--yes` on a real terminal | Plain mode, as asked. Alternative: rich mode when a terminal is there, plain only when output is redirected |
-| O7 | Firewall step | On by default; it asks for the sudo password in the open. With `--yes` and no passwordless sudo it is skipped with the command, as today |
-| O8 | Final screen | Short, and the long DMZ advice moves to the docs and `status.sh`. Plain mode keeps today's full text in phase B |
-| O9 | Log location | Keep `install.log` in the checkout. Alternative: `.suckerpot-state/install.log`, next to `auto-update.log` |
-| O10 | Website step 1 (Docker install command on `participate.html`) | Keep it until phase C ships, then drop it: the installer offers the install |
+| O1 | Default of the install-type question | **Approved.** Participant, the main audience. Without a terminal and without a flag the default stays full, so existing scripts do not change |
+| O2 | Keep the full-mode network question (15) in the installer? | **Approved.** Remove it: not joined by default, join in the dashboard or with `--join-network`. This saves a 28-line screen |
+| O3 | Admin password in a full install | **Approved.** Always generated and shown once on the final screen; `--admin-password-stdin` for your own. No more typed-twice prompt |
+| O4 | Engine install when none is found | **Approved.** Offer it (Docker by `get.docker.com`, as the website does; Podman from distro packages) and continue under `sg docker`. |
+| O5 | `NO_COLOR` | **Changed by the owner.** `NO_COLOR` keeps the live display, without colour. Plain mode is not selected by it |
+| O6 | `--yes` on a real terminal | **Changed by the owner.** `--yes` on a terminal uses the rich display. Plain mode is only for non-TTY output, `TERM=dumb`, or the new `--plain` flag |
+| O7 | Firewall step | **Approved.** On by default; it asks for the sudo password in the open. With `--yes` and no passwordless sudo it is skipped with the command, as today |
+| O8 | Final screen | **Approved.** Short, and the long DMZ advice moves to the docs and `status.sh`. Plain mode keeps today's full text in phase B |
+| O9 | Log location | **Approved.** Keep `install.log` in the checkout. |
+| O10 | Website step 1 (Docker install command on `participate.html`) | **Approved.** Keep it until phase C ships, then drop it: the installer offers the install |
