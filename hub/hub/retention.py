@@ -12,6 +12,8 @@
 * verification tasks (clear link included) and their attestations: 14 days after the task ended;
   the daily counters stay;
 * observatory aggregates (network-wide, no node reference): 400 days;
+* the API's per-day request counters (``hub_served_days``, no node data): 60 days;
+* the weekly snapshot of counted members (``hub_count_snapshot``): 5 weeks;
 * nodes with no request for 30 days are deleted with everything linked to them.
 """
 
@@ -24,6 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import Settings
+from .dormant import SERVED_DAYS_KEPT, SNAPSHOT_WEEKS_KEPT
 
 RESOLVED_STATES = ("taken_down", "expired", "disputed")
 RESOLVED_GRACE = timedelta(days=2)  # lets the daily reputation job read the links first
@@ -212,6 +215,20 @@ async def run_retention(
         "observatory_daily",
         "DELETE FROM observatory_daily WHERE day < :c",
         {"c": today - timedelta(days=OBSERVATORY_DAYS)},
+        out,
+    )
+    await _delete(
+        session,
+        "served_days",
+        "DELETE FROM hub_served_days WHERE day < :c",
+        {"c": today - timedelta(days=SERVED_DAYS_KEPT)},
+        out,
+    )
+    await _delete(
+        session,
+        "count_snapshot",
+        "DELETE FROM hub_count_snapshot WHERE ref < :c",
+        {"c": today - timedelta(weeks=SNAPSHOT_WEEKS_KEPT)},
         out,
     )
     await _delete(

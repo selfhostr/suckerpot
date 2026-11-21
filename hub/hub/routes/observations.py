@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from starlette.responses import Response
@@ -14,7 +14,7 @@ from suckerpot_netproto import ProtoError, buckets, models, sign
 from .. import consensus
 from ..auth import MAX_BODY_OBSERVATIONS, authenticate, reply
 from ..context import get_ctx
-from ..models import Batch, Observation, PayloadLink
+from ..models import Batch, Node, Observation, PayloadLink
 from ..never import Never
 
 router = APIRouter()
@@ -198,6 +198,12 @@ async def observations(request: Request) -> Response:
             # from the outside (a second batch for the day answers the same way).
             session.add(Batch(node_id=caller.node_id, day=day, batch_id=batch_id, items=len(rows)))
             await session.flush()
+            # A dormant member counts again from its next batch (hub/hub/dormant.py).
+            await session.execute(
+                update(Node)
+                .where(Node.id == caller.node_id)
+                .values(last_batch_day=func.greatest(func.coalesce(Node.last_batch_day, day), day))
+            )
             if not caller.suspended:
                 for i in range(0, len(rows), CHUNK):
                     chunk = [

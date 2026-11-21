@@ -704,8 +704,18 @@ def test_join_shows_the_consent_and_writes_a_fresh_record(
 ) -> None:
     assert installed.run("scripts/participant.sh", "leave").returncode == 0
     old_pseudonym = parse_env(installed.root / ".env")["NETWORK_PSEUDONYM"]
+    (installed.shim / "cli-state.json").write_text(
+        '{"state": "member", "pseudonym": "Grey Heron 7", "error_code": null}'
+    )
+    start = len(installed.calls())
     proc = installed.run("scripts/participant.sh", "join", "--yes", "--pseudonym", "Grey Heron 7")
     assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "joined as Grey Heron 7" in proc.stdout
+    calls = _calls_after(installed, start)
+    assert (
+        "docker compose exec -T ingest python -m ingest.network.cli join --pseudonym Grey Heron 7"
+        in calls
+    )
     assert "SuckerPot participant mode" in proc.stdout
     assert "Pseudonym: Grey Heron 7" in proc.stdout
     env = parse_env(installed.root / ".env")
@@ -715,6 +725,27 @@ def test_join_shows_the_consent_and_writes_a_fresh_record(
     assert env["NETWORK_CONSENT"].startswith(
         "v2:sources,payloads,c2,files,rechecks,verify_reveals:"
     )
+
+
+def test_join_reports_a_taken_pseudonym_and_suggests_another(installed: Sandbox) -> None:
+    # The 2026-11-21 report: the hub refused the name of an earlier install and nothing said so.
+    (installed.shim / "cli-state.json").write_text(
+        '{"network": {"membership": {"desired": "off", "state": "error"}}, '
+        '"state": "error", "pseudonym": "bignoe", "error_code": "pseudonym_taken"}'
+    )
+    proc = installed.run("scripts/participant.sh", "join", "--yes", "--pseudonym", "bignoe")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "the hub refused the pseudonym 'bignoe'" in proc.stderr
+    assert re.search(r"join --pseudonym bignoe-\d\d\n", proc.stderr)
+
+
+def test_join_still_in_progress_says_so(installed: Sandbox) -> None:
+    (installed.shim / "cli-state.json").write_text('{"state": "enrolling", "error_code": null}')
+    proc = installed.run(
+        "scripts/participant.sh", "join", "--yes", extra_env={"SUCKERPOT_ENROL_WAIT": "0"}
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "still in progress" in proc.stdout
 
 
 def test_join_declined_changes_nothing(installed: Sandbox) -> None:

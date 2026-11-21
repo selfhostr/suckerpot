@@ -78,3 +78,20 @@ pseudonym_random() {
   echo "could not build a valid pseudonym from the word lists" >&2
   return 1
 }
+
+# Prints NAME with a short random suffix ("bignoe3" -> "bignoe3-42"), for a name the hub refused
+# as taken. The base is shortened so the result still has at most 24 characters.
+pseudonym_suggest() {
+  local base=$1 tries=0 name
+  base=${base:0:21}
+  base=${base%[ _.-]}
+  while [ "$tries" -lt 20 ]; do
+    name=$(printf '%s-%02d' "$base" "$((10 + $(_pseudonym_rand 90)))")
+    if pseudonym_valid "$name" 2> /dev/null; then
+      printf '%s' "$name"
+      return 0
+    fi
+    tries=$((tries + 1))
+  done
+  pseudonym_random
+}

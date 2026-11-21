@@ -17,6 +17,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_netproto import buckets, models, sign
 
+from . import dormant
+
 WEEKS_SHOWN = 12
 
 
@@ -103,20 +105,21 @@ async def weekly_stats(session: AsyncSession, today: date) -> int:
 
 async def daily_row(session: AsyncSession, today: date) -> None:
     """The ``network_daily`` row of today (transitions counted by their recorded day)."""
+    counted = await dormant.count_params(session, today)
     row = (
         await session.execute(
             text(
-                """
+                f"""
                 SELECT
-                  (SELECT count(*) FROM nodes) AS members,
+                  (SELECT count(*) FROM nodes n WHERE {dormant.ACTIVE}) AS members,
                   (SELECT count(DISTINCT node_id) FROM batches
                    WHERE day >= :recent AND day < :today) AS active,
                   (SELECT count(*) FROM targets WHERE confirmed_day = :today) AS confirmed,
                   (SELECT count(*) FROM targets WHERE reported_day = :today) AS reported,
                   (SELECT count(*) FROM targets WHERE taken_down_day = :today) AS taken_down
-                """
+                """  # noqa: S608
             ),
-            {"today": today, "recent": today - timedelta(days=7)},
+            {"today": today, "recent": today - timedelta(days=7), **counted},
         )
     ).one()
     await session.execute(
@@ -145,19 +148,22 @@ def _order_key(today: date, fingerprint: str) -> str:
 
 
 async def build_summary(session: AsyncSession, today: date) -> models.NetworkSummary:
+    """Dormant members (``hub/hub/dormant.py``) are left out of the list, the member count and the
+    countries. The wire format has no field to flag them: older nodes refuse unknown fields."""
+    counted = await dormant.count_params(session, today)
     since30 = today - timedelta(days=30)
     nodes = (
         await session.execute(
             text(
-                """
+                f"""
                 SELECT n.pubkey, n.pseudonym, n.country, n.show_country, n.enrolled_day,
                        coalesce(w.active_days, 0) AS active_days, coalesce(w.tier, 0) AS tier
                 FROM nodes n
                 LEFT JOIN node_stats_weekly w ON w.node_id = n.id AND w.week = :week
-                WHERE n.enrolled_day < :today
-                """
+                WHERE n.enrolled_day < :today AND {dormant.ACTIVE}
+                """  # noqa: S608
             ),
-            {"week": last_full_week(today), "today": today},
+            {"week": last_full_week(today), "today": today, **counted},
         )
     ).all()
     showing: dict[str, int] = {}

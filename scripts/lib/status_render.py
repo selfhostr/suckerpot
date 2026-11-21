@@ -36,6 +36,9 @@ WAITING_REFUSALS = {"too_young"}
 # and runs every 6 h, so give it three days.
 OUTDATED_AFTER_H = 72
 ERROR_CODES = {"hub_signature", "guard_failed"}
+# Needs attention: a member with no hub contact this long after joining, or an error this old.
+NO_CONTACT_AFTER_H = 2
+ERROR_PERSISTS_H = 6
 KNOWN_TEXT = {
     "consent_outdated": "the consent text is newer than your agreement: run ./scripts/participant.sh join",
     "consent_stale": "the install-time agreement is more than 7 days old and was not used: run ./scripts/participant.sh join to agree again",
@@ -53,6 +56,9 @@ KNOWN_TEXT = {
     "firewall_not_loaded": "the host firewall is installed but its rules are not loaded: sudo systemctl reload-or-restart suckerpot-firewall.service",
     "release_outdated": "this node runs an older release than the newest one it knows",
     "auto_update_failed": "the last automatic update did not complete: .suckerpot-state/auto-update.log",
+    "join_refused": "the hub refused to enrol this node: it is not a member",
+    "hub_contact_none": f"no contact with the hub {NO_CONTACT_AFTER_H} h after joining",
+    "network_error_persistent": f"the same network error for more than {ERROR_PERSISTS_H} h",
 }
 
 
@@ -71,6 +77,49 @@ JOIN_PROBLEMS = {
     "no_settings_key": "the settings key is missing",
     "unsupported_protocol": "the hub speaks a protocol this version does not support",
 }
+NEW_NAME = "./scripts/participant.sh join --pseudonym NEW-NAME"
+# The last network error of a member or a refused join: (plain explanation, fix or "").
+# An empty fix means SuckerPot retries by itself.
+ERROR_HELP = {
+    "hub_unreachable": (
+        "the hub could not be reached (no internet, DNS, or the hub is down)",
+        "",
+    ),
+    "egress_closed": (
+        "the path to the hub is closed (the VPN is down or not checked yet)",
+        "check the VPN, or go back to the direct path: ./scripts/participant.sh vpn --remove",
+    ),
+    "hub_error": ("the hub answered with an error", ""),
+    "rate_limited": ("the hub asked this node to slow down", ""),
+    "pseudonym_taken": (
+        "the hub refused the pseudonym: another node already uses it (this can be your own "
+        "earlier install that never sent a batch: the hub frees its name after two silent days)",
+        NEW_NAME,
+    ),
+    "pseudonym_invalid": ("the hub does not allow this pseudonym", NEW_NAME),
+    "invalid_payload": ("the hub refused a batch as malformed", "just update"),
+    "unsupported_protocol": (
+        "this version speaks a protocol the hub does not support",
+        "just update",
+    ),
+    "no_settings_key": (
+        "the settings key is missing, so the node key cannot be stored",
+        "./scripts/install.sh --repair",
+    ),
+    "self_terms_unavailable": ("the list of your own addresses could not be read", ""),
+    "internal_error": ("a network step failed inside ingest", "docker compose logs ingest"),
+    "guard_failed": ("a guard stopped a batch before it left", "docker compose logs ingest"),
+    "hub_signature": ("the hub's answer failed the signature check", "just update"),
+}
+# Shown elsewhere in the report already (the own address has its own lines).
+QUIET_ERRORS = {"waiting_self_address", "waiting_enrolment"}
+
+
+def _fix(fix: str, stack: str) -> str:
+    """participant.sh exists on participant installs only; a full install uses the dashboard."""
+    if stack != "participant" and "participant.sh" in fix:
+        return "the dashboard (Network page)"
+    return fix
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -146,14 +195,20 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
     cli = _parse(doc.get("cli_raw"))
     cli_error = str(doc.get("cli_error") or "")
     hub = _dict(cli.get("hub")) if cli else {}
-    member = bool(cli) and cli.get("state") not in (None, "off", "left", "not_joined")
+    state = cli.get("state") if cli else None
     membership = _dict(_dict(cli.get("network") if cli else None).get("membership"))
+    # "error" is a join the node gave up on (desired is back to off): never a member.
+    refused = state == "error"
+    member = bool(cli) and state not in (None, "off", "left", "not_joined", "enrolling", "error")
     pending = (
         bool(cli)
-        and cli.get("state") in ("off", "not_joined")
+        and state in ("off", "not_joined", "enrolling")
         and membership.get("desired") == "member"
     )
-    join_error = str(membership.get("last_error") or "") if pending else ""
+    last_error = _dict(cli.get("last_error")) if cli else {}
+    error_code = str(last_error.get("code") or membership.get("last_error") or "")
+    error_since = _when(last_error.get("since"))
+    join_error = error_code if pending or refused else ""
     if cli:
         for code in _list(cli.get("errors")):
             errors.append(str(code))
@@ -168,8 +223,26 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
             warnings.append("hub_contact_stale")
         if member and hub.get("signature_ok") is False:
             errors.append("hub_signature")
-        if join_error:
+        if pending and join_error:
             warnings.append("join_pending")
+        if refused:
+            errors.append("join_refused")
+        joined = _when(cli.get("joined_at"))
+        if (
+            member
+            and contact is None
+            and joined is not None
+            and (now - joined).total_seconds() > NO_CONTACT_AFTER_H * 3600
+        ):
+            warnings.append("hub_contact_none")
+        if (
+            member
+            and error_code
+            and error_code not in QUIET_ERRORS
+            and error_since is not None
+            and (now - error_since).total_seconds() > ERROR_PERSISTS_H * 3600
+        ):
+            warnings.append("network_error_persistent")
     elif services.get("ingest", ("", ""))[0] == "running":
         warnings.append("network_status_unavailable")
 
@@ -211,7 +284,10 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
         "auto_state": auto_state,
         "member": member,
         "pending": pending,
+        "refused": refused,
         "join_error": join_error,
+        "error_code": error_code,
+        "error_since": error_since,
         "hub": hub,
     }
 
@@ -219,6 +295,28 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
 def needs_attention(doc: dict[str, Any], info: dict[str, Any]) -> list[tuple[str, str]]:
     """(problem, the one command that fixes it) for each thing a participant should act on."""
     items: list[tuple[str, str]] = []
+    code = info["error_code"]
+    why, fix = ERROR_HELP.get(code, ("an unexpected problem", "docker compose logs ingest"))
+    if info["refused"]:
+        name = _dict(info["cli"]).get("pseudonym")
+        if code == "pseudonym_taken" and name:
+            why = f"the hub refused the pseudonym '{name}' (already used by another node)"
+        items.append((f"Not a member: {why} ({code or 'unknown'})", fix or NEW_NAME))
+    elif "hub_contact_none" in info["warnings"]:
+        detail = f": last error {code}, {why}" if code else ""
+        items.append(
+            (
+                f"No contact with the hub {NO_CONTACT_AFTER_H} h after joining{detail}",
+                fix or "docker compose logs ingest",
+            )
+        )
+    elif "network_error_persistent" in info["warnings"]:
+        items.append(
+            (
+                f"The network keeps failing for more than {ERROR_PERSISTS_H} h: {code}, {why}",
+                fix or "docker compose logs ingest   (SuckerPot keeps retrying)",
+            )
+        )
     if "auto_update_off" in info["warnings"]:
         if doc.get("install") not in (None, "images"):
             items.append(
@@ -329,6 +427,17 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
             out.append(f"  Last problem: {why} ({error}). SuckerPot keeps trying by itself.")
         else:
             out.append("  The request is in progress.")
+    elif info["refused"]:
+        name = cli.get("pseudonym")
+        code = info["error_code"] or "unknown"
+        why = ERROR_HELP.get(code, (JOIN_PROBLEMS.get(code, "an unexpected problem"), ""))[0]
+        if code == "pseudonym_taken" and name:
+            why = f"the hub refused the pseudonym '{name}' (already used by another node)"
+        desired = _dict(_dict(cli.get("network")).get("membership")).get("desired")
+        tail = "SuckerPot keeps trying." if desired == "member" else "SuckerPot stopped trying."
+        out.append(f"  Not a member: {why} ({code}). {tail}")
+        fix = ERROR_HELP.get(code, ("", ""))[1] or "./scripts/participant.sh join"
+        out.append(f"  Fix: {_fix(fix, info['stack'])}")
     elif not info["member"]:
         out.append("  Not joined. Join: ./scripts/participant.sh join")
     else:
@@ -352,6 +461,14 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
             out.append(
                 f"  Hub contact: {'OK' if hub.get('signature_ok') else 'PROBLEM'}, {_ago(contact, now)} ({host}, {sig})"
             )
+        code = info["error_code"]
+        if code and code not in QUIET_ERRORS:
+            why, fix = ERROR_HELP.get(code, ("an unexpected problem", "docker compose logs ingest"))
+            since = info["error_since"]
+            when = f" ({_ago(since, now)})" if since is not None else ""
+            line = f"  Last network error: {code}{when}. {why[0].upper()}{why[1:]}."
+            fix = _fix(fix, info["stack"])
+            out.append(line + (f" Fix: {fix}" if fix else " SuckerPot keeps trying by itself."))
         path = cli.get("path")
         if path == "direct":
             out.append("  Path: direct (no VPN). The hub sees this machine's address.")

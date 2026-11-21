@@ -7,12 +7,12 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Request
 from sqlalchemy import delete, func, insert, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 from suckerpot_netproto import ProtoError, models, pow, sign
 
-from .. import pseudonym
+from .. import dormant, pseudonym
 from ..auth import MAX_BODY_DEFAULT, authenticate_new_key, bind_unsigned, read_body, reply
 from ..context import AppContext, get_ctx
 from ..models import EnrolChallenge, Node
@@ -112,13 +112,10 @@ async def enrol(request: Request) -> Response:
             raise ProtoError("pow_invalid")
         if await enrolments_today(ctx, session) >= ctx.settings.enrol_hard_cap:
             raise ProtoError("enrolment_closed")
-        if key is not None:
-            taken = (
-                await session.execute(select(Node.id).where(Node.pseudonym_key == key))
-            ).first()
-            if taken is not None:
-                raise ProtoError("pseudonym_taken")
         try:
+            # A name is refused unless its holder is a silent ghost (hub/hub/dormant.py).
+            if key is not None and not await dormant.claim_pseudonym(session, key, today):
+                raise ProtoError("pseudonym_taken")
             node_id = (
                 await session.execute(
                     insert(Node)
@@ -135,16 +132,17 @@ async def enrol(request: Request) -> Response:
                     .returning(Node.id)
                 )
             ).scalar_one()
-        except IntegrityError as exc:
+            await session.execute(
+                delete(EnrolChallenge).where(EnrolChallenge.challenge == raw_challenge)
+            )
+            await session.commit()
+        except DBAPIError as exc:
             await session.rollback()
-            text = str(exc.orig)
-            if "pseudonym_key" in text:
+            if dormant.lost_race(exc):  # a concurrent claim of the same name
                 raise ProtoError("pseudonym_taken") from None
-            raise ProtoError("invalid_payload", "already enrolled") from None
-        await session.execute(
-            delete(EnrolChallenge).where(EnrolChallenge.challenge == raw_challenge)
-        )
-        await session.commit()
+            if isinstance(exc, IntegrityError):
+                raise ProtoError("invalid_payload", "already enrolled") from None
+            raise
     out = models.EnrolResponse(
         node_id=str(node_id),
         fingerprint=sign.fingerprint(pubkey),

@@ -74,32 +74,14 @@ revert() {
   chmod 600 .env
 }
 
+# shellcheck source=scripts/lib/enrol_wait.sh
+. scripts/lib/enrol_wait.sh
+
 # Prints the TOP-LEVEL "state" string of a JSON document on stdin. A grep over the whole document
 # is wrong: the nested verifier, consent and membership objects have their own "state" keys, and
 # an "off" there would end the wait before the worker has told the hub.
 json_top_state() {
-  awk 'BEGIN { RS = "\001" }
-  {
-    n = length($0); depth = 0; instr = 0; esc = 0; tok = ""; want = 0
-    for (i = 1; i <= n; i++) {
-      c = substr($0, i, 1)
-      if (instr) {
-        if (esc) { esc = 0; tok = tok c }
-        else if (c == "\\") esc = 1
-        else if (c == "\"") {
-          instr = 0
-          if (depth == 1) {
-            if (want) { print tok; exit }
-            j = i + 1
-            while (substr($0, j, 1) == " ") j++
-            if (substr($0, j, 1) == ":" && tok == "state") want = 1
-          }
-        } else tok = tok c
-      } else if (c == "\"") { instr = 1; tok = "" }
-      else if (c == "{" || c == "[") depth++
-      else if (c == "}" || c == "]") depth--
-    }
-  }'
+  json_top_string state
 }
 
 # True when the top-level state of the network status is off, left or not_joined.
@@ -182,7 +164,40 @@ case $cmd in
       esac
     fi
     compose_up --no-deps ingest || { revert; die "ingest did not restart; .env was put back"; }
-    echo "participant: joined. Check: ./scripts/status.sh"
+    # Clears a refused join (state error) or the leave marker, and hands a member its new name.
+    cli_join=(python -m ingest.network.cli join)
+    [ "$have_pseudonym" = 0 ] || cli_join+=(--pseudonym "$new_pseudonym")
+    if answer=$(dc exec -T ingest "${cli_join[@]}" 2> /dev/null); then
+      case $(printf '%s' "$answer" | json_top_string state) in
+        # The worker only joins from a clean state at its start: restart it once more.
+        error | off) dc restart ingest > /dev/null 2>&1 || echo "participant: warning: ingest did not restart" >&2 ;;
+      esac
+    else
+      echo "participant: warning: ingest did not accept the join request" >&2
+    fi
+    echo "participant: waiting for the hub to enrol this node (this can take a few minutes)..."
+    read -r st code < <(enrol_wait)
+    name=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null | json_top_string pseudonym) || name=""
+    name=${name:-$shown}
+    case $st in
+      member) echo "participant: joined${name:+ as $name}. Check: ./scripts/status.sh" ;;
+      error)
+        if [ "$code" = pseudonym_taken ] && [ -n "$name" ]; then
+          suggestion=$(pseudonym_suggest "$name") || suggestion=NEW-NAME
+          echo "participant: the hub refused the pseudonym '$name': another node already uses it." >&2
+          echo "  If that is your own earlier install, the hub frees the name after two days without contact, if that node never sent a batch." >&2
+          echo "  Pick another name: ./scripts/participant.sh join --pseudonym $suggestion" >&2
+          if [ "$assume_yes" = 0 ] && [ -r "${SELFHOSTR_TTY:-/dev/tty}" ] && confirm "Join as '$suggestion' instead?"; then
+            exec bash scripts/participant.sh join --yes --pseudonym "$suggestion"
+          fi
+        else
+          echo "participant: the hub refused to enrol this node (${code}). Details: ./scripts/status.sh" >&2
+        fi
+        exit 1
+        ;;
+      unknown) echo "participant: joined. Check: ./scripts/status.sh" ;;
+      *) echo "participant: the join is still in progress. Check in a few minutes: ./scripts/status.sh" ;;
+    esac
     ;;
 
   vpn)

@@ -56,6 +56,9 @@ class Node(Base):
     standing: Mapped[str] = mapped_column(Text, server_default=text("'active'"))
     protocol: Mapped[str] = mapped_column(Text)
     pseudonym_changed_day: Mapped[date | None] = mapped_column(Date)
+    # Day of the newest accepted batch (h0013): tells a dormant member apart after the 14 days
+    # of batch markers. Day granularity, like last_active_day.
+    last_batch_day: Mapped[date | None] = mapped_column(Date)
 
 
 class EnrolChallenge(Base):
@@ -256,6 +259,30 @@ class HubAudit(Base):
     actor: Mapped[str] = mapped_column(Text)
     action: Mapped[str] = mapped_column(Text)
     detail: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+
+
+class HubServedDay(Base):
+    """Per-day counters of the API (migration h0013): authenticated requests served, requests
+    refused by the address limiter, authentication failures. Integers only, no node or address."""
+
+    __tablename__ = "hub_served_days"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    served: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    blocked: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    auth_failures: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+
+
+class HubCountSnapshot(Base):
+    """The nodes counted as members for one week (migration h0013, hub/hub/dormant.py).
+    Hub-internal, never published; kept five weeks."""
+
+    __tablename__ = "hub_count_snapshot"
+
+    ref: Mapped[date] = mapped_column(Date, primary_key=True)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True
+    )
 
 
 class WorkerState(Base):

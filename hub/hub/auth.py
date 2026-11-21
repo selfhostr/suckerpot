@@ -78,6 +78,13 @@ def _headers(request: Request) -> sign.ParsedHeaders:
     )
 
 
+def record_failure(ctx: AppContext, request: Request) -> None:
+    """An authentication failure: the address limiter counts it, and so does the day's counter
+    (a day with many failures never counts as a pseudonym holder's silence, hub/hub/dormant.py)."""
+    ctx.address_limiter.record_failure(request)
+    ctx.served_days.auth_failure(ctx.now())
+
+
 async def authenticate(
     request: Request,
     ctx: AppContext,
@@ -88,6 +95,12 @@ async def authenticate(
     """Run the seven checks for a signed request from an enrolled node."""
     wait = ctx.address_limiter.blocked(request)
     if wait:
+        # The limiter stays first (no lookup, no signature check for a blocked address). The block
+        # is counted instead: a day with many blocks never counts as a pseudonym holder's silence.
+        try:
+            await ctx.served_days.blocked(session, ctx.now())
+        except Exception:  # the marker is best effort; the answer stays the same
+            await session.rollback()
         raise ProtoError("rate_limited", str(wait))
     try:
         body = await read_body(request, limit)  # 1. size
@@ -111,7 +124,7 @@ async def authenticate(
             raise ProtoError("unknown_node")
     except ProtoError as exc:
         if exc.code not in ("too_large", "rate_limited"):
-            ctx.address_limiter.record_failure(request)
+            record_failure(ctx, request)
         raise
     # 6. nonce: single use for NONCE_TTL. Committed right away so a failed request still burns it.
     nonce_raw = sign.b64u_decode(parsed.nonce)
@@ -122,13 +135,14 @@ async def authenticate(
     )
     if cast(CursorResult[Any], inserted).rowcount == 0:
         await session.rollback()
-        ctx.address_limiter.record_failure(request)
+        record_failure(ctx, request)
         raise ProtoError("replayed_nonce")
     await session.execute(
         update(Node)
         .where(Node.id == node.id, Node.last_active_day != ctx.today())
         .values(last_active_day=ctx.today())
     )
+    await ctx.served_days.served(session, ctx.now())
     await session.commit()
     # 7. rate limit per node
     wait = ctx.node_limiter.hit(str(node.id))
@@ -164,7 +178,7 @@ async def authenticate_new_key(
         parsed.nonce,
         body,
     ):
-        ctx.address_limiter.record_failure(request)
+        record_failure(ctx, request)
         raise ProtoError("bad_signature")
     _bind_signed(request, parsed)
     return parsed.public, parsed.nonce, body

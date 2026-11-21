@@ -149,6 +149,7 @@ How the file protects nodes:
 - **Only eligible nodes count.** A node counts only once it is eligible for consensus (old enough, active enough, good reputation). Freshly enrolled nodes cannot unlock finer figures or test what another node saw.
 - **Coarse while the network is small.** A day with fewer than three eligible nodes is never shown alone: its week is one average of attacking addresses, logins and commands, with one significant figure, and the smaller figures (downloads, exploits, links, files, command servers) stay empty. A single node's day off or exact volume does not show. A service, tag or family needs enough support, over several weeks, before it is named; a CVE tag needs two nodes.
 - **Countries.** A country appears only when at least three nodes chose to show it.
+- **Dormant nodes are not counted.** A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is left out of the node and country counts (and of the member list and counts of the network summary). It is not deleted. The counted set is a snapshot taken once a week and used all week, so a single node's batches cannot move a count from one day to the next (a node enrolled since the snapshot counts as new). A dormant node counts again from the next snapshot after its batch.
 
 The activity figures describe attackers, not nodes. They show the traffic the network received, never where a sensor is or who runs it. With very few nodes, the list of services also shows which sensors those nodes run.
 
@@ -245,6 +246,7 @@ Then:
 | Forbidden | `://`, `@`, four digits in a row, reserved words (for example `admin`, `hub`, `network`, `node`, `official`) and the names of this project |
 | Owner check | The identity check refuses a name that contains your own names or domains |
 | Changes | At most one change per 7 days, at the hub |
+| Unique | A name used by another node is refused (`pseudonym_taken`). The hub frees the name of a node that never sent a batch and made no request on two days the hub was serving (a reinstall leaves such a node behind). Days of a hub outage, or days on which the hub's address limiter blocked a fifth of the requests or more (or at least 1000), or that saw at least 1000 authentication failures, do not count. A node that ever sent a batch never loses its name. A node whose name was freed shows without one and can pick a new name at once |
 
 Empty means the network shows you as `Node` followed by your fingerprint, for example `Node 3f9a1c07`.
 

@@ -553,3 +553,112 @@ def test_json_lists_what_needs_attention(st: Status) -> None:
             "fix": "./scripts/participant.sh firewall",
         }
     ]
+
+
+# -- refused joins and network errors (2026-11-21 field report) ----------------------------------
+
+
+def test_a_refused_pseudonym_is_an_error_not_a_membership(st: Status) -> None:
+    st.schedule()
+    st.set_cli(
+        member_cli(
+            state="error",
+            pseudonym="bignoe3",
+            node="e2a8da9c",
+            standing=None,
+            counts_from=None,
+            hub={"host": "suckerpot-hub.selfhostr.io", "last_contact": None, "signature_ok": True},
+            last_error={"code": "pseudonym_taken", "since": iso(timedelta(hours=5))},
+            network={"membership": {"desired": "off", "state": "error"}},
+        )
+    )
+    rc, out, _ = st.run()
+    assert rc == 2, out
+    assert "Member as" not in out
+    assert (
+        "Not a member: the hub refused the pseudonym 'bignoe3' (already used by another node) "
+        "(pseudonym_taken). SuckerPot stopped trying." in out
+    )
+    assert "Fix: ./scripts/participant.sh join --pseudonym NEW-NAME" in out
+    assert "Needs attention" in out
+    doc = json.loads(st.run("--json")[1])
+    assert "join_refused" in doc["errors"]
+    assert doc["needs_attention"][0]["fix"] == "./scripts/participant.sh join --pseudonym NEW-NAME"
+
+
+@pytest.mark.parametrize(
+    ("code", "fix"),
+    [
+        ("pseudonym_invalid", "join --pseudonym NEW-NAME"),
+        ("unsupported_protocol", "just update"),
+        ("no_settings_key", "./scripts/install.sh --repair"),
+    ],
+)
+def test_every_refused_enrolment_says_what_to_do(st: Status, code: str, fix: str) -> None:
+    st.schedule()
+    st.set_cli(
+        member_cli(
+            state="error",
+            last_error={"code": code, "since": None},
+            network={"membership": {"desired": "member", "state": "error"}},
+        )
+    )
+    rc, out, _ = st.run()
+    assert rc == 2 and "Not a member:" in out and f"({code})" in out
+    assert fix in out
+
+
+def test_an_enrolment_in_progress_is_not_a_membership(st: Status) -> None:
+    st.schedule()
+    st.set_cli(
+        member_cli(
+            state="enrolling",
+            last_error={"code": "waiting_enrolment", "since": None},
+            network={"membership": {"desired": "member", "state": "enrolling"}},
+        )
+    )
+    rc, out, _ = st.run()
+    assert "Member as" not in out and "Joining as amber-falcon-42" in out
+    assert rc == 1  # join_pending
+
+
+def test_the_last_network_error_is_explained(st: Status) -> None:
+    st.schedule()
+    st.set_cli(member_cli(last_error={"code": "hub_unreachable", "since": iso(timedelta(hours=3))}))
+    rc, out, _ = st.run()
+    assert rc == 0, out  # younger than 6 h: shown, not yet a warning
+    assert "Last network error: hub_unreachable (3 h ago). The hub could not be reached" in out
+    assert "SuckerPot keeps trying by itself." in out
+    assert "Needs attention" not in out
+
+
+def test_an_error_older_than_six_hours_needs_attention(st: Status) -> None:
+    st.schedule()
+    st.set_cli(member_cli(last_error={"code": "hub_error", "since": iso(timedelta(hours=7))}))
+    rc, out, _ = st.run()
+    assert rc == 1, out
+    assert "the same network error for more than 6 h" in out
+    assert "The network keeps failing for more than 6 h: hub_error" in out
+
+
+def test_no_hub_contact_two_hours_after_joining_needs_attention(st: Status) -> None:
+    st.schedule()
+    cli = member_cli(
+        joined_at=iso(timedelta(hours=3)),
+        last_error={"code": "rate_limited", "since": iso(timedelta(hours=1))},
+    )
+    cli["hub"]["last_contact"] = None
+    st.set_cli(cli)
+    rc, out, _ = st.run()
+    assert rc == 1, out
+    assert "Hub contact: none yet" in out
+    assert "No contact with the hub 2 h after joining: last error rate_limited" in out
+
+
+def test_a_fresh_member_without_contact_is_fine(st: Status) -> None:
+    st.schedule()
+    cli = member_cli(joined_at=iso(timedelta(minutes=30)))
+    cli["hub"]["last_contact"] = None
+    st.set_cli(cli)
+    rc, out, _ = st.run()
+    assert rc == 0, out

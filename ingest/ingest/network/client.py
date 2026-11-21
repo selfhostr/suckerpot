@@ -70,6 +70,9 @@ class HubClient:
         self._gate = gate
         self._client = client
         self._clock = clock
+        # Clock reading of the last answer that passed the signature check with a 2xx status:
+        # the worker counts it as hub contact even when a later call of the cycle fails.
+        self.last_ok: float | None = None
 
     # -- plumbing ---------------------------------------------------------------------------
 
@@ -160,6 +163,7 @@ class HubClient:
         )
         if status >= 400:
             raise _hub_error(status, raw, resp_headers)
+        self.last_ok = self._clock()
         if model is None:
             return None
         return parse_response(model, raw)

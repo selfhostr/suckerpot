@@ -46,9 +46,11 @@ def scram_verifier(password: str, salt: bytes | None = None) -> str:
 # role -> list of GRANT statements (the role name is filled in with format %I)
 API_GRANTS = (
     "SELECT, INSERT, DELETE ON nodes",
-    "UPDATE (last_active_day, pseudonym, pseudonym_key, pseudonym_changed_day, country, "
-    "show_country) ON nodes",
+    "UPDATE (last_active_day, last_batch_day, pseudonym, pseudonym_key, pseudonym_changed_day, "
+    "country, show_country) ON nodes",
     "SELECT, INSERT, DELETE ON enrol_challenges",
+    # Days the API served (dormant.py): written once a day per process, never deleted by the API.
+    "SELECT, INSERT, UPDATE ON hub_served_days",
     "SELECT, INSERT ON nonces",
     "SELECT, INSERT ON batches",
     "SELECT, INSERT ON observations",
@@ -81,7 +83,7 @@ WORKER_TABLES = (
     "never_list, hub_audit, worker_state, payload_links, target_hosts, feed_entries, feed_runs, "
     "feed_daily, feed_allow, feed_auto_ranges, delist_challenges, delist_requests, "
     "abusech_submissions, node_roles, verify_tasks, verify_attestations, verify_daily, "
-    "trap_relay_state"
+    "trap_relay_state, hub_served_days, hub_count_snapshot"
 )
 # Tables the worker may not change once written. observatory_daily: a frozen day is never updated
 # (design M34), only inserted and, by retention, deleted.
