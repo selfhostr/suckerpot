@@ -260,14 +260,20 @@ def _assert_refused(sb: Sandbox, proc: subprocess.CompletedProcess[str]) -> None
     assert _engine_calls(sb) == [], "no engine may be called before the refusal"
 
 
-def test_install_refuses_podman_before_anything_runs(sandbox: Sandbox) -> None:
-    proc = _podman_install(sandbox)
-    _assert_refused(sandbox, proc)
+def test_install_refuses_a_podman_host_that_fails_the_checks(sandbox: Sandbox) -> None:
+    proc = _podman_install(sandbox)  # the default fake podman reports no version
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "this host does not meet the Podman requirements" in proc.stderr
+    assert not [
+        c
+        for c in sandbox.calls()
+        if c.startswith(("docker-compose up", "podman --url " + SOCK + " run"))
+    ]
     assert not (sandbox.root / ".env").exists()
     assert not list(sandbox.root.glob(".env.*.tmp*"))
 
 
-def test_install_dry_run_refuses_podman_too(sandbox: Sandbox) -> None:
+def test_install_dry_run_on_podman_writes_the_overlay_and_calls_nothing(sandbox: Sandbox) -> None:
     out = sandbox.root / "out.env"
     proc = sandbox.run(
         "scripts/install.sh",
@@ -275,8 +281,11 @@ def test_install_dry_run_refuses_podman_too(sandbox: Sandbox) -> None:
         stdin=PASSWORD + "\n",
         extra_env={"SUCKERPOT_ENGINE": "podman"},
     )
-    _assert_refused(sandbox, proc)
-    assert not out.exists()
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    text = out.read_text()
+    assert "SUCKERPOT_ENGINE=podman" in text
+    assert re.search(r"^COMPOSE_FILE=.*:docker-compose\.podman\.yml$", text, re.M)
+    assert _engine_calls(sandbox) == []
 
 
 def test_install_repair_refuses_an_env_that_says_podman(sandbox: Sandbox) -> None:
@@ -307,7 +316,11 @@ def test_install_detects_a_podman_only_host_and_refuses(sandbox: Sandbox) -> Non
         "--admin-password-stdin",
         stdin=PASSWORD + "\n",
     )
-    _assert_refused(sandbox, proc)
+    # Detected as Podman (no docker command), then refused before anything changes: this PATH has
+    # no docker-compose.
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "docker-compose is not installed" in proc.stderr
+    assert not (sandbox.root / ".env").exists()
 
 
 def test_install_refuses_a_docker_command_that_is_podman(sandbox: Sandbox) -> None:
@@ -731,6 +744,7 @@ case "$*" in
   *" info --format "*) [ "${SHIM_PODMAN_DOWN:-0}" = 1 ] && exit 125
     echo "${SHIM_PODMAN_INFO:-5.4.2 netavark v2 false}" ;;
   *" version --format "*) echo 5.4.2 ;;
+  "--version") echo "podman version 5.4.2" ;;
 esac
 exit 0
 """

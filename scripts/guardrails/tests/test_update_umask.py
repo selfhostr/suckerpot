@@ -363,7 +363,12 @@ def test_the_commands_that_write_or_read_the_checkout_go_through_with_public_uma
             'with_public_umask git checkout --quiet --detach "$from_ref"',
             "with_public_umask dc build",
         ],
-        "install.sh": ["with_public_umask dc up -d --build"],
+        # The start is "${start_cmd[@]}": `dc up` on Docker, engine_stack_up on Podman (which runs
+        # `dc build` first in source mode): both run inside with_public_umask.
+        "install.sh": [
+            "start_cmd=(dc up)",
+            'with_public_umask "${start_cmd[@]}" -d --build',
+        ],
     }
     for name, fragments in wanted.items():
         text = (ROOT / "scripts" / name).read_text()
