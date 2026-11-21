@@ -12,7 +12,7 @@ TELNET_PORT=${TELNET_HOST_PORT:-23}
 API_URL=${API_URL:-http://127.0.0.1:${DASHBOARD_PORT:-8443}}
 
 echo "== Telnet login against 127.0.0.1:${TELNET_PORT}"
-ctr run --rm --network host -v "$PWD/scripts:/s:ro" python:3.15.2-slim-trixie \
+ctr run --rm --network host -v "$PWD/scripts:/s:ro" docker.io/library/python:3.15.2-slim-trixie \
   python -I /s/telnet-test.py 127.0.0.1 "${TELNET_PORT}"
 
 echo "== waiting for the events to reach the API (max 60 s)"

@@ -34,6 +34,7 @@ COPIED = [
     "scripts/compose-fresh.sh",
     "scripts/lib/env.sh",
     "scripts/lib/engine.sh",
+    "scripts/lib/fwcheck.sh",
     "scripts/lib/pseudonym.sh",
     "scripts/lib/ports-check.sh",
     "scripts/lib/ports_check_filter.py",

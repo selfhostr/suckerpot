@@ -209,6 +209,47 @@ sudo scripts/host/install-firewall.sh --uninstall   # or, for this boot only: su
 By hand: `sudo systemctl disable --now suckerpot-firewall.service`, then
 `sudo rm /etc/systemd/system/suckerpot-firewall.service /etc/suckerpot-firewall.nft && sudo systemctl daemon-reload`.
 
+## Podman (not supported by the installer yet)
+
+Podman support is in progress (`docs/dev/design/podman.md`); the installer still refuses Podman.
+What differs, for reference:
+
+- Podman ignores the Docker network options that block outbound traffic and traffic between
+  sensors, and keeps a host address on every bridge. So on Podman this firewall is **required**:
+  the installer will refuse to finish without it, unless `--no-firewall` says you filter
+  elsewhere (`SUCKERPOT_NO_FIREWALL=1` in `.env`).
+- `render-firewall.sh --engine podman` (the default when `.env` says `SUCKERPOT_ENGINE=podman`)
+  turns the `#podman: ` lines of the templates into rules: DNS to aardvark-dns on the bridge's own
+  address, the `podman*` bridges in the protected-ports rule, and a second table,
+  `bridge suckerpot_bridge`, that drops every frame between two members of `sp-ingress`,
+  `sp-dashboard`, `sp-vpn` and `sp-hubgate`. On Docker those lines are removed: the Docker
+  rendering does not change.
+- The networks are created by `scripts/ensure-networks.sh`, not by compose
+  (`docker-compose.podman.yml` marks them external).
+- `install-stack-unit.sh USER CHECKOUT` installs `suckerpot-stack.service`, which starts the stack
+  at boot only after `suckerpot-firewall.service` and once its tables are loaded (Podman has no
+  daemon to do it). The stack unit is bound to the firewall unit: stopping or restarting the
+  firewall (also through a restart of the stock `nftables.service`, which flushes every table)
+  stops or restarts the stack. Load a new rendering with `install-firewall.sh FILE`: it reloads
+  the unit (one nft transaction) and never stops the stack. `install-firewall.sh --uninstall`
+  refuses while SuckerPot containers run on Podman, unless `SUCKERPOT_NO_FIREWALL=1`.
+  For a Podman rendering it also installs a drop-in
+  (`suckerpot-firewall.service.d/podman-stop.conf`): when the firewall unit stops, it first stops
+  the containers of the SuckerPot compose project (its name is written into the Podman rendering,
+  resolved like compose: `COMPOSE_PROJECT_NAME` in `.env`, else the folder name), then deletes the
+  tables. Other compose projects on the host are not touched. This works even when the stack unit
+  is not active (enabled but not started yet, or failed). The stack unit also stops the containers after
+  a failed start (`ExecStopPost=`).
+- Every start of the stack on Podman goes through `scripts/ensure-networks.sh`, which refuses
+  when the firewall unit is not active or its tables are gone (`SUCKERPOT_NO_FIREWALL=1` skips the
+  check). Without root or passwordless sudo the tables cannot be read; an active unit is then
+  accepted, and the boot unit checks the tables as root.
+- The group that may use the root Podman socket is **root-equivalent**: any member can start a
+  privileged container that mounts the host's `/`. Add only the installing user, as with the
+  `docker` group.
+- Check it: `just isolation-check` (no outside DNS, no way out, no other sensor, no host port
+  from each sensor; on Podman also the networks, the firewall and the boot unit).
+
 ## Proxmox firewall
 
 The nftables table above runs inside the VM. If the VM runs on Proxmox VE, add the hypervisor

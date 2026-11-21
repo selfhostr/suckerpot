@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Podman support, phase 2 (the security core; the installer still refuses Podman):
+  `docker-compose.podman.yml` and `scripts/ensure-networks.sh` (SuckerPot creates the sp-*
+  networks with `isolate=strict`, `--internal` and `--disable-dns`), Podman lines in the host
+  firewall templates (aardvark-dns DNS, `podman*` bridges, a `bridge suckerpot_bridge` table that
+  blocks sensor-to-sensor traffic), the firewall made required on Podman (with an opt-out), and a
+  `suckerpot-stack.service` boot unit that starts the stack only after the firewall. Docker nodes
+  do not change: the Docker firewall rendering is byte-for-byte the same.
+- `just isolation-check` (also part of `just egress-check`): from each running sensor, service
+  names resolve, outside names do not, and there is no connection to the internet, to another
+  sensor, or to the host's SSH and dashboard ports. Runs on Docker too; without the host firewall
+  on Docker, a reachable host port is a note, not a failure.
+  It also checks that the host firewall is really in force (the unit active and its nftables
+  tables present; reading the tables needs root, so run it with `sudo` for the full check). On a
+  Docker node, a firewall that is installed but not active, or whose tables are gone, now fails;
+  `just status` reports it too.
+
+### Upgrading
+
+- `just egress-check` and `just isolation-check` now check from each sensor that an outside name
+  (example.com) does **not** resolve. On a Docker node whose upstream resolver is on loopback for
+  Docker (for example a local `dnsmasq` or `unbound` on `127.0.0.1` that Docker hands to the
+  embedded resolver from the host), this can newly FAIL. That failure is a real leak: a
+  compromised sensor could send data out through DNS queries. Fix it by giving Docker a resolver
+  that the sensors cannot use through loopback, for example `"dns": ["192.0.2.53"]` with your
+  router's or provider's address in `/etc/docker/daemon.json` (then `sudo systemctl restart docker`
+  and `just up`), or by pointing `/etc/resolv.conf` at a non-loopback resolver. Then run the check
+  again.
+- The host firewall unit now starts after the stock `nftables.service` and is restarted with it
+  (`PartOf=`), so `systemctl restart nftables` no longer leaves the host without the SuckerPot
+  table. Run `scripts/host/install-firewall.sh FILE` once to install the new unit.
+- Docker nodes, visible changes: `just egress-check` (and `just isolation-check`) now has sensor
+  lines, and it FAILs when the host firewall is installed but not in force: the unit is stopped
+  or failed (`sudo systemctl start suckerpot-firewall.service`), or its table is gone after a
+  `nft flush ruleset` (`sudo systemctl reload suckerpot-firewall.service`). Run it with `sudo` to
+  let it read the tables; without root, an active unit is only a NOTE. It also FAILs when no
+  sensor runs. `just status` shows a new warning in the same case, "the host firewall is installed
+  but its rules are not loaded", on full and participant nodes. A node without the host firewall
+  is not affected (it stays optional on Docker).
+
 ### Changed
 
 - Internal, no behaviour change: the host scripts call the container engine through

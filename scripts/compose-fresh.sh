@@ -15,6 +15,10 @@ if [ "${1:-}" = up ] && ! engine_ready; then
   echo "compose-fresh: $ENGINE_UNREADY_MSG" >&2
   exit 1
 fi
+# Podman: the networks, and the host firewall check (scripts/ensure-networks.sh). Docker: nothing.
+if [ "${1:-}" = up ]; then
+  engine_prepare_networks || exit 1
+fi
 # A sensor switched off (SENSOR_<NAME>=0) gets deploy.replicas 0, but compose does not reliably
 # remove a container that is already running. Remove it explicitly before `up`.
 if [ "${1:-}" = up ]; then

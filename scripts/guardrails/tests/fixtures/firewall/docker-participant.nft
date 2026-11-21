@@ -1,0 +1,87 @@
+#!/usr/sbin/nft -f
+# SuckerPot host firewall (nftables) for a participant node: sensors, Redis, database, ingest and
+# hubproxy, no dashboard, no VPN. Render it with
+#
+#   scripts/host/render-firewall.sh --participant --admin-ssh-port <port> --out FILE
+#
+# and install it with `scripts/host/install-firewall.sh FILE` (see scripts/host/README.md). By hand:
+# set ADMIN_SSH_PORT below to the port of the host's admin SSH daemon; that is the only value you
+# must set. HUBGATE_DNS is filled in by the renderer (see "DNS" below); left as it is, hubproxy
+# cannot resolve the hub and the node stays idle, which is the safe failure.
+#
+# What it does
+#   1. No container on a SuckerPot network (sp-*) may send the host anything but replies.
+#      Internal networks have no host address on their bridge at all (isolated gateway, Docker
+#      Engine 28 or later); this rule also covers older engines and the two uplinks.
+#   2. No container on any other Docker network (docker0, br-*) may reach the admin SSH port.
+#   3. Sensors (sp-ingress) send nothing through the host but replies: no outbound packet, no LAN
+#      scan, not even a one-way SYN or UDP packet. Replies to inbound connections still work.
+#   4. hubproxy's uplink (sp-hubgate) may only open TCP 443 to public unicast addresses, and UDP 53
+#      to the resolvers in HUBGATE_DNS. Everything else, LAN included, is dropped.
+#   5. No IPv6 is forwarded from any SuckerPot network (the networks have no IPv6).
+#   6. sp-vpn (only with a VPN, which a direct participant does not have) may open nothing.
+#
+# Your own admin SSH from the LAN is never matched: every rule names a Docker bridge.
+#
+# DNS
+#   hubproxy resolves the hub through Docker's embedded resolver. That resolver forwards a query
+#   from the container's own network namespace, so the packet leaves through sp-hubgate, to the
+#   upstream servers Docker read from the host: /etc/resolv.conf, or
+#   /run/systemd/resolve/resolv.conf when the former only lists the systemd-resolved stub
+#   127.0.0.53. A loopback upstream is the exception: Docker forwards to it from the host's own
+#   namespace, so it never crosses sp-hubgate and needs no rule. The renderer lists the non-loopback
+#   IPv4 upstreams here; 127.0.0.1 alone means "none" (a forwarded packet never goes to loopback).
+#
+# Docker's own tables are left alone. This table only adds drops, in its own base chains at a
+# priority ahead of Docker's; an nftables drop in any base chain is final.
+
+define ADMIN_SSH_PORT = 2200
+define HUBGATE_DNS = { 192.0.2.53, 198.51.100.53 }
+
+# Idempotent: create (no-op if it exists), delete, then define again.
+add table inet suckerpot_host
+delete table inet suckerpot_host
+
+table inet suckerpot_host {
+  chain input {
+    type filter hook input priority -10; policy accept;
+
+    iifname "lo" accept
+    ct state established,related accept
+
+    # (4) A resolver that happens to be the host itself.
+    iifname "sp-hubgate" ct state new ip daddr $HUBGATE_DNS udp dport 53 counter accept
+
+    # (1) Nothing else from a SuckerPot network reaches the host: new, invalid or untracked.
+    iifname "sp-*" counter drop
+
+    # (2) Other Docker networks never reach the admin SSH port.
+    iifname { "docker0", "br-*" } ct state new tcp dport $ADMIN_SSH_PORT counter drop
+  }
+
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+
+    # Replies to connections that came in from the internet (Docker's DNAT) are fine.
+    ct state established,related accept
+
+    # (5) No IPv6 from any SuckerPot network.
+    iifname "sp-*" meta nfproto ipv6 counter drop
+
+    # (3) Sensors and (if it ever runs) the dashboard start nothing: everything that is not a
+    #     reply is dropped (new, invalid, untracked). Both bridges have one member or icc off, so
+    #     no same-bridge traffic is lost. The internal bridges (sp-s-*, sp-backend, sp-hubproxy)
+    #     get no forward rule: Redis, the database and the proxy talk across them.
+    iifname { "sp-ingress", "sp-dashboard" } counter drop
+
+    # (6) No VPN in this mode.
+    # (no --vpn-endpoint: sp-vpn may open nothing)
+    iifname "sp-vpn" counter drop
+
+    # (4) hubproxy: DNS to the listed resolvers, then TCP 443 to public unicast only.
+    iifname "sp-hubgate" ct state new ip daddr $HUBGATE_DNS udp dport 53 counter accept
+    iifname "sp-hubgate" ct state new ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } counter drop  # gitleaks:allow (private ranges are the point of this rule)
+    iifname "sp-hubgate" ct state new tcp dport 443 counter accept
+    iifname "sp-hubgate" counter drop
+  }
+}

@@ -93,7 +93,7 @@ fi
 grep -q "name: test-${project}_db-data" <<< "$effective" || die "the database volume is not project-local"
 
 db=${POSTGRES_DB:-suckerpot}
-image=$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)
+image=$(engine_image "$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)")
 backups_volume=$SUCKERPOT_BACKUPS_VOLUME
 
 # psql as the owner, against the database $1; the remaining arguments go to psql.

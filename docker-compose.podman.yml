@@ -1,0 +1,306 @@
+# Podman overlay (docs/dev/design/podman.md, section 5.2). Added to COMPOSE_FILE on Podman only,
+# never on Docker:
+#
+#   COMPOSE_FILE=docker-compose.yml[:docker-compose.lowmem.yml][:docker-compose.participant.yml]:docker-compose.podman.yml
+#
+# 1. Networks. Podman's Docker-compatible API ignores enable_ip_masquerade, enable_icc and
+#    gateway_mode_ipv4. So on Podman scripts/ensure-networks.sh creates every sp-* network with
+#    netavark's own options (isolate=strict, --internal, --disable-dns), and this file marks them
+#    external: compose uses them and never creates or removes a network. The host firewall
+#    (scripts/host/, mandatory on Podman) adds the rest.
+# 2. Third-party images with their registry (5.9). Same image, same digest as docker-compose.yml.
+#    Only here, so that a Docker node keeps the exact service definition (a changed image string
+#    would recreate the containers at the next update).
+# 3. Bind mounts of repository files get the SELinux option `z` (5.11): Fedora and the RHEL family
+#    deny a container access to an unlabelled host file. No effect without SELinux.
+# 4. tmpfs mounts owned by the service's user: Podman refuses the uid= and gid= options (checked
+#    on Podman 5.4 and 5.8), so they become Podman's own option U, which gives the mount to the
+#    container's user. Every such service runs as that same uid:gid (the guardrail checks it).
+#    `!override` replaces the list: the base list would otherwise be kept next to it.
+# 5. backup's healthcheck without start_interval, which docker-compose refuses on Podman 5.4
+#    (Docker API 1.41), and with a 1 minute interval instead.
+# 6. /tmp, /run and /var/tmp as small noexec tmpfs mounts in every service. With read_only, Podman
+#    adds its own writable /tmp, /run and /var/tmp (read-only-tmpfs) where the service has none,
+#    without noexec and without a size limit: a compromised sensor could write a program there and
+#    run it. Docker adds none of them.
+# 7. Logs go to journald (design D7). Podman keeps json-file's max-size but ignores max-file:
+#    checked on Podman 5.4, a log past 10 MB is cut and restarted in one file. journald's own size
+#    and rate limits then apply.
+#
+# Nothing else. scripts/guardrails/tests/test_podman.py fails if this file changes anything else.
+
+services:
+  redis:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /run/redis:rw,noexec,nosuid,nodev,size=1m,mode=0700,U
+      # Not in docker-compose.yml: there redis has no writable /tmp at all (read-only root). Podman
+      # would add an executable one without a size limit; this one is tiny and noexec.
+      - /tmp:rw,noexec,nosuid,nodev,size=1m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  db:
+    image: docker.io/timescale/timescaledb:2.31.0-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,U
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=1m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  migrate:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  backup:
+    image: docker.io/timescale/timescaledb:2.31.0-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538
+    volumes:
+      - ./scripts/backup-service.sh:/backup-service.sh:ro,z
+    # Podman 5.4 announces Docker API 1.41, and docker-compose refuses start_interval below 1.44.
+    # Without it, a 1 minute interval keeps the first `up --wait` short.
+    healthcheck:
+      interval: 1m
+      start_interval: !reset null
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=8m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  ingest:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  api:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-ssh:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-rdp:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-telnet:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-web:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-redis:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-docker:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-mysql:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-mssql:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-adb:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-smb:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-sip:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  sensor-synology:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  vpn:
+    image: docker.io/qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+    volumes:
+      - ./vpn/control-auth.toml:/gluetun/auth/config.toml:ro,z
+      - ./vpn/entrypoint.sh:/vpn/entrypoint.sh:ro,z
+      - ./vpn/health.sh:/vpn/health.sh:ro,z
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=8m,mode=0755
+      - /gluetun:rw,noexec,nosuid,nodev,size=8m,mode=0755
+      - /run/wireguard:rw,noexec,nosuid,nodev,size=1m
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  hubproxy:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=1m
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  collector:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  analyzer:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  demo:
+    logging:
+      driver: journald
+      options: !reset {}
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,U
+      - /run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+      - /var/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777
+
+# Every network of docker-compose.yml, external, under its bridge name. The Docker options are
+# reset: they mean nothing to a network compose does not create.
+networks:
+  ingress: &external
+    external: true
+    name: sp-ingress
+    driver_opts: !reset {}
+    internal: !reset null
+    enable_ipv6: !reset null
+  dashboard:
+    <<: *external
+    name: sp-dashboard
+  vpn-uplink:
+    <<: *external
+    name: sp-vpn
+  hub-uplink:
+    <<: *external
+    name: sp-hubgate
+  egress-proxy:
+    <<: *external
+    name: sp-egress
+  hub-proxy:
+    <<: *external
+    name: sp-hubproxy
+  samples:
+    <<: *external
+    name: sp-samples
+  backend:
+    <<: *external
+    name: sp-backend
+  tools:
+    <<: *external
+    name: sp-tools
+  sensors-ssh:
+    <<: *external
+    name: sp-s-ssh
+  sensors-rdp:
+    <<: *external
+    name: sp-s-rdp
+  sensors-telnet:
+    <<: *external
+    name: sp-s-telnet
+  sensors-web:
+    <<: *external
+    name: sp-s-web
+  sensors-redis:
+    <<: *external
+    name: sp-s-redis
+  sensors-docker:
+    <<: *external
+    name: sp-s-docker
+  sensors-mysql:
+    <<: *external
+    name: sp-s-mysql
+  sensors-mssql:
+    <<: *external
+    name: sp-s-mssql
+  sensors-adb:
+    <<: *external
+    name: sp-s-adb
+  sensors-smb:
+    <<: *external
+    name: sp-s-smb
+  sensors-sip:
+    <<: *external
+    name: sp-s-sip
+  sensors-synology:
+    <<: *external
+    name: sp-s-synology

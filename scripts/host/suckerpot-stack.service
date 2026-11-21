@@ -1,0 +1,37 @@
+# Starts the SuckerPot stack at boot on Podman (docs/dev/design/podman.md, section 5.7). Docker
+# needs no such unit: its daemon restarts the containers itself. Podman has no daemon, and the
+# containers must never run without the host firewall:
+#   - they start only after suckerpot-firewall.service (After=), and only when its tables are
+#     loaded (the two ExecStartPre=+ lines, run as root);
+#   - they stop when the firewall unit stops, fails or restarts (BindsTo=, PartOf=), and when a
+#     start fails (ExecStopPost= runs after a failed start too). The firewall unit's own drop-in
+#     (install-firewall.sh) also stops them when this unit is not active.
+# Install: scripts/host/install-stack-unit.sh (it fills in the placeholders; with --no-firewall
+# the firewall lines are left out).
+[Unit]
+Description=SuckerPot stack (Podman)
+Wants=network-online.target
+After=network-online.target podman.socket suckerpot-firewall.service
+Requires=podman.socket
+BindsTo=suckerpot-firewall.service
+PartOf=suckerpot-firewall.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The installing user, who reaches the root Podman socket through its group (design D3).
+User=@USER@
+WorkingDirectory=@CHECKOUT@
+Environment=DOCKER_HOST=unix:///run/podman/podman.sock
+ExecStartPre=+@NFT@ list table inet suckerpot_host
+ExecStartPre=+@NFT@ list table bridge suckerpot_bridge
+# Creates or fixes the sp-* networks; refuses when .env lacks the Podman overlay or the firewall
+# is not active.
+ExecStartPre=/bin/bash @CHECKOUT@/scripts/ensure-networks.sh
+ExecStart=@COMPOSE@ up -d --no-build --pull never --wait --wait-timeout 600
+ExecStopPost=@COMPOSE@ stop
+TimeoutStartSec=900
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target

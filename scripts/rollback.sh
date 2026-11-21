@@ -98,7 +98,7 @@ fi
 
 # The dump must still be there BEFORE anything is changed (code, images or database).
 if [ "$restore_db" = 1 ]; then
-  db_image=$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)
+  db_image=$(engine_image "$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)")
   [ -n "$db_image" ] || die "could not read the db image from docker-compose.yml"
   # Never let docker create a missing volume (it would be empty, and a false "dump gone" answer).
   ctr volume inspect "${SUCKERPOT_VOLUME_PREFIX}_backups" > /dev/null 2>&1 \

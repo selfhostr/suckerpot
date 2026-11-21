@@ -19,6 +19,11 @@
 #   --allow-bridge NAME
 #                      accept a bridge that is not Docker's but matches br-* or sp-* (repeat it);
 #                      see "Bridges" below. Only when you know what that bridge carries.
+#   --engine docker|podman
+#                      the container engine the rules are for (default: SUCKERPOT_ENGINE of this
+#                      checkout, else docker). Podman adds the "#podman: " lines of the templates:
+#                      DNS to aardvark-dns, the podman* bridges and the bridge-family table that
+#                      blocks traffic between sensors. On Docker those lines are removed.
 #
 # Bridges: the rules match Docker bridges by name with the wildcards "br-*" and "sp-*" (nft only
 # has trailing wildcards, so Docker's own br-<12 hex> pattern cannot be written exactly). A host
@@ -72,6 +77,7 @@ resolv_conf=/etc/resolv.conf
 systemd_resolv_conf=/run/systemd/resolve/resolv.conf
 dns=()
 allow_bridges=()
+engine=$ENGINE_ID
 # SuckerPot's fixed bridge names (docker-compose.yml; scripts/guardrails checks they match).
 SP_BRIDGES="sp-ingress sp-dashboard sp-vpn sp-hubgate sp-egress sp-hubproxy sp-samples sp-backend sp-tools sp-s-ssh sp-s-rdp sp-s-telnet sp-s-web sp-s-redis sp-s-docker sp-s-mysql sp-s-mssql sp-s-adb sp-s-smb sp-s-sip sp-s-synology"
 
@@ -84,10 +90,11 @@ while [ "$#" -gt 0 ]; do
       mode=${1#--}
       shift
       ;;
-    --admin-ssh-port | --dashboard-port | --vpn-endpoint | --out | --dns | --resolv-conf | --systemd-resolv-conf | --allow-bridge)
+    --admin-ssh-port | --dashboard-port | --vpn-endpoint | --out | --dns | --resolv-conf | --systemd-resolv-conf | --allow-bridge | --engine)
       need_value "$@"
       case $1 in
         --allow-bridge) allow_bridges+=("$2") ;;
+        --engine) engine=$2 ;;
         --admin-ssh-port) admin_port=$2 ;;
         --dashboard-port) dashboard_port=$2 ;;
         --vpn-endpoint) vpn_endpoint=$2 ;;
@@ -107,6 +114,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$mode" ] || die "choose --participant or --full"
+case $engine in docker | podman) ;; *) die "--engine must be docker or podman" ;; esac
+# ctr and the bridge listing below follow the engine the rules are for.
+[ "$engine" = "$ENGINE_ID" ] || engine_use "$engine"
 [ -n "$admin_port" ] || die "--admin-ssh-port is required (the port of this host's admin SSH daemon)"
 valid_port "$admin_port" || die "--admin-ssh-port must be a whole number from 1 to 65535"
 valid_port "$dashboard_port" || die "--dashboard-port must be a whole number from 1 to 65535"
@@ -139,10 +149,15 @@ host_bridges() {
   return 0
 }
 
-# Docker's bridge interfaces, one per line; fails when Docker cannot be asked.
+# The engine's bridge interfaces, one per line; fails when the engine cannot be asked.
 docker_bridges() {
   local ids id name
   command -v "${ENGINE_CTR[0]}" > /dev/null 2>&1 || return 1
+  if [ "$engine" = podman ]; then
+    # Podman names the bridge itself: no options to read.
+    ctr network ls --format '{{.NetworkInterface}}' 2> /dev/null || return 1
+    return 0
+  fi
   ids=$(ctr network ls --filter driver=bridge --no-trunc -q 2> /dev/null) || return 1
   [ -n "$ids" ] || return 0
   # shellcheck disable=SC2086 # one argument per network id
@@ -162,19 +177,22 @@ else
 fi
 foreign=()
 for b in "${bridges[@]}"; do
-  case $b in br-* | sp-*) ;; *) continue ;; esac
+  case $b in br-* | sp-*) ;; podman* | cni-podman*) [ "$engine" = podman ] || continue ;; *) continue ;; esac
   for a in "${allow_bridges[@]}"; do [ "$a" != "$b" ] || continue 2; done
   if [ "$docker_ok" = 1 ]; then
     for k in "${docker_known[@]}"; do [ "$k" != "$b" ] || continue 2; done
   else
     [[ $b =~ ^br-[0-9a-f]{12}$ ]] && continue
+    [ "$engine" = podman ] && [[ $b =~ ^(cni-)?podman[0-9]+$ ]] && continue
     for k in $SP_BRIDGES; do [ "$k" != "$b" ] || continue 2; done
   fi
   foreign+=("$b")
 done
 if [ "${#foreign[@]}" -gt 0 ]; then
-  [ "$docker_ok" = 1 ] || note "Docker could not be asked which bridges it owns; judged by name only"
-  die "host bridge(s) ${foreign[*]} match the firewall's br-* or sp-* wildcard but are not Docker's.
+  [ "$docker_ok" = 1 ] || note "$(engine_name) could not be asked which bridges it owns; judged by name only"
+  wild="br-* or sp-*"
+  [ "$engine" = docker ] || wild="br-*, sp-*, podman* or cni-podman*"
+  die "host bridge(s) ${foreign[*]} match the firewall's $wild wildcard but are not $(engine_name)'s.
   The rules would drop their traffic to the host, and if your admin SSH arrives through one of
   them you would lock yourself out. Rename the bridge, or, if you are sure nothing you need
   crosses it towards this host, pass --allow-bridge NAME for each."
@@ -190,8 +208,12 @@ nameservers() {
 # which is what crosses sp-hubgate: Docker reads /etc/resolv.conf, or the systemd-resolved
 # upstream list when /etc/resolv.conf only names the stub 127.0.0.53. Loopback upstreams are
 # queried from the host namespace (never through the bridge), and the bridge has no IPv6.
+# On Podman none: aardvark-dns forwards from the host's namespace, so no query crosses sp-hubgate
+# (hubproxy reaches aardvark-dns through the "#podman: " input rule instead).
 resolvers=()
-if [ "${#dns[@]}" -gt 0 ]; then
+if [ "$engine" = podman ]; then
+  [ "${#dns[@]}" -eq 0 ] || note "--dns is ignored on Podman: aardvark-dns asks the upstream resolvers from the host itself"
+elif [ "${#dns[@]}" -gt 0 ]; then
   for ip in "${dns[@]}"; do
     valid_ipv4 "$ip" || die "--dns: '$ip' is not an IPv4 address"
     resolvers+=("$ip")
@@ -220,7 +242,7 @@ for ip in "${resolvers[@]}"; do
 done
 if [ "${#uniq[@]}" -eq 0 ]; then
   hubgate_dns="{ 127.0.0.1 }"
-  [ "$mode" = full ] ||
+  [ "$mode" = full ] || [ "$engine" = podman ] ||
     note "no non-loopback IPv4 resolver found: hubproxy's DNS goes through the host namespace, sp-hubgate gets no DNS rule"
 else
   joined=$(
@@ -239,7 +261,11 @@ fi
 
 rendered=$(
   awk -v admin="$admin_port" -v dash="$dashboard_port" -v vip="$vpn_ip" -v vport="$vpn_port" \
-    -v dnsset="$hubgate_dns" -v vpn="$vpn_endpoint" '
+    -v dnsset="$hubgate_dns" -v vpn="$vpn_endpoint" -v engine="$engine" '
+    /^#podman:/ {
+      if (engine != "podman") next
+      sub(/^#podman: ?/, "")
+    }
     /^define ADMIN_SSH_PORT = /    { print "define ADMIN_SSH_PORT = " admin; next }
     /^define DASHBOARD_PORT = /    { print "define DASHBOARD_PORT = " dash; next }
     /^define VPN_ENDPOINT_IP = /   { print "define VPN_ENDPOINT_IP = " vip; next }
@@ -257,6 +283,18 @@ rendered=$(
   ' "$template"
 )
 header="# Rendered by scripts/host/render-firewall.sh --$mode on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+[ "$engine" = docker ] || header="# Rendered by scripts/host/render-firewall.sh --$mode --engine $engine on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+# Podman: the compose project of this checkout, resolved the way compose does it
+# (COMPOSE_PROJECT_NAME in .env, else the folder name, lowercased, other characters dropped).
+# install-firewall.sh stops exactly that project's containers before it removes the tables.
+if [ "$engine" = podman ]; then
+  checkout=$(cd "$here/../.." && pwd)
+  project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$checkout/.env" 2> /dev/null | tail -n 1 | sed 's/[[:space:]]#.*//' | tr -d "\"' \r" || true)
+  [ -n "$project" ] || project=$(basename "$checkout")
+  project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g; s/^[^a-z0-9]*//')
+  [[ $project =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "cannot work out the compose project name of $checkout (set COMPOSE_PROJECT_NAME in .env)"
+  header+=$'\n'"# suckerpot-compose-project: $project"
+fi
 rendered="$header"$'\n'"$rendered"
 
 if grep -q 'CHANGE_ME\|@[A-Z_]*@' <<< "$rendered"; then

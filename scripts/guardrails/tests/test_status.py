@@ -79,6 +79,13 @@ class Status:
             + ' -I -c "$@" ;;',
         )
         (sb.root / ".suckerpot-state").mkdir()
+        # The firewall unit as fwcheck.sh sees it: active, tables unreadable (no root, sudo refuses).
+        for name, text in {
+            "systemctl": '#!/bin/sh\n[ "$1" = is-active ] && exit "${SHIM_FW_ACTIVE:-0}"\nexit 0\n',
+            "sudo": "#!/bin/sh\nexit 1\n",
+        }.items():
+            (sb.shim / name).write_text(text)
+            (sb.shim / name).chmod(0o755)
         self.fw_root = sb.root / "fwroot"
         self.firewall(installed=True)
         self.schedule()
@@ -132,9 +139,9 @@ class Status:
     def auto_state(self, **fields: str) -> None:
         (self.sb.root / ".suckerpot-state" / "auto-update.json").write_text(json.dumps(fields))
 
-    def run(self, *args: str) -> tuple[int, str, str]:
+    def run(self, *args: str, **env: str) -> tuple[int, str, str]:
         proc = self.sb.run(
-            "scripts/status.sh", *args, extra_env={"SUCKERPOT_FW_ROOT": str(self.fw_root)}
+            "scripts/status.sh", *args, extra_env={"SUCKERPOT_FW_ROOT": str(self.fw_root), **env}
         )
         return proc.returncode, proc.stdout, proc.stderr
 
@@ -481,6 +488,16 @@ def test_missing_firewall_is_a_warning_with_its_command(st: Status) -> None:
     assert "The host firewall is not installed" in out
     assert "Fix: ./scripts/participant.sh firewall" in out
     assert "Automatic updates are off" not in out
+
+
+@pytest.mark.parametrize("stack", ["participant", "full"])
+def test_an_installed_firewall_that_is_not_active_is_a_warning(st: Status, stack: str) -> None:
+    st.set_env(SUCKERPOT_STACK_MODE=stack)
+    rc, out, _ = st.run(SHIM_FW_ACTIVE="3")
+    assert rc == 1, out
+    assert "not loaded" in out
+    _, js, _ = st.run("--json", SHIM_FW_ACTIVE="3")
+    assert "firewall_not_loaded" in js
 
 
 def test_a_full_install_does_not_ask_for_the_participant_firewall(st: Status) -> None:

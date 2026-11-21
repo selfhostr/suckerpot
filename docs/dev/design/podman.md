@@ -1,6 +1,6 @@
 # Podman support
 
-Status: approved on 2026-11-21, not implemented yet. The owner's decisions are in section 12.
+Status: approved on 2026-11-21. The owner's decisions are in section 12. Implemented: phase 1 (engine library) and the security core (networks, overlay, Podman firewall, boot unit, isolation checks); the installer still refuses Podman until it wires them in.
 
 ## 1. Problem and goals
 
@@ -491,6 +491,42 @@ Not checked (to verify in Phase 2 before relying on it):
 - `podman volume ls --filter name=^x_` regex semantics.
 - Ubuntu 24.04's exact Podman version (4.9.3 from memory) and the RHEL 10 minor version.
 - podman-compose's support for each flag and YAML feature in section 4.
+
+Checked in Phase 2, on rootful Podman 5.4.2 (Debian 13, netavark 1.14, docker-compose 2.26.1) and
+Podman 5.8.9 (Fedora 43, netavark 1.17, docker-compose 5.7.0), both with the nftables driver, in
+privileged containers running systemd (SELinux was not enforcing there):
+
+- An internal netavark bridge always gets the gateway address (the first address of its
+  subnet). The host firewall's input drops are needed, as assumed.
+- A service's `dns:` entries are written into the container's `/etc/resolv.conf` after the
+  aardvark-dns addresses of its DNS-enabled networks (so `127.0.0.1` is the container's own
+  loopback). A network made with `--disable-dns` adds no nameserver. A sensor (DNS off on
+  `sp-ingress`, DNS on its internal network) resolves `redis` and no outside name. A container on
+  an internal network and a DNS-enabled non-internal one (hubproxy) resolves outside names through
+  either aardvark address, in both network orders.
+- `gw_priority`: docker-compose 2.26.1 drops it. It does not matter on Podman: the other network of
+  `vpn` and `hubproxy` is internal and adds no route, so the uplink is the only default route
+  (checked in both containers).
+- Copy-up keeps the owner of the image directory (redis `/data` 999:1000, ssh host keys 10001,
+  `vpn-config` 10001); no change to `ensure-volumes.sh` is needed.
+- `json-file`: `max-size` is honoured, `max-file` is not (one file, cut at 10 MB). So the Podman
+  overlay logs to journald (D7); `docker-compose logs` still works.
+- `read-only-tmpfs` applies through the compat API: Podman adds writable `/run` and `/var/tmp`
+  without `noexec` or a size limit, where a program could be written and run. The Podman overlay
+  mounts both as 1 MB `noexec` tmpfs in every service.
+- `podman-restart.service` is disabled by default on both. On 5.4 it starts `always` containers
+  only; on 5.8 it uses `should-start-on-boot`, which includes `unless-stopped`. The stack unit's
+  installer orders it after the firewall in case an owner turns it on.
+- `podman volume ls --filter name=^x_` treats the value as a regular expression, like Docker.
+- `docker-compose ps -a migrate --format '{{.State}} {{.ExitCode}}'` prints `exited 0`.
+- Not in the list above, found while testing: Podman refuses the `uid=` and `gid=` tmpfs options
+  (the overlay uses Podman's `U` option); docker-compose refuses `healthcheck.start_interval` on
+  Podman 5.4, which announces Docker API 1.41 (the overlay drops it for `backup`); and Podman's
+  tmpfiles rule keeps `/run/podman` at mode 0700, so a `SocketGroup=` drop-in alone does not let
+  the group reach the socket (Phase 3 must also relax that folder).
+
+Still open: Ubuntu 24.04's exact Podman version and the RHEL 10 minor version, podman-compose
+(not used), and the SELinux `z` option under enforcing SELinux.
 
 ## 11. Risks
 

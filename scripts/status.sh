@@ -18,6 +18,8 @@ cd "$(dirname "$0")/.."
 ENGINE_LENIENT=1
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+# shellcheck source=scripts/lib/fwcheck.sh
+. scripts/lib/fwcheck.sh
 
 die() { echo "status: $*" >&2; exit 2; }
 
@@ -98,8 +100,13 @@ if [ "$(env_get AUTO_UPDATE_ENABLED false)" = true ]; then auto_enabled=true; el
 
 # The host firewall is a systemd unit of its own (scripts/host/install-firewall.sh). The unit file
 # is readable without root; SUCKERPOT_FW_ROOT only exists for the tests.
-if [ -f "${SUCKERPOT_FW_ROOT:-}/etc/systemd/system/suckerpot-firewall.service" ]; then
-  firewall=installed
+# Installed is not enough: the unit must be active and its tables loaded (scripts/lib/fwcheck.sh;
+# the tables are only read as root or with sudo -n).
+if fw_installed; then
+  case $(fw_state) in
+    inactive | missing:*) firewall=not_loaded ;;
+    *) firewall=installed ;;
+  esac
 else
   firewall=missing
 fi

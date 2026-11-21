@@ -29,6 +29,7 @@ from test_update import prepare, write_state
 
 FIXTURE = Path(__file__).parent / "fixtures" / "docker_calls.json"
 UNREADY = "Podman support is not ready yet"
+SOCK = "unix:///run/podman/podman.sock"
 
 
 def _norm(sb: Sandbox, calls: list[str]) -> list[str]:
@@ -208,11 +209,12 @@ def test_dc_and_ctr_call_podman_and_compose_on_the_podman_socket(sandbox: Sandbo
     out = _source_and_run(sandbox, PROBE, extra_env={"SUCKERPOT_ENGINE": "podman"})
     assert "engine=podman from=env name=Podman" in out
     sock = "DOCKER_HOST=unix:///run/podman/podman.sock"
+    # podman always talks to the root Podman service, never to a rootless one of the caller.
     assert _engine_calls(sandbox) == [
         f"docker-compose up -d --wait {sock}",
-        "podman volume ls -q",
+        f"podman --url {SOCK} volume ls -q",
         f"docker-compose ps {sock}",
-        "podman volume rm demo_x",
+        f"podman --url {SOCK} volume rm demo_x",
     ]
     # The socket is set for the compose call only, never for the script.
     assert f"after={sandbox.env['DOCKER_HOST']}" in out
@@ -625,7 +627,7 @@ def test_render_firewall_reads_the_env_of_its_checkout(sandbox: Sandbox, tmp_pat
         check=False,
     )
     calls = sandbox.calls()
-    assert any(c.startswith("podman network ls") for c in calls), calls
+    assert any(c.startswith(f"podman --url {SOCK} network ls") for c in calls), calls
     assert not any(c.startswith("docker network") for c in calls)
 
 
