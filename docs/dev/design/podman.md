@@ -1,6 +1,6 @@
 # Podman support
 
-Status: proposal. Nothing is implemented. The open decisions for the owner are in section 12.
+Status: approved on 2026-11-21, not implemented yet. The owner's decisions are in section 12.
 
 ## 1. Problem and goals
 
@@ -44,13 +44,13 @@ Line numbers are those of `main` at v0.12.1. "Compat" means Podman's Docker-comp
 | Item | Where | Under Podman |
 | --- | --- | --- |
 | `command -v docker`, then `docker version --format '{{.Server.Version}}'`, must be 24 or newer, warns below 28 | `scripts/install.sh:357-363` | Through compat, the server version is the Podman version (5.x), so "24 or newer" fails. Needs an engine branch: Podman 5.4 or newer, netavark backend, nftables driver |
-| Error text "sudo usermod -aG docker $USER" | `scripts/install.sh:359` | Podman has no `docker` group. Rootful socket access is a decision (section 12, D3) |
+| Error text "sudo usermod -aG docker $USER" | `scripts/install.sh:359` | Podman has no `docker` group. Socket access is through a group on `podman.socket` (section 12, D3) |
 | `docker compose version --short`, 2.24 or newer | `scripts/install.sh:364-365` | `docker-compose version --short` (standalone binary). 2.26 or newer (Debian 13 ships 2.26.1) |
 | `docker info --format '{{.DockerRootDir}}'` for the free disk check | `scripts/install.sh:389` | Use `podman info --format '{{.Store.GraphRoot}}'` (`/var/lib/containers/storage`) |
 | `docker volume ls -q --filter "name=^${prefix}_"` | `scripts/install.sh:399` | `podman volume ls --filter name=` exists. Whether it takes a regex anchor like Docker is unverified: test it, or filter with `grep` |
 | `docker ps -a -q --filter label=com.docker.compose.project=$project` | `scripts/install.sh:402` | The label is set by `docker-compose`, so it is there. `podman ps --filter label=` works |
 | `docker pull` of the ingest and api images | `scripts/install.sh:749, 767` | `podman pull`. Same refs |
-| `docker build` of the api image (source mode) | `scripts/install.sh:777` | `podman build` (Buildah). Source mode on Podman is a decision (D6) |
+| `docker build` of the api image (source mode) | `scripts/install.sh:777` | `podman build` (Buildah). Source mode stays Docker-only at first (D6) |
 | `docker run --rm -i --network none --cap-drop ALL` to hash the admin password | `scripts/install.sh:779` | `podman run` with the same flags |
 | `docker compose exec -T backup ...` before a mode switch | `scripts/install.sh:966` | Through `docker-compose` on the Podman socket: unchanged |
 | `docker compose --profile direct rm -sf hubproxy`, `pull`, `pull --policy missing`, `up -d --no-build --pull never --wait --wait-timeout 600` | `scripts/install.sh:1019-1036` | Unchanged under approach A. These flags are the main reason not to use podman-compose (section 4) |
@@ -100,7 +100,7 @@ Backups are logical dumps (`pg_dump -Fc`) inside the `backups` volume, not copie
 | cosign `verify-blob` of the release manifest: `docker image inspect`, `docker pull`, `docker run --rm --network host --user 65532:65532 --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:...,uid=65532,gid=65532` | `scripts/verify-release.sh:110-124` | `podman run` with the same flags. The exit codes 125, 126, 127 that mean "the engine could not start the container" are the same in Podman. 137 (killed) too |
 | cosign `verify` of each image, mounts `~/.docker/config.json` for private registries, then `docker pull <ref>@<digest>` and `docker tag` | `scripts/verify-images.sh:102-139` | `podman pull`, `podman tag`. Podman's own login file is `${XDG_RUNTIME_DIR}/containers/auth.json` (root: `/run/containers/0/auth.json`). Images on GHCR are public, so no login is needed. Mount Podman's file only if it exists |
 | Test traffic: `alpine` (ssh-test), `curlimages/curl` (web-test), `python` (telnet-test, rdp-test), all `--network host` | `scripts/ssh-test.sh:14`, `web-test.sh:14`, `telnet-test.sh:13`, `rdp-test.sh:12` | `podman run`. Short image names: see section 5.9 |
-| Development: uv (`ghcr.io/astral-sh/uv`), node (web build, `-p 127.0.0.1:5173:5173`), shellcheck (`koalaman/shellcheck`), guardrails | `justfile:101, 153, 212, 231, 321, 351-391` | Developer tools, not part of a node. They can stay Docker-only at first (D8). With `podman` they work with the same flags plus `--userns=keep-id` for files owned by the caller, which is a later nicety |
+| Development: uv (`ghcr.io/astral-sh/uv`), node (web build, `-p 127.0.0.1:5173:5173`), shellcheck (`koalaman/shellcheck`), guardrails | `justfile:101, 153, 212, 231, 321, 351-391` | Developer tools, not part of a node. They stay Docker-only (D8). With `podman` they work with the same flags plus `--userns=keep-id` for files owned by the caller, which is a later nicety |
 | `test-broker.sh`: builds the redis image, `docker network create --internal`, `docker run --read-only --cap-drop ALL`, `docker exec`, `docker stop -t 30`, `docker inspect .State.Status/.ExitCode/.State.Health` | `scripts/test-broker.sh:29-292` | Works with `podman` (same flags). Runs in CI |
 | `just integration`: `docker create`, `docker network connect`, `docker start -a` | `justfile:345-364` | Same with `podman` |
 
@@ -154,7 +154,7 @@ Backups are logical dumps (`pg_dump -Fc`) inside the `backups` volume, not copie
 | Comments and rules that rely on the isolated gateway on Engine 28 ("covers older engines") | `firewall.nft:12-15`, input rule (1) | On Podman the input drops on internal bridges are the only control. They are already there |
 | `HUBGATE_DNS`: allows hubproxy's DNS through `sp-hubgate` because Docker's embedded resolver forwards from the container's namespace | `firewall.nft:40-47`, `render-firewall.sh:190-230` | aardvark-dns forwards from the host's namespace, so these queries never cross `sp-hubgate`. The rule stays harmless. A new input rule must let containers reach aardvark-dns where DNS is on (section 5.3) |
 | `render-firewall.sh`: refuses when a host bridge that matches `br-*` or `sp-*` is not the engine's; asks `docker network ls/inspect`; reads `/etc/docker/daemon.json` for `"dns"` | `scripts/host/render-firewall.sh:23-30, 135-170, 204-206` | Ask `podman network ls` instead. Also check bridges that match `podman*`. Read `dns_servers` in `containers.conf` instead of `daemon.json` |
-| `fw_step`: offered, never fatal; the stack runs without it | `scripts/lib/firewall.sh:96-137`, `scripts/install.sh:688-690, 1110-1113` | On Podman the firewall carries guarantees that Docker gave by itself (section 5.2). Proposal: on Podman the install refuses to finish without the firewall, unless `--no-firewall` says the owner filters elsewhere (D5) |
+| `fw_step`: offered, never fatal; the stack runs without it | `scripts/lib/firewall.sh:96-137`, `scripts/install.sh:688-690, 1110-1113` | On Podman the firewall carries guarantees that Docker gave by itself (section 5.2). Decided (D5): on Podman the install refuses to finish without the firewall, unless `--no-firewall` says the owner filters elsewhere (D5) |
 | `install-firewall.sh`: own systemd unit, never the stock `nftables.service` (its `flush ruleset` would wipe Docker's rules) | `scripts/host/install-firewall.sh:3-4` | Same reason with netavark: `flush ruleset` wipes `inet netavark` until the next network setup |
 | `suckerpot-firewall.service`: `After=docker.service network-online.target` | `scripts/host/suckerpot-firewall.service:5` | On Podman: `Before=` the SuckerPot boot unit (section 5.7), so no container starts before the table is loaded |
 | `proxmox-firewall.sh` | `scripts/host/proxmox-firewall.sh` | Hypervisor side, matches the VM NIC. Engine-agnostic. Text mentions Docker only |
@@ -174,7 +174,7 @@ Backups are logical dumps (`pg_dump -Fc`) inside the `backups` volume, not copie
 
 | Item | Where | Under Podman |
 | --- | --- | --- |
-| The update runs from the installing user's crontab, or a systemd **user** timer; never sudo | `scripts/lib/schedule.sh:17-102`, `scripts/auto-update.sh:2` | The user's timer or crontab calls compose, which needs the root-owned Podman socket. Same model as the `docker` group, with a socket group instead (D3). Or install the timer as a system unit running as root (D3) |
+| The update runs from the installing user's crontab, or a systemd **user** timer; never sudo | `scripts/lib/schedule.sh:17-102`, `scripts/auto-update.sh:2` | The user's timer or crontab calls compose, which needs the root-owned Podman socket. Same model as the `docker` group, with a group on `podman.socket` instead (decided, D3) |
 | `PATH` extended with `/usr/local/bin:/usr/bin:/bin:/snap/bin` | `scripts/auto-update.sh:38` | `docker-compose` from the distribution is in `/usr/bin`. Fine |
 | `verify-release.sh --auto`, `verify-images.sh`, then `update.sh --yes --auto`, `rollback.sh --yes` | `scripts/auto-update.sh` | Covered above |
 
@@ -308,7 +308,7 @@ The external, prefixed volumes work as named Podman volumes. Their data sits und
 
 - Copy-up of image content and ownership into an empty volume (redis, db, `vpn-config` from the api image). Podman copies content; the owner of the volume root is the part to test. If it differs, `ensure-volumes.sh` sets the owner explicitly on Podman, as it already does for `backups`, `vpn-config` and `trap-packs`.
 - Backups are `pg_dump` files in the `backups` volume (3.3). They are engine-independent. Owners who copy volume directories by hand must use the new path; the docs say so.
-- Moving a node from Docker to Podman: `just backup` on Docker, copy the newest dump and `.env`, install on Podman with the same prefix, `just restore <dump>`. The sensor state volumes (host keys, profile secrets) are small and can be moved with `tar` from the old `_data` to the new; losing them only changes the sensor fingerprint. A tested `scripts/migrate-engine.sh` is a later option (D9).
+- Moving a node from Docker to Podman: `just backup` on Docker, copy the newest dump and `.env`, install on Podman with the same prefix, `just restore <dump>`. The sensor state volumes (host keys, profile secrets) are small and can be moved with `tar` from the old `_data` to the new; losing them only changes the sensor fingerprint. This path is documented; there is no migration script (D9).
 
 ### 5.9 Images and short names
 
@@ -316,11 +316,11 @@ Compat normalises short names to `docker.io`, as Docker does (unverified for eve
 
 - Qualify the two third-party images in the compose file: `docker.io/timescale/timescaledb:...@sha256:...` and `docker.io/qmcgaw/gluetun:...@sha256:...`. Identical meaning on Docker.
 - Qualify the helper images in the scripts the same way (`docker.io/library/alpine`, `docker.io/curlimages/curl`, `docker.io/library/python`, `docker.io/koalaman/shellcheck`). The cosign and uv images are already on `ghcr.io`.
-- Source builds tag `local/<project>-<name>:dev`. Podman stores an unqualified build tag as `localhost/local/...` and finds it again by short name. Phase 2 tests both install modes, or source mode on Podman stays unsupported (D6).
+- Source builds tag `local/<project>-<name>:dev`. Podman stores an unqualified build tag as `localhost/local/...` and finds it again by short name. Source mode on Podman stays unsupported at first (D6); Phase 2 tests images mode only.
 
 ### 5.10 Logging
 
-`json-file` with `max-size` and `max-file` keeps each container at 30 MiB. Through compat, Podman uses `k8s-file` with a size limit; rotation into 3 files is not available. Two options: keep `json-file` (bounded by size, one file), or use `journald` in the Podman overlay so that journald's own limits apply. Proposal: keep the base file as is and measure in Phase 2 (D7).
+`json-file` with `max-size` and `max-file` keeps each container at 30 MiB. Through compat, Podman uses `k8s-file` with a size limit; rotation into 3 files is not available. Two options: keep `json-file` (bounded by size, one file), or use `journald` in the Podman overlay so that journald's own limits apply. Decision D7: keep `json-file` if Podman honours both `max-size` and `max-file`, otherwise use `journald` in the Podman overlay. A Phase 2 test decides.
 
 ### 5.11 SELinux
 
@@ -340,14 +340,14 @@ Approach A, rootful.
 | Init | systemd | Healthcheck timers, boot unit |
 | Architectures | amd64, arm64 | Same as today |
 
-Distributions for the first version (D2):
+Distributions for the first version (D2, decided):
 
-| Distribution | Podman in the archive | Status proposed |
+| Distribution | Podman in the archive | Status |
 | --- | --- | --- |
 | Debian 13 (trixie) | 5.4.2 | Supported target, the CI reference |
 | Ubuntu 26.04 LTS | 5.7.0 | Supported target |
-| Fedora (current releases) | 5.x or 6.x | Experimental: fast-moving, SELinux path |
-| RHEL 10, AlmaLinux 10, Rocky Linux 10 | 5.x (exact minor unverified) | Experimental until tested |
+| Fedora (current releases) | 5.x or 6.x | Experimental, tested in Phase 2 (SELinux path) |
+| RHEL 10, AlmaLinux 10, Rocky Linux 10 | 5.x (exact minor unverified) | Experimental, tested in Phase 2 (SELinux path) |
 | Ubuntu 24.04 LTS | 4.9.3 | Not supported (Podman 4) |
 | Debian 12 (bookworm) | 4.3.1 | Not supported |
 
@@ -388,7 +388,7 @@ A new `scripts/lib/engine.sh`, sourced by `scripts/lib/env.sh` so every script g
 
 Rules:
 
-- Every `docker compose` call in `scripts/`, the `justfile` and the docs examples becomes `dc` (the `justfile` sources the library in its recipes). Every other `docker` call becomes `ctr`. A guardrail test fails on any new literal `docker ` call outside `scripts/lib/engine.sh`.
+- Every `docker compose` call in `scripts/`, the node recipes of the `justfile` and the docs examples becomes `dc` (the `justfile` sources the library in its recipes). Every other `docker` call becomes `ctr`. A guardrail test fails on any new literal `docker ` call outside `scripts/lib/engine.sh`.
 - The installer writes `SUCKERPOT_ENGINE` to `.env`. `env-migrate.sh` writes `SUCKERPOT_ENGINE=docker` to an existing `.env` that has none, so old nodes never switch.
 - `DOCKER_HOST` is set by `dc` only, never exported to the whole script, so a stray Docker CLI call cannot hit the wrong engine.
 - The library refuses to run when `.env` says one engine and only the other answers.
@@ -405,7 +405,7 @@ Acceptance:
 
 - On Docker, the behaviour is byte-for-byte the same: the existing guardrails, `compose`, `participant-e2e`, `backup-restore` and `broker` jobs pass unchanged.
 - With `SUCKERPOT_ENGINE=podman` and the fakes, each script calls `podman` or `docker-compose` with the expected arguments (guardrail tests).
-- `grep -rn 'docker compose\|docker run\|docker volume\|docker network\|docker inspect' scripts/ justfile` finds only `scripts/lib/engine.sh`.
+- `grep -rn 'docker compose\|docker run\|docker volume\|docker network\|docker inspect' scripts/ justfile` finds only `scripts/lib/engine.sh` and the developer recipes of the `justfile`, which stay Docker-only (D8).
 
 ### Phase 2: install, update and status on Podman
 
@@ -416,7 +416,7 @@ Acceptance:
 - `status.sh` shows the engine line.
 - Docs for the Docker to Podman move (5.8).
 
-Acceptance, on a Debian 13 VM and an Ubuntu 26.04 VM:
+Acceptance, on Debian 13 and Ubuntu 26.04 VMs, and on Fedora and AlmaLinux 10 VMs with SELinux enforcing (D2). The participant install on a small VPS-sized VM (1 to 2 GiB) comes first, because participant nodes on VPSs are the main target:
 
 - `./scripts/install.sh` (full) and `./scripts/install.sh --participant` finish, every service is healthy, `./scripts/status.sh` is green.
 - A connection from a second host to each published sensor port logs that host's address.
@@ -503,17 +503,19 @@ Not checked (to verify in Phase 2 before relying on it):
 | Two engine paths double the test matrix | Slower CI, more maintenance | One compose implementation; the engine library is the only branch point; Podman marked experimental until the CI job has been stable (D1) |
 | Engine-specific error texts (network recreation) | `compose_up_recreating` does not recognise a Podman error | On Podman, network recreation is done by `ensure-networks.sh` before `up`, so the text parsing is not needed |
 
-## 12. Open decisions for the owner
+## 12. Decisions
 
-| # | Question | Proposal |
+The owner approved the design and these decisions on 2026-11-21. The main target is participant nodes on VPSs. Full installs on Podman are in scope, but participant installs come first in testing and docs.
+
+| # | Question | Decision |
 | --- | --- | --- |
-| D1 | Status of Podman at first: "supported" or "experimental"? | Experimental in the first release that ships it (docs say so, installer prints a notice). Supported after the CI job has been required for one minor release and one real node ran through an update |
-| D2 | Which distributions? | Debian 13 and Ubuntu 26.04 supported; Fedora and RHEL 10 family experimental; Podman 4 hosts (Ubuntu 24.04, Debian 12) refused |
-| D3 | How does a non-root user reach the root Podman socket (install, auto-update)? (a) a group on `podman.socket` through a systemd drop-in (`SocketGroup=`), root-equivalent like the `docker` group; (b) the scripts run with `sudo`, and the auto-update becomes a system timer running as root | (a): closest to today's model, no change to the never-sudo updater. Document that the group is root-equivalent, as the docs already say for `docker` |
-| D4 | Rootless Podman: later or never? | Not now. Reconsider when the source-address-preserving forwarder is no longer experimental, and only if the host firewall's role can be replaced (the bridges are invisible to the host) |
-| D5 | Make the host firewall mandatory on Podman? | Yes. `--no-firewall` for owners who filter at the hypervisor (with the Proxmox firewall script), with a clear warning |
-| D6 | Source installs (`--build`) on Podman? | Images mode only at first. Source mode stays Docker-only until tested |
-| D7 | Logging driver on Podman: keep `json-file` (maps to `k8s-file`, one file, size-bounded) or `journald`? | Keep `json-file`; decide after measuring in Phase 2 |
-| D8 | Developer recipes (`just check`, lint, web build) on Podman? | Docker-only at first. Node operations matter; development can follow |
-| D9 | A tested script to move a running node from Docker to Podman? | Document the backup-and-restore path first; script it only if users ask |
-| D10 | Apply the new sensor isolation checks and the bridge table to Docker nodes too? | Yes for the checks (they also test Docker's guarantees). The bridge table is optional on Docker (Docker's `enable_icc=false` already covers it) |
+| D1 | Status of Podman at first: "supported" or "experimental"? | Experimental in the first release that ships it. The docs say so, and the installer prints a notice. Podman becomes supported after the CI job has been required for one minor release and one real node has gone through an update |
+| D2 | Which distributions? | Supported: Debian 13 and Ubuntu 26.04. Experimental: Fedora and the RHEL 10 family. They are still tested in Phase 2 (SELinux enforcing), because the user who asked probably runs one of them. Refused: Podman 4 hosts (Ubuntu 24.04, Debian 12) |
+| D3 | How does a non-root user reach the root Podman socket (install, auto-update)? | A group on `podman.socket`, set with a systemd drop-in (`SocketGroup=`). The updater keeps running without sudo. The docs say the group is root-equivalent, as they already do for `docker` |
+| D4 | Rootless Podman? | No. It can be raised again when the forwarder that keeps the source address is no longer experimental, and only if something else can do the host firewall's job (the host cannot see rootless bridges) |
+| D5 | Make the host firewall mandatory on Podman? | Yes. A `--no-firewall` flag lets an owner who filters at the hypervisor (for example with the Proxmox firewall script) skip it, with a clear warning |
+| D6 | Source installs (`--build`) on Podman? | Images mode only at first. Source mode stays Docker-only until it is tested |
+| D7 | Logging driver on Podman | Use `json-file`, as on Docker, if Podman honours both `max-size` and `max-file`. Otherwise use `journald` in the Podman overlay. Phase 2 decides with a test: fill a container's log past 30 MiB and check the files on disk |
+| D8 | Developer recipes (`just check`, lint, web build) on Podman? | Docker-only. The owner keeps developing on Docker |
+| D9 | A script to move a running node from Docker to Podman? | No script. The backup-and-restore path (section 5.8) is documented in Phase 5 |
+| D10 | Run the new sensor isolation checks and the bridge table on Docker nodes too? | The checks run on Docker nodes too: they also test Docker's guarantees. The bridge table stays optional on Docker, where `enable_icc=false` already covers it |
