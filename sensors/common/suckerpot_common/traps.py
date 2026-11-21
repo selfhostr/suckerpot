@@ -358,6 +358,7 @@ class LoadResult:
     packs: list[Pack] = field(default_factory=list)
     rejected: list[tuple[str, str]] = field(default_factory=list)  # (pack id, reason)
     seq: int = 0
+    disabled: list[str] = field(default_factory=list)  # valid packs turned off by a kill list
 
 
 # -- helpers ---------------------------------------------------------------------------------
@@ -1077,10 +1078,14 @@ def parse_bundle(data: bytes) -> dict[str, Any]:
         doc = json.loads(data)
     except ValueError, RecursionError:
         raise _fail("schema", "bundle is not JSON") from None
-    d = _dict(doc, "bundle", {"schema", "seq", "packs"}, {"disabled", "issued_at"})
+    d = _dict(
+        doc, "bundle", {"schema", "seq", "packs"}, {"disabled", "issued_at", "bundled_seq_min"}
+    )
     if d["schema"] != BUNDLE_SCHEMA:
         raise _fail("schema", f"bundle schema must be {BUNDLE_SCHEMA}")
     _int(d["seq"], "seq", 0, 2**53)
+    if "bundled_seq_min" in d:
+        _int(d["bundled_seq_min"], "bundled_seq_min", 0, 2**53)
     _list(d["packs"], "packs", 0, MAX_BUNDLE_ENTRIES)
     for i, item in enumerate(_list(d.get("disabled", []), "disabled", 0, MAX_BUNDLE_ENTRIES)):
         dd = _dict(item, f"disabled[{i}]", {"id", "reason"}, set())
@@ -1181,25 +1186,52 @@ def load_bundle(
 ) -> LoadResult:
     """Validate a bundle and pick the packs to load. A bad pack is rejected alone (its id and
     reason are in ``rejected``); a bad file raises PackError and nothing from it loads."""
-    doc = parse_bundle(data)
-    result = LoadResult(seq=int(doc["seq"]))
-    off = set(disabled) | {str(x["id"]) for x in doc.get("disabled", [])}
+    return load_docs(
+        [parse_bundle(data)],
+        sensor=sensor,
+        today=today,
+        engine=engine,
+        reserved_flags=reserved_flags,
+        disabled=disabled,
+    )
+
+
+def load_docs(
+    docs: list[dict[str, Any]],
+    *,
+    sensor: str = "web",
+    today: date,
+    engine: int = ENGINE,
+    reserved_flags: frozenset[str] = WEB_BUILTIN_FLAGS,
+    disabled: frozenset[str] = frozenset(),
+) -> LoadResult:
+    """Pick the packs to load from several bundles already checked by ``parse_bundle`` (the
+    image's bundled packs and the downloaded, verified bundle). Per pack id the higher
+    ``version`` wins, whichever bundle holds it. The ``disabled`` lists of every bundle and the
+    local ``disabled`` set apply to all packs, bundled ones included. ``seq`` is the highest."""
+    result = LoadResult(seq=max((int(d["seq"]) for d in docs), default=0))
+    off = set(disabled)
+    for doc in docs:
+        off |= {str(x["id"]) for x in doc.get("disabled", [])}
     best: dict[str, Pack] = {}
-    for raw in doc["packs"]:
-        pid = safe_id(raw)
-        if isinstance(raw, dict) and raw.get("sensor") not in (None, sensor):
-            continue  # a pack for another sensor
-        try:
-            if len(canonical(raw)) > MAX_PACK_BYTES:
-                raise _fail("limits", "pack too large")
-            pack = validate_pack(raw, engine=engine, reserved_flags=reserved_flags)
-        except PackError as err:
-            result.rejected.append((pid, err.reason))
-            continue
-        if pack.id in off:
-            continue
-        if pack.id not in best or pack.version > best[pack.id].version:
-            best[pack.id] = pack
+    for doc in docs:
+        for raw in doc["packs"]:
+            pid = safe_id(raw)
+            if isinstance(raw, dict) and raw.get("sensor") not in (None, sensor):
+                continue  # a pack for another sensor
+            try:
+                if len(canonical(raw)) > MAX_PACK_BYTES:
+                    raise _fail("limits", "pack too large")
+                pack = validate_pack(raw, engine=engine, reserved_flags=reserved_flags)
+            except PackError as err:
+                result.rejected.append((pid, err.reason))
+                continue
+            if pack.id in off:
+                if pack.id not in result.disabled:
+                    result.disabled.append(pack.id)
+                continue
+            if pack.id not in best or pack.version > best[pack.id].version:
+                best[pack.id] = pack
     kept, dropped = select(list(best.values()), today)
     result.packs = kept
     result.rejected += dropped
@@ -1222,11 +1254,23 @@ def find_conflicts(packs: list[Pack]) -> list[str]:
     return out
 
 
-def build_bundle(packs: list[dict[str, Any]], seq: int = 0) -> bytes:
-    """The bundle file for already validated packs: sorted by id, readable, deterministic."""
-    doc = {
+def build_bundle(
+    packs: list[dict[str, Any]],
+    seq: int = 0,
+    *,
+    disabled: list[dict[str, str]] | None = None,
+    issued_at: str | None = None,
+) -> bytes:
+    """The bundle file for already validated packs: sorted by id, readable, deterministic.
+    ``disabled`` and ``issued_at`` are written only when given (the distributed bundle)."""
+    doc: dict[str, Any] = {
         "schema": BUNDLE_SCHEMA,
         "seq": seq,
         "packs": sorted(packs, key=lambda p: str(p.get("id"))),
     }
+    if disabled is not None:
+        doc["disabled"] = sorted(disabled, key=lambda d: d["id"])
+    if issued_at is not None:
+        doc["issued_at"] = issued_at
+    parse_bundle(json.dumps(doc).encode())  # the result must load
     return (json.dumps(doc, sort_keys=True, indent=1, ensure_ascii=True) + "\n").encode()

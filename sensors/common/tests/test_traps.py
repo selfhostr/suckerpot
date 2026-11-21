@@ -864,3 +864,75 @@ def test_percent_escapes_are_refused_in_paths(op: str, value: str) -> None:
 def test_newline_anchor_only_in_headers() -> None:
     assert reason(_claim_needle("query", "\n&cmd=x")) == "schema"
     traps.validate_pack(_claim_needle("headers", "\nx-forwarded-host: evil.example"))
+
+
+# -- several bundles (M37 P2: bundled packs plus the downloaded bundle) --------------------------
+
+
+def _doc(packs: list[dict[str, Any]], seq: int, **extra: Any) -> dict[str, Any]:
+    return traps.parse_bundle(
+        json.dumps({"schema": "suckerpot-traps/1", "seq": seq, "packs": packs, **extra}).encode()
+    )
+
+
+def test_downloaded_kill_list_turns_off_a_bundled_pack() -> None:
+    bundled = _doc([pack("core-pack"), pack("kept-pack")], 0)
+    downloaded = _doc(
+        [pack("new-pack")], 9, disabled=[{"id": "core-pack", "reason": "flags benign traffic"}]
+    )
+    res = traps.load_docs([bundled, downloaded], today=TODAY)
+    assert [p.id for p in res.packs] == ["kept-pack", "new-pack"]
+    assert res.disabled == ["core-pack"] and res.seq == 9
+
+
+def test_local_disabled_set_applies_to_every_bundle() -> None:
+    res = traps.load_docs(
+        [_doc([pack("core-pack")], 0), _doc([pack("new-pack")], 4)],
+        today=TODAY,
+        disabled=frozenset({"core-pack", "new-pack"}),
+    )
+    assert res.packs == [] and sorted(res.disabled) == ["core-pack", "new-pack"]
+
+
+def test_higher_version_wins_across_bundles() -> None:
+    v3 = pack("same-pack")
+    v3["version"], v3["title"] = 3, "downloaded"
+    v5 = pack("same-pack")
+    v5["version"], v5["title"] = 5, "bundled"
+    res = traps.load_docs([_doc([v5], 0), _doc([v3], 7)], today=TODAY)
+    assert [(p.id, p.title) for p in res.packs] == [("same-pack", "bundled")]
+    res = traps.load_docs([_doc([v3], 0), _doc([v5], 7)], today=TODAY)
+    assert [(p.id, p.title) for p in res.packs] == [("same-pack", "bundled")]
+
+
+def test_bad_pack_in_a_downloaded_bundle_does_not_stop_the_others() -> None:
+    bad = pack("bad-pack")
+    bad["traps"][0]["outcome"]["flags"] = ["rce"]
+    res = traps.load_docs(
+        [_doc([pack("core-pack")], 0), _doc([bad, pack("good-pack")], 2)], today=TODAY
+    )
+    assert [p.id for p in res.packs] == ["core-pack", "good-pack"]
+    assert res.rejected == [("bad-pack", "schema")]
+
+
+def test_distributed_bundle_fields() -> None:
+    data = traps.build_bundle(
+        [pack("a-pack")],
+        seq=1_790_000_000,
+        disabled=[{"id": "z-pack", "reason": "r"}, {"id": "b-pack", "reason": "r"}],
+        issued_at="2026-11-21T10:00:00Z",
+    )
+    doc = traps.parse_bundle(data)
+    assert [d["id"] for d in doc["disabled"]] == ["b-pack", "z-pack"]
+    assert doc["issued_at"] == "2026-11-21T10:00:00Z" and doc["seq"] == 1_790_000_000
+    traps.parse_bundle(
+        json.dumps(
+            {"schema": "suckerpot-traps/1", "seq": 1, "packs": [], "bundled_seq_min": 0}
+        ).encode()
+    )
+    with pytest.raises(PackError):
+        traps.parse_bundle(
+            json.dumps(
+                {"schema": "suckerpot-traps/1", "seq": 1, "packs": [], "bundled_seq_min": "1"}
+            ).encode()
+        )
