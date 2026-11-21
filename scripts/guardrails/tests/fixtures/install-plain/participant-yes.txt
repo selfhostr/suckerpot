@@ -21,7 +21,7 @@ The hub is reached through a Cloudflare tunnel, so Cloudflare and the hub both s
 address the request comes from.
 Without a VPN that address is this machine's own public address, so it is not hidden.
 Add a VPN at any time: ./scripts/participant.sh vpn <file.conf>
-Updates: signed releases install themselves once a day (turn off: --no-auto-update). The
+Updates: checked every 6 h, a signed release installs once 48 h old (off: --no-auto-update). The
 update checks contact GitHub, ghcr.io and Sigstore from this machine's own address, even
 with a VPN. Without a VPN, the hub name is also looked up through your normal DNS resolver.
 Leave at any time: ./scripts/participant.sh leave
@@ -109,6 +109,8 @@ Host firewall
   Admin SSH port used: 22 (default). If that is wrong, set ADMIN_SSH_PORT in .env and run again.
   The host firewall needs sudo, which asks for a password here. To install it now, run:
     ./scripts/participant.sh firewall
+
+Waiting for the hub to enrol this node (this can take a few minutes)...
 
 Check it any time:      ./scripts/status.sh
 Automatic updates:      every 6 h from <hh:mm> local time (off: ./scripts/participant.sh auto-update off)
