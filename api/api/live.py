@@ -395,17 +395,33 @@ def rows_to_live(rows: Sequence[Any]) -> list[LiveEvent]:
     return out
 
 
+# Time windows tried in turn by ``fetch_recent``. ``events`` is a hypertable on ``ts`` with old
+# chunks compressed: ``ORDER BY id`` without a bound on ``ts`` opens, decompresses and sorts every
+# chunk (5 s on a node with 9 million events). A bound lets the planner skip the old chunks; on a
+# busy node the first window always holds enough rows. ``None`` is the unbounded read, for a
+# nearly idle node.
+RECENT_WINDOWS: tuple[timedelta | None, ...] = (timedelta(hours=24), timedelta(days=7), None)
+
+
 async def fetch_recent(
     session: AsyncSession, limit: int = BACKFILL_SIZE, *, include_benign: bool = True
 ) -> list[LiveEvent]:
-    """Newest events first (research-scanner events only when ``include_benign``)."""
-    stmt = (
-        select(*_LIVE_COLUMNS)
-        .where(*visible_events(include_benign))
-        .order_by(EventRow.id.desc())
-        .limit(limit)
-    )
-    return rows_to_live((await session.execute(stmt)).all())
+    """Newest events first (research-scanner events only when ``include_benign``).
+
+    Highest ``id`` first, as before. The read starts with the last 24 hours and widens until it
+    has ``limit`` rows. The only difference from an unbounded read: an event stored more than
+    24 hours after its own timestamp (a sensor backlog) is not shown while 24 hours of newer
+    events fill the page.
+    """
+    rows: Sequence[Any] = []
+    for window in RECENT_WINDOWS:
+        stmt = select(*_LIVE_COLUMNS).where(*visible_events(include_benign))
+        if window is not None:
+            stmt = stmt.where(EventRow.ts >= datetime.now(UTC) - window)
+        rows = (await session.execute(stmt.order_by(EventRow.id.desc()).limit(limit))).all()
+        if len(rows) >= limit:
+            break
+    return rows_to_live(rows)
 
 
 async def fetch_after(session: AsyncSession, last_id: int, limit: int = POLL_LIMIT) -> list[Any]:

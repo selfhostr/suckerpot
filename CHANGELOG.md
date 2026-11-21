@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runs in its own transaction, and a failure logs the step and the database error (for example
   `step ip-demo: QueryCanceledError: canceling statement due to statement timeout`) instead of
   only `DBAPIError`. The statement and its values are never logged.
+- The live feed backfill and `/api/v1/events/recent` no longer time out on a large database. The
+  query asked for the newest event ids with no time bound, so it decompressed and sorted every
+  compressed `events` chunk (5 s on a node with 9 million events). It now reads the last 24 hours
+  first and widens to 7 days, then to everything, only when the page is not full (0.2 ms on the
+  same node). The rows and their order stay the same, except that an event stored more than
+  24 hours after its own timestamp is not shown while newer events fill the page.
 
 ## [0.12.0] - 2026-11-21
 
