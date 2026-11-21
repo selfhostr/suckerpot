@@ -481,8 +481,13 @@ def test_a_log_that_cannot_be_written_still_shows_the_failure(sandbox: Sandbox) 
     rc, raw = run_pty(sandbox, *FULL)
     assert rc != 0, raw
     s = screen(raw, 100)
+    text = s.text()
     assert s.cursor_visible
-    assert "Stopped by an unexpected error" in s.text()
+    assert "! cannot write install.log: Is a directory; output is not logged" in text
+    assert "Stopped by an unexpected error" in text
+    assert "The last lines of the log" not in text  # no promise of lines it cannot show
+    assert "No log lines are available" in text
+    assert "Log   not written" in text
 
 
 def test_ctrl_c_stops_a_shell_function_at_once(sandbox: Sandbox) -> None:

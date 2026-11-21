@@ -95,7 +95,12 @@ ui_init() {
     trap 'ui_exit $?' EXIT
     # From here, anything the script prints by itself lands in the log, never in the display. A
     # log that cannot be opened (a full disk, a read-only file) must not stop the display here.
-    { : >> "$UI_SINK"; } 2> /dev/null || UI_SINK=/dev/null
+    local why
+    if [ "$UI_SINK" != /dev/null ] && ! why=$({ : >> "$UI_SINK"; } 2>&1); then
+      UI_SINK=/dev/null
+      UI_LOG_BROKEN=1
+      printf '  ! cannot write %s: %s; output is not logged\n' "$UI_LOG" "${why##*: }" 1>&"$UI_OUT" 2> /dev/null || true
+    fi
     exec >> "$UI_SINK" 2>&1
     _ui_colors
     _ui_size
@@ -583,9 +588,8 @@ _ui_fail_screen() {
     UI_NLINES=0
     UI_ENDED=1
   fi
-  if [ -n "$UI_LOG" ] && [ -f "$UI_LOG" ]; then
-    lines=$(tail -c +"$((UI_LOG_OFF + 1))" "$UI_LOG" 2> /dev/null | grep -v '^[[:space:]]*$' | tail -n 15 || true)
-  fi
+  _ui_log_tail
+  lines=$UI_TAIL
   {
     printf '\033[?25h\n  %s%s %s%s\n' "$UI_BAD" "$UI_G_BAD" "$msg" "$UI_R"
     if [ -n "$lines" ]; then
@@ -596,8 +600,21 @@ _ui_fail_screen() {
     fi
     printf '\n'
     [ -z "$fix" ] || printf '  %sFix%s   %s%s%s\n' "$UI_B" "$UI_R" "$UI_PR" "$fix" "$UI_R"
-    [ -z "$UI_LOG" ] || printf '  %sLog%s   %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$UI_LOG")"
+    if [ "${UI_LOG_BROKEN:-0}" = 1 ]; then
+      printf '  %sLog%s   not written (%s could not be opened)\n' "$UI_B" "$UI_R" "$(_ui_abs "$UI_LOG")"
+    elif [ -n "$UI_LOG" ]; then
+      printf '  %sLog%s   %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$UI_LOG")"
+    fi
   } 1>&"$UI_OUT" 2> /dev/null || true
+}
+
+# _ui_log_tail: UI_TAIL = the last 15 non-empty lines this run wrote to the log ("" when the log
+# could not be written).
+_ui_log_tail() {
+  UI_TAIL=""
+  [ "${UI_LOG_BROKEN:-0}" = 0 ] && [ -n "$UI_LOG" ] && [ -f "$UI_LOG" ] || return 0
+  UI_TAIL=$(tail -c +"$((UI_LOG_OFF + 1))" "$UI_LOG" 2> /dev/null | grep -v '^[[:space:]]*$' | tail -n 15 || true)
+  return 0
 }
 
 _ui_fail_log() {
@@ -691,7 +708,12 @@ ui_exit() {
   local rc=${1:-0}
   [ "$UI_MODE" = rich ] || return 0
   if [ "$rc" != 0 ] && [ "$UI_ENDED" = 0 ]; then
-    _ui_fail_screen "Stopped by an unexpected error (exit $rc). The last lines of the log show the cause." "" "stopped"
+    _ui_log_tail
+    if [ -n "$UI_TAIL" ]; then
+      _ui_fail_screen "Stopped by an unexpected error (exit $rc). The last lines of the log show the cause." "" "stopped"
+    else
+      _ui_fail_screen "Stopped by an unexpected error (exit $rc). No log lines are available for it." "" "stopped"
+    fi
   fi
   _ui_stop_spinner
   [ -z "$UI_STATE_FILE" ] || rm -f "$UI_STATE_FILE"
