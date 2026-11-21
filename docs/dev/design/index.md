@@ -19,6 +19,7 @@ These are the design documents written before the larger milestones were built. 
 | [M34](m34.md) | Public network observatory |
 | [M36](m36.md) | Useful from the first node |
 | [M37](m37.md) | Trap packs for new CVEs |
+| [Podman](podman.md) | Podman as a second container engine (proposal) |
 
 ```{toctree}
 :maxdepth: 1
@@ -39,4 +40,5 @@ m33
 m34
 m36
 m37
+podman
 ```
