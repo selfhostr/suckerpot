@@ -1,0 +1,16 @@
+--- stdout
+[1/10] Checking this machine
+      dry run: Docker, memory, disk and volume checks skipped
+[2/10] Settings
+      the SuckerPot network is off: --yes does not join it (add --join-network to join)
+[3/10] Checking ports
+      dry run: port check skipped
+[4/10] Generating secrets
+      24 secrets generated (written to .env only)
+[5/10] Hashing the admin password
+      dry run: placeholder hash
+[6/10] Writing <root>/out.env
+      wrote <root>/out.env (mode 0600)
+
+Dry run finished: <root>/out.env holds the would-be configuration. No Docker call was made.
+--- stderr

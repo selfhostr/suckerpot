@@ -99,7 +99,7 @@ Each question has a default. Press Enter to accept it. With `--yes`, every quest
 
 ## What the installer does
 
-The installer prints one line per step, `[n/10]`. It stops at the first failure and says why.
+On a terminal, the installer shows a short list of steps with one progress bar, and the full output of every command goes to `install.log`. If a step fails, it shows that step, the last lines of the log and the log path. Without a terminal (CI, a redirected output, `TERM=dumb`) or with `--plain`, it prints one line per step, `[n/10]`, and the output of each command, as before. Either way it stops at the first failure and says why.
 
 1. **Check this machine.** Linux, CPU, Docker, Compose, memory, disk, existing install, existing data.
 2. **Settings.** Asks the questions above.
@@ -112,7 +112,7 @@ The installer prints one line per step, `[n/10]`. It stops at the first failure 
 9. **Start the stack.** Images are verified, pulled and started (or built, in source mode). The installer waits until every service is healthy.
 10. **Done.** Prints the dashboard address and the next steps.
 
-A log without any secret goes to `install.log` in the checkout. The file is ignored by git.
+`install.log` in the checkout gets the steps and the full output of every command, and never a secret. It has mode `0600` and is ignored by git. `NO_COLOR` keeps the progress display without colours.
 
 ## Flags
 
@@ -137,6 +137,7 @@ A log without any secret goes to `install.log` in the checkout. The file is igno
 | `--wg-conf PATH` | WireGuard `.conf` file from your VPN provider. It is read as plain text and never run. |
 | `--skip-verify` | Do not check the image signatures. Not recommended. See [updates](updates.md#image-signatures). |
 | `--dry-run --env-out PATH` | Write the `.env` that would be made to `PATH`, with a placeholder hash. Makes no Docker call. Used to test the installer. |
+| `--plain` | Plain line-by-line output, as without a terminal: no progress display, no colours, no cursor movement. |
 | `-h`, `--help` | Print the usage. |
 
 ## What the installer refuses

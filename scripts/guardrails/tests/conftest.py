@@ -35,6 +35,7 @@ COPIED = [
     "scripts/lib/env.sh",
     "scripts/lib/engine.sh",
     "scripts/lib/fwcheck.sh",
+    "scripts/lib/ui.sh",
     "scripts/lib/pseudonym.sh",
     "scripts/lib/ports-check.sh",
     "scripts/lib/ports_check_filter.py",
@@ -167,6 +168,10 @@ exit 0
 
 SLEEP_SHIM = "#!/bin/sh\nexit 0\n"
 
+# The admin SSH port probe (lib/firewall.sh fw_admin_port) must never see the host running the tests:
+# no ssh.socket, no sshd. Tests that need one write their own shim over these.
+HOST_FREE_SHIM = "#!/bin/sh\nexit 1\n"
+
 
 @dataclass
 class Sandbox:
@@ -249,10 +254,13 @@ def sandbox(tmp_path: Path) -> Sandbox:
         "curl": CURL_SHIM,
         "ss": SS_SHIM,
         "sleep": SLEEP_SHIM,
+        "systemctl": HOST_FREE_SHIM,
+        "sshd": HOST_FREE_SHIM,
     }.items():
         _write_exec(shim / name, text)
     meminfo = shim / "meminfo"
     meminfo.write_text("MemTotal:        8000000 kB\n")
+    (shim / "etc-ssh").mkdir()
     env = {
         "PATH": f"{shim}:/usr/bin:/bin",
         "HOME": str(tmp_path),
@@ -263,6 +271,7 @@ def sandbox(tmp_path: Path) -> Sandbox:
         "SELFHOSTR_MEMINFO": str(meminfo),
         "SELFHOSTR_FREE_DISK_KB": str(100 * 1024 * 1024),
         "DOCKER_HOST": "unix:///nonexistent/selfhostr-test.sock",
+        "SELFHOSTR_SSH_DIR": str(shim / "etc-ssh"),
     }
     return Sandbox(root=root, shim=shim, env=env)
 

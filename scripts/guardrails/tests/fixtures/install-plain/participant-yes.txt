@@ -1,0 +1,135 @@
+--- stdout
+[1/10] Checking this machine
+[2/10] Settings
+
+SuckerPot participant mode (experimental preview)
+
+This machine will run honeypot sensors and send what they see to a hub run by the
+SuckerPot maintainers. What is sent, once a day and a few hours late:
+  - source addresses seen by your sensors, with the services they used, what they did and
+    rounded counts;
+  - download links attackers tried, as hashes; the clear link goes to the hub only when two or
+    more sensors saw the same link, so a verifier can check it;
+  - malware hashes and command-and-control addresses (only with a VPN and the collector);
+  - takedown checks for addresses the network reported.
+Never sent: passwords, commands, your ports, your own address or names in any payload.
+
+What you get back today: nothing yet. The shared feed is an experimental preview and stays
+empty until enough independent nodes exist. Its thresholds and protocol may change.
+
+The hub is reached through a Cloudflare tunnel, so Cloudflare and the hub both see the
+address the request comes from.
+Without a VPN that address is this machine's own public address, so it is not hidden.
+Add a VPN at any time: ./scripts/participant.sh vpn <file.conf>
+Updates: signed releases install themselves once a day (turn off: --no-auto-update). The
+update checks contact GitHub, ghcr.io and Sigstore from this machine's own address, even
+with a VPN. Without a VPN, the hub name is also looked up through your normal DNS resolver.
+Leave at any time: ./scripts/participant.sh leave
+
+Pseudonym: <pseudonym>   (change: --pseudonym NAME, none: --no-pseudonym)
+
+--yes was given: this counts as your agreement to join as described above.
+
+[3/10] Checking ports
+[4/10] Generating secrets
+      24 secrets generated (written to .env only)
+[5/10] Checking the images (no admin account in participant mode)
+verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
+  ok      ingest (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+verify-images: all 1 images carry a valid signature
+verify-images: pulled by verified digest and tagged v0.8.0
+[6/10] Writing .env
+      wrote .env (mode 0600)
+[7/10] Creating the data volumes
+ensure-volumes: created suckerpot_redis-data
+ensure-volumes: created suckerpot_db-data
+ensure-volumes: created suckerpot_ssh-hostkeys
+ensure-volumes: created suckerpot_rdp-data
+ensure-volumes: created suckerpot_telnet-data
+ensure-volumes: created suckerpot_web-data
+ensure-volumes: created suckerpot_redis-sensor-data
+ensure-volumes: created suckerpot_docker-sensor-data
+ensure-volumes: created suckerpot_mysql-sensor-data
+ensure-volumes: created suckerpot_mssql-sensor-data
+ensure-volumes: created suckerpot_adb-sensor-data
+ensure-volumes: created suckerpot_smb-sensor-data
+ensure-volumes: created suckerpot_sip-sensor-data
+ensure-volumes: created suckerpot_synology-sensor-data
+ensure-volumes: created suckerpot_geoip-data
+ensure-volumes: created suckerpot_quarantine
+ensure-volumes: created suckerpot_vpn-config
+0
+ensure-volumes: created suckerpot_backups
+0
+ensure-volumes: created suckerpot_trap-packs
+0
+[8/10] Checking the port layout and VPN settings
+check-ports: ok
+[9/10] Starting SuckerPot (this can take several minutes)
+verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
+  ok      redis (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      migrate (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      ingest (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      api (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      collector (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      hubproxy (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      demo (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-ssh (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-rdp (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-telnet (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-web (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-redis (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-docker (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-mysql (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-mssql (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-adb (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-smb (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-sip (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-synology (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+verify-images: all 19 images carry a valid signature
+verify-images: pulled by verified digest and tagged v0.8.0
+[10/10] Done
+
+SuckerPot is running in participant mode (v0.8.0).
+  Pseudonym: <pseudonym>   Hub: suckerpot-hub.selfhostr.io   Path: direct (no VPN)
+
+Open these ports on your router or firewall, all to this machine:
+  Router port   ->  This machine  Protocol   Sensor
+  22            ->  22            TCP        ssh
+  80            ->  80            TCP        web
+  443           ->  443           TCP        web
+Never forward the admin SSH port of this machine.
+Use port forwards, not your router's DMZ. A DMZ puts every service of this machine on the
+internet, the real sshd included. It is acceptable only if this machine runs nothing else
+and its admin SSH port is not 22. The host firewall does not filter internet traffic to this
+machine's own services: under a DMZ the admin SSH faces the internet, so allow key-only SSH
+and add a rule on the router or on this machine for the admin port.
+
+Host firewall
+  Admin SSH port used: 22 (default). If that is wrong, set ADMIN_SSH_PORT in .env and run again.
+  The host firewall needs sudo, which asks for a password here. To install it now, run:
+    ./scripts/participant.sh firewall
+
+Check it any time:      ./scripts/status.sh
+Automatic updates:      every 6 h from <hh:mm> local time (off: ./scripts/participant.sh auto-update off)
+The network counts your sensor after a short probation period set by the hub. The date shows in ./scripts/status.sh.
+Take a snapshot of this machine now if you can.
+
+Checking whether the internet reaches your sensors...
+These sensor ports are not listening on this machine (is the stack running? ./scripts/status.sh):
+  port 22 (ssh)
+  port 443 (web)
+  port 80 (web)
+
+Looking for connections from the internet since <time> (no connection is made from here).
+  Router port   This machine  Protocol   Sensor     Status
+  22            22            TCP        ssh        no traffic yet
+  80            80            TCP        web        no traffic yet
+  443           443           TCP        web        no traffic yet
+
+WARNING: No connection from the internet has reached your sensors yet.
+Your router probably does not forward the ports yet (or you set up a DMZ that is not active).
+Forward the ports of the table above to this machine, then check again: ./scripts/participant.sh ports-check
+Check again any time: ./scripts/participant.sh ports-check
+--- stderr
+      warning: Docker Engine 27.0.1 is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended.
