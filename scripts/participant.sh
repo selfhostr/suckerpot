@@ -42,9 +42,9 @@ need_participant() {
 # docker compose up with the flags that match the install mode (signed images are never built over).
 compose_up() {
   if [ "$install_mode" = images ]; then
-    dc up -d --no-build --pull never --wait --wait-timeout 300 "$@"
+    engine_stack_up -d --no-build --pull never --wait --wait-timeout 300 "$@"
   else
-    dc up -d --build --wait --wait-timeout 600 "$@"
+    engine_stack_up -d --build --wait --wait-timeout 600 "$@"
   fi
 }
 
@@ -276,20 +276,34 @@ case $cmd in
     case $sub in
       install)
         tty=${SELFHOSTR_TTY:-/dev/tty}
+        fw_rc=0
         if [ -r "$tty" ]; then
           exec 4< "$tty"
-          fw_step "$fw_mode" 4
+          fw_step "$fw_mode" 4 || fw_rc=$?
         else
-          fw_step "$fw_mode"
+          fw_step "$fw_mode" || fw_rc=$?
+        fi
+        # Podman: the firewall is required (fw_step returns 1 without it), and the boot unit
+        # that binds the stack to it comes right after. Docker: fw_step never fails.
+        [ "$fw_rc" = 0 ] || die "the host firewall is required on Podman and was not installed"
+        if [ "$ENGINE_ID" = podman ]; then
+          if fw_opted_out; then
+            engine_install_boot_unit --no-firewall || die "the boot unit could not be installed"
+          else
+            engine_install_boot_unit || die "the boot unit could not be installed"
+          fi
         fi
         ;;
       uninstall) bash scripts/host/install-firewall.sh --uninstall ;;
       status)
-        if command -v nft > /dev/null 2>&1 && nft list table inet suckerpot_host > /dev/null 2>&1; then
-          echo "participant: the host firewall table is loaded."
-        else
-          echo "participant: the host firewall table is not loaded (or reading it needs root: sudo nft list table inet suckerpot_host)."
-        fi
+        # shellcheck source=scripts/lib/fwcheck.sh
+        . scripts/lib/fwcheck.sh
+        case $(fw_state) in
+          loaded) echo "participant: the host firewall is active and its tables are loaded." ;;
+          unknown) echo "participant: the host firewall unit is active; reading its tables needs root (sudo ./scripts/participant.sh firewall status)." ;;
+          missing:*) echo "participant: the host firewall unit is active but its tables are gone: sudo systemctl reload suckerpot-firewall.service" ;;
+          *) echo "participant: the host firewall is not active." ;;
+        esac
         ;;
       *) die "usage: firewall [install|uninstall|status]" ;;
     esac
@@ -352,6 +366,10 @@ case $cmd in
     # shellcheck source=scripts/lib/schedule.sh
     . scripts/lib/schedule.sh
     schedule_remove || echo "participant: warning: could not remove the update schedule" >&2
+    # Podman: the boot unit goes first, so the stack does not come back at the next boot.
+    if [ "$ENGINE_ID" = podman ] && engine_stack_unit_installed; then
+      engine_remove_boot_unit || echo "participant: warning: could not remove suckerpot-stack.service (sudo scripts/host/install-stack-unit.sh --uninstall)" >&2
+    fi
     dc down
     prefix=$(env_get SUCKERPOT_VOLUME_PREFIX)
     echo "participant: stopped. The sensors and the node are down; the schedule is removed."

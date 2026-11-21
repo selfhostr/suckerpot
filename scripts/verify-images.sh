@@ -114,7 +114,7 @@ mismatch=0
 for image in $IMAGES; do
   ref="$prefix-$image:$version"
   if ctr run --rm --network host --user 65532:65532 --read-only --cap-drop ALL \
-      --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=32m,uid=65532,gid=65532 \
+      --security-opt no-new-privileges:true --tmpfs "/tmp:rw,noexec,nosuid,size=32m$(engine_tmpfs_owner 65532 65532)" \
       -e HOME=/tmp -e TUF_ROOT=/tmp/tuf ${auth[@]+"${auth[@]}"} \
       -e DOCKER_CONFIG=/home/nonroot/.docker \
       "$COSIGN_IMAGE" verify \

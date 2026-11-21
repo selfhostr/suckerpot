@@ -59,12 +59,12 @@ up *flags: _need-project ports
     if [ "${SUCKERPOT_INSTALL_MODE:-source}" = images ]; then
       # Release images are pulled and verified by the installer and the updater: never build over them.
       # An image that is not local was never verified: --pull never fails instead of fetching it.
-      dc up -d --no-build --pull never --wait || {
+      engine_stack_up -d --no-build --pull never --wait || {
         echo "an image is missing locally; run: just update (it verifies and pulls the release images)" >&2
         exit 1
       }
     else
-      dc up -d --build --wait
+      engine_stack_up -d --build --wait
     fi
 
 # Start the stack for tests: dashboard authentication OFF (docker-compose.ci.yml).

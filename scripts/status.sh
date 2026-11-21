@@ -111,6 +111,20 @@ else
   firewall=missing
 fi
 
+# Podman: the engine version and the boot unit (scripts/host/install-stack-unit.sh).
+engine=docker
+stack_unit=""
+if [ "$ENGINE_ID" = podman ]; then
+  engine="podman $(ctr version --format '{{.Server.Version}}' 2> /dev/null || echo '?')"
+  if ! engine_stack_unit_installed; then
+    stack_unit=missing
+  elif systemctl is-active --quiet suckerpot-stack.service 2> /dev/null; then
+    stack_unit=active
+  else
+    stack_unit=inactive
+  fi
+fi
+
 # The newest release of the same major version that this checkout knows (local tags only, no
 # network; the automatic updater fetches them), and how old it is. Tags marked bad are skipped.
 latest=""
@@ -134,10 +148,10 @@ while read -r rp hp proto sname; do
   ports_json+="${ports_json:+,}[$(json_str "$rp"),$(json_str "$hp"),$(json_str "$proto"),$(json_str "$sname")]"
 done < <(ports_table)
 
-doc=$(printf '{"stack":%s,"install":%s,"version":%s,"ps":[%s],"ports":[%s],"auto_enabled":%s,"auto_schedule":%s,"auto_state_raw":%s,"cli_raw":%s,"cli_error":%s,"firewall":%s,"latest":%s,"latest_age_h":%s}' \
+doc=$(printf '{"stack":%s,"install":%s,"version":%s,"ps":[%s],"ports":[%s],"auto_enabled":%s,"auto_schedule":%s,"auto_state_raw":%s,"cli_raw":%s,"cli_error":%s,"firewall":%s,"latest":%s,"latest_age_h":%s,"engine":%s,"stack_unit":%s}' \
   "$(json_str "$stack")" "$(json_str "$install")" "$(json_str "$version")" "$ps_json" "$ports_json" \
   "$auto_enabled" "$(json_str "$auto_schedule")" "$(json_str "$auto_state")" "$(json_str "$cli_raw")" "$(json_str "$cli_error")" \
-  "$(json_str "$firewall")" "$(json_str "$latest")" "$latest_age_h")
+  "$(json_str "$firewall")" "$(json_str "$latest")" "$latest_age_h" "$(json_str "$engine")" "$(json_str "$stack_unit")")
 
 src=$(cat scripts/lib/status_render.py)
 rc=0

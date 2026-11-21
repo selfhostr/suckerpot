@@ -114,7 +114,7 @@ ctr image inspect "$COSIGN_IMAGE" > /dev/null 2>&1 \
   || die "could not get the signature verifier image (is Docker running? is the registry reachable?)" 9
 cosign_rc=0
 ctr run --rm --network host --user 65532:65532 --read-only --cap-drop ALL \
-  --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=32m,uid=65532,gid=65532 \
+  --security-opt no-new-privileges:true --tmpfs "/tmp:rw,noexec,nosuid,size=32m$(engine_tmpfs_owner 65532 65532)" \
   -e HOME=/tmp -e TUF_ROOT=/tmp/tuf -v "$work:/m:ro" \
   "$COSIGN_IMAGE" verify-blob \
   --bundle "/m/$BUNDLE_NAME" \

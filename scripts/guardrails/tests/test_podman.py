@@ -808,7 +808,7 @@ def test_stack_unit_uninstall(shims: Path, fsroot: Path) -> None:
     unit.write_text("x")
     assert _stack(shims, fsroot, "--uninstall").returncode == 0
     assert not unit.exists()
-    assert "systemctl disable suckerpot-stack.service" in _calls(shims)
+    assert "systemctl disable --now suckerpot-stack.service" in _calls(shims)
 
 
 # --- Library hooks for the installer (Podman phase 3): engine.sh, firewall.sh, env.sh ---------
@@ -953,6 +953,8 @@ def test_compose_up_recreating_on_podman_recreates_networks_once(libbox: Path) -
     assert calls == [
         "ensure-networks ",
         "docker-compose down --remove-orphans",
+        "ensure-networks ",
+        # engine_stack_up checks again (idempotent) right before the start.
         "ensure-networks ",
         "docker-compose up -d --wait",
     ]

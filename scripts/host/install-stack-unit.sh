@@ -65,7 +65,7 @@ fi
 command -v systemctl > /dev/null 2>&1 || fail 3 "systemctl not found: Podman nodes need systemd"
 
 if [ "$1" = --uninstall ]; then
-  systemctl disable "$unit" > /dev/null 2>&1 || true
+  systemctl disable --now "$unit" > /dev/null 2>&1 || true
   rm -f "$unit_path" "$restart_dropin"
   systemctl daemon-reload
   echo "install-stack-unit: removed $unit; the stack no longer starts at boot"

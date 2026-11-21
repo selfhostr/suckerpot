@@ -240,7 +240,7 @@ def test_an_unknown_engine_stops_the_script(sandbox: Sandbox) -> None:
     assert _engine_calls(sandbox) == []
 
 
-# ------------------------------------------------------------------ Podman is refused for now
+# ------------------------------------------------------------------ Podman refused without its overlay
 
 
 def _podman_install(sb: Sandbox) -> subprocess.CompletedProcess[str]:
@@ -255,7 +255,8 @@ def _podman_install(sb: Sandbox) -> subprocess.CompletedProcess[str]:
 
 def _assert_refused(sb: Sandbox, proc: subprocess.CompletedProcess[str]) -> None:
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert UNREADY in proc.stderr
+    # Without the Podman overlay in COMPOSE_FILE, before any engine call (phase 3: engine_ready).
+    assert "Podman: COMPOSE_FILE in .env does not list docker-compose.podman.yml" in proc.stderr
     assert _engine_calls(sb) == [], "no engine may be called before the refusal"
 
 
@@ -720,3 +721,210 @@ def test_the_docker_free_path_survives_a_merged_usr(sandbox: Sandbox, tmp_path: 
     assert os.path.islink(tools / "dangling")
     assert not os.path.lexists(tools / "docker")
     assert shutil.which("docker", path=path) is None
+
+
+# ------------------------------------------------------------------ Podman host checks (phase 3)
+
+CAPABLE_PODMAN = r"""#!/bin/sh
+echo "podman $*" >> "$SHIM_LOG"
+case "$*" in
+  *" info --format "*) [ "${SHIM_PODMAN_DOWN:-0}" = 1 ] && exit 125
+    echo "${SHIM_PODMAN_INFO:-5.4.2 netavark v2 false}" ;;
+  *" version --format "*) echo 5.4.2 ;;
+esac
+exit 0
+"""
+CAPABLE_COMPOSE = r"""#!/bin/sh
+echo "docker-compose $* DOCKER_HOST=${DOCKER_HOST:-unset}" >> "$SHIM_LOG"
+[ "$*" = "version --short" ] && echo "${SHIM_COMPOSE_VERSION:-2.26.1-4}"
+exit 0
+"""
+SYSTEMCTL = r"""#!/bin/sh
+echo "systemctl $*" >> "$SHIM_LOG"
+case "$*" in
+  "is-active --quiet docker.service") exit "${SHIM_DOCKER_ACTIVE:-3}" ;;
+  "is-active --quiet suckerpot-stack.service") exit "${SHIM_STACK_ACTIVE:-3}" ;;
+  is-active*) exit 3 ;;
+esac
+exit 0
+"""
+PODMAN_ENV = "SUCKERPOT_ENGINE=podman\nCOMPOSE_FILE=docker-compose.yml:docker-compose.podman.yml\n"
+
+
+def _capable(sb: Sandbox) -> None:
+    for name, text in (
+        ("podman", CAPABLE_PODMAN),
+        ("docker-compose", CAPABLE_COMPOSE),
+        ("systemctl", SYSTEMCTL),
+    ):
+        (sb.shim / name).write_text(text)
+        (sb.shim / name).chmod(0o755)
+    conf = sb.shim.parent / "confroot"
+    (conf / "etc/containers/containers.conf.d").mkdir(parents=True, exist_ok=True)
+    sb.env["SUCKERPOT_CONF_ROOT"] = str(conf)
+    sb.write_env(PODMAN_ENV)
+
+
+READY_PROBE = 'if engine_ready; then echo READY; else echo "NOT READY: $ENGINE_UNREADY_MSG"; fi\n'
+
+
+def test_a_capable_podman_host_is_ready(sandbox: Sandbox) -> None:
+    _capable(sandbox)
+    out = _source_and_run(sandbox, READY_PROBE)
+    assert "READY" in out and "NOT READY" not in out, out
+    calls = _engine_calls(sandbox)
+    assert f"podman --url {SOCK} info --format" in calls[0]
+
+
+@pytest.mark.parametrize(
+    ("env", "conf", "why"),
+    [
+        ({"SHIM_PODMAN_DOWN": "1"}, "", "the root Podman socket"),
+        ({"SHIM_PODMAN_INFO": "4.9.3 netavark v2 false"}, "", "Podman 4.9.3 is too old"),
+        ({"SHIM_PODMAN_INFO": "5.4.2 cni v2 false"}, "", "network backend is cni"),
+        ({"SHIM_PODMAN_INFO": "5.4.2 netavark v1 false"}, "", "cgroup v2 is needed"),
+        ({"SHIM_PODMAN_INFO": "5.4.2 netavark v2 true"}, "", "rootless"),
+        ({"SHIM_COMPOSE_VERSION": "2.24.6"}, "", "docker-compose 2.24.6 is too old"),
+        ({"SHIM_DOCKER_ACTIVE": "0"}, "", "Docker is active on this host too"),
+        ({}, '[network]\nfirewall_driver = "iptables"\n', "iptables firewall driver"),
+    ],
+)
+def test_podman_host_problems_are_refused(
+    sandbox: Sandbox, env: dict[str, str], conf: str, why: str
+) -> None:
+    _capable(sandbox)
+    if conf:
+        path = Path(sandbox.env["SUCKERPOT_CONF_ROOT"]) / "etc/containers/containers.conf.d/x.conf"
+        path.write_text(conf)
+    out = _source_and_run(sandbox, READY_PROBE, extra_env=env)
+    assert "NOT READY: Podman: this host does not meet the requirements" in out
+    assert why in out
+
+
+def test_an_explicit_nftables_driver_is_fine(sandbox: Sandbox) -> None:
+    _capable(sandbox)
+    path = Path(sandbox.env["SUCKERPOT_CONF_ROOT"]) / "etc/containers/containers.conf.d/x.conf"
+    path.write_text('[network]\nfirewall_driver = "nftables"\n')
+    assert "NOT READY" not in _source_and_run(sandbox, READY_PROBE)
+
+
+def test_docker_readiness_makes_no_engine_call(sandbox: Sandbox) -> None:
+    out = _source_and_run(sandbox, READY_PROBE)
+    assert "READY" in out and "NOT READY" not in out
+    assert _engine_calls(sandbox) == []
+
+
+STACK_UP = "rc=0\nengine_stack_up -d --wait || rc=$?\necho rc=$rc\n"
+
+
+def test_stack_up_on_docker_is_plain_compose_up(sandbox: Sandbox) -> None:
+    _source_and_run(sandbox, STACK_UP)
+    assert _engine_calls(sandbox) == ["docker compose up -d --wait"]
+
+
+def test_stack_up_on_podman_starts_the_boot_unit_first(sandbox: Sandbox) -> None:
+    _capable(sandbox)
+    unit_root = sandbox.shim.parent / "unitroot"
+    (unit_root / "etc/systemd/system").mkdir(parents=True)
+    (unit_root / "etc/systemd/system/suckerpot-stack.service").write_text("[Unit]\n")
+    (sandbox.root / "scripts/ensure-networks.sh").write_text(
+        '#!/bin/sh\necho "ensure-networks" >> "$SHIM_LOG"\n'
+    )
+    out = _source_and_run(sandbox, STACK_UP, extra_env={"SUCKERPOT_UNIT_ROOT": str(unit_root)})
+    assert "rc=0" in out
+    calls = [c for c in sandbox.calls() if not c.startswith("systemctl is-active")]
+    assert calls == [
+        "ensure-networks",
+        "systemctl --no-ask-password start suckerpot-stack.service",
+        "docker-compose up -d --wait DOCKER_HOST=unix:///run/podman/podman.sock",
+    ]
+    # Already active: no start, only the compose call (for new images).
+    (sandbox.shim / "calls.log").unlink()
+    _source_and_run(
+        sandbox,
+        STACK_UP,
+        extra_env={"SUCKERPOT_UNIT_ROOT": str(unit_root), "SHIM_STACK_ACTIVE": "0"},
+    )
+    assert not [c for c in sandbox.calls() if " start " in c]
+
+
+def test_stack_up_on_podman_stops_when_the_network_step_refuses(sandbox: Sandbox) -> None:
+    _capable(sandbox)
+    (sandbox.root / "scripts/ensure-networks.sh").write_text("#!/bin/sh\nexit 4\n")
+    out = _source_and_run(sandbox, STACK_UP)
+    assert "rc=4" in out
+    assert not [c for c in sandbox.calls() if c.startswith("docker-compose up")]
+
+
+def test_tmpfs_owner_option_per_engine(sandbox: Sandbox) -> None:
+    probe = "engine_tmpfs_owner 65532 65532\n"
+    assert ",uid=65532,gid=65532" in _source_and_run(sandbox, probe)
+    _capable(sandbox)
+    assert "\n,U\n" in _source_and_run(sandbox, probe)
+
+
+def _podman_participant(sb: Sandbox) -> Path:
+    add_participant_files(sb)
+    _capable(sb)
+    sb.write_env(
+        UPDATE_ENV
+        + PODMAN_ENV
+        + "SUCKERPOT_STACK_MODE=participant\nADMIN_SSH_PORT=2200\nNETWORK_ENABLED=false\n"
+    )
+    (sb.root / "scripts/host/install-stack-unit.sh").write_text(
+        '#!/bin/sh\necho "install-stack-unit $*" >> "$SHIM_LOG"\n'
+    )
+    (sb.root / "scripts/ensure-networks.sh").write_text("#!/bin/sh\nexit 0\n")
+    unit_root = sb.shim.parent / "unitroot"
+    (unit_root / "etc/systemd/system").mkdir(parents=True, exist_ok=True)
+    sb.env["SUCKERPOT_UNIT_ROOT"] = str(unit_root)
+    return unit_root
+
+
+def test_participant_firewall_on_podman_also_installs_the_boot_unit(sandbox: Sandbox) -> None:
+    _podman_participant(sandbox)
+    proc = sandbox.run(
+        "scripts/participant.sh", "firewall", extra_env={"SELFHOSTR_TTY": "/dev/null"}
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = [c for c in sandbox.calls() if c.startswith(("install-firewall", "install-stack-unit"))]
+    assert calls[0].startswith("install-firewall ")
+    assert calls[1].startswith("install-stack-unit ") and "--no-firewall" not in calls[1]
+    rendered = (sandbox.root / ".suckerpot-state/host-firewall.nft").read_text()
+    assert "table bridge suckerpot_bridge" in rendered
+
+
+def test_participant_firewall_on_podman_fails_without_the_firewall(sandbox: Sandbox) -> None:
+    _podman_participant(sandbox)
+    (sandbox.root / "scripts/host/install-firewall.sh").write_text("#!/bin/sh\nexit 5\n")
+    proc = sandbox.run(
+        "scripts/participant.sh", "firewall", extra_env={"SELFHOSTR_TTY": "/dev/null"}
+    )
+    assert proc.returncode == 1
+    assert "required on Podman" in proc.stderr
+    assert not [c for c in sandbox.calls() if c.startswith("install-stack-unit")]
+
+
+def test_participant_uninstall_on_podman_removes_the_boot_unit_first(sandbox: Sandbox) -> None:
+    unit_root = _podman_participant(sandbox)
+    (unit_root / "etc/systemd/system/suckerpot-stack.service").write_text("[Unit]\n")
+    proc = sandbox.run("scripts/participant.sh", "uninstall", "--yes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = [
+        c for c in sandbox.calls() if c.startswith(("install-stack-unit", "docker-compose down"))
+    ]
+    assert calls[0] == "install-stack-unit --uninstall"
+    assert calls[1].startswith("docker-compose down")
+
+
+def test_restore_drains_the_stream_on_podman_only() -> None:
+    text = (ROOT / "scripts/restore-db.sh").read_text()
+    assert "exec pg_restore -h 127.0.0.1" in text  # Docker: unchanged
+    assert "--exit-on-error; rc=$?; cat > /dev/null; exit $rc" in text  # Podman
+
+
+def test_rollback_keeps_the_volume_prefix_for_the_restore() -> None:
+    text = (ROOT / "scripts/rollback.sh").read_text()
+    after = text.split('env_set_line .env SUCKERPOT_VERSION "$from_version"', 1)[1]
+    _drop, rest = after.split("env_drop_loaded", 1)
+    assert "export SUCKERPOT_VOLUME_PREFIX" in rest.split("verify-images.sh", 1)[0]

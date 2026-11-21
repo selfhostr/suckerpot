@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   network"), as the plain output already did.
 - Installer, plain output: `[n/10] ok` when a step ends, and a last `result: ok ...` or
   `result: failed step=N ...` line for scripts and CI.
+- Podman support, phase 3 (experimental; installer support follows): the update, rollback,
+  automatic update, restore, status and participant scripts run on an installed rootful Podman
+  node. They first check the host and refuse with the reason: Podman 5.4 or newer, rootful,
+  netavark with the nftables driver, cgroup v2, `docker-compose` 2.26 or newer, systemd, Docker not
+  active, and `docker-compose.podman.yml` in `COMPOSE_FILE`. Every start on Podman (`just up`,
+  update, rollback, restore, `just set`/`just sensors`, participant tools) goes through
+  `systemctl start suckerpot-stack` when the boot unit is installed, so the stack is bound to the
+  host firewall. New `scripts/host/podman-socket.sh` opens the root Podman socket to the group
+  `suckerpot-podman` (with a tmpfiles rule for `/run/podman`). `participant.sh firewall` also
+  installs the boot unit on Podman, `participant.sh uninstall` removes it, `participant.sh
+  firewall status` reads the tables. `just status` shows the engine and the boot unit on Podman,
+  and a missing firewall there is an error.
+
 
 ### Changed
 
@@ -51,6 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   README and the docs now pass `--full`.
 - The participant summary gives the DMZ advice in one line that links to
   `docs/participate.md#open-the-ports`.
+
+### Fixed
+
+- `just rollback` across a database migration could stop with "SUCKERPOT_VOLUME_PREFIX must be
+  set" before restoring the pre-update dump (images mode).
+- Podman: helper containers (cosign, the broker test) no longer pass tmpfs `uid=`/`gid=` options,
+  which Podman refuses; a restore no longer fails at the end of a successful `pg_restore`.
 
 ## [0.12.2] - 2026-11-21
 

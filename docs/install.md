@@ -16,12 +16,47 @@ SuckerPot is built to be attacked. Install it on a dedicated machine that holds 
 | Shell tools | Bash 4 or newer, `git`, `curl`, and the usual GNU tools (`awk`, `sed`, `tr`, `base64`) | `ss` (from iproute2) is used for the port check. Without it the check is skipped. |
 | Docker Engine | 24 or newer, 28 or newer recommended | Before 28 the internal networks are not isolated from the host (the installer warns). Your user must run `docker` without `sudo`. The installer tells you how to add the group if not. |
 | Docker Compose | v2.24 or newer | The Compose plugin (`docker compose version` must work). |
+| Or: Podman (experimental) | Podman 5.4 or newer, rootful, with `docker-compose` 2.26 or newer | Debian 13, Ubuntu 26.04; Fedora and the RHEL 10 family are experimental too. See [Podman](#podman-experimental). |
 | Memory | 2 GiB minimum | Use [low-memory mode](#low-memory-hosts) below 6 GiB. A machine sold as "2 GB" reports about 1.9 GiB and is accepted: it runs the low-memory setup, so add swap. The installer accepts 1.75 GiB (1,835,008 kB) or more; below that it refuses a full install and points to `--participant --lite`. |
 | Free disk | 15 GiB minimum under Docker's data folder | The installer warns below 30 GiB. Logs and captured payloads need room. |
 | Outbound access | Yes, for the install | The host pulls images from the registry and checks their signatures. This traffic uses the host's own address. See [Anonymous egress](#what-leaves-this-machine). |
 | Router | Forwarding for the sensor ports you chose | See [Ports to forward](#ports-to-forward). |
 
 The memory figures are sizing targets. Check the real use on your host with `docker stats` after the first day.
+
+## Podman (experimental)
+
+SuckerPot also runs on rootful Podman, with the same commands for updates, status and the
+participant tools. Podman support is experimental: the installer support (`--engine podman`) comes
+in the next release step; the update, rollback, restore, status and participant scripts already
+work on an installed Podman node.
+
+Requirements (the scripts check them and refuse with the reason):
+
+- Podman 5.4 or newer, rootful (not rootless), netavark with its nftables firewall driver (the
+  default on the supported distributions), cgroup v2, systemd;
+- `docker-compose` 2.26 or newer (Debian 13: `sudo apt install podman docker-compose nftables`);
+- Docker not active on the same machine. On Fedora the `docker-compose` package pulls in
+  `moby-engine` with an enabled `docker.socket`: turn it off with
+  `sudo systemctl disable --now docker.socket docker.service`.
+
+What differs from Docker:
+
+- **Socket access.** The scripts talk to the root Podman socket. `scripts/host/podman-socket.sh
+  USER` creates the group `suckerpot-podman`, adds the user and opens the socket to that group
+  (log out and in afterwards). The group is root-equivalent, like the `docker` group.
+- **Host firewall: required.** Podman ignores the Docker network options that keep sensors off the
+  internet and away from each other. `./scripts/participant.sh firewall` installs the firewall and
+  the boot unit `suckerpot-stack.service`, which starts the stack only after the firewall and stops
+  it when the firewall stops. Every start refuses when the firewall is not in force, unless
+  `SUCKERPOT_NO_FIREWALL=1` says you filter elsewhere.
+- **Networks** are created by `scripts/ensure-networks.sh`, and `COMPOSE_FILE` lists
+  `docker-compose.podman.yml`.
+- **Logs** go to journald.
+- `just status` shows an engine line and the boot unit; `just isolation-check` checks the sensor
+  isolation (run it with `sudo` so it can read the firewall tables).
+
+Design and test results: [docs/dev/design/podman.md](dev/design/podman.md).
 
 ## Participant mode and full mode
 
