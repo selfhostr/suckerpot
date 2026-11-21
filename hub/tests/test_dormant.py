@@ -35,17 +35,18 @@ def test_dormant_rule(enrolled: date, last_batch: date | None, expected: bool) -
 
 
 @pytest.mark.parametrize(
-    ("enrolled", "last_batch", "expected"),
+    ("last_active", "last_batch", "expected"),
     [
-        (TODAY, None, False),  # enrolled today: keeps its name
-        (TODAY - D, None, False),  # yesterday: maybe less than 24 h
-        (TODAY - 2 * D, None, True),  # at least 24 h and never a batch: a ghost
-        (TODAY - 2 * D, TODAY - D, False),  # it sends: never freed
-        (TODAY - 60 * D, TODAY - 31 * D, True),  # dormant
+        (TODAY, None, False),  # a request today
+        (TODAY - 2 * D, None, False),  # maybe less than 48 h ago (late that day)
+        (TODAY - 3 * D, None, True),  # that day ended at least 48 h ago: a silent ghost
+        (TODAY - 20 * D, None, True),
+        (TODAY, TODAY - 30 * D, False),
+        (TODAY, TODAY - 31 * D, True),  # alive, but no batch for 30 days: dormant
     ],
 )
-def test_name_free_rule(enrolled: date, last_batch: date | None, expected: bool) -> None:
-    assert dormant.name_free(enrolled, last_batch, TODAY) is expected
+def test_name_free_rule(last_active: date, last_batch: date | None, expected: bool) -> None:
+    assert dormant.name_free(last_active, last_batch, TODAY) is expected
 
 
 # --- summary, feed statistics and observatory -------------------------------------------------
@@ -104,14 +105,16 @@ async def test_a_dormant_node_that_sends_counts_again(env: Env) -> None:
 # --- pseudonyms -------------------------------------------------------------------------------
 
 
-async def _age(env: Env, node: NodeClient, days: int) -> None:
-    await _set(env, uuid.UUID(node.node_id), enrolled_day=TODAY - days * D)
+async def _silent(env: Env, node: NodeClient, days: int, **values: object) -> None:
+    """The node's last authenticated request was ``days`` UTC days ago."""
+    await _set(env, uuid.UUID(node.node_id), last_active_day=TODAY - days * D,
+               enrolled_day=TODAY - 10 * D, **values)  # fmt: skip
 
 
 @pytest.mark.integration
-async def test_a_ghost_frees_its_pseudonym_for_a_reinstall(env: Env) -> None:
+async def test_a_silent_ghost_frees_its_pseudonym_for_a_reinstall(env: Env) -> None:
     (ghost,) = await env.enrolled(pseudonym="bignoe")
-    await _age(env, ghost, 2)
+    await _silent(env, ghost, 3)
     again = env.node()
     reply = await again.enrol(pseudonym="Bignoe")
     assert reply.status == 200, reply.json
@@ -124,28 +127,40 @@ async def test_a_ghost_frees_its_pseudonym_for_a_reinstall(env: Env) -> None:
 
 
 @pytest.mark.integration
+async def test_a_live_node_that_sends_no_batch_keeps_its_pseudonym(env: Env) -> None:
+    # Paused for its own address, no traffic, no consent yet: it still talks to the hub.
+    (paused,) = await env.enrolled(pseudonym="quiet owl")
+    await _silent(env, paused, 2)
+    assert (await env.node().enrol(pseudonym="quiet owl")).error == "pseudonym_taken"
+    await _silent(env, paused, 9)
+    assert (await paused.call("GET", "/v1/network")).status == 200  # a summary read: alive
+    assert (await env.node().enrol(pseudonym="quiet owl")).error == "pseudonym_taken"
+    (other,) = await env.enrolled(pseudonym="third owl")
+    patched = await other.call("PATCH", "/v1/node", {"protocol": "spn/1", "pseudonym": "quiet owl"})
+    assert patched.error == "pseudonym_taken"
+    assert (await paused.call("GET", "/v1/node")).json["pseudonym"] == "quiet owl"
+
+
+@pytest.mark.integration
 async def test_a_fresh_or_active_holder_keeps_its_pseudonym(env: Env) -> None:
     (fresh,) = await env.enrolled(pseudonym="fresh owl")
-    await _age(env, fresh, 1)  # less than a full day ago
     assert (await env.node().enrol(pseudonym="fresh owl")).error == "pseudonym_taken"
     (active,) = await env.enrolled(pseudonym="busy owl")
-    await _age(env, active, 20)
     sent = await active.call(
         "POST", "/v1/observations", batch("2026-10-31", sources=[source("192.0.2.4")])
     )
     assert sent.status == 200
+    await _silent(env, active, 1)
     assert (await env.node().enrol(pseudonym="busy owl")).error == "pseudonym_taken"
-    (other,) = await env.enrolled(pseudonym="third owl")
-    patched = await other.call("PATCH", "/v1/node", {"protocol": "spn/1", "pseudonym": "busy owl"})
-    assert patched.error == "pseudonym_taken"
     assert (await active.call("GET", "/v1/node")).json["pseudonym"] == "busy owl"
+    assert (await fresh.call("GET", "/v1/node")).json["pseudonym"] == "fresh owl"
 
 
 @pytest.mark.integration
 async def test_a_rename_takes_a_dormant_members_pseudonym(env: Env) -> None:
     (old,) = await env.enrolled(pseudonym="old owl")
-    await _set(env, uuid.UUID(old.node_id), enrolled_day=TODAY - 90 * D,
-               last_batch_day=TODAY - 40 * D)  # fmt: skip
+    # Alive (it pulls) but no batch for 40 days: dormant by the 30-day rule.
+    await _silent(env, old, 0, last_batch_day=TODAY - 40 * D)
     (new,) = await env.enrolled(pseudonym="new owl")
     patched = await new.call("PATCH", "/v1/node", {"protocol": "spn/1", "pseudonym": "old owl"})
     assert patched.status == 200 and patched.json["pseudonym"] == "old owl"

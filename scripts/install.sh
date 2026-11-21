@@ -1134,7 +1134,7 @@ if [ "$stack" = participant ]; then
       error)
         if [ "$enrol_code" = pseudonym_taken ] && [ -n "$pseudonym" ]; then
           echo "  The hub refused the pseudonym '$pseudonym': another node already uses it."
-          echo "  If that is your own earlier install, the hub frees the name after a day without batches."
+          echo "  If that is your own earlier install, the hub frees the name once that node has been silent for 48 h."
           echo "  Join with another name: ./scripts/participant.sh join --pseudonym $(pseudonym_suggest "$pseudonym" || echo NEW-NAME)"
         else
           echo "  The hub refused to enrol this node ($enrol_code). Details: ./scripts/status.sh"

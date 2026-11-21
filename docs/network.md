@@ -246,7 +246,7 @@ Then:
 | Forbidden | `://`, `@`, four digits in a row, reserved words (for example `admin`, `hub`, `network`, `node`, `official`) and the names of this project |
 | Owner check | The identity check refuses a name that contains your own names or domains |
 | Changes | At most one change per 7 days, at the hub |
-| Unique | A name used by another node is refused (`pseudonym_taken`). The hub frees the name of a node that never sent a batch for one full day after enrolling (a reinstall leaves such a node behind), and of a dormant node. A node that sends batches never loses its name. A node whose name was freed shows without one and can pick a new name at once |
+| Unique | A name used by another node is refused (`pseudonym_taken`). The hub frees the name of a node that made no request to the hub for 48 hours (a reinstall leaves such a node behind), or that sent no batch for 30 days. A running node keeps its name, even when it sends no batch. The hub only keeps the day of each node's last request, so this takes 48 to 72 hours. A node whose name was freed shows without one and can pick a new name at once |
 
 Empty means the network shows you as `Node` followed by your fingerprint, for example `Node 3f9a1c07`.
 

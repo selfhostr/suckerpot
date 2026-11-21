@@ -34,9 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   summary, the public feed statistics and the observatory (`nodes.members`, countries). It is
   kept and counts again from its next batch. New column `nodes.last_batch_day` (migration
   h0013). `hub-admin stats` shows the dormant count.
-- Hub: a pseudonym held by a dormant node, or by a node that never sent a batch for one full
-  day after enrolling, is freed for a new or renaming node. A name held by any other node is
-  still refused with `pseudonym_taken`.
+- Hub: a pseudonym held by a node that made no authenticated request for 48 h (a reinstall's
+  ghost), or that sent no batch for 30 days, is freed for a new or renaming node. A running node
+  keeps its name even when it sends no batch; any other claim is still refused with
+  `pseudonym_taken`. "No request" uses the existing day of the last request
+  (`nodes.last_active_day`): times about nodes stay dates (design H4), so the name is freed 48
+  to 72 h after the holder's last request.
 
 ### Upgrading
 

@@ -10,10 +10,15 @@ the next daily summary.
 The last batch day is the later of ``nodes.last_batch_day`` (kept beyond the 14 days of batch
 markers) and the newest marker in ``batches``.
 
-A pseudonym is unique among nodes. When a new or renaming node asks for a name held by a node
-that is dormant, or that never sent a batch for at least one full UTC day after enrolling (a
-reinstall leaves such a ghost behind), the name is freed from the holder first. A node that sends
-batches never loses its name.
+A pseudonym is unique among nodes. When a new or renaming node asks for a name held by another
+node, the name is freed from the holder only when the holder made no authenticated request at all
+(profile sync, pull, summary, batch) for ``NAME_SILENT_HOURS`` (48 h), or sent no batch for
+``DORMANT_DAYS`` (30 days). A reinstall leaves such a silent ghost behind. A node that is alive
+keeps its name even when it sends no batch (paused for its own address, no traffic, ...).
+"Alive" is ``nodes.last_active_day``: the UTC day of the last authenticated request or of the
+enrolment, written at most once a day by ``auth.authenticate``. Design invariant H4 keeps node
+timestamps as dates, so the rule is "no request on the last two full days nor today": the holder
+has been silent for at least 48 h (48 to 72 h).
 """
 
 from __future__ import annotations
@@ -26,8 +31,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 GHOST_DAYS = 7
 DORMANT_DAYS = 30
-# A holder that never sent a batch frees its name once it enrolled before yesterday (24 to 48 h).
-NAME_GHOST_DAYS = 2
+# A holder with no authenticated request for this long gives its name up to a new claimant.
+NAME_SILENT_HOURS = 48
 
 LAST_BATCH = "GREATEST(n.last_batch_day, (SELECT max(b.day) FROM batches b WHERE b.node_id = n.id))"
 # SQL condition on ``nodes n``: the node counts as a member. Parameters from ``params``.
@@ -35,14 +40,27 @@ ACTIVE = (
     f"(({LAST_BATCH} IS NULL AND n.enrolled_day >= :ghost_since) OR {LAST_BATCH} >= :dormant_since)"
 )
 # SQL condition on ``nodes n``: the node's pseudonym may be given to another node.
-NAME_FREE = f"(({LAST_BATCH} IS NULL AND n.enrolled_day < :name_since) OR NOT ({ACTIVE}))"
+NAME_FREE = f"(n.last_active_day < :silent_since OR {LAST_BATCH} < :dormant_since)"
 
 
 def params(today: date) -> dict[str, date]:
+    """Parameters of ``ACTIVE``."""
     return {
         "ghost_since": today - timedelta(days=GHOST_DAYS),
         "dormant_since": today - timedelta(days=DORMANT_DAYS),
-        "name_since": today - timedelta(days=NAME_GHOST_DAYS - 1),
+    }
+
+
+def _silent_since(today: date) -> date:
+    # Free when the last request was on today - 3 or earlier: that day ended at least 48 h ago.
+    return today - timedelta(days=NAME_SILENT_HOURS // 24)
+
+
+def name_params(today: date) -> dict[str, date]:
+    """Parameters of ``NAME_FREE``."""
+    return {
+        "silent_since": _silent_since(today),
+        "dormant_since": today - timedelta(days=DORMANT_DAYS),
     }
 
 
@@ -53,11 +71,11 @@ def is_dormant(enrolled_day: date, last_batch_day: date | None, today: date) -> 
     return last_batch_day < today - timedelta(days=DORMANT_DAYS)
 
 
-def name_free(enrolled_day: date, last_batch_day: date | None, today: date) -> bool:
+def name_free(last_active_day: date, last_batch_day: date | None, today: date) -> bool:
     """The rule of ``NAME_FREE`` in Python."""
-    if last_batch_day is None and enrolled_day < today - timedelta(days=NAME_GHOST_DAYS - 1):
+    if last_active_day < _silent_since(today):
         return True
-    return is_dormant(enrolled_day, last_batch_day, today)
+    return last_batch_day is not None and last_batch_day < today - timedelta(days=DORMANT_DAYS)
 
 
 async def claim_pseudonym(
@@ -72,7 +90,7 @@ async def claim_pseudonym(
                 "WHERE n.pseudonym_key = :key AND (CAST(:me AS uuid) IS NULL OR n.id <> :me) "
                 "FOR UPDATE OF n"
             ),
-            {"key": key, "me": node_id, **params(today)},
+            {"key": key, "me": node_id, **name_params(today)},
         )
     ).first()
     if holder is None:
