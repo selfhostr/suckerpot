@@ -320,6 +320,20 @@ def test_malformed_defaults_are_refused(over: dict[str, str]) -> None:
         defaults.from_text(_file(**over))
 
 
+def test_trap_pack_key_is_optional_and_checked() -> None:
+    """M37: TRAP_PACK_KEY may be absent or empty (downloaded trap packs off); a value must be a
+    minisign public key. It never makes a release a placeholder release."""
+    assert defaults.from_text(_file()).trap_key == ""
+    assert defaults.from_text(_file(TRAP_PACK_KEY="")).trap_key == ""
+    d = defaults.from_text(_file(TRAP_PACK_KEY=FEED_PUBLIC))
+    assert d.trap_key == FEED_PUBLIC and d.placeholders() == ()
+    with pytest.raises(defaults.DefaultsError):
+        defaults.from_text(_file(TRAP_PACK_KEY="notakey"))
+    committed = defaults.load().trap_key
+    assert committed == "" or minisign.parse_public_key(committed)
+    assert defaults.effective({"TRAP_PACK_KEY": FEED_PUBLIC}, "TRAP_PACK_KEY") == FEED_PUBLIC
+
+
 def test_parse_is_strict() -> None:
     good = _file()
     for bad in (
