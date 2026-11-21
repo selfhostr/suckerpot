@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -59,6 +59,50 @@ def test_dormant_rule(enrolled: date, last_batch: date | None, expected: bool) -
 )
 def test_name_free_rule(ever_batched: bool, silent_days: int, expected: bool) -> None:
     assert dormant.name_free(ever_batched, silent_days) is expected
+
+
+@pytest.mark.parametrize(
+    ("served", "blocked", "expected"),
+    [
+        (0, 0, False),  # an outage: nothing served
+        (100, 0, True),
+        (100, 19, True),  # a few stray failures do not spoil the day
+        (100, 20, False),  # a fifth of the requests blocked
+        (100_000, 999, True),
+        (100_000, 1000, False),  # a thousand blocks
+    ],
+)
+def test_clean_day_rule(served: int, blocked: int, expected: bool) -> None:
+    assert dormant.clean_day(served, blocked) is expected
+
+
+class _Session:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+        self.commits = 0
+
+    async def execute(self, _stmt: Any, values: dict[str, Any]) -> None:
+        self.rows.append(values)
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+async def test_served_days_are_added_up_and_written_once_a_minute() -> None:
+    days = dormant.ServedDays()
+    session: Any = _Session()
+    now = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+    await days.served(session, now)  # the first one writes at once
+    assert session.rows == [{"d": TODAY, "s": 1, "b": 0}]
+    for i in range(50):
+        await days.served(session, now + timedelta(seconds=i))
+    await days.blocked(session, now + timedelta(seconds=30))
+    assert len(session.rows) == 1  # held in memory
+    await days.served(session, now + timedelta(seconds=61))
+    assert session.rows[1] == {"d": TODAY, "s": 51, "b": 1}
+    await days.blocked(session, now + timedelta(seconds=62))
+    await days.flush(session, now + timedelta(seconds=63))  # what the shutdown does
+    assert session.rows[2] == {"d": TODAY, "s": 0, "b": 1}
 
 
 class _Orig(Exception):
@@ -130,12 +174,33 @@ async def test_a_country_at_the_edge_does_not_flip_day_by_day(env: Env) -> None:
 
 
 @pytest.mark.integration
+async def test_a_node_that_resumes_after_a_gap_stays_counted_all_week(env: Env) -> None:
+    (node,) = await env.enrolled()
+    await _set(env, uuid.UUID(node.node_id), enrolled_day=TODAY - 60 * D,
+               last_batch_day=date(2026, 10, 8))  # fmt: skip
+    async with env.worker() as s:
+        assert (await stats.build_summary(s, date(2026, 10, 30))).totals.members == 1
+        await s.commit()
+    # It sends again after 20 days: its old last batch day is overwritten, the markers of the
+    # old batches are gone. The week's snapshot keeps it counted.
+    sent = await node.call(
+        "POST", "/v1/observations", batch("2026-10-31", sources=[source("192.0.2.4")])
+    )
+    assert sent.status == 200, sent.json
+    async with env.worker() as s:
+        for i in range(1, 7):
+            summary = await stats.build_summary(s, date(2026, 10, 30) + i * D)
+            assert summary.totals.members == 1, i
+
+
+@pytest.mark.integration
 async def test_a_dormant_node_that_sends_counts_again_from_the_next_week(env: Env) -> None:
     (node,) = await env.enrolled()
     async with env.worker() as s:
         await s.execute(text("UPDATE nodes SET enrolled_day = :d"), {"d": TODAY - 20 * D})
         await s.commit()
         assert (await stats.build_summary(s, TODAY)).totals.members == 0
+        await s.commit()  # the worker commits the week's snapshot with the summary
     sent = await node.call(
         "POST", "/v1/observations", batch("2026-10-31", sources=[source("192.0.2.4")])
     )
@@ -152,15 +217,16 @@ async def test_a_dormant_node_that_sends_counts_again_from_the_next_week(env: En
 # --- pseudonyms -------------------------------------------------------------------------------
 
 
-async def _served(env: Env, *days: date, blocked: bool = False) -> None:
+async def _served(env: Env, *days: date, served: int = 100, blocked: int = 0) -> None:
     async with env.worker() as s:
         for d in days:
             await s.execute(
                 text(
-                    "INSERT INTO hub_served_days (day, blocked) VALUES (:d, :b) "
-                    "ON CONFLICT (day) DO UPDATE SET blocked = EXCLUDED.blocked"
+                    "INSERT INTO hub_served_days (day, served, blocked) VALUES (:d, :s, :b) "
+                    "ON CONFLICT (day) DO UPDATE SET served = EXCLUDED.served, "
+                    "blocked = EXCLUDED.blocked"
                 ),
-                {"d": d, "b": blocked},
+                {"d": d, "s": served, "b": blocked},
             )
         await s.commit()
 
@@ -170,19 +236,23 @@ async def _silent_since(env: Env, node: NodeClient, last_active: date, **values:
                enrolled_day=TODAY - 10 * D, **values)  # fmt: skip
 
 
+async def _counters(env: Env) -> list[tuple[date, int, int]]:
+    async with env.worker() as s:
+        rows = (await s.execute(text("SELECT day, served, blocked FROM hub_served_days"))).all()
+    return [(r.day, r.served, r.blocked) for r in rows]
+
+
 @pytest.mark.integration
-async def test_requests_mark_the_day_as_served(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_requests_are_counted_per_day(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
     (node,) = await env.enrolled()
     assert (await node.call("GET", "/v1/node")).status == 200
-    async with env.worker() as s:
-        rows = (await s.execute(text("SELECT day, blocked FROM hub_served_days"))).all()
-    assert [(r.day, r.blocked) for r in rows] == [(TODAY, False)]
-    # A refusal by the address limiter marks the day: it never counts as anyone's silence.
+    assert await _counters(env) == [(TODAY, 1, 0)]
+    # Address-limiter refusals are counted too (in memory first, written about once a minute).
     monkeypatch.setattr(env.ctx.address_limiter, "blocked", lambda _request: 30)
     assert (await node.call("GET", "/v1/node")).error == "rate_limited"
-    async with env.worker() as s:
-        rows = (await s.execute(text("SELECT day, blocked FROM hub_served_days"))).all()
-    assert [(r.day, r.blocked) for r in rows] == [(TODAY, True)]
+    env.clock.advance(seconds=61)
+    assert (await node.call("GET", "/v1/node")).error == "rate_limited"
+    assert await _counters(env) == [(TODAY, 1, 2)]
 
 
 @pytest.mark.integration
@@ -203,12 +273,12 @@ async def test_a_silent_never_batched_ghost_frees_its_pseudonym(env: Env) -> Non
 async def test_outages_and_blocked_days_are_not_silence(env: Env) -> None:
     (ghost,) = await env.enrolled(pseudonym="lone owl")
     await _silent_since(env, ghost, TODAY - 9 * D)
-    # The hub served only one day since (an outage), plus one day with an address block.
+    # The hub served only one day since (an outage), plus one day with many address blocks.
     await _served(env, TODAY - 5 * D)
-    await _served(env, TODAY - 2 * D, blocked=True)
+    await _served(env, TODAY - 2 * D, served=1000, blocked=300)
     await _served(env, TODAY)  # today does not count: it is not over
     assert (await env.node().enrol(pseudonym="lone owl")).error == "pseudonym_taken"
-    await _served(env, TODAY - D)
+    await _served(env, TODAY - D, served=1000, blocked=3)  # a few stray blocks: still clean
     assert (await env.node().enrol(pseudonym="lone owl")).status == 200
 
 

@@ -123,7 +123,7 @@ If something needs your action, the report ends with a **Needs attention** block
 
 By default, your sensor counts toward confirmations after 14 days of regular batches. Until then its standing is `new`.
 
-A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is **dormant**. The hub keeps it, but leaves it out of the member list and of the member counts (network summary, public figures). It counts again from the week after its next batch.
+A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is **dormant**. The hub keeps it, but leaves it out of the member list and of the member counts (network summary, public figures). It counts again from the next weekly snapshot after its next batch.
 
 ## Automatic updates
 

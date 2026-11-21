@@ -71,6 +71,12 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
+        try:  # the last minute of served/blocked counters (hub/hub/dormant.py)
+            async with ctx.sessionmaker() as session:
+                await ctx.served_days.flush(session, ctx.now())
+                await session.commit()
+        except Exception:  # best effort: never block a shutdown
+            log.warning("served-day counters not written at shutdown")
         await engine.dispose()
 
     app = FastAPI(

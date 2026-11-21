@@ -11,9 +11,12 @@ Backfill: the newest batch marker still held. A node enrolled more than 14 days 
 an unknown history (its batches may be older than the markers): it gets ``today - 11``, so it is
 never a never-batched ghost (it keeps its name) and counts as a member for about three more weeks.
 
-``hub_served_days``: the UTC days on which the API served authenticated requests, and whether its
-address limiter refused one that day. A pseudonym holder's silence is counted on served days
-without a block only (hub/hub/dormant.py). No node reference.
+``hub_served_days``: per UTC day, the authenticated requests the API served and the requests its
+address limiter refused (integers only, no node or address). A pseudonym holder's silence is
+counted on served days with few blocks only (hub/hub/dormant.py).
+
+``hub_count_snapshot``: the nodes counted as members for one week (a Monday), taken once by the
+worker. Hub-internal, never published, kept five weeks.
 """
 
 from __future__ import annotations
@@ -40,12 +43,23 @@ def upgrade() -> None:
         """
         CREATE TABLE hub_served_days (
             day date PRIMARY KEY,
-            blocked boolean NOT NULL DEFAULT false
+            served bigint NOT NULL DEFAULT 0,
+            blocked bigint NOT NULL DEFAULT 0
+        )
+        """
+    )
+    op.execute(
+        """
+        CREATE TABLE hub_count_snapshot (
+            ref date NOT NULL,
+            node_id uuid NOT NULL REFERENCES nodes (id) ON DELETE CASCADE,
+            PRIMARY KEY (ref, node_id)
         )
         """
     )
 
 
 def downgrade() -> None:
+    op.execute("DROP TABLE IF EXISTS hub_count_snapshot")
     op.execute("DROP TABLE IF EXISTS hub_served_days")
     op.execute("ALTER TABLE nodes DROP COLUMN IF EXISTS last_batch_day")

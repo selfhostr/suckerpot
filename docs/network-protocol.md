@@ -111,7 +111,7 @@ Every error is a status code with the body `{"error": "<code>"}`.
 | `stale_timestamp`, `replayed_nonce`, `bad_signature`, `unknown_node` | 401 | Signature checks, see above |
 | `pow_invalid`, `challenge_expired` | 400 | The enrolment proof failed or the challenge is gone |
 | `pseudonym_invalid` | 400 | The pseudonym breaks the rules in [Pseudonyms](#pseudonyms) |
-| `pseudonym_taken` | 409 | Another node has the pseudonym. A name held by a node that never sent an accepted batch and made no authenticated request on two days the hub served (no outage, no address-limiter block that day) is freed instead. See *Pseudonym release* below |
+| `pseudonym_taken` | 409 | Another node has the pseudonym. A name held by a node that never sent an accepted batch and made no authenticated request on two days the hub served (no outage, few address-limiter blocks that day) is freed instead. See *Pseudonym release* below |
 | `enrolment_closed` | 503 | The daily enrolment cap is reached. Temporary |
 | `not_verifier` | 403 | The node does not hold the verifier role (`/v1/verify/tasks`, `/v1/verify/results`). Signed |
 | `rate_limited` | 429 | Too many requests. The `Retry-After` header gives seconds |
@@ -229,7 +229,7 @@ Uniqueness is checked on the normalised form: lowercase, with separators collaps
 
 #### Pseudonym release
 
-On enrolment or a profile change, a name held by another node is answered with `pseudonym_taken`, except when the holder is a silent ghost: it **never** sent an accepted batch, and it made no authenticated request on at least two of the hub's *served days* since the day of its last request. A served day is a past UTC day on which the API answered authenticated requests and its address limiter blocked no request (table `hub_served_days`, no node reference). Days of an outage or of an address block never count as silence, so they can only delay a release. The name is then taken from the ghost (it keeps its membership, without a name, and may choose a new one at once). A node that ever sent a batch never loses its name. Two claims that race end with one `pseudonym_taken`.
+On enrolment or a profile change, a name held by another node is answered with `pseudonym_taken`, except when the holder is a silent ghost: it **never** sent an accepted batch, and it made no authenticated request on at least two of the hub's *served days* since the day of its last request. A served day is a past UTC day on which the API answered authenticated requests and its address limiter refused fewer than a fifth of them and fewer than 1000 (table `hub_served_days`: two counters per day, no node or address). Days of an outage or of a large block never count as silence, so they can only delay a release; a few stray failures do not spoil a day. The name is then taken from the ghost (it keeps its membership, without a name, and may choose a new one at once). A node that ever sent a batch never loses its name. Two claims that race end with one `pseudonym_taken`.
 
 This is a liveness oracle, and a deliberately narrow one. Anyone who can enrol can test whether the holder of a pseudonym is a never-batched node that has been silent for two served days, by asking for its name. Nothing else about the holder (address, activity, batches) can be learned this way, and a node that ever sent a batch answers the same (`pseudonym_taken`) forever. A successful test also takes the name, so it cannot be repeated against the same holder.
 

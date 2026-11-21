@@ -83,7 +83,7 @@ WORKER_TABLES = (
     "never_list, hub_audit, worker_state, payload_links, target_hosts, feed_entries, feed_runs, "
     "feed_daily, feed_allow, feed_auto_ranges, delist_challenges, delist_requests, "
     "abusech_submissions, node_roles, verify_tasks, verify_attestations, verify_daily, "
-    "trap_relay_state, hub_served_days"
+    "trap_relay_state, hub_served_days, hub_count_snapshot"
 )
 # Tables the worker may not change once written. observatory_daily: a frozen day is never updated
 # (design M34), only inserted and, by retention, deleted.

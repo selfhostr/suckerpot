@@ -367,7 +367,7 @@ async def _dispatch(
                     "(SELECT count(*) FROM targets WHERE state = 'taken_down') AS taken_down, "
                     "(SELECT count(*) FROM reports WHERE state = 'queued') AS reports_queued"
                 ),
-                dormant.params(utcnow().date()),
+                await dormant.count_params(session, utcnow().date()),
             )
         ).one()
         for key, value in rows._mapping.items():

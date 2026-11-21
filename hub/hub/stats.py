@@ -105,6 +105,7 @@ async def weekly_stats(session: AsyncSession, today: date) -> int:
 
 async def daily_row(session: AsyncSession, today: date) -> None:
     """The ``network_daily`` row of today (transitions counted by their recorded day)."""
+    counted = await dormant.count_params(session, today)
     row = (
         await session.execute(
             text(
@@ -118,7 +119,7 @@ async def daily_row(session: AsyncSession, today: date) -> None:
                   (SELECT count(*) FROM targets WHERE taken_down_day = :today) AS taken_down
                 """  # noqa: S608
             ),
-            {"today": today, "recent": today - timedelta(days=7), **dormant.params(today)},
+            {"today": today, "recent": today - timedelta(days=7), **counted},
         )
     ).one()
     await session.execute(
@@ -149,6 +150,7 @@ def _order_key(today: date, fingerprint: str) -> str:
 async def build_summary(session: AsyncSession, today: date) -> models.NetworkSummary:
     """Dormant members (``hub/hub/dormant.py``) are left out of the list, the member count and the
     countries. The wire format has no field to flag them: older nodes refuse unknown fields."""
+    counted = await dormant.count_params(session, today)
     since30 = today - timedelta(days=30)
     nodes = (
         await session.execute(
@@ -161,7 +163,7 @@ async def build_summary(session: AsyncSession, today: date) -> models.NetworkSum
                 WHERE n.enrolled_day < :today AND {dormant.ACTIVE}
                 """  # noqa: S608
             ),
-            {"week": last_full_week(today), "today": today, **dormant.params(today)},
+            {"week": last_full_week(today), "today": today, **counted},
         )
     ).all()
     showing: dict[str, int] = {}

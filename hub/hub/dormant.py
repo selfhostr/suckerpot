@@ -4,10 +4,12 @@
 ago and never sent a batch, or when its last accepted batch is more than ``DORMANT_DAYS`` old.
 Dormant nodes are kept (nothing is deleted here; retention still drops a node with no request for
 30 days) but they are left out of the member counts and lists: the network summary, the public
-feed statistics and the observatory. The state is computed, never stored. It is computed once per
-ISO week, as of ``count_ref`` (a Monday), from settled batch days before that Monday only, so a
-single node's batch history cannot move a published count (a country at the k = 3 edge) day by
-day. A dormant node that sends again counts again from the next reference week.
+feed statistics and the observatory. The counted (non-dormant) set is a snapshot taken once per
+ISO week, for ``count_ref`` (a Monday), and stored in ``hub_count_snapshot`` (hub-internal, kept
+five weeks). Members and countries are counted from that snapshot all week, so a single node's
+batches cannot move a published count (a country at the k = 3 edge) from one day to the next. A
+node enrolled after the snapshot was taken counts as a new member, as before. A dormant node that
+sends again counts again from the next snapshot.
 
 The last batch day is the later of ``nodes.last_batch_day`` (kept beyond the 14 days of batch
 markers) and the newest marker in ``batches``.
@@ -17,15 +19,16 @@ never loses its name. The name of a node that NEVER sent a batch (a reinstall le
 behind) is freed for a new or renaming node when that holder has been silent for
 ``NAME_SILENT_DAYS`` of the hub's served days: UTC days after its ``last_active_day`` (the day of
 its last authenticated request) and before today on which the hub API served authenticated
-requests and refused no request with its address limiter (``hub_served_days``). A hub outage, or
-a day on which the address limiter blocked someone (a shared exit, an attack), never counts as
-the holder's silence: such a day only delays the release.
+requests and its address limiter did not block a large share of them (``hub_served_days``
+counts both per day: ``clean_day``). A hub outage, or a day with many blocked requests (a shared
+exit under a block, an attack), never counts as the holder's silence: it only delays the release.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -39,22 +42,30 @@ SETTLE_DAYS = buckets.MAX_BATCH_AGE_DAYS + 1
 # Served hub days without any request from a never-batched holder before its name is freed.
 NAME_SILENT_DAYS = 2
 SERVED_DAYS_KEPT = 60
+SNAPSHOT_WEEKS_KEPT = 5
+SNAPSHOT_KEY = "count_snapshot"
+# A served day is not "clean" (it does not count as silence) when the address limiter blocked at
+# least this share of the authenticated requests, or at least this many.
+BLOCKED_SHARE = 0.2
+BLOCKED_MAX = 1000
+# The API adds its per-day counters up in memory and writes them about once a minute.
+FLUSH_S = 60
 
 LAST_BATCH = "GREATEST(n.last_batch_day, (SELECT max(b.day) FROM batches b WHERE b.node_id = n.id))"
-# The last batch day before the reference Monday (settled data only).
-_LAST_BATCH_REF = (
-    "GREATEST(CASE WHEN n.last_batch_day < :ref THEN n.last_batch_day END, "
-    "(SELECT max(b.day) FROM batches b WHERE b.node_id = n.id AND b.day < :ref))"
+# The snapshot rule, on ``nodes n`` as of the reference Monday.
+_COUNTED_AT_REF = (
+    f"(({LAST_BATCH} IS NULL AND n.enrolled_day >= :ghost_since) OR {LAST_BATCH} >= :dormant_since)"
 )
-# SQL condition on ``nodes n``: the node counts as a member. Parameters from ``params``.
+# SQL condition on ``nodes n``: the node counts as a member. Parameters from ``count_params``.
 ACTIVE = (
-    f"(({_LAST_BATCH_REF} IS NULL AND n.enrolled_day >= :ghost_since) "
-    f"OR {_LAST_BATCH_REF} >= :dormant_since)"
+    "(n.id IN (SELECT c.node_id FROM hub_count_snapshot c WHERE c.ref = :ref) "
+    "OR n.enrolled_day > :taken)"
 )
+_CLEAN = f"s.served > 0 AND s.blocked < {BLOCKED_MAX} AND s.blocked < s.served * {BLOCKED_SHARE}"
 # SQL condition on ``nodes n``: the node's pseudonym may be given to another node.
 NAME_FREE = (
     f"({LAST_BATCH} IS NULL AND (SELECT count(*) FROM hub_served_days s "  # noqa: S608
-    "WHERE s.day > n.last_active_day AND s.day < :today AND NOT s.blocked) >= :silent_days)"
+    f"WHERE s.day > n.last_active_day AND s.day < :today AND {_CLEAN}) >= :silent_days)"
 )
 
 
@@ -65,14 +76,42 @@ def count_ref(today: date) -> date:
     return settled - timedelta(days=settled.weekday())
 
 
-def params(today: date) -> dict[str, date]:
-    """Parameters of ``ACTIVE``."""
-    ref = count_ref(today)
+def _snapshot_params(ref: date) -> dict[str, date]:
     return {
-        "ref": ref,
         "ghost_since": ref - timedelta(days=GHOST_DAYS),
         "dormant_since": ref - timedelta(days=DORMANT_DAYS),
     }
+
+
+async def count_params(session: AsyncSession, today: date) -> dict[str, date]:
+    """Parameters of ``ACTIVE``. Takes this week's snapshot first if there is none yet (the worker
+    and the admin tool; not committed here, the caller commits)."""
+    ref = count_ref(today)
+    raw = (
+        await session.execute(
+            text("SELECT value FROM worker_state WHERE key = :k"), {"k": SNAPSHOT_KEY}
+        )
+    ).scalar_one_or_none()
+    state = json.loads(raw) if raw else {}
+    if state.get("ref") == ref.isoformat():
+        return {"ref": ref, "taken": date.fromisoformat(state["taken"])}
+    await session.execute(text("DELETE FROM hub_count_snapshot WHERE ref = :ref"), {"ref": ref})
+    await session.execute(
+        text(
+            "INSERT INTO hub_count_snapshot (ref, node_id) "  # noqa: S608
+            f"SELECT :ref, n.id FROM nodes n WHERE {_COUNTED_AT_REF}"
+        ),
+        {"ref": ref, **_snapshot_params(ref)},
+    )
+    value = json.dumps({"ref": ref.isoformat(), "taken": today.isoformat()})
+    await session.execute(
+        text(
+            "INSERT INTO worker_state (key, value) VALUES (:k, :v) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+        ),
+        {"k": SNAPSHOT_KEY, "v": value},
+    )
+    return {"ref": ref, "taken": today}
 
 
 def name_params(today: date) -> dict[str, object]:
@@ -80,12 +119,17 @@ def name_params(today: date) -> dict[str, object]:
     return {"today": today, "silent_days": NAME_SILENT_DAYS}
 
 
-def is_dormant(enrolled_day: date, last_batch_before_ref: date | None, today: date) -> bool:
-    """The rule of ``ACTIVE``, negated, in Python (tests)."""
+def is_dormant(enrolled_day: date, last_batch_day: date | None, today: date) -> bool:
+    """The snapshot rule, negated, in Python (tests)."""
     ref = count_ref(today)
-    if last_batch_before_ref is None:
+    if last_batch_day is None:
         return enrolled_day < ref - timedelta(days=GHOST_DAYS)
-    return last_batch_before_ref < ref - timedelta(days=DORMANT_DAYS)
+    return last_batch_day < ref - timedelta(days=DORMANT_DAYS)
+
+
+def clean_day(served: int, blocked: int) -> bool:
+    """A served day that counts as silence: requests served, few of them blocked."""
+    return served > 0 and blocked < BLOCKED_MAX and blocked < served * BLOCKED_SHARE
 
 
 def name_free(ever_batched: bool, silent_served_days: int) -> bool:
@@ -138,31 +182,45 @@ async def claim_pseudonym(
 
 
 class ServedDays:
-    """Records, once per process and day, that the API served an authenticated request
-    (``blocked = false``) or that its address limiter refused one (``blocked = true``)."""
+    """Per-day counters of the API: authenticated requests served and requests refused by the
+    address limiter. Integers only, no node or address. Added up in memory and written at most
+    about once a minute per process (and on shutdown)."""
 
     def __init__(self) -> None:
-        self._served: date | None = None
-        self._blocked: date | None = None
+        self._pending: dict[date, list[int]] = {}
+        self._flushed_at: datetime | None = None
 
-    async def served(self, session: AsyncSession, today: date) -> None:
-        if self._served == today:
-            return
-        await session.execute(
-            text("INSERT INTO hub_served_days (day) VALUES (:d) ON CONFLICT (day) DO NOTHING"),
-            {"d": today},
-        )
-        self._served = today
+    async def served(self, session: AsyncSession, now: datetime) -> None:
+        """Count one served request; the caller commits."""
+        self._add(now.date(), 1, 0)
+        if self._due(now):
+            await self.flush(session, now)
 
-    async def blocked(self, session: AsyncSession, today: date) -> None:
-        if self._blocked == today:
-            return
-        await session.execute(
-            text(
-                "INSERT INTO hub_served_days (day, blocked) VALUES (:d, true) "
-                "ON CONFLICT (day) DO UPDATE SET blocked = true"
-            ),
-            {"d": today},
-        )
-        await session.commit()
-        self._blocked = today
+    async def blocked(self, session: AsyncSession, now: datetime) -> None:
+        """Count one blocked request; commits when it writes."""
+        self._add(now.date(), 0, 1)
+        if self._due(now):
+            await self.flush(session, now)
+            await session.commit()
+
+    def _add(self, day: date, served: int, blocked: int) -> None:
+        row = self._pending.setdefault(day, [0, 0])
+        row[0] += served
+        row[1] += blocked
+
+    def _due(self, now: datetime) -> bool:
+        return self._flushed_at is None or (now - self._flushed_at).total_seconds() >= FLUSH_S
+
+    async def flush(self, session: AsyncSession, now: datetime) -> None:
+        """Write the pending counters (the caller commits)."""
+        pending, self._pending = self._pending, {}
+        self._flushed_at = now
+        for day, (served, blocked) in sorted(pending.items()):
+            await session.execute(
+                text(
+                    "INSERT INTO hub_served_days (day, served, blocked) VALUES (:d, :s, :b) "
+                    "ON CONFLICT (day) DO UPDATE SET served = hub_served_days.served + "
+                    "EXCLUDED.served, blocked = hub_served_days.blocked + EXCLUDED.blocked"
+                ),
+                {"d": day, "s": served, "b": blocked},
+            )

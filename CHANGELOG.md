@@ -31,14 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   pseudonym is reported with a free variant to use (`join --pseudonym NAME-NN`).
 - Hub: dormant members. A node that enrolled more than 7 days ago and never sent a batch, or
   that sent no batch for 30 days, is left out of `members` and the member list of the network
-  summary, the public feed statistics and the observatory (`nodes.members`, countries). The set
-  is computed once per ISO week from settled batch days, so one node cannot move a count day by
-  day. It is kept and counts again from the next week after a batch. New column
+  summary, the public feed statistics and the observatory (`nodes.members`, countries). The
+  counted set is a weekly snapshot (`hub_count_snapshot`, hub-internal, kept five weeks), so
+  one node cannot move a count day by day. A dormant node is kept and counts again from the
+  next snapshot after a batch. New column
   `nodes.last_batch_day` (migration h0013; a node older than the 14 days of batch markers gets a
   conservative value). `hub-admin stats` shows the dormant count.
 - Hub: a pseudonym held by a node that NEVER sent a batch (a reinstall's ghost) is freed for a
   new or renaming node once that holder made no request on two days the hub was serving (days
-  with an outage or an address-limiter block do not count; new table `hub_served_days`). A node
+  with an outage, or with many address-limiter blocks, do not count; new table
+  `hub_served_days` with two counters per day). A node
   that ever sent a batch never loses its name. Every other claim is refused with
   `pseudonym_taken`, also when two claims race.
 

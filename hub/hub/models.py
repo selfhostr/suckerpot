@@ -262,12 +262,26 @@ class HubAudit(Base):
 
 
 class HubServedDay(Base):
-    """Days the API served authenticated requests (migration h0013). No node data."""
+    """Per-day counters of the API (migration h0013): authenticated requests served, requests
+    refused by the address limiter. Integers only, no node or address data."""
 
     __tablename__ = "hub_served_days"
 
     day: Mapped[date] = mapped_column(Date, primary_key=True)
-    blocked: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    served: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    blocked: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+
+
+class HubCountSnapshot(Base):
+    """The nodes counted as members for one week (migration h0013, hub/hub/dormant.py).
+    Hub-internal, never published; kept five weeks."""
+
+    __tablename__ = "hub_count_snapshot"
+
+    ref: Mapped[date] = mapped_column(Date, primary_key=True)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True
+    )
 
 
 class WorkerState(Base):

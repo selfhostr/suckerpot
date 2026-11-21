@@ -88,10 +88,10 @@ async def authenticate(
     """Run the seven checks for a signed request from an enrolled node."""
     wait = ctx.address_limiter.blocked(request)
     if wait:
-        # The limiter stays first (no lookup, no signature check for a blocked address). The day
-        # is marked instead: a node starved by a block on a shared exit never looks silent.
+        # The limiter stays first (no lookup, no signature check for a blocked address). The block
+        # is counted instead: a day with many blocks never counts as a pseudonym holder's silence.
         try:
-            await ctx.served_days.blocked(session, ctx.today())
+            await ctx.served_days.blocked(session, ctx.now())
         except Exception:  # the marker is best effort; the answer stays the same
             await session.rollback()
         raise ProtoError("rate_limited", str(wait))
@@ -135,7 +135,7 @@ async def authenticate(
         .where(Node.id == node.id, Node.last_active_day != ctx.today())
         .values(last_active_day=ctx.today())
     )
-    await ctx.served_days.served(session, ctx.today())
+    await ctx.served_days.served(session, ctx.now())
     await session.commit()
     # 7. rate limit per node
     wait = ctx.node_limiter.hit(str(node.id))
