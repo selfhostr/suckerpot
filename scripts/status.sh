@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -f .env ] || die "no .env here: SuckerPot is not installed in this folder (./scripts/install.sh)"
-command -v docker > /dev/null 2>&1 || die "Docker is not installed"
+command -v "${ENGINE_CTR[0]}" > /dev/null 2>&1 || die "$(engine_name) is not installed"
 
 # JSON string with the escapes the renderer needs (control characters other than \n and \t go).
 json_str() {
@@ -46,7 +46,7 @@ stack=$(env_get SUCKERPOT_STACK_MODE full)
 install=$(env_get SUCKERPOT_INSTALL_MODE source)
 version=$(env_get SUCKERPOT_VERSION)
 
-ps_lines=$(docker compose ps --format '{{.Service}} {{.State}} {{.Health}}' 2> /dev/null || true)
+ps_lines=$(dc ps --format '{{.Service}} {{.State}} {{.Health}}' 2> /dev/null || true)
 ingest_up=0
 ps_json=""
 while read -r svc state health _; do
@@ -58,7 +58,7 @@ done <<< "$ps_lines"
 
 if [ "$last_batch" = 1 ]; then
   [ "$ingest_up" = 1 ] || die "ingest is not running"
-  docker compose exec -T ingest python -m ingest.network.cli status --last-batch
+  dc exec -T ingest python -m ingest.network.cli status --last-batch
   exit $?
 fi
 
@@ -76,7 +76,7 @@ fi
 
 cli_raw=""
 cli_error=""
-if cli_raw=$(docker compose exec -T ingest python -m ingest.network.cli status --json 2> /dev/null); then
+if cli_raw=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null); then
   :
 else
   cli_raw=""
@@ -133,8 +133,8 @@ doc=$(printf '{"stack":%s,"install":%s,"version":%s,"ps":[%s],"ports":[%s],"auto
 src=$(cat scripts/lib/status_render.py)
 rc=0
 if [ "$want_json" = 1 ]; then
-  printf '%s' "$doc" | docker compose exec -T ingest python -I -c "$src" --json || rc=$?
+  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" --json || rc=$?
 else
-  printf '%s' "$doc" | docker compose exec -T ingest python -I -c "$src" || rc=$?
+  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" || rc=$?
 fi
 exit "$rc"

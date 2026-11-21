@@ -331,6 +331,7 @@ def test_hub_env_stays_private_when_its_folder_is_opened(sandbox: Sandbox) -> No
 # Commands that write the checkout, or read it to build an image.
 RISKY = re.compile(
     r"\bgit\s+(checkout|pull)\b|\bdocker\s+build\b|\bdocker\s+compose\b.*(\bbuild\b|--build\b)"
+    r"|\bctr\s+build\b|\bdc\s.*(\bbuild\b|--build\b)"
 )
 SCRIPTS = ["update.sh", "rollback.sh", "install.sh", "auto-update.sh"]
 
@@ -355,14 +356,14 @@ def test_the_commands_that_write_or_read_the_checkout_go_through_with_public_uma
         "update.sh": [
             "with_public_umask git pull --ff-only --quiet",
             'with_public_umask git checkout --quiet --detach "$target_commit"',
-            "with_public_umask docker compose build",
+            "with_public_umask dc build",
         ],
         "rollback.sh": [
             'with_public_umask git checkout --quiet "$from_branch"',
             'with_public_umask git checkout --quiet --detach "$from_ref"',
-            "with_public_umask docker compose build",
+            "with_public_umask dc build",
         ],
-        "install.sh": ["with_public_umask docker compose up -d --build"],
+        "install.sh": ["with_public_umask dc up -d --build"],
     }
     for name, fragments in wanted.items():
         text = (ROOT / "scripts" / name).read_text()

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Internal, no behaviour change: the host scripts call the container engine through
+  `scripts/lib/engine.sh` (`dc`, `ctr`), and `.env` records `SUCKERPOT_ENGINE=docker`. This
+  prepares Podman support; until it is finished, the installer and the updater refuse Podman.
+
 ## [0.12.1] - 2026-11-21
 
 ### Added

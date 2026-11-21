@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Shared helpers for the SuckerPot host scripts (install.sh, env-set.sh, env-migrate.sh,
 # update.sh, rollback.sh). Source this file; it defines functions and constants only and runs
-# nothing. It never prints a secret value.
+# no command (scripts/lib/engine.sh reads SUCKERPOT_ENGINE from .env). It never prints a secret value.
+
+# shellcheck source=scripts/lib/engine.sh
+. "$(dirname "${BASH_SOURCE[0]}")/engine.sh" || return 1
 
 # Every secret of .env. The installer generates them all; env-migrate.sh adds the missing ones.
 SECRET_VARS=(
@@ -20,7 +23,7 @@ SECRET_VARS=(
 NO_MIGRATE_SECRET_VARS=(POSTGRES_PASSWORD)
 
 # Non-secret variables env-migrate.sh adds (with this default) to an .env that lacks them.
-MIGRATE_DEFAULTS=(SUCKERPOT_INSTALL_MODE=source SUCKERPOT_STACK_MODE=full AUTO_UPDATE_ENABLED=false)
+MIGRATE_DEFAULTS=(SUCKERPOT_ENGINE=docker SUCKERPOT_INSTALL_MODE=source SUCKERPOT_STACK_MODE=full AUTO_UPDATE_ENABLED=false)
 
 SENSORS=(ssh telnet web rdp redis docker mysql adb mssql smb sip synology)
 RECOMMENDED_SENSORS=(ssh telnet web redis docker adb)
@@ -477,9 +480,9 @@ consent_screen_full() {
   echo
 }
 
-# compose_up_recreating ARGS...: `docker compose up ARGS...`; when it fails because a Docker
+# compose_up_recreating ARGS...: `dc up ARGS...`; when it fails because a Docker
 # network must be recreated (Docker cannot change the name or options of an existing bridge, and
-# a release may change both), it runs `docker compose down --remove-orphans` once and starts
+# a release may change both), it runs `dc down --remove-orphans` once and starts
 # again. Never `-v`: volumes stay. If a container of ANOTHER project is attached to one of our
 # networks, the down cannot remove it: that is reported with the way to disconnect it, and
 # nothing is disconnected here. Returns the status of the last `up`, or 1 when it had to stop.
@@ -487,7 +490,7 @@ consent_screen_full() {
 compose_up_recreating() {
   local out rc=0 down_out net project nets conns c
   out=$(mktemp)
-  docker compose up "$@" 2>&1 | tee "$out" || rc=$?
+  dc up "$@" 2>&1 | tee "$out" || rc=$?
   if [ "$rc" = 0 ]; then
     rm -f "$out"
     return 0
@@ -502,24 +505,24 @@ compose_up_recreating() {
   echo "      a Docker network must be recreated (its name or options changed): stopping the stack and starting it again once (data volumes are kept)" >&2
   project=$(env_get COMPOSE_PROJECT_NAME)
   down_out=$(mktemp)
-  if ! docker compose down --remove-orphans > "$down_out" 2>&1; then
+  if ! dc down --remove-orphans > "$down_out" 2>&1; then
     cat "$down_out" >&2
     rm -f "$down_out"
     nets=""
     if [ -n "$project" ]; then
-      nets=$(docker network ls --filter "label=com.docker.compose.project=$project" --format '{{.Name}}' 2> /dev/null || true)
+      nets=$(ctr network ls --filter "label=com.docker.compose.project=$project" --format '{{.Name}}' 2> /dev/null || true)
     fi
     for net in $nets; do
-      conns=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2> /dev/null || true)
+      conns=$(ctr network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2> /dev/null || true)
       [ -z "${conns// /}" ] && continue
       echo "      network $net still has containers that are not part of this stack: $conns" >&2
       for c in $conns; do
-        echo "      disconnect one with: docker network disconnect $net $c  (then run the update again)" >&2
+        echo "      disconnect one with: ${ENGINE_CTR[*]} network disconnect $net $c  (then run the update again)" >&2
       done
     done
     echo "      nothing was disconnected for you." >&2
     return 1
   fi
   rm -f "$down_out"
-  docker compose up "$@"
+  dc up "$@"
 }

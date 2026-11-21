@@ -15,6 +15,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/engine.sh
+. scripts/lib/engine.sh
+if ! engine_ready; then
+  echo "ensure-volumes: $ENGINE_UNREADY_MSG" >&2
+  exit 1
+fi
 force=0
 if [ "${1:-}" = "--force-empty" ] || [ "${SUCKERPOT_ALLOW_EMPTY_DB:-0}" = "1" ]; then force=1; fi
 
@@ -38,10 +44,10 @@ if [ -z "$image" ]; then
   exit 1
 fi
 
-exists() { docker volume inspect "$1" > /dev/null 2>&1; }
+exists() { ctr volume inspect "$1" > /dev/null 2>&1; }
 
 if ! exists "${prefix}_db-data" && exists "${prefix}_backups"; then
-  dumps=$(docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
+  dumps=$(ctr run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
     --user 70:70 --entrypoint sh -v "${prefix}_backups":/b:ro "$image" \
     -c 'ls -1 /b/suckerpot-*.dump 2>/dev/null | wc -l') || dumps=unknown
   case $dumps in '' | *[!0-9]*) dumps=unknown ;; esac
@@ -51,7 +57,7 @@ ensure-volumes: STOP. The database volume "${prefix}_db-data" does not exist, bu
 backups volume ${prefix}_backups holds $dumps dump(s) (unknown = could not be counted). Starting now would create an EMPTY database.
 
   - To restore the newest dump: create the volumes and start only the database, then restore:
-        scripts/ensure-volumes.sh --force-empty && docker compose up -d --wait db && just restore latest
+        scripts/ensure-volumes.sh --force-empty && ${ENGINE_DC[*]} up -d --wait db && just restore latest
   - To really start from scratch: just up --force-empty   (or SUCKERPOT_ALLOW_EMPTY_DB=1)
 EOF
     exit 3
@@ -60,24 +66,24 @@ fi
 
 for v in "${volumes[@]}"; do
   if exists "$v"; then continue; fi
-  docker volume create "$v" > /dev/null
+  ctr volume create "$v" > /dev/null
   echo "ensure-volumes: created $v"
   if [ "$v" = "${prefix}_backups" ]; then
     # The backup service runs as uid 70 (postgres); a new volume starts root-owned.
-    docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
+    ctr run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
       --user 0:0 --entrypoint chown -v "$v:/b" "$image" 70:70 /b
   fi
   if [ "$v" = "${prefix}_vpn-config" ]; then
     # In participant mode (M32) the api never starts, so nobody else fixes the owner of this
     # volume. The vpn container (read-only mount) and a later switch to full mode (the api,
     # uid 10001) both expect uid 10001.
-    docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
+    ctr run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
       --user 0:0 --entrypoint chown -v "$v:/b" "$image" 10001:10001 /b
   fi
   if [ "$v" = "${prefix}_trap-packs" ]; then
     # The signed trap pack bundle (M37): ingest (uid 10001) writes it, the web sensor (uid 10001)
     # reads it read-only.
-    docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
+    ctr run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
       --user 0:0 --entrypoint chown -v "$v:/b" "$image" 10001:10001 /b
   fi
 done

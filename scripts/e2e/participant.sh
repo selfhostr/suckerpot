@@ -30,6 +30,9 @@ keep=0
 
 # Nothing from the caller's environment may steer compose (just loads .env into its recipes).
 while IFS= read -r v; do unset "$v"; done < <(compgen -e | grep -E '^(COMPOSE_|SUCKERPOT_|NETWORK_|EGRESS_|HUBPROXY_|REDIS_|POSTGRES_|SENSOR_|ADMIN_|DASHBOARD_|API_|SELF_|E2E_|AUTO_UPDATE|COLLECTOR_|VPN_)' || true)
+# dc and ctr (scripts/lib/engine.sh). Docker: the caller's .env is not read, and the variable is gone.
+# shellcheck source=scripts/lib/engine.sh
+ENV_FILE=/dev/null . "$repo/scripts/lib/engine.sh"
 
 rand=$( (set +o pipefail; LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 8) )
 PROJ="sp-it-participant-$rand"
@@ -60,10 +63,10 @@ check() {
   if "$@" > /dev/null 2>&1; then ok "$desc"; else bad "$desc"; fi
 }
 
-dc() { (cd "$work" && docker compose "$@"); }
+dc() { (cd "$work" && "${ENGINE_DC[@]}" "$@"); }
 hubdc() {
   (cd "$work" && E2E_UPLINK_NET=$UPLINK E2E_HUB_IP=$HUB_IP \
-    docker compose -f hub/docker-compose.test.yml -p "$HUBPROJ" --profile participant-e2e "$@")
+    "${ENGINE_DC[@]}" -f hub/docker-compose.test.yml -p "$HUBPROJ" --profile participant-e2e "$@")
 }
 # The same, with the host-side port probe stubbed (see below) and the test mode on.
 inst() {
@@ -99,36 +102,36 @@ cleanup() {
   if [ "$rc" != 0 ] || [ "$failed" != 0 ]; then diagnose; fi
   if [ "$keep" = 1 ] && [ "$rc" = 0 ] && [ "$failed" = 0 ]; then
     echo "e2e: --keep: the stack stays up. Remove it with:"
-    echo "  (cd $work && docker compose --profile '*' down -v --remove-orphans)"
-    echo "  docker compose -f $work/hub/docker-compose.test.yml -p $HUBPROJ --profile participant-e2e down -v"
-    echo "  docker network rm $UPLINK"
+    echo "  (cd $work && ${ENGINE_DC[*]} --profile '*' down -v --remove-orphans)"
+    echo "  ${ENGINE_DC[*]} -f $work/hub/docker-compose.test.yml -p $HUBPROJ --profile participant-e2e down -v"
+    echo "  ${ENGINE_CTR[*]} network rm $UPLINK"
     return
   fi
   log "teardown"
   if [ -n "$work" ] && [ -f "$work/.env" ]; then
-    (cd "$work" && SELFHOSTR_TEST_INSTALL=1 E2E_UPLINK_NET=$UPLINK timeout 180 docker compose --profile '*' down -v --remove-orphans -t 5) > /dev/null 2>&1
+    (cd "$work" && SELFHOSTR_TEST_INSTALL=1 E2E_UPLINK_NET=$UPLINK timeout 180 "${ENGINE_DC[@]}" --profile '*' down -v --remove-orphans -t 5) > /dev/null 2>&1
   fi
   if [ -n "$work" ] && [ -d "$work/hub" ]; then
     hubdc down -v --remove-orphans -t 5 > /dev/null 2>&1
   fi
   # Whatever is left of the two unique projects, by label. The names are random and unique.
   for p in "$PROJ" "$HUBPROJ"; do
-    docker ps -aq --filter "label=com.docker.compose.project=$p" | xargs -r docker rm -f > /dev/null 2>&1
-    docker volume ls -q --filter "label=com.docker.compose.project=$p" | xargs -r docker volume rm -f > /dev/null 2>&1
-    docker network ls -q --filter "label=com.docker.compose.project=$p" | xargs -r docker network rm > /dev/null 2>&1
+    ctr ps -aq --filter "label=com.docker.compose.project=$p" | xargs -r "${ENGINE_CTR[@]}" rm -f > /dev/null 2>&1
+    ctr volume ls -q --filter "label=com.docker.compose.project=$p" | xargs -r "${ENGINE_CTR[@]}" volume rm -f > /dev/null 2>&1
+    ctr network ls -q --filter "label=com.docker.compose.project=$p" | xargs -r "${ENGINE_CTR[@]}" network rm > /dev/null 2>&1
   done
-  docker volume ls -q --filter "name=^test-${PROJ}_" | xargs -r docker volume rm -f > /dev/null 2>&1
-  docker network rm "$UPLINK" > /dev/null 2>&1
-  docker image ls -q --filter "reference=local/${PROJ}-*" | sort -u | xargs -r docker rmi -f > /dev/null 2>&1
-  docker image ls -q --filter "reference=${HUBPROJ}-*" | sort -u | xargs -r docker rmi -f > /dev/null 2>&1
+  ctr volume ls -q --filter "name=^test-${PROJ}_" | xargs -r "${ENGINE_CTR[@]}" volume rm -f > /dev/null 2>&1
+  ctr network rm "$UPLINK" > /dev/null 2>&1
+  ctr image ls -q --filter "reference=local/${PROJ}-*" | sort -u | xargs -r "${ENGINE_CTR[@]}" rmi -f > /dev/null 2>&1
+  ctr image ls -q --filter "reference=${HUBPROJ}-*" | sort -u | xargs -r "${ENGINE_CTR[@]}" rmi -f > /dev/null 2>&1
   [ -z "$work" ] || rm -rf "$work"
   log "teardown done"
 }
 trap cleanup EXIT
 
-command -v docker > /dev/null || fatal "Docker is not installed"
-docker compose version > /dev/null || fatal "Docker Compose v2 is required"
-docker network inspect "$UPLINK" > /dev/null 2>&1 && fatal "network $UPLINK exists"
+command -v "${ENGINE_CTR[0]}" > /dev/null || fatal "$(engine_name) is not installed"
+dc version > /dev/null || fatal "Docker Compose v2 is required"
+ctr network inspect "$UPLINK" > /dev/null 2>&1 && fatal "network $UPLINK exists"
 if ip -4 route 2> /dev/null | grep -q "^11\.251\.77\."; then fatal "the test subnet $UPLINK_SUBNET is in use on this machine"; fi
 
 # ---------------------------------------------------------------- 1. a clean copy of the sources
@@ -147,9 +150,9 @@ export DOCKER_BUILDKIT=1
 
 # ---------------------------------------------------------------- 2. the test hub
 log "creating the internal hub gate network $UPLINK ($UPLINK_SUBNET)"
-docker network create --internal --subnet "$UPLINK_SUBNET" --label "e2e.project=$PROJ" "$UPLINK" > /dev/null
+ctr network create --internal --subnet "$UPLINK_SUBNET" --label "e2e.project=$PROJ" "$UPLINK" > /dev/null
 log "building and starting the test hub (project $HUBPROJ)"
-timeout 900 bash -c "cd '$work' && E2E_UPLINK_NET='$UPLINK' E2E_HUB_IP='$HUB_IP' docker compose -f hub/docker-compose.test.yml -p '$HUBPROJ' --profile participant-e2e up -d --build --wait --wait-timeout 300 hub-edge" \
+timeout 900 bash -c "cd '$work' && E2E_UPLINK_NET='$UPLINK' E2E_HUB_IP='$HUB_IP' ${ENGINE_DC[*]} -f hub/docker-compose.test.yml -p '$HUBPROJ' --profile participant-e2e up -d --build --wait --wait-timeout 300 hub-edge" \
   || fatal "the test hub did not start"
 hub_key=$(hubdc exec -T hub-api python -m hub.admin show-public-key | sed -n 's/^hub_key=//p' | tr -d '\r\n ')
 [ -n "$hub_key" ] || fatal "no hub key"
@@ -351,7 +354,7 @@ set -e
 # Does `up --remove-orphans` stop a service of a profile that is no longer on? The installer and
 # participant.sh assume it does NOT, and stop such services by name. Check, without changing .env.
 log "does 'up --remove-orphans' remove a service of an inactive profile?"
-(cd "$work" && COMPOSE_PROFILES=egress docker compose up -d --no-build --no-deps --remove-orphans redis > /dev/null 2>&1) || true
+(cd "$work" && COMPOSE_PROFILES=egress dc up -d --no-build --no-deps --remove-orphans redis > /dev/null 2>&1) || true
 if [ -n "$(dc ps -q hubproxy 2> /dev/null)" ]; then
   ok "P7: --remove-orphans leaves hubproxy (profile direct, inactive) running: the explicit rm -sf is needed"
   REMOVE_ORPHANS_REMOVES=0

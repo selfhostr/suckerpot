@@ -25,6 +25,7 @@ cd "$(dirname "$0")/.."
 . scripts/lib/env.sh
 
 die() { echo "participant: $*" >&2; exit 1; }
+engine_ready || die "$ENGINE_UNREADY_MSG"
 note() { echo "  $*"; }
 
 [ -f .env ] || die "no .env here: nothing is installed in this folder (./scripts/install.sh --participant)"
@@ -41,9 +42,9 @@ need_participant() {
 # docker compose up with the flags that match the install mode (signed images are never built over).
 compose_up() {
   if [ "$install_mode" = images ]; then
-    docker compose up -d --no-build --pull never --wait --wait-timeout 300 "$@"
+    dc up -d --no-build --pull never --wait --wait-timeout 300 "$@"
   else
-    docker compose up -d --build --wait --wait-timeout 600 "$@"
+    dc up -d --build --wait --wait-timeout 600 "$@"
   fi
 }
 
@@ -104,12 +105,12 @@ json_top_state() {
 # True when the top-level state of the network status is off, left or not_joined.
 cli_state_off() {
   local st
-  st=$(docker compose exec -T ingest python -m ingest.network.cli status --json 2> /dev/null | json_top_state) || return 1
+  st=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null | json_top_state) || return 1
   case $st in off | left | not_joined) return 0 ;; *) return 1 ;; esac
 }
 
 do_leave() {
-  if ! docker compose exec -T ingest python -m ingest.network.cli leave; then
+  if ! dc exec -T ingest python -m ingest.network.cli leave; then
     echo "participant: warning: ingest did not confirm the leave" >&2
     return 1
   fi
@@ -231,7 +232,7 @@ case $cmd in
     scripts/check-participant.sh || { revert; die "the settings were refused; .env was put back"; }
     # A service of a profile that is no longer on is not an orphan to compose: stop it by name.
     # shellcheck disable=SC2086
-    docker compose --profile "$stop_profile" rm -sf $stop_services > /dev/null 2>&1 || true
+    dc --profile "$stop_profile" rm -sf $stop_services > /dev/null 2>&1 || true
     compose_up --remove-orphans || { revert; die "the stack did not become healthy; .env was put back (run: ./scripts/install.sh --repair)"; }
     if [ "$1" = --remove ]; then
       echo "participant: the VPN was removed. The hub now sees this machine's address (direct path)."
@@ -336,11 +337,11 @@ case $cmd in
     # shellcheck source=scripts/lib/schedule.sh
     . scripts/lib/schedule.sh
     schedule_remove || echo "participant: warning: could not remove the update schedule" >&2
-    docker compose down
+    dc down
     prefix=$(env_get SUCKERPOT_VOLUME_PREFIX)
     echo "participant: stopped. The sensors and the node are down; the schedule is removed."
     echo "Your data volumes were NOT deleted. To delete them for good (this cannot be undone), run:"
-    echo "  docker volume ls -q --filter \"name=^${prefix}_\" | xargs docker volume rm"
+    echo "  ${ENGINE_CTR[*]} volume ls -q --filter \"name=^${prefix}_\" | xargs ${ENGINE_CTR[*]} volume rm"
     ;;
 
   "" | -h | --help)

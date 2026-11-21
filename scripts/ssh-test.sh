@@ -4,6 +4,9 @@
 # visible through the API. Used by `just ssh-test` and by CI.
 set -euo pipefail
 
+# shellcheck source=scripts/lib/engine.sh
+. "$(dirname "$0")/lib/engine.sh"
+
 SSH_PORT=${SSH_HOST_PORT:-22}
 API_URL=${API_URL:-http://127.0.0.1:${DASHBOARD_PORT:-8443}}
 # The marker makes this run's events easy to find: it is the user name of a failed login.
@@ -11,7 +14,7 @@ MARK="e2e$(date +%s)"
 
 echo "== real SSH login against 127.0.0.1:${SSH_PORT}"
 # Host networking: the container reaches the published port like any local client.
-docker run --rm --network host alpine:3.24 sh -c "
+ctr run --rm --network host alpine:3.24 sh -c "
   apk add -q --no-cache openssh-client sshpass >/dev/null
   opts='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p ${SSH_PORT}'
   # one failed login with a recognisable user name, then a successful one

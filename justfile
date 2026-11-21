@@ -5,6 +5,8 @@ set dotenv-load := true
 set shell := ["bash", "-euo", "pipefail", "-c"]
 # Recipe arguments reach scripts as "$@" (never pasted into the command line).
 set positional-arguments
+# Recipes that act on the stack call compose through scripts/lib/engine.sh (`dc`). The developer
+# recipes (lint, tests, web, integration) run on Docker only.
 
 uv_image := "ghcr.io/astral-sh/uv:0.13.7-python3.15-trixie-slim"
 uv_cache := "suckerpot-uv-cache"
@@ -50,16 +52,17 @@ default:
 up *flags: _need-project ports
     #!/usr/bin/env bash
     set -euo pipefail
+    . scripts/lib/engine.sh
     bash scripts/ensure-volumes.sh "$@"
     if [ "${SUCKERPOT_INSTALL_MODE:-source}" = images ]; then
       # Release images are pulled and verified by the installer and the updater: never build over them.
       # An image that is not local was never verified: --pull never fails instead of fetching it.
-      docker compose up -d --no-build --pull never --wait || {
+      dc up -d --no-build --pull never --wait || {
         echo "an image is missing locally; run: just update (it verifies and pulls the release images)" >&2
         exit 1
       }
     else
-      docker compose up -d --build --wait
+      dc up -d --build --wait
     fi
 
 # Start the stack for tests: dashboard authentication OFF (docker-compose.ci.yml).
@@ -68,24 +71,25 @@ up *flags: _need-project ports
 up-test: ports
     #!/usr/bin/env bash
     set -euo pipefail
+    . scripts/lib/engine.sh
     # The test overlay makes every volume project-local. Always a throwaway project, never the live one.
     export COMPOSE_PROJECT_NAME=sp-test SUCKERPOT_VOLUME_PREFIX=sp-test
     : "${ADMIN_PASSWORD_HASH:=test-placeholder}"
     : "${SESSION_SECRET:=test-placeholder-session-secret-not-used}"
     export ADMIN_PASSWORD_HASH SESSION_SECRET
-    COMPOSE_FILE=docker-compose.yml:docker-compose.ci.yml docker compose up -d --build --wait
+    COMPOSE_FILE=docker-compose.yml:docker-compose.ci.yml dc up -d --build --wait
 
 # Stop the stack (volumes are kept).
 down: _need-project
-    ADMIN_PASSWORD_HASH="${ADMIN_PASSWORD_HASH:-x}" SESSION_SECRET="${SESSION_SECRET:-x}" docker compose down
+    . scripts/lib/engine.sh; ADMIN_PASSWORD_HASH="${ADMIN_PASSWORD_HASH:-x}" SESSION_SECRET="${SESSION_SECRET:-x}" dc down
 
 # Follow logs, optionally for some services: just logs ingest api
 logs *svc: _need-project
-    docker compose logs -f --tail=100 "$@"
+    . scripts/lib/engine.sh; dc logs -f --tail=100 "$@"
 
 # Show service status.
 ps: _need-project
-    docker compose ps
+    . scripts/lib/engine.sh; dc ps
 
 # Check the port layout (see scripts/check-ports.sh).
 ports:
@@ -108,25 +112,26 @@ egress-check: _need-project
 
 # Live identity check of every abuse report and CERT export (M22). Prints reason codes and counts only.
 abuse-guard-check: _need-project
-    docker compose exec -T api python -m api.abuse_selfcheck
+    . scripts/lib/engine.sh; dc exec -T api python -m api.abuse_selfcheck
 
 # Validate the compose file.
 config: _need-project ports
-    docker compose config -q
+    . scripts/lib/engine.sh; dc config -q
 
 # Generate demo data once: just demo --sessions 200 --days 3
 demo *args: _need-project
     #!/usr/bin/env bash
     set -euo pipefail
+    . scripts/lib/engine.sh
     if [ -n "${ABUSECH_AUTH_KEY:-}${VIRUSTOTAL_API_KEY:-}" ]; then
       echo "note: threat-intel keys are set. Demo indicators are marked and never sent to abuse.ch or VirusTotal," >&2
       echo "      but real traffic on this stack is. Use a separate stack for demos if that is not what you want." >&2
     fi
-    docker compose --profile tools run --rm demo "$@"
+    dc --profile tools run --rm demo "$@"
 
 # Keep generating live demo traffic (stop with Ctrl+C).
 demo-live: _need-project
-    docker compose --profile tools run --rm demo --live
+    . scripts/lib/engine.sh; dc --profile tools run --rm demo --live
 
 # Everything: lint, type-check, unit tests and the web build.
 check: lint typecheck test web-build
@@ -168,7 +173,7 @@ telnet-test:
 
 # Dump the database now into the suckerpot_backups volume (the backup service also does it daily, 7 kept).
 backup: _need-project
-    docker compose exec -T backup /bin/sh /backup-service.sh now
+    . scripts/lib/engine.sh; dc exec -T backup /bin/sh /backup-service.sh now
 
 # Dump the database into the host folder ./backups (BACKUP_DIR, BACKUP_KEEP): see scripts/backup-db.sh.
 backup-host: _need-project
@@ -176,7 +181,7 @@ backup-host: _need-project
 
 # List the dumps in the suckerpot_backups volume.
 backups: _need-project
-    docker compose exec -T backup ls -lh /backups
+    . scripts/lib/engine.sh; dc exec -T backup ls -lh /backups
 
 # Restore a dump, replacing the whole database (asks for confirmation): just restore latest | FILE | volume:NAME
 restore file: _need-project
@@ -219,12 +224,13 @@ trap-check:
 trap-import bundle sig: _need-project
     #!/usr/bin/env bash
     set -euo pipefail
+    . scripts/lib/engine.sh
     bundle=$1 sig=$2
     [ -f "$bundle" ] && [ -f "$sig" ] || { echo "usage: just trap-import traps.json traps.json.minisig" >&2; exit 2; }
     [ "$(stat -c %s "$bundle")" -le 1048576 ] || { echo "the bundle is larger than 1 MiB" >&2; exit 1; }
     [ "$(stat -c %s "$sig")" -le 4096 ] || { echo "the signature file is larger than 4 KiB" >&2; exit 1; }
     # Ingest checks the signature (pack key), the seq and every pack, exactly as for a download.
-    docker compose exec -T ingest python -m ingest.trappacks import --sig-b64 "$(base64 -w0 < "$sig")" < "$bundle"
+    dc exec -T ingest python -m ingest.trappacks import --sig-b64 "$(base64 -w0 < "$sig")" < "$bundle"
 
 # Run the trap pack tool (ingest/tools/trap_packs.py) in the pinned uv container.
 _trap *args: _cache
@@ -273,17 +279,18 @@ status *args: _need-project
 version:
     #!/usr/bin/env bash
     set -uo pipefail
+    . scripts/lib/engine.sh
     echo "checkout: $(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
     echo "mode:     ${SUCKERPOT_INSTALL_MODE:-source}"
     [ "${SUCKERPOT_INSTALL_MODE:-source}" = images ] && echo "image:    ${SUCKERPOT_VERSION:-unset}"
     if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-      echo "running:  $(docker compose exec -T api printenv SUCKERPOT_RUNNING_VERSION 2>/dev/null | tr -d '\r' || true)"
+      echo "running:  $(dc exec -T api printenv SUCKERPOT_RUNNING_VERSION 2>/dev/null | tr -d '\r' || true)"
     fi
     exit 0
 
 # Open a psql shell in the database container.
 psql: _need-project
-    docker compose exec db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+    . scripts/lib/engine.sh; dc exec db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 
 # Lint every Python package (ruff check + format check).
 lint:

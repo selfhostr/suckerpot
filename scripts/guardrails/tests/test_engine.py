@@ -1,0 +1,479 @@
+"""scripts/lib/engine.sh: the container engine abstraction (docs/dev/design/podman.md, phase 1).
+
+- On Docker, the scripts call exactly the same docker commands as before the abstraction. The
+  calls of a set of runs are compared with fixtures/docker_calls.json, recorded with the scripts
+  of v0.12.1 (before engine.sh). Set SUCKERPOT_RECORD_DOCKER_CALLS=1 to record them again.
+- `dc` and `ctr` call podman and docker-compose (on the Podman socket) when the engine is Podman.
+- Until Podman support is finished, every script that installs, updates or starts the stack
+  refuses Podman, before it calls any engine.
+- No script calls `docker` directly any more, outside scripts/lib/engine.sh and the developer
+  recipes of the justfile.
+"""
+
+import difflib
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+
+import pytest
+from conftest import ROOT, Sandbox
+from test_env_set import BASE_ENV
+from test_install import PASSWORD, add_participant_files
+from test_update import ENV as UPDATE_ENV
+from test_update import prepare, write_state
+
+FIXTURE = Path(__file__).parent / "fixtures" / "docker_calls.json"
+UNREADY = "Podman support is not ready yet"
+
+
+def _norm(sb: Sandbox, calls: list[str]) -> list[str]:
+    out = []
+    for c in calls:
+        c = c.replace(str(sb.root), "<root>").replace(str(sb.shim), "<shim>")
+        out.append(c.replace(str(sb.root.parent), "<tmp>"))
+    return out
+
+
+def _install_images(sb: Sandbox) -> int:
+    return sb.run(
+        "scripts/install.sh",
+        *("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        "--admin-password-stdin",
+        stdin=PASSWORD + "\n",
+    ).returncode
+
+
+def _install_source(sb: Sandbox) -> int:
+    return sb.run(
+        "scripts/install.sh",
+        *("--yes", "--source", "--sensors", "ssh", "--admin-password-stdin"),
+        stdin=PASSWORD + "\n",
+    ).returncode
+
+
+def _install_participant(sb: Sandbox) -> int:
+    add_participant_files(sb)
+    return sb.run(
+        "scripts/install.sh",
+        *("--participant", "--yes", "--version", "v0.8.0", "--sensors", "ssh,web"),
+    ).returncode
+
+
+def _update_images(sb: Sandbox) -> int:
+    prepare(sb)
+    return sb.run("scripts/update.sh", "--yes").returncode
+
+
+def _update_unhealthy(sb: Sandbox) -> int:
+    prepare(sb)
+    sb.env["SHIM_UP_RC"] = "1"
+    sb.env["SHIM_MIGRATE_STATE"] = "exited 0"
+    return sb.run("scripts/update.sh", "--yes").returncode
+
+
+def _rollback(sb: Sandbox) -> int:
+    prepare(sb)
+    sb.write_env(UPDATE_ENV.replace("v0.8.0", "v0.9.0"))
+    write_state(sb)
+    (sb.root / "scripts" / "restore-db.sh").write_text('echo "restore-db $*" >> "$SHIM_LOG"\n')
+    return sb.run("scripts/rollback.sh", stdin="rollback\n").returncode
+
+
+def _compose_fresh(sb: Sandbox) -> int:
+    sb.write_env(BASE_ENV + "SENSOR_WEB=0\nSENSOR_SSH=1\n")
+    return sb.run("scripts/compose-fresh.sh", "up", "-d", "--wait").returncode
+
+
+def _compose_fresh_images(sb: Sandbox) -> int:
+    sb.write_env(BASE_ENV + "SUCKERPOT_INSTALL_MODE=images\nSENSOR_WEB=0\n")
+    return sb.run("scripts/compose-fresh.sh", "up", "-d", "--wait").returncode
+
+
+def _ensure_volumes(sb: Sandbox) -> int:
+    sb.env["SUCKERPOT_VOLUME_PREFIX"] = "demo"
+    sb.env["SHIM_EXISTING_VOLUMES"] = "demo_backups"
+    return sb.run("scripts/ensure-volumes.sh").returncode
+
+
+def _restore_latest(sb: Sandbox) -> int:
+    sb.write_env(BASE_ENV)
+    sb.env["SUCKERPOT_VOLUME_PREFIX"] = "demo"
+    sb.env["SHIM_EXISTING_VOLUMES"] = "demo_backups"
+    return sb.run("scripts/restore-db.sh", "--yes", "latest").returncode
+
+
+SCENARIOS = {
+    "install_images": _install_images,
+    "install_source": _install_source,
+    "install_participant": _install_participant,
+    "update_images": _update_images,
+    "update_unhealthy": _update_unhealthy,
+    "rollback": _rollback,
+    "compose_fresh": _compose_fresh,
+    "compose_fresh_images": _compose_fresh_images,
+    "ensure_volumes": _ensure_volumes,
+    "restore_latest": _restore_latest,
+}
+
+
+def _record(sb: Sandbox, name: str) -> tuple[int, list[str]]:
+    rc = SCENARIOS[name](sb)
+    return rc, _norm(sb, sb.docker_calls())
+
+
+@pytest.mark.parametrize("name", sorted(SCENARIOS))
+def test_docker_command_lines_are_unchanged(sandbox: Sandbox, name: str) -> None:
+    rc, calls = _record(sandbox, name)
+    assert calls, "the scenario made no docker call: it proves nothing"
+    if os.environ.get("SUCKERPOT_RECORD_DOCKER_CALLS") == "1":
+        data = json.loads(FIXTURE.read_text()) if FIXTURE.exists() else {}
+        data[name] = {"rc": rc, "calls": calls}
+        FIXTURE.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
+        return
+    want = json.loads(FIXTURE.read_text())[name]
+    assert rc == want["rc"]
+    # Sorted: the two sides of a pipeline (`dc exec db ... | dc exec ingest ...`) log in any order.
+    old, new = sorted(want["calls"]), sorted(calls)
+    assert new == old, "\n".join(difflib.unified_diff(old, new, "v0.12.1", "now", lineterm=""))
+
+
+def test_every_scenario_has_a_recorded_fixture() -> None:
+    assert sorted(json.loads(FIXTURE.read_text())) == sorted(SCENARIOS)
+
+
+# ------------------------------------------------------------------ dc and ctr
+
+
+def _engine_calls(sb: Sandbox) -> list[str]:
+    return [c for c in sb.calls() if c.split(" ", 1)[0] in ("docker", "podman", "docker-compose")]
+
+
+def _source_and_run(sb: Sandbox, body: str, extra_env: dict[str, str] | None = None) -> str:
+    script = sb.root / "engine-probe.sh"
+    script.write_text(
+        "set -euo pipefail\n"
+        'cd "$(dirname "$0")"\n'
+        ". scripts/lib/engine.sh\n"
+        'echo "engine=$SUCKERPOT_ENGINE from=$ENGINE_FROM name=$(engine_name)"\n' + body
+    )
+    proc = sb.run("engine-probe.sh", extra_env=extra_env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return proc.stdout
+
+
+PROBE = """\
+dc up -d --wait
+ctr volume ls -q
+timeout 5 "${ENGINE_DC[@]}" ps
+echo demo_x | xargs -r "${ENGINE_CTR[@]}" volume rm
+echo "after=${DOCKER_HOST:-unset}"
+"""
+
+
+def test_dc_and_ctr_call_docker_by_default(sandbox: Sandbox) -> None:
+    out = _source_and_run(sandbox, PROBE)
+    assert "engine=docker from=default name=Docker" in out
+    assert _engine_calls(sandbox) == [
+        "docker compose up -d --wait",
+        "docker volume ls -q",
+        "docker compose ps",
+        "docker volume rm demo_x",
+    ]
+
+
+def test_dc_and_ctr_call_podman_and_compose_on_the_podman_socket(sandbox: Sandbox) -> None:
+    out = _source_and_run(sandbox, PROBE, extra_env={"SUCKERPOT_ENGINE": "podman"})
+    assert "engine=podman from=env name=Podman" in out
+    sock = "DOCKER_HOST=unix:///run/podman/podman.sock"
+    assert _engine_calls(sandbox) == [
+        f"docker-compose up -d --wait {sock}",
+        "podman volume ls -q",
+        f"docker-compose ps {sock}",
+        "podman volume rm demo_x",
+    ]
+    # The socket is set for the compose call only, never for the script.
+    assert f"after={sandbox.env['DOCKER_HOST']}" in out
+
+
+def test_engine_comes_from_env_file_first_then_the_environment(sandbox: Sandbox) -> None:
+    sandbox.write_env("COMPOSE_PROJECT_NAME=demo\nSUCKERPOT_ENGINE='podman'\n")
+    assert "engine=podman from=file" in _source_and_run(sandbox, "")
+    out = _source_and_run(sandbox, "", extra_env={"SUCKERPOT_ENGINE": "docker"})
+    assert "engine=podman from=file" in out
+    sandbox.write_env("COMPOSE_PROJECT_NAME=demo\n")
+    out = _source_and_run(sandbox, "", extra_env={"SUCKERPOT_ENGINE": "podman"})
+    assert "engine=podman from=env" in out
+    sandbox.write_env("COMPOSE_PROJECT_NAME=demo\n")
+    assert "engine=docker from=default" in _source_and_run(sandbox, "")
+
+
+def test_an_unknown_engine_stops_the_script(sandbox: Sandbox) -> None:
+    sandbox.write_env("SUCKERPOT_ENGINE=containerd\n")
+    proc = sandbox.run("scripts/update.sh", "--yes")
+    assert proc.returncode != 0
+    assert "SUCKERPOT_ENGINE must be docker or podman" in proc.stderr
+    assert _engine_calls(sandbox) == []
+
+
+# ------------------------------------------------------------------ Podman is refused for now
+
+
+def _podman_install(sb: Sandbox) -> subprocess.CompletedProcess[str]:
+    return sb.run(
+        "scripts/install.sh",
+        *("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh"),
+        "--admin-password-stdin",
+        stdin=PASSWORD + "\n",
+        extra_env={"SUCKERPOT_ENGINE": "podman"},
+    )
+
+
+def _assert_refused(sb: Sandbox, proc: subprocess.CompletedProcess[str]) -> None:
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert UNREADY in proc.stderr
+    assert _engine_calls(sb) == [], "no engine may be called before the refusal"
+
+
+def test_install_refuses_podman_before_anything_runs(sandbox: Sandbox) -> None:
+    proc = _podman_install(sandbox)
+    _assert_refused(sandbox, proc)
+    assert not (sandbox.root / ".env").exists()
+    assert not list(sandbox.root.glob(".env.*.tmp*"))
+
+
+def test_install_dry_run_refuses_podman_too(sandbox: Sandbox) -> None:
+    out = sandbox.root / "out.env"
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--yes", "--dry-run", "--env-out", str(out), "--admin-password-stdin"),
+        stdin=PASSWORD + "\n",
+        extra_env={"SUCKERPOT_ENGINE": "podman"},
+    )
+    _assert_refused(sandbox, proc)
+    assert not out.exists()
+
+
+def test_install_repair_refuses_an_env_that_says_podman(sandbox: Sandbox) -> None:
+    sandbox.write_env(UPDATE_ENV + "SUCKERPOT_ENGINE=podman\n")
+    proc = sandbox.run("scripts/install.sh", "--repair", "--yes")
+    _assert_refused(sandbox, proc)
+
+
+def _path_without_docker(sb: Sandbox) -> str:
+    """A PATH with the host tools and the fake podman, and no docker command at all."""
+    tools = sb.shim.parent / "tools"
+    tools.mkdir()
+    for d in ("/usr/bin", "/bin"):
+        for entry in Path(d).iterdir():
+            name = entry.name
+            if name in ("docker", "docker-compose", "podman") or (tools / name).exists():
+                continue
+            (tools / name).symlink_to(entry)
+    nodocker = sb.shim.parent / "nodocker"
+    nodocker.mkdir()
+    for name in ("podman", "git", "curl", "ss", "sleep"):
+        (nodocker / name).symlink_to(sb.shim / name)
+    return f"{nodocker}:{tools}"
+
+
+def test_install_detects_a_podman_only_host_and_refuses(sandbox: Sandbox) -> None:
+    sandbox.env["PATH"] = _path_without_docker(sandbox)
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh"),
+        "--admin-password-stdin",
+        stdin=PASSWORD + "\n",
+    )
+    _assert_refused(sandbox, proc)
+
+
+def test_install_refuses_a_docker_command_that_is_podman(sandbox: Sandbox) -> None:
+    """The podman-docker package: `docker` answers with the Podman version."""
+    shim = sandbox.shim / "docker"
+    text = shim.read_text().replace('echo "27.0.1"', 'echo "5.4.2"')
+    shim.write_text(
+        text.replace("  *) ;;", '  "--version") echo "podman version 5.4.2" ;;\n  *) ;;')
+    )
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh"),
+        "--admin-password-stdin",
+        stdin=PASSWORD + "\n",
+    )
+    assert proc.returncode == 1
+    assert UNREADY in proc.stderr
+    assert "the docker command on this host is Podman 5.4.2" in proc.stderr
+    assert not (sandbox.root / ".env").exists()
+    assert not [c for c in sandbox.calls() if c.startswith(("docker compose up", "docker run"))]
+
+
+def test_old_docker_keeps_its_message(sandbox: Sandbox) -> None:
+    shim = sandbox.shim / "docker"
+    shim.write_text(shim.read_text().replace('echo "27.0.1"', 'echo "20.10.5"'))
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--yes", "--images", "--version", "v0.8.0", "--sensors", "ssh"),
+        "--admin-password-stdin",
+        stdin=PASSWORD + "\n",
+    )
+    assert proc.returncode == 1
+    assert "Docker Engine 24 or newer is required (found 20.10.5)" in proc.stderr
+    assert UNREADY not in proc.stderr
+
+
+def test_update_refuses_podman_before_anything_runs(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    sandbox.write_env(UPDATE_ENV + "SUCKERPOT_ENGINE=podman\n")
+    proc = sandbox.run("scripts/update.sh", "--yes")
+    _assert_refused(sandbox, proc)
+    assert not [c for c in sandbox.calls() if c.startswith("git ")]
+    assert not (sandbox.root / ".suckerpot-state").exists()
+
+
+def test_update_refuses_podman_from_the_environment(sandbox: Sandbox) -> None:
+    prepare(sandbox)
+    proc = sandbox.run("scripts/update.sh", "--yes", extra_env={"SUCKERPOT_ENGINE": "podman"})
+    _assert_refused(sandbox, proc)
+
+
+@pytest.mark.parametrize(
+    ("script", "args"),
+    [
+        ("scripts/rollback.sh", ()),
+        ("scripts/participant.sh", ("status",)),
+        ("scripts/compose-fresh.sh", ("up", "-d", "--wait")),
+        ("scripts/ensure-volumes.sh", ()),
+        ("scripts/restore-db.sh", ("--yes", "latest")),
+    ],
+)
+def test_every_script_that_starts_the_stack_refuses_podman(
+    sandbox: Sandbox, script: str, args: tuple[str, ...]
+) -> None:
+    add_participant_files(sandbox)
+    sandbox.write_env(UPDATE_ENV + "SUCKERPOT_ENGINE=podman\n")
+    sandbox.env["SUCKERPOT_VOLUME_PREFIX"] = "demo"
+    proc = sandbox.run(script, *args, stdin="rollback\n")
+    _assert_refused(sandbox, proc)
+
+
+def test_docker_install_writes_the_engine_and_migrate_adds_it(
+    sandbox: Sandbox,
+) -> None:
+    assert _install_images(sandbox) == 0
+    env = (sandbox.root / ".env").read_text()
+    assert re.findall(r"^SUCKERPOT_ENGINE=.*$", env, re.M) == ["SUCKERPOT_ENGINE=docker"]
+    # An install from before the key gets SUCKERPOT_ENGINE=docker, so it never switches engine.
+    sandbox.write_env(UPDATE_ENV)
+    proc = sandbox.run("scripts/env-migrate.sh")
+    assert proc.returncode == 0, proc.stderr
+    env = (sandbox.root / ".env").read_text()
+    assert re.findall(r"^SUCKERPOT_ENGINE=.*$", env, re.M) == ["SUCKERPOT_ENGINE=docker"]
+
+
+# ------------------------------------------------------------------ no literal docker call
+
+ENGINE_LIB = "scripts/lib/engine.sh"
+# The developer recipes of the justfile stay on Docker (design decision D8).
+DEV_RECIPES = {
+    "guardrails",
+    "web-dev",
+    "trap-check",
+    "_trap",
+    "hub-integration",
+    "test-integration",
+    "_cache_vol",
+    "_web",
+    "_cache",
+    "_py",
+}
+DOCKER_CALL = re.compile(
+    r"(?<![\w./-])docker\s+(?:compose|run|volume|network|inspect|image|pull|tag|info|version|ps|"
+    r"exec|create|start|stop|rm|rmi|build|kill|logs|login|cp|wait|--version)\b"
+)
+
+
+def _context_at(line: str, pos: int) -> str:
+    """'code' when position `pos` of a shell line is outside quotes (or inside $(...))."""
+    stack = ["code"]
+    i = 0
+    while i < pos:
+        c, top = line[i], stack[-1]
+        if top == "sq":
+            if c == "'":
+                stack.pop()
+        elif c == "\\":
+            i += 2
+            continue
+        elif line.startswith("$(", i):
+            stack.append("sub")
+            i += 2
+            continue
+        elif top == "dq":
+            if c == '"':
+                stack.pop()
+        elif c == "'":
+            stack.append("sq")
+        elif c == '"':
+            stack.append("dq")
+        elif c == "(":
+            stack.append("paren")
+        elif c == ")" and top in ("sub", "paren"):
+            stack.pop()
+        i += 1
+    return "code" if stack[-1] in ("code", "sub", "paren") else stack[-1]
+
+
+def literal_docker_calls(text: str) -> list[str]:
+    found = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            continue
+        for m in DOCKER_CALL.finditer(line):
+            if _context_at(line, m.start()) == "code":
+                found.append(f"{n}: {line.strip()}")
+    return found
+
+
+def _node_justfile(text: str) -> str:
+    """The justfile without the bodies of the developer recipes."""
+    keep, skip = [], False
+    for line in text.splitlines():
+        m = re.match(r"^@?([A-Za-z_][\w-]*)[^:=]*:(?!=)", line)
+        if m:
+            skip = m.group(1) in DEV_RECIPES
+        elif line and not line[0].isspace():
+            skip = False
+        keep.append("" if skip else line)
+    return "\n".join(keep)
+
+
+def test_the_detector_sees_calls_and_ignores_messages() -> None:
+    assert literal_docker_calls("x=$(docker compose ps)\n  docker run --rm a\n")
+    assert literal_docker_calls('echo "$(docker inspect -f x c)"\nfoo | docker volume rm\n')
+    assert literal_docker_calls("if ! docker network inspect n; then :; fi\n")
+    assert not literal_docker_calls('die "run: docker compose pull"\n# docker run\n')
+    assert not literal_docker_calls("x=$(dc ps) && ctr run --rm a\n")
+
+
+def test_no_script_calls_docker_directly() -> None:
+    offenders = []
+    for path in sorted((ROOT / "scripts").rglob("*.sh")):
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == ENGINE_LIB:
+            continue
+        offenders += [f"{rel}:{hit}" for hit in literal_docker_calls(path.read_text())]
+    offenders += [
+        f"justfile:{hit}"
+        for hit in literal_docker_calls(_node_justfile((ROOT / "justfile").read_text()))
+    ]
+    assert offenders == [], "use dc or ctr (scripts/lib/engine.sh):\n" + "\n".join(offenders)
+
+
+def test_the_developer_recipes_exist() -> None:
+    """A renamed developer recipe must not silently leave the literal-docker check."""
+    text = (ROOT / "justfile").read_text()
+    for name in DEV_RECIPES:
+        assert re.search(rf"^@?{re.escape(name)}\b[^:=]*:(?!=)", text, re.M), name
+    assert literal_docker_calls(text), "the developer recipes still call docker"

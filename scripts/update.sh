@@ -69,10 +69,12 @@ if [ "$auto" = 1 ] && { [ "$no_backup" = 1 ] || [ "$skip_verify" = 1 ] || [ "$fo
 fi
 
 die() { echo "update: $*" >&2; exit 1; }
+# Podman is refused until its support is finished (scripts/lib/engine.sh).
+engine_ready || die "$ENGINE_UNREADY_MSG"
 # A failure caused by the release itself (exit 10, see the header).
 die_release() { echo "update: $*" >&2; exit 10; }
 # "service state health" per line; an empty health means a container without a healthcheck.
-health_snapshot() { docker compose ps --format '{{.Service}} {{.State}} {{.Health}}' 2> /dev/null | tr -d '\r' | sort || true; }
+health_snapshot() { dc ps --format '{{.Service}} {{.State}} {{.Health}}' 2> /dev/null | tr -d '\r' | sort || true; }
 # health_of SERVICE SNAPSHOT: prints the status of SERVICE, fails when it is absent. The status is
 # the container state when it is not "running" (restarting, exited...), else its health (empty for
 # a running container without a healthcheck, which is good).
@@ -93,7 +95,8 @@ release_or_warn() {
 # The Alembic revision the database is at ("" when it cannot be read).
 db_alembic_revision() {
   local rev
-  rev=$(docker compose exec -T db sh -c \
+  # shellcheck disable=SC2016 # expanded by the shell inside the container
+  rev=$(dc exec -T db sh -c \
     'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -q -At -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT version_num FROM alembic_version"' \
     2> /dev/null | tr -d '\r' | head -n 1 || true)
   [[ $rev =~ ^[A-Za-z0-9_]{1,64}$ ]] || rev=""
@@ -141,7 +144,7 @@ if [ -n "$dirty" ]; then
   echo "      warning: tracked files have local changes (the compose file comes from git too)" >&2
 fi
 
-backup_health=$(docker compose ps backup --format '{{.Health}}' 2> /dev/null | head -n 1 || true)
+backup_health=$(dc ps backup --format '{{.Health}}' 2> /dev/null | head -n 1 || true)
 if [ "$backup_health" != healthy ]; then
   if [ "$no_backup" = 0 ]; then
     die "the stack is not up or the backup service is not healthy (state: ${backup_health:-none}). Run: just up"
@@ -247,9 +250,9 @@ if [ "$no_backup" = 1 ]; then
   read -r a || a=""
   [ "$a" = "no backup" ] || die "aborted"
 else
-  docker compose exec -T backup /bin/sh /backup-service.sh now preupdate \
+  dc exec -T backup /bin/sh /backup-service.sh now preupdate \
     || die "the backup failed; nothing was changed"
-  dump=$(docker compose exec -T backup sh -c 'ls -1t /backups/suckerpot-preupdate-*.dump 2>/dev/null | head -n 1' | tr -d '\r' || true)
+  dump=$(dc exec -T backup sh -c 'ls -1t /backups/suckerpot-preupdate-*.dump 2>/dev/null | head -n 1' | tr -d '\r' || true)
   dump=${dump##*/}
   [[ $dump =~ ^suckerpot-preupdate-[A-Za-z0-9._-]+\.dump$ ]] || die "the backup ran but its file could not be found; nothing was changed"
   echo "      dump: $dump"
@@ -264,11 +267,11 @@ chmod 700 "$STATE_DIR"
 images_json=""
 while IFS='=' read -r svc img; do
   [ -n "$svc" ] && [ -n "$img" ] || continue
-  id=$(docker image inspect --format '{{.Id}}' "$img" 2> /dev/null || true)
+  id=$(ctr image inspect --format '{{.Id}}' "$img" 2> /dev/null || true)
   [ -n "$id" ] || continue
   images_json+="${images_json:+,
 }    \"$(clean "$svc")\": \"$(clean "$id")\""
-done < <(docker compose ps -a --format '{{.Service}}={{.Image}}' 2> /dev/null || true)
+done < <(dc ps -a --format '{{.Service}}={{.Image}}' 2> /dev/null || true)
 tmp=$(mktemp "$STATE_DIR/.state.XXXXXX")
 cat > "$tmp" << EOF
 {
@@ -338,11 +341,11 @@ if [ "$mode" = images ]; then
   env_drop_loaded
   if [ "$skip_verify" = 1 ]; then
     echo "      warning: --skip-verify, the image signatures were NOT checked" >&2
-    docker compose pull
+    dc pull
   else
     # Verify the digest, pull exactly that digest, tag it: what runs is what was verified.
     bash scripts/verify-images.sh --pull ${expect_file:+--expect "$expect_file"} "$target" || die "the image signatures could not be verified; nothing was started. Run just rollback to go back, or retry with --skip-verify only if you accept the risk"
-    docker compose pull --policy missing
+    dc pull --policy missing
   fi
   expected=$target
 else
@@ -350,7 +353,7 @@ else
   SUCKERPOT_BUILD_VERSION=$expected
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
-  with_public_umask docker compose build
+  with_public_umask dc build
 fi
 
 # ---------------------------------------------------------------- 7. start
@@ -365,7 +368,7 @@ fi
 if [ "$up_rc" -ne 0 ]; then
   # `up --wait` also fails for a service that was already unhealthy. Go on only when the
   # migrations ran and finished cleanly; the health check below then judges each service.
-  migrate_state=$(docker compose ps -a migrate --format '{{.State}} {{.ExitCode}}' 2> /dev/null | tr -d '\r' | head -n 1 || true)
+  migrate_state=$(dc ps -a migrate --format '{{.State}} {{.ExitCode}}' 2> /dev/null | tr -d '\r' | head -n 1 || true)
   [ "$migrate_state" = "exited 0" ] || die_release "docker compose up failed and the migrations did not finish cleanly (exit $up_rc)"
   echo "      warning: docker compose up reported an unhealthy service (exit $up_rc); judging each service below" >&2
 fi
@@ -423,12 +426,12 @@ for svc in $degraded; do
   echo "      warning: $svc was already unhealthy before the update and still is. The update did not change that." >&2
 done
 [ -z "$regressions" ] || die_release "not healthy after the update but healthy before: ${regressions% } (docker compose ps)"
-running=$(docker compose exec -T "$health_service" printenv SUCKERPOT_RUNNING_VERSION 2> /dev/null | tr -d '\r' || true)
+running=$(dc exec -T "$health_service" printenv SUCKERPOT_RUNNING_VERSION 2> /dev/null | tr -d '\r' || true)
 if [ "$running" != "$expected" ]; then
   die_release "the $health_service reports version '${running:-unknown}' but '$expected' was expected"
 fi
 if [ "$stack_mode" = participant ]; then
-  docker compose exec -T ingest python -m ingest.network.cli status --json > /dev/null 2>&1 \
+  dc exec -T ingest python -m ingest.network.cli status --json > /dev/null 2>&1 \
     || release_or_warn ingest "the network client of ingest does not answer (ingest.network.cli status)"
 fi
 

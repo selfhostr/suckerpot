@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # dc exec ... sh -c '...': expanded by the shell inside the container
 # Dumps the SuckerPot database (custom format, includes TimescaleDB data) from the
 # running db container to a host directory.
 #
@@ -14,6 +15,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/engine.sh
+. scripts/lib/engine.sh
 BACKUP_DIR=${BACKUP_DIR:-./backups}
 BACKUP_KEEP=${BACKUP_KEEP:-7}
 case $BACKUP_KEEP in '' | *[!0-9]* | 0) echo "BACKUP_KEEP must be a positive number" >&2; exit 2 ;; esac
@@ -37,7 +40,7 @@ name="suckerpot-$(date -u +%Y%m%dT%H%M%SZ).dump"
 tmp="$BACKUP_DIR/.$name.partial"
 trap 'rm -f "$tmp"' EXIT
 
-docker compose exec -T db sh -c \
+dc exec -T db sh -c \
   'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
   > "$tmp"
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # dc exec ... sh -c '...': expanded by the shell inside the container
 # Port reachability check, sourced by scripts/participant.sh and scripts/install.sh. Defines
 # functions and constants only; it runs nothing. Needs scripts/lib/env.sh (ports_table, env_get).
 #
@@ -28,9 +29,9 @@ ports_check_counts() {
   src=$(cat scripts/lib/ports_check_filter.py) || return 1
   # Read-only twice: the session default (PGOPTIONS, passed with -e: exec does not forward the
   # caller's environment) and an explicit READ ONLY transaction in the SQL itself.
-  ports_check_sql "$1" | docker compose exec -T -e PGOPTIONS='-c default_transaction_read_only=on' db sh -c \
+  ports_check_sql "$1" | dc exec -T -e PGOPTIONS='-c default_transaction_read_only=on' db sh -c \
     'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -q -At -F " " -v ON_ERROR_STOP=1 -f -' 2> /dev/null \
-    | docker compose exec -T ingest python -I -c "$src" 2> /dev/null
+    | dc exec -T ingest python -I -c "$src" 2> /dev/null
 }
 
 # Prints "HOSTPORT SENSOR" lines of the published sensor ports that nothing listens on here.

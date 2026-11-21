@@ -1,9 +1,10 @@
 """A sandbox to run the host scripts (install, update, rollback, env-set, env-migrate) safely.
 
-Every test runs the scripts in a temporary copy of the files they need, with fake `docker`, `git`,
-`curl`, `ss` and `sleep` programs first on PATH. The fakes only record what they were asked to do;
-they never reach a real Docker daemon, a real repository or the network. DOCKER_HOST points at
-a socket that does not exist, so a leaked real call fails instead of acting on a live stack.
+Every test runs the scripts in a temporary copy of the files they need, with fake `docker`,
+`podman`, `docker-compose`, `git`, `curl`, `ss` and `sleep` programs first on PATH. The fakes only
+record what they were asked to do; they never reach a real Docker daemon, a real repository or the
+network. DOCKER_HOST points at a socket that does not exist, so a leaked real call fails instead of
+acting on a live stack.
 """
 
 import os
@@ -32,6 +33,7 @@ COPIED = [
     "scripts/verify-images.sh",
     "scripts/compose-fresh.sh",
     "scripts/lib/env.sh",
+    "scripts/lib/engine.sh",
     "scripts/lib/pseudonym.sh",
     "scripts/lib/ports-check.sh",
     "scripts/lib/ports_check_filter.py",
@@ -86,6 +88,18 @@ case "$*" in
     [ "${SHIM_UP_RC:-0}" = 0 ] || exit "$SHIM_UP_RC" ;;
   *) ;;
 esac
+exit 0
+"""
+
+PODMAN_SHIM = r"""#!/bin/sh
+# Fake podman: records the call, never does anything.
+echo "podman $*" >> "$SHIM_LOG"
+exit 0
+"""
+
+COMPOSE_SHIM = r"""#!/bin/sh
+# Fake standalone docker-compose: records the call and the engine socket it was given.
+echo "docker-compose $* DOCKER_HOST=${DOCKER_HOST:-unset}" >> "$SHIM_LOG"
 exit 0
 """
 
@@ -228,6 +242,8 @@ def sandbox(tmp_path: Path) -> Sandbox:
     (root / "api" / "Dockerfile").write_text("FROM scratch\n")
     for name, text in {
         "docker": DOCKER_SHIM,
+        "podman": PODMAN_SHIM,
+        "docker-compose": COMPOSE_SHIM,
         "git": GIT_SHIM,
         "curl": CURL_SHIM,
         "ss": SS_SHIM,
