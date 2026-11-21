@@ -34,7 +34,7 @@ A report is a mail to the abuse contact that the attacking network publishes in 
 | Word | Meaning |
 | --- | --- |
 | **Sensor** | One fake service, such as the SSH or the web sensor. SuckerPot has twelve. |
-| **Full install** | SuckerPot with its dashboard, installed with `./scripts/install.sh`. |
+| **Full install** | SuckerPot with its dashboard, installed with `./scripts/install.sh --full`. |
 | **Participant install** | Sensors and a network node without a dashboard, installed with `./scripts/install.sh --participant`. Choosing it is the choice to join the network. |
 | **Node** | One SuckerPot install, full or participant, that takes part in the network. The dashboard lists nodes under Network, Members. |
 | **Hub** | The server of the network. It takes the daily batches from nodes, confirms targets, sends network-level abuse reports and publishes the community lists. |

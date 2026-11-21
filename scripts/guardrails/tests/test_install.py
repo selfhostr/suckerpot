@@ -276,18 +276,40 @@ def test_a_wrong_type_answer_is_refused(sandbox: Sandbox) -> None:
     assert proc.returncode != 0 and "answer 1 (participant node) or 2 (full install)" in proc.stderr
 
 
-def test_without_a_terminal_the_default_is_a_full_install(
+def test_without_a_terminal_an_implied_full_install_needs_yes(
     sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
 ) -> None:
-    target = sandbox.root / "n.env"
     proc = sandbox.run(
         "scripts/install.sh",
-        *("--dry-run", "--env-out", str(target)),
+        *("--dry-run", "--env-out", str(sandbox.root / "n.env")),
         extra_env={"SELFHOSTR_TTY": "/nonexistent/tty"},
     )
-    assert proc.returncode == 0, proc.stderr
-    assert "What do you want to install?" not in proc.stdout + proc.stderr
-    assert parse_env(target).get("SUCKERPOT_STACK_MODE", "full") == "full"
+    assert proc.returncode != 0
+    assert "no terminal to ask which install you want; use --yes" in proc.stderr
+    for flags in (("--yes",), ("--full",)):
+        target = sandbox.root / f"{flags[0][2:]}.env"
+        proc = sandbox.run(
+            "scripts/install.sh",
+            *flags,
+            *("--dry-run", "--env-out", str(target)),
+            extra_env={"SELFHOSTR_TTY": "/nonexistent/tty"},
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert parse_env(target).get("SUCKERPOT_STACK_MODE", "full") == "full"
+
+
+def test_ssh_sensor_stays_off_when_2222_is_busy_too(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    (sandbox.shim / "ss-output").write_text(
+        "tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\ntcp LISTEN 0 128 0.0.0.0:2222 0.0.0.0:*\n"
+    )
+    rc, out = _real_run(sandbox, "--sensors", "ssh,web")
+    assert rc == 0, out
+    assert "ports 22 and 2222 are both in use: the ssh sensor is left off" in out
+    env = parse_env(sandbox.root / ".env")
+    assert env["SENSOR_SSH"] == "0"
+    assert "SSH_HOST_PORT" not in env or env["SSH_HOST_PORT"] != "2222"
 
 
 def _real_run(sb: Sandbox, *extra: str, stdin: str = PASSWORD + "\n") -> tuple[int, str]:
@@ -462,8 +484,8 @@ def test_script_never_looks_up_a_public_address() -> None:
             assert word not in code, (rel, word)
         for line in code.splitlines():
             if re.search(r"\bcurl\b", line):
-                # The only other curl: Docker's install script, offered when Docker is missing.
-                if "https://get.docker.com" in line or "command -v curl" in line:
+                # The only other curl: Docker's key and repository files, when Docker is missing.
+                if "https://download.docker.com/linux/" in line or "apt-get install" in line:
                     continue
                 assert "healthz" in line, (rel, line)
                 assert re.search(r"http://(\$hbind|\$bind|127\.0\.0\.1)", line), (rel, line)

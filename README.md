@@ -35,7 +35,7 @@
 ```bash
 git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
 git switch --detach "$(git describe --tags --abbrev=0)"
-./scripts/install.sh
+./scripts/install.sh --full
 ```
 
 Needs Docker with the compose plugin. The installer creates the secrets, starts the stack and prints the dashboard address; the six recommended sensors are on by default (`--sensors all` turns on all twelve). Back up with `just backup`. Before you expose anything, follow the [go-live checklist](https://suckerpot.selfhostr.io/docs/deployment/).

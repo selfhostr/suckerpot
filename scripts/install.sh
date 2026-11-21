@@ -344,6 +344,11 @@ if [ -z "$stack" ] && [ "$existing" = 0 ] && [ "$has_tty" = 1 ]; then
     log "install type: $stack"
   fi
 fi
+# Without a terminal the full install is the default only when --yes says "take the defaults", as
+# before (the old installer stopped on /dev/tty). An explicit --full or --participant is enough.
+if [ -z "$stack" ] && [ "$existing" = 0 ] && [ "$has_tty" = 0 ] && [ "$assume_yes" = 0 ]; then
+  die "no terminal to ask which install you want; use --yes (a full install), --full or --participant"
+fi
 stack=${stack:-full}
 fresh=$((1 - existing))
 # The container engine. An existing install keeps the one in its .env (none there means Docker).
@@ -472,61 +477,126 @@ if [ "$dry_run" = 0 ] && [ "$stack" = participant ] && [ "$lite" = 0 ] && { [ "$
   fi
 fi
 
-# offer_docker: no container engine on this host (decision O4). On a terminal: install Docker with
-# Docker's own script, as the website does, then start again under `sg docker`, so this login does
-# not need a new session for the docker group. Otherwise, or on "2": the command, and stop.
+# Docker's signing keys (checked 2026-11-21 against download.docker.com/linux/<distro>/gpg).
+DOCKER_KEY_DEB=9DC858229FC7DD38854AE2D88D81803C0EBFCD88  # Debian and Ubuntu repositories (public; gitleaks:allow)
+DOCKER_KEY_RPM=060A61C51B558A7F742B77AAC52FEB6B621E9F35  # Fedora and RHEL-family repositories (public; gitleaks:allow)
+
+# docker_plan USER: fills DOCKER_CMDS with the commands that install Docker Engine from Docker's
+# own package repository on this distribution (no script piped to a shell: the project's rule).
+# The key is downloaded to a file and its fingerprint checked against the pinned value before
+# the package manager trusts it. Returns 1 on a distribution it does not know.
+docker_plan() {
+  local user=$1 osr=${SELFHOSTR_OS_RELEASE:-/etc/os-release} id="" code="" repo key
+  id=$(sed -n 's/^ID=//p' "$osr" 2> /dev/null | tr -d '"' | head -n 1)
+  code=$(sed -n 's/^VERSION_CODENAME=//p' "$osr" 2> /dev/null | tr -d '"' | head -n 1)
+  [ -n "$code" ] || code=$(sed -n 's/^UBUNTU_CODENAME=//p' "$osr" 2> /dev/null | tr -d '"' | head -n 1)
+  key=.suckerpot-state/docker.gpg
+  DOCKER_CMDS=()
+  # The check, as a command that fails on another key.
+  # shellcheck disable=SC2016 # the command is shown and run as written
+  fpr_cmd() { printf 'test "$(gpg --show-keys --with-colons %s | awk -F: '\''/^fpr/ {print $10; exit}'\'')" = %s' "$key" "$1"; }
+  case $id in
+    debian | ubuntu)
+      [ -n "$code" ] || return 1
+      DOCKER_CMDS=(
+        "sudo apt-get update"
+        "sudo apt-get install -y ca-certificates curl gnupg"
+        "mkdir -p .suckerpot-state && curl -fsSL https://download.docker.com/linux/$id/gpg -o $key"
+        "$(fpr_cmd "$DOCKER_KEY_DEB")"
+        "sudo install -m 0755 -d /etc/apt/keyrings"
+        "sudo install -m 0644 $key /etc/apt/keyrings/docker.asc"
+        "echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$id $code stable\" | sudo tee /etc/apt/sources.list.d/docker.list"
+        "sudo apt-get update"
+        "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin"
+      )
+      ;;
+    fedora | rhel | centos | rocky | almalinux)
+      case $id in fedora) repo=fedora ;; rhel) repo=rhel ;; *) repo=centos ;; esac
+      DOCKER_CMDS=(
+        "mkdir -p .suckerpot-state && curl -fsSL https://download.docker.com/linux/$repo/gpg -o $key"
+        "$(fpr_cmd "$DOCKER_KEY_RPM")"
+        "sudo rpm --import $key"
+        "curl -fsSL https://download.docker.com/linux/$repo/docker-ce.repo -o .suckerpot-state/docker-ce.repo"
+        "sudo install -m 0644 .suckerpot-state/docker-ce.repo /etc/yum.repos.d/docker-ce.repo"
+        "sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin"
+        "sudo systemctl enable --now docker"
+      )
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  DOCKER_CMDS+=("sudo usermod -aG docker $user")
+  return 0
+}
+
+# offer_docker: no container engine on this host (decision O4). Shows the commands that install
+# Docker Engine from Docker's repository and, on a terminal, runs them after one "yes"; then the
+# installer starts again under `sg docker`, so this login needs no new session for the group.
+# Without a terminal, on "no", or on an unknown distribution: the commands, and stop.
 # Podman is not offered yet: it is refused until its isolation work is complete (phase 3).
 offer_docker() {
-  local cmd a again user
+  local a again user c reason
   user=$(id -un 2> /dev/null || true)
   [ -n "$user" ] || user=${USER:-$(id -u)}
-  cmd="curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $user"
   if [ "${SELFHOSTR_DOCKER_INSTALLED:-0}" = 1 ]; then
-    die "Docker was installed, but the docker command is still not found. Log out and in, then run the installer again."
+    die "Docker was installed, but the docker command is still not found. Log out and back in, then run the installer again."
   fi
-  [ "$has_tty" = 1 ] || die "Docker is not installed. Install it, then run the installer again: $cmd"
   ui_pause
-  {
-    echo
-    echo "${UI_IND}No container engine was found. SuckerPot needs Docker Engine."
-    echo
-    echo "${UI_IND}  1  Install Docker now        sudo, Docker's script from get.docker.com"
-    echo "${UI_IND}  2  Show the command and stop"
-    echo
-    printf '%sChoose 1 or 2 [1]: ' "$UI_IND"
-  } 1>&"$UI_ERR"
-  IFS= read -r a <&3 || a=""
+  if ! docker_plan "$user"; then
+    say
+    say "No container engine was found. SuckerPot needs Docker Engine."
+    say "This distribution is not one the installer knows how to set up (Debian, Ubuntu, Fedora, RHEL family)."
+    say "Install Docker Engine as described on https://docs.docker.com/engine/install/ then run the installer again."
+    stopped_why=docker-missing
+    UI_ENDED=1
+    exit 0
+  fi
+  say
+  say "No container engine was found. SuckerPot needs Docker Engine."
+  say "These commands install it from Docker's own package repository (the key is checked first):"
+  for c in "${DOCKER_CMDS[@]}"; do say "  $c"; done
+  if [ "$has_tty" = 0 ]; then
+    say "Run them, log out and back in, then run the installer again."
+    stopped_why=docker-missing
+    UI_ENDED=1
+    exit 0
+  fi
+  printf '%sRun them now? sudo asks for your password. [Y/n] ' "$UI_IND" 1>&"$UI_ERR"
+  IFS= read -r a <&3 || a=n
   answered
   case $a in
-    "" | 1) ;;
-    2)
-      say
-      say "Install Docker Engine with:"
-      say "  $cmd"
-      say "Then log out and in, and run the installer again."
+    "" | y | Y | yes | YES | Yes) ;;
+    *)
+      say "Run them yourself, log out and back in, then run the installer again."
       stopped_why=docker-missing
       UI_ENDED=1
       exit 0
       ;;
-    *) die "answer 1 or 2" ;;
   esac
-  command -v curl > /dev/null 2>&1 || die "curl is needed to download Docker's install script (sudo apt install curl), or install Docker yourself: $cmd"
-  command -v sudo > /dev/null 2>&1 || die "sudo is needed to install Docker. Install it yourself: $cmd"
-  command -v sg > /dev/null 2>&1 || die "sg is not available to continue in the docker group. Install Docker yourself: $cmd"
-  ui_pause
-  say "Docker's install script needs root rights: sudo asks for your password."
-  sudo -v || die "sudo failed: Docker was not installed. Install it yourself: $cmd"
-  ui_detail "installing Docker (get.docker.com)"
-  ui_run --expect 180 -- sh -c 'curl -fsSL https://get.docker.com | sudo sh' \
-    || die "Docker's install script failed (see the log). Install Docker yourself: $cmd"
-  ui_run -- sudo usermod -aG docker "$user" || die "could not add $user to the docker group: sudo usermod -aG docker $user"
+  command -v sudo > /dev/null 2>&1 || die "sudo is needed to install Docker. Run the commands above as root."
+  sudo -v || die "sudo failed: Docker was not installed."
+  for c in "${DOCKER_CMDS[@]}"; do
+    ui_detail "installing Docker: ${c:0:60}"
+    ui_run --expect 30 -- bash -c "$c" || die "this command failed (see the log): $c"
+  done
   log "Docker installed; starting again in the docker group"
+  ui_pause
+  # The new group is active only in a new login; sg gives it to the new run. Check it first.
+  if ! reason=$(sg docker -c true 2>&1); then
+    say "Docker is installed. Log out and back in, then run the installer again."
+    say "(sg could not start a shell in the docker group: ${reason:-no reason given})"
+    stopped_why=relogin
+    UI_ENDED=1
+    exit 0
+  fi
   # The new run asks nothing again: it gets the install type as a flag.
   again=("$PWD/scripts/install.sh" "${orig_args[@]}")
   case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
-  ui_pause
   say "Docker is installed. The installer starts again in the docker group (sg docker)."
   UI_ENDED=1
+  # The new run draws its own screen and asks its own questions on the terminal, not in the log.
+  exec 1>&"$UI_OUT" 2>&"$UI_ERR" 3<&-
   exec sg docker -c "SELFHOSTR_DOCKER_INSTALLED=1 $(printf '%q ' bash "${again[@]}")"
 }
 
@@ -788,9 +858,14 @@ if [ "$fresh" = 1 ]; then
         if [ "$s" = ssh ] && [ "$port" = 22 ]; then
           # Its own sshd, most likely: the sensor takes host port 2222, and the router forwards 22 to it.
           note "Port 22 is used on this machine (its own sshd, most likely)."
-          port_override[$var]=2222
-          ssh_moved=1
-          note "Mapped the SSH sensor to host port 2222."
+          if is_busy 2222; then
+            warn "ports 22 and 2222 are both in use: the ssh sensor is left off. Free port 2222 and run: just sensors ..."
+            sensor_off[$s]=1
+          else
+            port_override[$var]=2222
+            ssh_moved=1
+            note "Mapped the SSH sensor to host port 2222."
+          fi
         else
           warn "port $port ($var) is in use: the $s sensor is left off. Free the port and run: just sensors ..."
           sensor_off[$s]=1

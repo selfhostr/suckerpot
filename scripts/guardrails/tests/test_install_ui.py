@@ -811,10 +811,15 @@ def test_plain_output_ends_with_a_result_line(sandbox: Sandbox) -> None:
     ]
 
 
-def _without_an_engine(sb: Sandbox) -> None:
+DOCKER_KEY_DEB = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+
+
+def _without_an_engine(
+    sb: Sandbox, os_release: str = "ID=debian\nVERSION_CODENAME=trixie\n"
+) -> None:
     """PATH without docker, podman and docker-compose, whatever the host has installed."""
     for name in ("docker", "podman", "docker-compose"):
-        (sb.shim / name).unlink(missing_ok=True)
+        (sb.shim / name).rename(sb.shim / f"{name}.later")
     sysbin = sb.shim.parent / "sysbin"
     sysbin.mkdir(exist_ok=True)
     for folder in ("/usr/bin", "/bin"):
@@ -824,55 +829,140 @@ def _without_an_engine(sb: Sandbox) -> None:
                 continue
             link.symlink_to(Path(folder) / entry)
     sb.env["PATH"] = f"{sb.shim}:{sysbin}"
-    _write(sb, "curl", '#!/bin/sh\necho "curl $*" >> "$SHIM_LOG"\necho "echo docker-script"\n')
+    osr = sb.shim / "os-release"
+    osr.write_text(os_release)
+    sb.env["SELFHOSTR_OS_RELEASE"] = str(osr)
+    sb.env["USER"] = "tester"  # when this uid has no name (a container)
+    # curl writes an empty file where -o says; gpg reports the pinned key; sudo only records.
     _write(
         sb,
-        "sudo",
-        '#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\n[ "$1" = sh ] && cat > /dev/null\nexit 0\n',
+        "curl",
+        '#!/bin/sh\necho "curl $*" >> "$SHIM_LOG"\n'
+        'while [ $# -gt 0 ]; do [ "$1" = -o ] && : > "$2"; shift; done\n',
     )
-    _write(sb, "sg", '#!/bin/sh\necho "sg $*" >> "$SHIM_LOG"\nexit 0\n')
+    _write(sb, "gpg", f'#!/bin/sh\necho "fpr:::::::::{DOCKER_KEY_DEB}:"\n')
+    _write(sb, "sudo", '#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\ncat > /dev/null &\nexit 0\n')
+    # sg: the probe succeeds; the second run gets docker back on PATH and really runs.
+    later = sb.shim / "later"
+    later.mkdir(exist_ok=True)
+    for name in ("docker", "podman", "docker-compose"):
+        (later / name).symlink_to(sb.shim / f"{name}.later")
+    _write(
+        sb,
+        "sg",
+        '#!/bin/sh\necho "sg $*" >> "$SHIM_LOG"\n'
+        '[ "$3" = true ] && exit "${SHIM_SG_RC:-0}"\n'
+        'PATH="$SHIM_DIR/later:$PATH" exec sh -c "$3"\n',
+    )
 
 
-def test_without_docker_a_terminal_run_offers_to_install_it(sandbox: Sandbox) -> None:
-    """Decision O4: Docker's script (as the website), then the installer again under sg docker."""
-    _without_an_engine(sandbox)
-    sandbox.env["USER"] = "tester"  # when this uid has no name (a container)
-    answers = sandbox.root / "answers"
-    answers.write_text("1\n")
-    proc = sandbox.run(
-        "scripts/install.sh",
-        *("--full", "--images", "--version", "v0.8.0"),
-        extra_env={"SELFHOSTR_TTY": str(answers)},
-    )
-    out = proc.stdout + proc.stderr
-    assert proc.returncode == 0, out
-    assert "No container engine was found. SuckerPot needs Docker Engine." in out
-    assert "1  Install Docker now" in out
-    calls = sandbox.calls()
-    assert "curl -fsSL https://get.docker.com" in calls
-    assert "sudo sh" in calls
+def _user() -> str:
     who = subprocess.run(["id", "-un"], capture_output=True, text=True, check=False)  # noqa: S607
-    user = who.stdout.strip() or "tester"
-    assert f"sudo usermod -aG docker {user}" in calls
-    sg = [c for c in calls if c.startswith("sg ")]
-    assert len(sg) == 1
-    assert sg[0].startswith("sg docker -c SELFHOSTR_DOCKER_INSTALLED=1 bash ")
-    assert sg[0].endswith("/scripts/install.sh --full --images --version v0.8.0 ")
-    assert not (sandbox.root / ".env").exists()
+    return who.stdout.strip() or "tester"
 
 
-def test_without_docker_the_command_is_shown_on_request_or_without_a_terminal(
-    sandbox: Sandbox,
-) -> None:
+def test_without_docker_the_commands_come_from_docker_s_repository(sandbox: Sandbox) -> None:
+    """Decision O4, without a pipe to a shell: the key is checked, then the package manager."""
+    _without_an_engine(sandbox)
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout
+    assert "These commands install it from Docker's own package repository" in out
+    assert (
+        "curl -fsSL https://download.docker.com/linux/debian/gpg -o .suckerpot-state/docker.gpg"
+        in out
+    )
+    assert f"= {DOCKER_KEY_DEB}" in out
+    assert "https://download.docker.com/linux/debian trixie stable" in out
+    assert (
+        "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin" in out
+    )
+    assert f"sudo usermod -aG docker {_user()}" in out
+    assert "| sudo sh" not in out and "get.docker.com" not in out
+    assert out.splitlines()[-1].startswith("result: stopped reason=docker-missing step=1 ")
+    assert not [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]
+
+
+def test_fedora_and_rhel_use_the_rpm_repository_and_its_key(sandbox: Sandbox) -> None:
+    _without_an_engine(sandbox, "ID=rocky\nVERSION_ID=10\n")
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert "https://download.docker.com/linux/centos/docker-ce.repo" in proc.stdout
+    assert "= 060A61C51B558A7F742B77AAC52FEB6B621E9F35" in proc.stdout
+    assert (
+        "sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin"
+        in proc.stdout
+    )
+
+
+def test_an_unknown_distribution_only_gets_the_docs_link(sandbox: Sandbox) -> None:
+    _without_an_engine(sandbox, "ID=arch\n")
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert "https://docs.docker.com/engine/install/" in proc.stdout
+    assert "sudo apt-get" not in proc.stdout
+
+
+def test_a_no_answer_runs_nothing(sandbox: Sandbox) -> None:
     _without_an_engine(sandbox)
     answers = sandbox.root / "answers"
-    answers.write_text("2\n")
+    answers.write_text("n\n")
     proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
     assert proc.returncode == 0, proc.stderr
-    assert "curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker" in proc.stdout
-    assert proc.stdout.splitlines()[-1].startswith("result: stopped reason=docker-missing step=1 ")
+    assert "Run them now? sudo asks for your password. [Y/n]" in proc.stderr
+    assert "Run them yourself, log out and back in" in proc.stdout
     assert not [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]
-    proc = sandbox.run("scripts/install.sh", "--yes")
-    assert proc.returncode != 0
-    assert "Docker is not installed. Install it, then run the installer again:" in proc.stderr
-    assert not [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]
+
+
+def test_a_failed_key_check_stops_before_the_package_manager(sandbox: Sandbox) -> None:
+    _without_an_engine(sandbox)
+    _write(
+        sandbox, "gpg", '#!/bin/sh\necho "fpr:::::::::0000000000000000000000000000000000000000:"\n'
+    )
+    answers = sandbox.root / "answers"
+    answers.write_text("y\n")
+    proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
+    assert proc.returncode == 1
+    assert "this command failed (see the log): test " in proc.stderr
+    calls = sandbox.calls()
+    assert not any("docker-ce" in c or "keyrings" in c for c in calls)
+
+
+def test_sg_failing_says_to_log_in_again(sandbox: Sandbox) -> None:
+    _without_an_engine(sandbox)
+    sandbox.env["SHIM_SG_RC"] = "1"
+    answers = sandbox.root / "answers"
+    answers.write_text("y\n")
+    proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
+    assert proc.returncode == 0, proc.stderr
+    assert "Docker is installed. Log out and back in, then run the installer again." in proc.stdout
+    assert "sg could not start a shell in the docker group" in proc.stdout
+    assert proc.stdout.splitlines()[-1].startswith("result: stopped reason=relogin ")
+    assert [c for c in sandbox.calls() if c.startswith("sg ")] == ["sg docker -c true"]
+
+
+def test_the_second_run_under_sg_draws_on_the_terminal(sandbox: Sandbox) -> None:
+    """After the install, the run under sg must show its screen and the password on the terminal."""
+    _without_an_engine(sandbox)
+    answers = sandbox.root / "answers"
+    answers.write_text("y\n")
+    rc, raw = run_pty(
+        sandbox,
+        *("--full", "--images", "--version", "v0.8.0"),
+        env={"SELFHOSTR_TTY": str(answers)},
+    )
+    assert rc == 0, raw
+    text = screen(raw, 100).text()
+    assert "Docker is installed. The installer starts again in the docker group" in text
+    calls = sandbox.calls()
+    assert (
+        "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin"
+        in calls
+    )
+    sg = [c for c in calls if c.startswith("sg docker -c SELFHOSTR_DOCKER_INSTALLED=1 bash ")]
+    assert len(sg) == 1 and sg[0].endswith("--full --images --version v0.8.0 ")
+    # The second run's final screen, with the password shown once, is on the terminal.
+    assert "SuckerPot is running." in text
+    printed = re.findall(r"now\):\n    (\S+)\n", text)
+    assert len(printed) == 1
+    assert printed[0] not in (sandbox.root / "install.log").read_text()

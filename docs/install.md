@@ -32,7 +32,7 @@ The memory figures are sizing targets. Check the real use on your host with `doc
 
 Participant mode has its own flags: `--pseudonym`, `--no-pseudonym`, `--country`, `--show-country`, `--verifier`, `--no-auto-update`, `--feeds`, `--lite`, `--no-firewall` and `--repair`. Without `--participant` or `--full`, the installer asks which one on a terminal (see [what the installer asks](#what-the-installer-asks)). It refuses the dashboard flags (`--dashboard-*`, `--public-host`, `--admin-*`, `--allow-lan`). Choosing it is your consent to join the network.
 
-To switch an existing participant install to full mode, run `./scripts/install.sh --full`. It asks the dashboard questions, takes a backup and keeps your data. The other way (full to participant) is not supported. Running the installer again on an existing install only prints its status. Add `--repair` to run the volume, start and schedule steps again.
+To switch an existing participant install to full mode, run `./scripts/install.sh --full`. It takes a backup, sets up the dashboard with a generated admin password (shown once) and keeps your data. The other way (full to participant) is not supported. Running the installer again on an existing install only prints its status. Add `--repair` to run the volume, start and schedule steps again.
 
 ## Images or source build
 
@@ -50,7 +50,7 @@ Clone the repository, switch to the latest release, then run the installer from 
 ```bash
 git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
 git switch --detach "$(git describe --tags --abbrev=0)"
-./scripts/install.sh
+./scripts/install.sh --full
 ```
 
 The second line switches to the newest release tag, so these commands always install the latest release. For an older release, run `git switch --detach vX.Y.Z` instead, with a release name from the repository's Releases page.
@@ -106,7 +106,7 @@ Everything else takes a default. Each default has a flag:
 | Little swap | a warning, the install goes on | add swap, then `./scripts/install.sh --repair` |
 | Host firewall (participant) | installed; `sudo` may ask for your password | `--no-firewall` |
 
-When Docker is not installed, a run on a terminal offers to install it with Docker's own script from `get.docker.com` (the same command as on the website), then starts again in the `docker` group, so you do not need to log in again. Answer `2` to only see the command. Without a terminal, the installer prints the command and stops. Podman is not offered yet.
+When Docker is not installed, the installer shows the commands that install Docker Engine from Docker's own package repository (Debian, Ubuntu, Fedora and the RHEL family): it downloads Docker's signing key, checks its fingerprint against the one pinned in the script, adds the repository and installs `docker-ce`, `docker-ce-cli`, `containerd.io` and `docker-compose-plugin`. No script is piped to a shell. On a terminal it asks once, `Run them now? [Y/n]`, runs them with `sudo`, then starts again in the `docker` group (`sg docker`), so you do not need to log in again; if that is not possible it tells you to log out and back in. Without a terminal, on `n`, or on another distribution, it prints the commands (or the link to Docker's install guide) and stops. Podman is not offered yet.
 
 ## What the installer does
 
