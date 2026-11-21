@@ -111,7 +111,7 @@ Every error is a status code with the body `{"error": "<code>"}`.
 | `stale_timestamp`, `replayed_nonce`, `bad_signature`, `unknown_node` | 401 | Signature checks, see above |
 | `pow_invalid`, `challenge_expired` | 400 | The enrolment proof failed or the challenge is gone |
 | `pseudonym_invalid` | 400 | The pseudonym breaks the rules in [Pseudonyms](#pseudonyms) |
-| `pseudonym_taken` | 409 | Another node has the pseudonym |
+| `pseudonym_taken` | 409 | Another node has the pseudonym. A name held by a dormant node, or by a node that never sent a batch for one full day after enrolling, is freed instead |
 | `enrolment_closed` | 503 | The daily enrolment cap is reached. Temporary |
 | `not_verifier` | 403 | The node does not hold the verifier role (`/v1/verify/tasks`, `/v1/verify/results`). Signed |
 | `rate_limited` | 429 | Too many requests. The `Retry-After` header gives seconds |

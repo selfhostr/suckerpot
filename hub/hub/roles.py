@@ -46,8 +46,8 @@ def scram_verifier(password: str, salt: bytes | None = None) -> str:
 # role -> list of GRANT statements (the role name is filled in with format %I)
 API_GRANTS = (
     "SELECT, INSERT, DELETE ON nodes",
-    "UPDATE (last_active_day, pseudonym, pseudonym_key, pseudonym_changed_day, country, "
-    "show_country) ON nodes",
+    "UPDATE (last_active_day, last_batch_day, pseudonym, pseudonym_key, pseudonym_changed_day, "
+    "country, show_country) ON nodes",
     "SELECT, INSERT, DELETE ON enrol_challenges",
     "SELECT, INSERT ON nonces",
     "SELECT, INSERT ON batches",

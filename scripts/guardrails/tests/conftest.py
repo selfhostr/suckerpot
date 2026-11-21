@@ -36,6 +36,7 @@ COPIED = [
     "scripts/lib/engine.sh",
     "scripts/lib/fwcheck.sh",
     "scripts/lib/pseudonym.sh",
+    "scripts/lib/enrol_wait.sh",
     "scripts/lib/ports-check.sh",
     "scripts/lib/ports_check_filter.py",
     "netproto/suckerpot_netproto/data/pseudonym_words.txt",

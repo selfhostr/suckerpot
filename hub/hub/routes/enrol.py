@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 from suckerpot_netproto import ProtoError, models, pow, sign
 
-from .. import pseudonym
+from .. import dormant, pseudonym
 from ..auth import MAX_BODY_DEFAULT, authenticate_new_key, bind_unsigned, read_body, reply
 from ..context import AppContext, get_ctx
 from ..models import EnrolChallenge, Node
@@ -112,12 +112,9 @@ async def enrol(request: Request) -> Response:
             raise ProtoError("pow_invalid")
         if await enrolments_today(ctx, session) >= ctx.settings.enrol_hard_cap:
             raise ProtoError("enrolment_closed")
-        if key is not None:
-            taken = (
-                await session.execute(select(Node.id).where(Node.pseudonym_key == key))
-            ).first()
-            if taken is not None:
-                raise ProtoError("pseudonym_taken")
+        # A name held by an active node is refused; one held by a dormant ghost is freed.
+        if key is not None and not await dormant.claim_pseudonym(session, key, today):
+            raise ProtoError("pseudonym_taken")
         try:
             node_id = (
                 await session.execute(

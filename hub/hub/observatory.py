@@ -34,7 +34,7 @@ from suckerpot_netproto import buckets, enums
 from suckerpot_netproto.feeds.models import LICENCE
 from suckerpot_netproto.feeds.render import dumps_json
 
-from . import consensus
+from . import consensus, dormant
 from .config import Settings
 from .feeds.publish import FILE_MODE, gz
 
@@ -624,16 +624,26 @@ async def load(session: AsyncSession, s: Settings, today: date) -> ObservatoryIn
         outcome_mode=outcome_precision(s),
     )
     # Nodes.
-    inp.members = int((await session.execute(text("SELECT count(*) FROM nodes"))).scalar_one())
+    # Dormant members (hub/hub/dormant.py) are not counted.
+    active = dormant.params(today)
+    inp.members = int(
+        (
+            await session.execute(
+                text(f"SELECT count(*) FROM nodes n WHERE {dormant.ACTIVE}"),  # noqa: S608
+                active,
+            )
+        ).scalar_one()
+    )
     inp.week, inp.eligible_week, inp.active_last_week = await weekly_nodes(session, s, today)
     inp.country_members = {
         str(r.cc): int(r.n)
         for r in await session.execute(
             text(
-                "SELECT btrim(country) AS cc, count(*) AS n FROM nodes "
-                "WHERE show_country AND country IS NOT NULL AND btrim(country) <> '' "
-                "GROUP BY 1"
-            )
+                "SELECT btrim(n.country) AS cc, count(*) AS n FROM nodes n "  # noqa: S608
+                "WHERE n.show_country AND n.country IS NOT NULL AND btrim(n.country) <> '' "
+                f"AND {dormant.ACTIVE} GROUP BY 1"
+            ),
+            active,
         )
     }
     # Activity.

@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_netproto import blind, sign
 from suckerpot_netproto.feeds import minisign
 
-from . import abusech, egress_check, reputation
+from . import abusech, dormant, egress_check, reputation
 from .config import ConfigError, Settings, load_signing_key
 from .db import make_engine, make_sessionmaker, utcnow
 from .feeds import job as feed_job
@@ -358,14 +358,16 @@ async def _dispatch(
         rows = (
             await session.execute(
                 text(
-                    "SELECT (SELECT count(*) FROM nodes) AS nodes, "
+                    "SELECT (SELECT count(*) FROM nodes) AS nodes, "  # noqa: S608
+                    f"(SELECT count(*) FROM nodes n WHERE NOT {dormant.ACTIVE}) AS dormant, "
                     "(SELECT count(*) FROM nodes WHERE standing = 'soft_suspended') AS suspended, "
                     "(SELECT count(*) FROM targets WHERE state = 'candidate') AS candidates, "
                     "(SELECT count(*) FROM targets WHERE state = 'confirmed') AS confirmed, "
                     "(SELECT count(*) FROM targets WHERE state = 'reported') AS reported, "
                     "(SELECT count(*) FROM targets WHERE state = 'taken_down') AS taken_down, "
                     "(SELECT count(*) FROM reports WHERE state = 'queued') AS reports_queued"
-                )
+                ),
+                dormant.params(utcnow().date()),
             )
         ).one()
         for key, value in rows._mapping.items():

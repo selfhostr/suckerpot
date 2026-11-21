@@ -56,6 +56,9 @@ class Node(Base):
     standing: Mapped[str] = mapped_column(Text, server_default=text("'active'"))
     protocol: Mapped[str] = mapped_column(Text)
     pseudonym_changed_day: Mapped[date | None] = mapped_column(Date)
+    # Day of the newest accepted batch (h0013): tells a dormant member apart after the 14 days
+    # of batch markers. Day granularity, like last_active_day.
+    last_batch_day: Mapped[date | None] = mapped_column(Date)
 
 
 class EnrolChallenge(Base):

@@ -433,7 +433,7 @@ consent_screen() {
     echo "Without a VPN that address is this machine's own public address, so it is not hidden."
     echo "Add a VPN at any time: ./scripts/participant.sh vpn <file.conf>"
   fi
-  echo "Updates: signed releases install themselves once a day (turn off: --no-auto-update). The"
+  echo "Updates: checked every 6 h, a signed release installs once 48 h old (off: --no-auto-update). The"
   echo "update checks contact GitHub, ghcr.io and Sigstore from this machine's own address, even"
   echo "with a VPN. Without a VPN, the hub name is also looked up through your normal DNS resolver."
   echo "Leave at any time: ./scripts/participant.sh leave"

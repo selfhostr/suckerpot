@@ -396,7 +396,7 @@ Participant mode is described in [Join the network](participate.md). The install
 | `NETWORK_VERIFY_REVEALS` | `false` (`true` in participant mode) | `ingest` | Answer the hub when it asks for a link that several sensors saw |
 | `NETWORK_VERIFIER` | `false` | `ingest` | Ask to be a verifier. Needs a VPN and `COLLECTOR_VERIFY_ENABLED`. The hub operator must grant the role (`verifier_needs_vpn` and `verifier_needs_collector` explain a refusal) |
 | `COLLECTOR_VERIFY_ENABLED` | `false` | `collector` | Let the collector fetch links for the network |
-| `AUTO_UPDATE_ENABLED` | `false` (`true` in participant mode) | scripts | Install new signed releases once a day from the user's crontab. See [Updates](updates.md#automatic-updates) |
+| `AUTO_UPDATE_ENABLED` | `false` (`true` in participant mode) | scripts | Check for new signed releases every 6 hours from the user's crontab and install one once it is 48 hours old. See [Updates](updates.md#automatic-updates) |
 
 The hub address and key are not in `.env` by default. They ship inside each release (`config/network-defaults.env`), and an explicit `.env` value always wins. `NETWORK_HUB_KEY` accepts up to three comma-separated keys, for a key rollover.
 

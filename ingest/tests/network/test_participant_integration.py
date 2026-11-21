@@ -271,3 +271,26 @@ async def test_leave_and_join_commands(engine: AsyncEngine, factory: Factory) ->
     assert (await cli.leave(factory))["requested"] is True
     assert (await SqlStore(factory).membership()).desired == "leave"
     await clean(engine)
+
+
+async def test_join_restarts_a_refused_enrolment_and_renames_a_member(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    await clean(engine)
+    store = SqlStore(factory)
+    await store.update(state="error", desired="off", last_error_code="pseudonym_taken")
+    doc = await cli.build_status(factory, ENV, now=NOW)
+    assert doc["state"] == "error" and doc["error_code"] == "pseudonym_taken"
+    assert doc["last_error"] == {"code": "pseudonym_taken", "since": None}
+    assert (await cli.join(factory, ENV, "bad@name"))[0]["reason"] == "pseudonym_invalid"
+    doc, code = await cli.join(factory, ENV)
+    m = await store.membership()
+    assert code == 0 and doc["state"] == "error"
+    assert (m.state, m.desired, m.last_error_code) == ("off", "off", None)
+    await store.update(
+        desired="member", state="member", pseudonym=None, last_error_code="pseudonym_taken"
+    )
+    await cli.join(factory, ENV, "grey heron")
+    m = await store.membership()
+    assert m.pseudonym == "grey heron" and m.last_error_code is None and m.state == "member"
+    await clean(engine)

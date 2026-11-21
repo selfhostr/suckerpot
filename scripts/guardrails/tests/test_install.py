@@ -485,6 +485,7 @@ PARTICIPANT_FILES = [
     "scripts/host/firewall-participant.nft",
     "scripts/host/firewall.nft",
     "scripts/lib/pseudonym.sh",
+    "scripts/lib/enrol_wait.sh",
     "scripts/lib/schedule.sh",
     "scripts/lib/status_render.py",
     "scripts/status.sh",
@@ -1056,6 +1057,7 @@ def test_participant_scripts_make_no_http_calls_and_look_up_no_address() -> None
         "scripts/status.sh",
         "scripts/check-participant.sh",
         "scripts/lib/pseudonym.sh",
+        "scripts/lib/enrol_wait.sh",
     ):
         lines = (ROOT / rel).read_text().splitlines()
         code = "\n".join(line for line in lines if not line.lstrip().startswith("#"))

@@ -1120,6 +1120,29 @@ if [ "$stack" = participant ]; then
   # shellcheck source=scripts/lib/firewall.sh
   . scripts/lib/firewall.sh
   if [ "$assume_yes" = 0 ]; then fw_step participant 3; else fw_step participant auto; fi
+  # Did the hub accept the join? A refused pseudonym used to fail silently (2026-11-21 report).
+  if [ "$(env_get NETWORK_ENABLED false)" = true ]; then
+    # shellcheck source=scripts/lib/enrol_wait.sh
+    . scripts/lib/enrol_wait.sh
+    # shellcheck source=scripts/lib/pseudonym.sh
+    . scripts/lib/pseudonym.sh
+    echo
+    echo "Waiting for the hub to enrol this node (this can take a few minutes)..."
+    read -r enrol_st enrol_code < <(enrol_wait "${SUCKERPOT_ENROL_WAIT:-180}")
+    case $enrol_st in
+      member) echo "  The hub accepted this node${pseudonym:+ as $pseudonym}." ;;
+      error)
+        if [ "$enrol_code" = pseudonym_taken ] && [ -n "$pseudonym" ]; then
+          echo "  The hub refused the pseudonym '$pseudonym': another node already uses it."
+          echo "  If that is your own earlier install, the hub frees the name after a day without batches."
+          echo "  Join with another name: ./scripts/participant.sh join --pseudonym $(pseudonym_suggest "$pseudonym" || echo NEW-NAME)"
+        else
+          echo "  The hub refused to enrol this node ($enrol_code). Details: ./scripts/status.sh"
+        fi
+        ;;
+      enrolling) echo "  Not decided yet. Check in a few minutes: ./scripts/status.sh" ;;
+    esac
+  fi
   echo
   echo "Check it any time:      ./scripts/status.sh"
   sched_when=${sched#* }

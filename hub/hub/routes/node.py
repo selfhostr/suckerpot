@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 from suckerpot_netproto import ProtoError, models, sign
 
-from .. import pseudonym
+from .. import dormant, pseudonym
 from ..auth import authenticate, reply
 from ..context import AppContext, get_ctx
 from ..models import Batch, Node
@@ -83,12 +83,7 @@ async def patch_node(request: Request) -> Response:
                         days=PSEUDONYM_CHANGE_DAYS
                     ):
                         raise ProtoError("rate_limited", str(86400))
-                    taken = (
-                        await session.execute(
-                            select(Node.id).where(Node.pseudonym_key == key, Node.id != node.id)
-                        )
-                    ).first()
-                    if taken is not None:
+                    if not await dormant.claim_pseudonym(session, key, today, node.id):
                         raise ProtoError("pseudonym_taken")
                 values.update(
                     pseudonym=patch.pseudonym,

@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   tables present; reading the tables needs root, so run it with `sudo` for the full check). On a
   Docker node, a firewall that is installed but not active, or whose tables are gone, now fails;
   `just status` reports it too.
+- Network: `status.sh` shows the last network error with its age, a plain explanation and the
+  fix when known ("Last network error: hub_unreachable (3 h ago). ..."). A member with no hub
+  contact 2 h after joining, or the same error for more than 6 h, goes to **Needs attention**.
+- Network: the installer and `participant.sh join` wait for the hub's answer. A refused
+  pseudonym is reported with a free variant to use (`join --pseudonym NAME-NN`).
+- Hub: dormant members. A node that enrolled more than 7 days ago and never sent a batch, or
+  that sent no batch for 30 days, is left out of `members` and the member list of the network
+  summary, the public feed statistics and the observatory (`nodes.members`, countries). It is
+  kept and counts again from its next batch. New column `nodes.last_batch_day` (migration
+  h0013). `hub-admin stats` shows the dormant count.
+- Hub: a pseudonym held by a dormant node, or by a node that never sent a batch for one full
+  day after enrolling, is freed for a new or renaming node. A name held by any other node is
+  still refused with `pseudonym_taken`.
 
 ### Upgrading
 
@@ -63,6 +76,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   window filter first, every column the read needs) turns it into an index-only scan: 0.44 s
   instead of 12 s on a copy of that table, from cold shared buffers. The first blocklist cycle
   now also waits 5 minutes after ingest starts.
+- Network: `status.sh` no longer shows "Member as ..." with exit code 0 when the hub refused the
+  join. A refused join (for example a pseudonym already used by another node) now reads
+  "Not a member: ..." with the reason and the fix, exit code 2, and a **Needs attention** item.
+  An enrolment in progress shows as "Joining", not as a membership.
+- Network: a failing profile sync or batch no longer stops the pull of targets and the daily
+  summary. Each step of the member cycle runs on its own and the first error is kept. A transport
+  failure (hub out of reach, path closed) still ends the cycle, as before. A good signed answer
+  of the hub counts as hub contact even when another step failed.
+- Network: `participant.sh join` now also restarts a join the hub refused, and a member that
+  passes `--pseudonym` sends the new name to the hub.
+- The participant consent screen said signed releases install "once a day". It now says the
+  check runs every 6 h and a release installs once it is 48 h old.
 
 ## [0.12.1] - 2026-11-21
 

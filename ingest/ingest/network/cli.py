@@ -11,7 +11,9 @@ addresses (design M32 section 10).
      "level": "ok|warning|error", "warnings": [code], "errors": [code],
      "state": "off|not_joined|left|enrolling|member|leaving|error", "pseudonym", "node",
      "standing", "counts_from", "path", "self_address", "hub": {"host", "last_contact",
-     "signature_ok"}, "sent": [{"day", "sources", "links", "files"}], "reveals_7d": int,
+     "signature_ok"}, "last_error": {"code", "since": "<UTC>"|null}|null,
+     "error_code": str|null, "joined_at": "<UTC>"|null,
+     "sent": [{"day", "sources", "links", "files"}], "reveals_7d": int,
      "sessions_24h": {"<sensor>": int},    # flat keys, the host renderer reads these
      "network": {
        "hub_configured": bool, "hub_host": str|null, "hub_key_differs_from_release": bool,
@@ -48,6 +50,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db import create_engine, create_session_factory
+from suckerpot_db.network_names import pseudonym_problem
 from suckerpot_db.session_counts import sql_sessions_count
 from suckerpot_netproto import defaults
 
@@ -68,6 +71,16 @@ ERROR_CODES = frozenset({"hub_signature", "guard_failed"})
 
 def _iso(value: datetime | None) -> str | None:
     return None if value is None else value.astimezone(UTC).isoformat()
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _day(value: date | None) -> str | None:
@@ -163,6 +176,9 @@ async def build_status(
     member = m.state == "member"
     stamps = [t for t in (m.last_pull_at, m.last_summary_at) if t is not None]
     stamps += [r.sent_at for r in subs if r.sent_at is not None]
+    worker_contact = _parse_iso(detail.get("last_contact")) if member else None
+    if worker_contact is not None:
+        stamps.append(worker_contact)  # any 2xx signed answer, even when a later step failed
     last_contact = max(stamps) if stamps else None
     age_h = None if last_contact is None else (moment - last_contact).total_seconds() / 3600
     waiting_days: int | None = None
@@ -186,6 +202,15 @@ async def build_status(
         warnings.append("hub_key_differs_from_release")
     if m.last_error_code in ERROR_CODES:
         errors.append(m.last_error_code)
+    # Since when the stored error holds (the worker keeps it in its status row).
+    error_since = (
+        _parse_iso(detail.get("error_since"))
+        if m.last_error_code is not None and detail.get("error_code") == m.last_error_code
+        else None
+    )
+    joined_at = m.requested_at
+    if joined_at is None and m.enrolled_day is not None:
+        joined_at = datetime.combine(m.enrolled_day, datetime.min.time(), UTC)
 
     sent = []
     for r in subs:
@@ -271,6 +296,11 @@ async def build_status(
             "last_contact": _iso(last_contact),
             "signature_ok": m.last_error_code != "hub_signature",
         },
+        last_error=None
+        if m.last_error_code is None
+        else {"code": m.last_error_code, "since": _iso(error_since)},
+        error_code=m.last_error_code,
+        joined_at=_iso(joined_at),
         sent=[{k: r[k] for k in ("day", "sources", "links", "files")} for r in sent],
         reveals_7d=revealed,
         sessions_24h={r.sensor: int(r.n) for r in sensors},
@@ -294,9 +324,13 @@ async def leave(factory: async_sessionmaker[AsyncSession]) -> dict[str, Any]:
 
 
 async def join(
-    factory: async_sessionmaker[AsyncSession], env: Mapping[str, str]
+    factory: async_sessionmaker[AsyncSession],
+    env: Mapping[str, str],
+    pseudonym: str | None = None,
 ) -> tuple[dict[str, Any], int]:
-    """Participant mode only: agree again after a leave (clears the marker, ingest re-joins)."""
+    """Participant mode only: agree again after a leave or a refused enrolment (clears the marker
+    and the error state, ingest re-joins with ``NETWORK_PSEUDONYM``). A member given a new
+    ``pseudonym`` keeps its membership: the worker sends the new name to the hub."""
     settings = settings_of(env)
     if settings is None or not settings.participant:
         return {"joined": False, "reason": "not_participant"}, 2
@@ -305,10 +339,17 @@ async def join(
     state, _ = participant.parse(settings.consent)
     if state != participant.VALID:
         return {"joined": False, "reason": state}, 2
+    if pseudonym is not None and pseudonym_problem(pseudonym) is not None:
+        return {"joined": False, "reason": "pseudonym_invalid"}, 2
     store = SqlStore(factory)
     m = await store.membership()
     if m.state == "error":
         await store.update(state="off", desired="off", last_error_code=None)
+    elif m.state == "member" and pseudonym is not None and pseudonym != m.pseudonym:
+        values: dict[str, Any] = {"pseudonym": pseudonym}
+        if m.last_error_code in ("pseudonym_taken", "pseudonym_invalid"):
+            values["last_error_code"] = None
+        await store.update(**values)
     await store.update(left_day=None)
     return {"joined": True, "state": m.state}, 0
 
@@ -323,7 +364,7 @@ async def _run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         elif args.command == "leave":
             doc, code = await leave(factory), 0
         else:
-            doc, code = await join(factory, env)
+            doc, code = await join(factory, env, args.pseudonym)
         sys.stdout.write(json.dumps(doc, sort_keys=True) + "\n")
         return code
     finally:
@@ -337,7 +378,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     status.add_argument("--json", action="store_true", help="accepted for clarity (always JSON)")
     status.add_argument("--last-batch", action="store_true", help="include the last batch body")
     sub.add_parser("leave", help="leave the network (the worker wipes and tells the hub)")
-    sub.add_parser("join", help="participant mode: agree again after a leave")
+    join_p = sub.add_parser("join", help="participant mode: agree again after a leave")
+    join_p.add_argument("--pseudonym", help="a new pseudonym (a member keeps its membership)")
     args = parser.parse_args(argv)
     return asyncio.run(_run(args, dict(os.environ)))
 

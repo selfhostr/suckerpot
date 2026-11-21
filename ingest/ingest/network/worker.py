@@ -63,6 +63,10 @@ LEARN_EVERY = timedelta(hours=1)
 NAME_RETRIES = 5
 
 
+def _iso(value: datetime | None) -> str | None:
+    return None if value is None else value.astimezone(UTC).isoformat()
+
+
 def pow_budget_s(ch: wire.ChallengeResponse) -> float:
     """Seconds the proof of work may run: until shortly before the hub forgets the challenge, and
     never more than ``POW_CAP_S``. Searching past ``expires_in`` only wastes the CPU of a small
@@ -120,6 +124,11 @@ class NetworkWorker(FeatureWorker):
         self._name_tries = 0
         self._consent_reason: str | None = None  # why participant mode did not join
         self.revealed: dict[str, int] = {}  # UTC day -> links revealed for verification
+        # Published in the status row (``ingest.network.cli status`` reads them). In memory only:
+        # after a restart the error age counts from the first cycle.
+        self.last_contact: datetime | None = None  # last 2xx signed answer of the hub
+        self.error_code: str | None = None
+        self.error_since: datetime | None = None
 
     # -- status -----------------------------------------------------------------------------
 
@@ -137,6 +146,9 @@ class NetworkWorker(FeatureWorker):
                 "verify_reveals": verify_reveal.enabled(self.network, self.consent),
                 "revealed": dict(sorted(self.revealed.items())[-8:]),
                 "verifier": self.verifier.state if self.verifier is not None else "off",
+                "last_contact": _iso(self.last_contact),
+                "error_code": self.error_code,
+                "error_since": _iso(self.error_since),
             }
         }
 
@@ -159,6 +171,26 @@ class NetworkWorker(FeatureWorker):
             await asyncio.sleep(self.network.interval_s)
 
     async def run_once(self) -> None:
+        try:
+            await self._cycle()
+        finally:
+            await self._track_error()
+
+    async def _track_error(self) -> None:
+        """Remember since when the stored error code holds, for ``status`` (6 h rule)."""
+        if self.store is None:
+            return
+        try:
+            code = (await self.store.membership()).last_error_code
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # status detail only: never fail the cycle for it
+            return
+        if code != self.error_code:
+            self.error_code = code
+            self.error_since = self._now() if code is not None else None
+
+    async def _cycle(self) -> None:
         store = self.store
         if store is not None:
             await self._learn_self_address()
@@ -425,27 +457,67 @@ class NetworkWorker(FeatureWorker):
     # -- member -----------------------------------------------------------------------------
 
     async def _maintain(self, m: Membership) -> None:
+        """One member cycle. Each step runs on its own: a failed profile sync or batch no longer
+        keeps the pull and the summary from running (the 2026-11-21 field report). The first
+        error is recorded. A transport failure (egress closed, hub out of reach) or a bad hub
+        signature still ends the cycle at once, as before: the next try comes one interval later.
+        """
         store = self.store
         assert store is not None  # noqa: S101
         identity = self._identity(m)
         hub = self._hub(identity)
         now = self._now()
         errors: list[str] = []
-        await self._sync_profile(m, hub)
-        await self._submit(m, hub, errors)
+        steps: list[Callable[[], Awaitable[None]]] = [
+            lambda: self._sync_profile(m, hub),
+            lambda: self._submit(m, hub, errors),
+        ]
         if m.last_pull_at is None or now - m.last_pull_at >= PULL_EVERY:
-            await self._pull(m, hub)
+            steps.append(lambda: self._pull(m, hub))
         if m.last_summary_at is None or now - m.last_summary_at >= SUMMARY_EVERY:
-            summary = await hub.network()
-            await store.save_summary(sync.summary_json(summary))
-            node = await hub.node()
-            await store.update(standing=node.standing, last_summary_at=now)
-        await self._verification(hub, errors)
-        if errors:
-            await self._note(m, errors[0])
-        elif m.last_error_code is not None:
+            steps.append(lambda: self._summary(m, hub))
+        steps.append(lambda: self._verification(hub, errors))
+        failed: list[str] = []
+        try:
+            for step in steps:
+                try:
+                    await step()
+                except EgressClosed, HubUnavailable:
+                    raise
+                except ProtoError as exc:
+                    if exc.code == "hub_signature":
+                        raise
+                    failed.append(exc.code)
+                except HubError as exc:
+                    failed.append(exc.code if exc.code != "server_error" else "hub_error")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # one broken step must not stop the others
+                    log.warning("network step failed (%s)", type(exc).__name__)
+                    failed.append("internal_error")
+        finally:
+            if hub.last_ok is not None:
+                self.last_contact = datetime.fromtimestamp(hub.last_ok, UTC)
+        problems = failed + errors
+        if problems:
+            await self._note(m, problems[0])
+        elif m.last_error_code is not None and m.last_error_code not in PERMANENT:
+            # A refused pseudonym stays shown until the owner picks another one.
             await store.update(last_error_code=None)
             self.reason = None
+
+    async def _summary(self, m: Membership, hub: HubClient) -> None:
+        store = self.store
+        assert store is not None  # noqa: S101
+        summary = await hub.network()
+        await store.save_summary(sync.summary_json(summary))
+        node = await hub.node()
+        values: dict[str, Any] = {"standing": node.standing, "last_summary_at": self._now()}
+        if m.synced_pseudonym is not None and node.pseudonym != m.synced_pseudonym:
+            # The hub released the name while this node was dormant: sync it again next cycle
+            # (the hub then accepts it, or answers pseudonym_taken, which status shows).
+            values["synced_pseudonym"] = node.pseudonym
+        await store.update(**values)
 
     async def _verification(self, hub: HubClient, errors: list[str]) -> None:
         """Early reveals (N17) and the verifier role (N18). A pre-M32 hub is asked once a day."""
@@ -499,10 +571,13 @@ class NetworkWorker(FeatureWorker):
                 show_country=bool(m.synced_show_country), last_error_code=exc.code,
             )  # fmt: skip
             return
-        await store.update(
-            synced_pseudonym=m.pseudonym, synced_country=m.country,
-            synced_show_country=m.show_country,
-        )  # fmt: skip
+        values: dict[str, Any] = {
+            "synced_pseudonym": m.pseudonym, "synced_country": m.country,
+            "synced_show_country": m.show_country,
+        }  # fmt: skip
+        if m.last_error_code in PERMANENT:
+            values["last_error_code"] = None
+        await store.update(**values)
 
     async def _submit(self, m: Membership, hub: HubClient, errors: list[str]) -> None:
         store = self.store

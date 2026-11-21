@@ -115,9 +115,15 @@ It shows the sensors and their ports, your standing in the network, the last con
 
 Right after the install, the network section may say `Joining as <your pseudonym>: not accepted by the hub yet`, with the last problem (for example a closed path to the hub). Your agreement is already recorded: SuckerPot keeps trying by itself, and a problem makes the exit code 1 until the hub accepts the node.
 
-If something needs your action, the report ends with a **Needs attention** block. Each item comes with the one command that fixes it. It lists three things: automatic updates are off (`./scripts/participant.sh auto-update on`), the host firewall is not installed (`./scripts/participant.sh firewall`), and the node runs a release at least three days older than the newest one it knows (`just update`). Any of them makes the exit code 1. The "newest release it knows" comes from the tags this checkout already has; the update job fetches new ones. An empty block means nothing to do.
+The installer and `./scripts/participant.sh join` wait a few minutes for the hub's answer. If the hub refuses the pseudonym because another node already uses it, they say so and suggest a free variant, for example `./scripts/participant.sh join --pseudonym amber-falcon-42-17`. The other node can be your own earlier install: the hub frees the name of a node that never sent a batch after one full day (24 to 48 hours), and the name of a dormant node (see below) at once. A node that sends batches keeps its name.
+
+If the hub refused the join, the network section says `Not a member: ...` with the reason and the fix, and the exit code is 2. For a member, the last network error shows as `Last network error: <code> (<age>)`, with a plain explanation and the fix when one is known. Two cases go to **Needs attention**: a member with no contact with the hub 2 hours after joining, and the same error for more than 6 hours.
+
+If something needs your action, the report ends with a **Needs attention** block. Each item comes with the one command that fixes it. Besides the network cases above, it lists three things: automatic updates are off (`./scripts/participant.sh auto-update on`), the host firewall is not installed (`./scripts/participant.sh firewall`), and the node runs a release at least three days older than the newest one it knows (`just update`). Any of them makes the exit code 1. The "newest release it knows" comes from the tags this checkout already has; the update job fetches new ones. An empty block means nothing to do.
 
 By default, your sensor counts toward confirmations after 14 days of regular batches. Until then its standing is `new`.
+
+A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is **dormant**. The hub keeps it, but leaves it out of the member list and of the member counts (network summary, public figures). It counts again from its next batch.
 
 ## Automatic updates
 
@@ -152,7 +158,7 @@ At first, only the operator's own node is a verifier.
 | --- | --- |
 | `./scripts/participant.sh status` | Same as `./scripts/status.sh` |
 | `./scripts/participant.sh leave` | Leave the network. The sensors keep running |
-| `./scripts/participant.sh join` | Show the consent again and join |
+| `./scripts/participant.sh join [--pseudonym NAME]` | Show the consent again and join. After a refused join, or for a new pseudonym, run it with `--pseudonym` |
 | `./scripts/participant.sh vpn FILE` | Send everything through your VPN |
 | `./scripts/participant.sh auto-update on\|off` | Turn the automatic update schedule on or off |
 | `./scripts/participant.sh uninstall` | Leave, stop the stack and remove the schedule. It prints the command that removes the data volumes and never runs it |

@@ -585,3 +585,89 @@ async def test_an_unverified_deleted_answer_is_not_a_confirmed_leave() -> None:
     rig.hub.bad_signature = False
     await rig.cycle()
     assert store.wiped == 1 and rig.hub.deleted
+
+
+# -- resilient member cycle (2026-11-21 field report) -------------------------------------------
+
+
+def _due() -> MemoryStore:
+    """A member whose pull and summary are due, with a pseudonym still to sync."""
+    return member_store(
+        pseudonym="night owl", synced_pseudonym=None, last_pull_at=None, last_summary_at=None
+    )
+
+
+async def test_a_failing_profile_sync_does_not_stop_the_pull_and_the_summary() -> None:
+    store = _due()
+    rig = Rig(store)
+    rig.hub.fail["PATCH /v1/node"] = (500, "server_error")
+    await rig.cycle()
+    assert ("GET", "/v1/targets") in rig.hub.calls and ("GET", "/v1/network") in rig.hub.calls
+    assert store.m.last_pull_at == NOW and store.m.last_summary_at == NOW
+    assert store.subs[date(2026, 11, 2)]["status"] == "sent"
+    assert store.m.last_error_code == "hub_error"  # the first error is kept
+    assert rig.worker.last_contact == NOW  # the hub did answer
+
+
+async def test_a_failing_batch_does_not_stop_the_pull() -> None:
+    store = _due()
+    rig = Rig(store)
+    rig.hub.fail["POST /v1/observations"] = (500, "server_error")
+    await rig.cycle()
+    assert store.m.last_pull_at == NOW and store.m.synced_pseudonym == "night owl"
+    assert store.m.last_error_code == "hub_error"
+
+
+async def test_an_unreachable_hub_still_ends_the_cycle_at_once() -> None:
+    store = _due()
+    rig = Rig(store)
+    rig.hub.unsigned_errors = True  # no signed answer: "hub out of reach", as before
+    rig.hub.fail["PATCH /v1/node"] = (502, "server_error")
+    await rig.cycle()
+    assert rig.hub.calls == [("PATCH", "/v1/node")]
+    assert store.m.last_error_code == "hub_unreachable" and store.m.last_pull_at is None
+    assert rig.worker.last_contact is None
+
+
+async def test_the_error_age_is_published_and_cleared() -> None:
+    store = _due()
+    rig = Rig(store)
+    rig.hub.fail["GET /v1/targets"] = (500, "server_error")
+    await rig.cycle()
+    detail = (await rig.worker.status())["network"]
+    assert detail["error_code"] == "hub_error"
+    assert detail["error_since"] == NOW.isoformat()
+    assert detail["last_contact"] == NOW.isoformat()
+    rig.now = NOW + timedelta(hours=7)
+    await rig.cycle()  # the same error: the age keeps its start
+    assert (await rig.worker.status())["network"]["error_since"] == NOW.isoformat()
+    del rig.hub.fail["GET /v1/targets"]
+    rig.now = NOW + timedelta(hours=14)
+    await rig.cycle()
+    detail = (await rig.worker.status())["network"]
+    assert store.m.last_error_code is None
+    assert detail["error_code"] is None and detail["error_since"] is None
+
+
+async def test_a_refused_pseudonym_stays_shown_until_a_new_one_is_picked() -> None:
+    store = _due()
+    rig = Rig(store)
+    rig.hub.fail["PATCH /v1/node"] = (409, "pseudonym_taken")
+    await rig.cycle()
+    assert store.m.last_error_code == "pseudonym_taken" and store.m.pseudonym is None
+    await rig.cycle()  # nothing left to sync: the code is not cleared by a good cycle
+    assert store.m.last_error_code == "pseudonym_taken"
+    del rig.hub.fail["PATCH /v1/node"]
+    await store.update(pseudonym="other owl")  # what `cli join --pseudonym` writes
+    await rig.cycle()
+    assert store.m.synced_pseudonym == "other owl" and store.m.last_error_code is None
+
+
+async def test_a_name_the_hub_released_is_synced_again() -> None:
+    store = member_store(pseudonym="night owl", synced_pseudonym="night owl", last_summary_at=None)
+    rig = Rig(store)
+    await rig.cycle()  # the fake hub lists the node without a pseudonym
+    assert store.m.synced_pseudonym is None
+    rig.hub.calls.clear()
+    await rig.cycle()
+    assert ("PATCH", "/v1/node") in rig.hub.calls and store.m.synced_pseudonym == "night owl"
