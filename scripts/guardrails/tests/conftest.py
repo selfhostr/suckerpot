@@ -292,6 +292,27 @@ def parse_env() -> Callable[[Path], dict[str, str]]:
     return parse
 
 
+def tools_without(sb: Sandbox, names: tuple[str, ...], dest: Path) -> Path:
+    """Links in DEST to every program the sandbox PATH finds after the fakes, except NAMES.
+
+    First match wins. A folder that appears twice (/bin -> /usr/bin on a merged /usr) is read
+    once, and a dangling link is linked as it is (os.path.lexists, not exists).
+    """
+    dest.mkdir(exist_ok=True)
+    seen: set[str] = set()
+    for d in sb.env["PATH"].split(":"):
+        real = os.path.realpath(d)
+        if d == str(sb.shim) or real in seen or not os.path.isdir(real):
+            continue
+        seen.add(real)
+        for entry in sorted(Path(real).iterdir()):
+            link = dest / entry.name
+            if entry.name in names or os.path.lexists(link):
+                continue
+            link.symlink_to(entry)
+    return dest
+
+
 def dedent(text: str) -> str:
     return textwrap.dedent(text).lstrip("\n")
 

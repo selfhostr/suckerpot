@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import ROOT, Sandbox
+from conftest import ROOT, Sandbox, tools_without
 from test_install import SECRET_NAMES, add_participant_files, wrap_docker
 from vt import Screen
 
@@ -831,14 +831,7 @@ def _without_an_engine(
     """PATH without docker, podman and docker-compose, whatever the host has installed."""
     for name in ("docker", "podman", "docker-compose"):
         (sb.shim / name).rename(sb.shim / f"{name}.later")
-    sysbin = sb.shim.parent / "sysbin"
-    sysbin.mkdir(exist_ok=True)
-    for folder in ("/usr/bin", "/bin"):
-        for entry in os.listdir(folder):
-            link = sysbin / entry
-            if entry in ("docker", "podman", "docker-compose") or link.exists():
-                continue
-            link.symlink_to(Path(folder) / entry)
+    sysbin = tools_without(sb, ("docker", "podman", "docker-compose"), sb.shim.parent / "sysbin")
     sb.env["PATH"] = f"{sb.shim}:{sysbin}"
     osr = sb.shim / "os-release"
     osr.write_text(os_release)
@@ -1082,3 +1075,19 @@ def test_the_test_key_hook_is_ignored_outside_test_mode(sandbox: Sandbox) -> Non
     )
     assert proc.returncode == 1
     assert "= " + "A" * 40 in proc.stdout
+
+
+def test_the_engine_free_path_survives_a_merged_usr(sandbox: Sandbox, tmp_path: Path) -> None:
+    """/bin -> /usr/bin and dangling links, as on the CI runner."""
+    usr = tmp_path / "usr-bin"
+    usr.mkdir()
+    (usr / "dangling").symlink_to(tmp_path / "nowhere")
+    (usr / "docker").write_text("#!/bin/sh\nexit 99\n")
+    (usr / "docker").chmod(0o755)
+    (tmp_path / "bin").symlink_to(usr)
+    sandbox.env["PATH"] = f"{sandbox.shim}:{usr}:{tmp_path / 'bin'}:{usr}:/usr/bin:/bin"
+    _without_an_engine(sandbox)
+    sysbin = sandbox.shim.parent / "sysbin"
+    assert os.path.islink(sysbin / "dangling")
+    assert not os.path.lexists(sysbin / "docker")
+    assert shutil.which("docker", path=sandbox.env["PATH"]) is None

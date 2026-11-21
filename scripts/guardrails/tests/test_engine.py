@@ -19,7 +19,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import ROOT, Sandbox
+from conftest import ROOT, Sandbox, tools_without
 from test_auto_update import stage
 from test_env_set import BASE_ENV
 from test_install import PASSWORD, add_participant_files
@@ -290,19 +290,7 @@ def _path_without_docker(sb: Sandbox) -> str:
     The tools are links to what the sandbox PATH finds after the fakes, first match wins, so a
     folder that appears twice (/bin -> /usr/bin on a merged /usr) or a dangling link is harmless.
     """
-    tools = sb.shim.parent / "tools"
-    tools.mkdir()
-    seen: set[str] = set()
-    for d in sb.env["PATH"].split(":"):
-        real = os.path.realpath(d)
-        if d == str(sb.shim) or real in seen or not os.path.isdir(real):
-            continue
-        seen.add(real)
-        for entry in sorted(Path(real).iterdir()):
-            link = tools / entry.name
-            if entry.name in ("docker", "docker-compose", "podman") or os.path.lexists(link):
-                continue
-            link.symlink_to(entry)
+    tools = tools_without(sb, ("docker", "docker-compose", "podman"), sb.shim.parent / "tools")
     nodocker = sb.shim.parent / "nodocker"
     nodocker.mkdir()
     for name in ("podman", "git", "curl", "ss", "sleep"):
