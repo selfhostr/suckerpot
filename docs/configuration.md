@@ -113,7 +113,7 @@ The port guard (`scripts/check-ports.sh`) accepts only `0` or `1`. Host ports ar
 | Variable | Default | Source | Description |
 | --- | --- | --- | --- |
 | `SUCKERPOT_ENGINE` | `docker` | `.env`, written by the installer | Container engine of the node. The scripts call it through `scripts/lib/engine.sh`. Only `docker` works for now: the installer and the updater refuse `podman` until Podman support is finished. A missing value means `docker`. |
-| `SUCKERPOT_NO_FIREWALL` | unset | `.env` | Podman only, not used yet (the installer will write it for `--no-firewall`). `1` means the owner filters the sp-* bridges elsewhere: the host firewall step only warns instead of being required, and the boot unit does not require the firewall unit. No effect on Docker, where the host firewall stays optional. |
+| `SUCKERPOT_NO_FIREWALL` | unset | `.env` | Written by the installer for `--no-firewall`. `1` means the owner filters the sp-* bridges elsewhere: on Docker the participant installer skips the host firewall step (and `--repair` keeps skipping it); on Podman the firewall step only warns instead of being required, and the boot unit does not require the firewall unit. |
 | `SUCKERPOT_INSTALL_MODE` | `source` | `.env`, written by the installer | `images` runs the signed release images. `source` builds them from the checkout. `just up` and the update scripts read it. |
 | `SUCKERPOT_VOLUME_PREFIX` | none, required | `.env`, written by the installer | Prefix of the external data volumes, such as `suckerpot_db-data`. Compose refuses to start without it. |
 

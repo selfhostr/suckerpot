@@ -215,27 +215,101 @@ def test_dry_run_requires_env_out(sandbox: Sandbox) -> None:
     assert proc.returncode != 0
 
 
-def test_interactive_answers_come_from_the_terminal(
+def test_interactive_full_install_asks_only_the_install_type(
     sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
 ) -> None:
+    """Phase C (docs/dev/design/installer-ux.md): the type is the one question of a full install."""
     answers = sandbox.root / "answers"
-    # mode, sensors, access, admin user, password x2, wireguard, public address, network
-    answers.write_text("source\nssh,telnet\nl\nowner\n" + PASSWORD + "\n" + PASSWORD + "\n\n\n\n\n")
+    answers.write_text("2\n")
     target = sandbox.root / "i.env"
     proc = sandbox.run(
         "scripts/install.sh",
-        "--dry-run",
-        "--env-out",
-        str(target),
+        *("--dry-run", "--env-out", str(target), "--source", "--sensors", "ssh,telnet"),
+        *("--admin-user", "owner"),
         extra_env={"SELFHOSTR_TTY": str(answers)},
     )
     assert proc.returncode == 0, proc.stderr
+    out = proc.stdout + proc.stderr
+    assert "What do you want to install?" not in out  # --admin-user already says "full"
     env = parse_env(target)
     assert env["ADMIN_USERNAME"] == "owner"
     assert env["SENSOR_TELNET"] == "1"
     assert env["SENSOR_WEB"] == "0"
     assert env["SUCKERPOT_INSTALL_MODE"] == "source"
-    assert PASSWORD not in proc.stdout + proc.stderr
+    assert "NETWORK_CONSENT" not in env
+
+
+def test_the_type_question_picks_the_install(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    add_participant_files(sandbox)
+    for answer, stack in (("2\n", "full"), ("\n", "participant"), ("1\ny\n", "participant")):
+        answers = sandbox.root / "answers"
+        answers.write_text(answer)
+        target = sandbox.root / f"{stack}-{len(answer)}.env"
+        proc = sandbox.run(
+            "scripts/install.sh",
+            *("--dry-run", "--env-out", str(target)),
+            extra_env={"SELFHOSTR_TTY": str(answers)},
+        )
+        out = proc.stdout + proc.stderr
+        assert "What do you want to install?" in out
+        assert "Choose 1 or 2 [1]:" in out
+        if answer == "\n":
+            # Enter picks the participant node; the consent then reads end of input: not joined.
+            assert proc.returncode == 1 and "Not joined. Nothing was installed." in out
+            continue
+        assert proc.returncode == 0, out
+        assert parse_env(target).get("SUCKERPOT_STACK_MODE", "full") == stack
+        # No other question: no prompt but the type and the consent.
+        assert out.count("[y/N]") == (1 if stack == "participant" else 0)
+
+
+def test_a_wrong_type_answer_is_refused(sandbox: Sandbox) -> None:
+    answers = sandbox.root / "answers"
+    answers.write_text("3\n")
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--dry-run", "--env-out", str(sandbox.root / "x.env")),
+        extra_env={"SELFHOSTR_TTY": str(answers)},
+    )
+    assert proc.returncode != 0 and "answer 1 (participant node) or 2 (full install)" in proc.stderr
+
+
+def test_without_a_terminal_an_implied_full_install_needs_yes(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--dry-run", "--env-out", str(sandbox.root / "n.env")),
+        extra_env={"SELFHOSTR_TTY": "/nonexistent/tty"},
+    )
+    assert proc.returncode != 0
+    assert "no terminal to ask which install you want; use --yes" in proc.stderr
+    for flags in (("--yes",), ("--full",)):
+        target = sandbox.root / f"{flags[0][2:]}.env"
+        proc = sandbox.run(
+            "scripts/install.sh",
+            *flags,
+            *("--dry-run", "--env-out", str(target)),
+            extra_env={"SELFHOSTR_TTY": "/nonexistent/tty"},
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert parse_env(target).get("SUCKERPOT_STACK_MODE", "full") == "full"
+
+
+def test_ssh_sensor_stays_off_when_2222_is_busy_too(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    (sandbox.shim / "ss-output").write_text(
+        "tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\ntcp LISTEN 0 128 0.0.0.0:2222 0.0.0.0:*\n"
+    )
+    rc, out = _real_run(sandbox, "--sensors", "ssh,web")
+    assert rc == 0, out
+    assert "ports 22 and 2222 are both in use: the ssh sensor is left off" in out
+    env = parse_env(sandbox.root / ".env")
+    assert env["SENSOR_SSH"] == "0"
+    assert "SSH_HOST_PORT" not in env or env["SSH_HOST_PORT"] != "2222"
 
 
 def _real_run(sb: Sandbox, *extra: str, stdin: str = PASSWORD + "\n") -> tuple[int, str]:
@@ -410,6 +484,9 @@ def test_script_never_looks_up_a_public_address() -> None:
             assert word not in code, (rel, word)
         for line in code.splitlines():
             if re.search(r"\bcurl\b", line):
+                # The only other curl: Docker's key and repository files, when Docker is missing.
+                if "https://download.docker.com/linux/" in line or "apt-get install" in line:
+                    continue
                 assert "healthz" in line, (rel, line)
                 assert re.search(r"http://(\$hbind|\$bind|127\.0\.0\.1)", line), (rel, line)
 
@@ -1003,17 +1080,18 @@ def test_participant_to_full_switch_keeps_the_data_and_the_secrets(
     assert "Dashboard: http://127.0.0.1:8443" in proc.stdout
 
 
-def test_switch_declining_automatic_updates_removes_the_schedule(psb: Sandbox) -> None:
+def test_switch_keeps_the_automatic_updates(psb: Sandbox) -> None:
+    """No question on the switch: the schedule stays (participant.sh auto-update off stops it)."""
     rc, out = p_real(psb)
     assert rc == 0, out
-    assert crontab_text(psb).strip() != ""
-    answers = psb.root / "answers"
-    # access, admin user, password x2, keep automatic updates
-    answers.write_text("l\nadmin\n" + PASSWORD + "\n" + PASSWORD + "\nno\n")
-    proc = psb.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
+    cron = crontab_text(psb)
+    assert cron.strip() != ""
+    proc = psb.run(
+        "scripts/install.sh", "--full", "--yes", "--admin-password-stdin", stdin=PASSWORD + "\n"
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert crontab_text(psb).strip() == ""
-    assert "AUTO_UPDATE_ENABLED=false" in (psb.root / ".env").read_text()
+    assert crontab_text(psb) == cron
+    assert "Keep the automatic daily updates?" not in proc.stdout + proc.stderr
 
 
 def test_a_failed_backup_leaves_the_participant_env_as_it_was(psb: Sandbox) -> None:
@@ -1122,53 +1200,24 @@ def test_no_network_declines_and_writes_no_consent(
     assert "The SuckerPot network" not in out
 
 
-def _interactive(sandbox: Sandbox, network_answer: str) -> tuple[Path, int, str]:
+def test_a_full_install_never_asks_about_the_network(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    """Decision O2: off by default, joined only with --join-network, no question."""
     answers = sandbox.root / "answers"
-    answers.write_text(
-        "images\nssh,web\nl\nowner\n" + PASSWORD + "\n" + PASSWORD + "\n\n\n\n" + network_answer
-    )
+    answers.write_text("2\ny\ny\n")
     target = sandbox.root / "i.env"
     proc = sandbox.run(
         "scripts/install.sh",
-        "--dry-run",
-        "--env-out",
-        str(target),
+        *("--dry-run", "--env-out", str(target)),
         extra_env={"SELFHOSTR_TTY": str(answers)},
     )
-    return target, proc.returncode, proc.stdout + proc.stderr
-
-
-@pytest.mark.parametrize("answer", ["y\n", "Y\n", "yes\n"])
-def test_a_typed_yes_joins_the_network(
-    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]], answer: str
-) -> None:
-    target, rc, out = _interactive(sandbox, answer)
-    assert rc == 0, out
-    assert "Join the SuckerPot network? [y/N]" in out
-    assert parse_env(target)["NETWORK_CONSENT"].startswith("v2:sources,payloads,c2,files,rechecks:")
-
-
-@pytest.mark.parametrize("answer", ["\n", "n\n", "N\n", "no\n"])
-def test_an_empty_or_no_answer_does_not_join_the_network(
-    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]], answer: str
-) -> None:
-    target, rc, out = _interactive(sandbox, answer)
-    assert rc == 0, out
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert "Join the SuckerPot network?" not in out
+    assert "join it later in the dashboard, or install with --join-network" in out
     env = parse_env(target)
     assert "NETWORK_CONSENT" not in env and "NETWORK_PSEUDONYM" not in env
-
-
-def test_a_garbled_network_answer_is_refused(sandbox: Sandbox) -> None:
-    _, rc, out = _interactive(sandbox, "maybe\n")
-    assert rc != 0 and "answer y or n" in out
-
-
-def test_end_of_input_is_not_a_yes_to_the_network_question(
-    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
-) -> None:
-    target, rc, out = _interactive(sandbox, "")
-    assert rc != 0 and "no answer to the network question" in out
-    assert not target.exists() or "NETWORK_CONSENT" not in parse_env(target)
 
 
 def test_the_consent_text_is_exact_about_the_vpn_and_the_address(sandbox: Sandbox) -> None:
@@ -1234,12 +1283,15 @@ def test_engine_older_than_24_is_refused(psb: Sandbox) -> None:
 
 
 def test_participant_summary_recommends_forwards_over_a_dmz(psb: Sandbox) -> None:
+    """Decision O8: one line, the reasons live in docs/participate.md."""
     set_engine(psb, "28.0.0")
     rc, out = p_real(psb)
     assert rc == 0, out
-    assert "does not filter internet traffic to this" in out
-    assert "Use port forwards, not your router's DMZ" in out
-    assert "admin SSH faces the internet" in out
+    assert (
+        "Use port forwards, not your router's DMZ (why: docs/participate.md#open-the-ports)" in out
+    )
+    doc = (ROOT / "docs/participate.md").read_text()
+    assert "## Open the ports" in doc and "admin SSH faces the internet" in doc
 
 
 # --- M35: --lite -----------------------------------------------------------------------------
@@ -1396,24 +1448,18 @@ def _lite_sensors(env: dict[str, str]) -> set[str]:
     return {s for s in names if env[f"SENSOR_{s.upper()}"] == "1"}
 
 
-def test_small_machine_accepting_the_offer_installs_as_lite(
+def test_small_machine_takes_lite_without_a_question(
     psb: Sandbox, parse_env: Callable[[Path], dict[str, str]]
 ) -> None:
     _small_machine(psb)
-    rc, out = _ask_run(psb, "yes\ny\n")
+    rc, out = _ask_run(psb, "y\n")
     assert rc == 0, out
     assert "reports 1.4 GiB of memory" in out and "needs 2 GiB" in out
-    assert "Use the lite setup instead?" in out
+    assert "Taking the lite setup (--lite)" in out
+    assert "Use the lite setup instead?" not in out
     env = parse_env(psb.root / ".env")
     assert env["COMPOSE_FILE"] == LITE_COMPOSE
     assert _lite_sensors(env) == {"ssh", "telnet", "web", "redis"}
-
-
-def test_small_machine_enter_takes_the_default_yes(psb: Sandbox) -> None:
-    _small_machine(psb)
-    rc, out = _ask_run(psb, "\ny\n")
-    assert rc == 0, out
-    assert "docker-compose.lite.yml" in (psb.root / ".env").read_text()
 
 
 def test_small_machine_with_yes_takes_lite_and_says_so(
@@ -1427,15 +1473,6 @@ def test_small_machine_with_yes_takes_lite_and_says_so(
     env = parse_env(psb.root / ".env")
     assert env["COMPOSE_FILE"] == LITE_COMPOSE
     assert _lite_sensors(env) == {"ssh", "telnet", "web", "redis"}
-
-
-def test_small_machine_refusing_the_offer_names_the_ways_out(psb: Sandbox) -> None:
-    _small_machine(psb)
-    rc, out = _ask_run(psb, "no\n")
-    assert rc != 0
-    assert "reports 1.4 GiB" in out
-    assert "2 GiB or more" in out and "--participant --lite" in out
-    assert not (psb.root / ".env").exists()
 
 
 def test_automatic_lite_equals_explicit_lite(
@@ -1532,12 +1569,13 @@ def test_real_two_gb_machine_without_swap_warns_and_yes_goes_on(psb: Sandbox) ->
     assert "less than 512 MiB of swap" in out and "about 2 GiB" in out
 
 
-def test_real_two_gb_machine_without_swap_asks_and_no_stops(psb: Sandbox) -> None:
+def test_real_two_gb_machine_without_swap_warns_and_goes_on(psb: Sandbox) -> None:
     _small_machine(psb, REAL_2GB_KB)
     (psb.shim / "meminfo").write_text(f"MemTotal:        {REAL_2GB_KB} kB\n")
-    rc, out = _ask_run(psb, "no\n")
-    assert rc != 0 and "add swap" in out
-    assert not (psb.root / ".env").exists()
+    rc, out = _ask_run(psb, "y\n")
+    assert rc == 0, out
+    assert "less than 512 MiB of swap" in out and "./scripts/install.sh --repair" in out
+    assert (psb.root / ".env").exists()
 
 
 def test_real_two_gb_machine_full_mode_is_accepted(psb: Sandbox) -> None:
@@ -1566,31 +1604,12 @@ def _no_swap(sb: Sandbox, mem_kb: int) -> None:
     (sb.shim / "meminfo").write_text(f"MemTotal:        {mem_kb} kB\n")
 
 
-def test_participant_asks_the_swap_question_and_yes_goes_on(psb: Sandbox) -> None:
-    _no_swap(psb, REAL_2GB_KB)
-    rc, out = _ask_run(psb, "yes\ny\n")
-    assert rc == 0, out
-    assert "Continue without enough swap? (yes/no) [no]" in out
-    assert (psb.root / ".env").exists()
-
-
-def test_participant_swap_question_no_or_enter_stops(psb: Sandbox) -> None:
-    for answers in ("no\n", "\n"):
-        _no_swap(psb, REAL_2GB_KB)
-        rc, out = _ask_run(psb, answers + "y\n")
-        assert rc != 0, out
-        assert "Continue without enough swap?" in out
-        assert "add swap, then run the installer again" in out
-        assert not (psb.root / ".env").exists()
-
-
-def test_explicit_lite_on_one_gib_asks_the_swap_question(psb: Sandbox) -> None:
-    _no_swap(psb, 990000)
-    rc, out = _ask_run(psb, "yes\ny\n", "--lite")
-    assert rc == 0, out
-    assert "Continue without enough swap?" in out
-    assert (psb.root / ".env").exists()
-    (psb.root / ".env").unlink()
-    for answers in ("no\n", "\n"):
-        rc, out = _ask_run(psb, answers + "y\n", "--lite")
-        assert rc != 0 and "add swap, then run the installer again" in out
+def test_little_swap_is_a_warning_not_a_question(psb: Sandbox) -> None:
+    for extra, mem in (((), REAL_2GB_KB), (("--lite",), 990000)):
+        _no_swap(psb, mem)
+        rc, out = _ask_run(psb, "y\n", *extra)
+        assert rc == 0, out
+        assert "less than 512 MiB of swap" in out
+        assert "Continue without enough swap?" not in out
+        assert (psb.root / ".env").exists()
+        (psb.root / ".env").unlink()

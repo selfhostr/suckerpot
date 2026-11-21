@@ -1,12 +1,18 @@
 --- stdout
 [1/10] Checking this machine
+[1/10] ok
 [2/10] Settings
       the SuckerPot network is off: --yes does not join it (add --join-network to join)
+[2/10] ok
 [3/10] Checking ports
+[3/10] ok
 [4/10] Generating secrets
       24 secrets generated (written to .env only)
+[4/10] ok
 [5/10] Hashing the admin password
 verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
+[5/10] failed
+result: failed step=5 log=<root>/install.log
 --- stderr
       warning: Docker Engine 27.0.1 is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended.
   FAILED  api (no single verified digest in the cosign output)

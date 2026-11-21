@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Installer: `--update-check` (the daily release check of a full install, off by default),
+  `--no-firewall` (participant mode: skip the host firewall; writes `SUCKERPOT_NO_FIREWALL=1`),
+  and `--self-address` now also in full mode.
+- Installer: when Docker is missing, it shows the commands that install Docker Engine from
+  Docker's package repository on Debian, Ubuntu, Fedora and the RHEL family, with no script piped
+  to a shell. The downloaded key file goes through a throwaway keyring: a file with more than one
+  key is refused, and the package manager gets only the key with the pinned fingerprint. On a
+  terminal it runs the commands after one "yes", then continues in the `docker` group with
+  `sg docker`, or says to log in again. Without a terminal it prints the commands and stops.
+  Every path that installs nothing exits with status 1.
+- Installer: the rich display shows whether the hub accepted the new participant node ("Join the
+  network"), as the plain output already did.
+- Installer, plain output: `[n/10] ok` when a step ends, and a last `result: ok ...` or
+  `result: failed step=N ...` line for scripts and CI.
+
+### Changed
+
+- The installer asks at most two questions: the install type (participant node or full install,
+  when no `--participant` or `--full` says it), and the participant consent. Everything else takes
+  its default, and each default has a flag:
+  - a full install no longer asks about the SuckerPot network: it is off unless `--join-network`;
+  - the admin password is generated and shown once (`--admin-password-stdin` for your own);
+  - the install mode, sensors, dashboard access, admin user, low-memory mode, WireGuard file,
+    own address, busy ports and admin SSH port are no longer asked (see `docs/install.md`);
+  - little swap is a warning, not a question; a small participant machine takes the lite setup
+    by itself;
+  - the participant host firewall is installed without a question (`sudo` may ask for its
+    password; `--no-firewall` skips it);
+  - the end of a participant install no longer asks to recheck the ports;
+  - the switch to full mode keeps the automatic updates without asking.
+  With `--yes`, the default type stays the full install, so existing scripts keep working.
+  Without a terminal and without `--yes`, an install needs `--full` or
+  `--participant`, as before. A participant install without a terminal still needs `--yes`.
+- A full install now sets `ADMIN_SSH_PORT` from the sshd configuration (or the ssh.socket port)
+  when port 22 is free, as participant installs already did, so no sensor can take that port.
+- When port 22 is busy, the SSH sensor moves to host port 2222 only if 2222 is free; otherwise it
+  stays off, with a warning, like any other sensor whose port is taken.
+- On a terminal with neither `--participant` nor `--full`, the type question defaults to `1`, the
+  participant node (VPS participants are the main audience). The full-install commands in the
+  README and the docs now pass `--full`.
+- The participant summary gives the DMZ advice in one line that links to
+  `docs/participate.md#open-the-ports`.
+
 ## [0.12.2] - 2026-11-21
 
 ### Added

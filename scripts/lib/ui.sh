@@ -706,6 +706,8 @@ _ui_interrupt() {
 # no ui_fail reported (set -e: a failed cp, a full disk), the failure screen still shows it.
 ui_exit() {
   local rc=${1:-0}
+  # UI_ON_EXIT: a function of the caller, called with the status (the plain result line).
+  if [ -n "${UI_ON_EXIT:-}" ]; then "$UI_ON_EXIT" "$rc" || true; fi
   [ "$UI_MODE" = rich ] || return 0
   if [ "$rc" != 0 ] && [ "$UI_ENDED" = 0 ]; then
     _ui_log_tail

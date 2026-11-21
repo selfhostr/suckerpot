@@ -33,13 +33,13 @@ git switch --detach "$(git describe --tags --abbrev=0)"
 ./scripts/install.sh --participant
 ```
 
-The installer prints what it will share and asks one question: `Join the SuckerPot network as described? [y/N]`. With `--yes` it does not ask, and `--yes` counts as your consent.
+The installer prints what it will share and asks one question: `Join the SuckerPot network as described? [y/N]`. With `--yes` it does not ask, and `--yes` counts as your consent. (Without `--participant`, it first asks what to install: answer `1`, the participant node.)
 
 It then creates every secret on this machine, starts the sensors, the database, the ingest service and the network node, and picks a random pseudonym such as `amber-falcon-42`. Memory use is about 2 GiB.
 
-A machine sold as "2 GB" reports about 1.9 GiB and runs the default setup with the low-memory limits: add swap (the installer warns and asks when there is less than 512 MiB). If the machine reports less than 1.75 GiB, the installer says so and offers the lite setup in one question (default yes; `--yes` takes it and prints a note). Accepting it is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
+A machine sold as "2 GB" reports about 1.9 GiB and runs the default setup with the low-memory limits: add swap (the installer warns when there is less than 512 MiB). If the machine reports less than 1.75 GiB, the installer says so and takes the lite setup by itself, with a note. That is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
 
-Near the end it offers the **host firewall**: `Install the host firewall now? ... Needs sudo. [Y/n]`. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. The default answer is yes. It asks for your `sudo` password on the terminal. With `--yes` it installs the firewall by itself when `sudo` works without a password, and otherwise prints the one command to run (`./scripts/participant.sh firewall`). If you say no, it prints the two commands to run later; you can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
+Near the end it installs the **host firewall**, without a question. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. `sudo` asks for your password on the terminal. With `--yes` it installs the firewall by itself when `sudo` works without a password, and otherwise prints the one command to run (`./scripts/participant.sh firewall`). If you filter the containers elsewhere, pass `--no-firewall`. You can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
 
 After that, your only job is to open the printed ports.
 
@@ -60,13 +60,7 @@ Use port forwards, not your router's DMZ. A DMZ sends every port of this machine
 
 ### Check that the ports are open
 
-Forwarding a port on a router is the one step the installer cannot do for you, so it checks the result. At the end of the installation it looks, once, for connections from the internet. If none has arrived yet, it asks:
-
-```text
-Ports not reachable yet. [r]echeck now (after you opened them), or [c]ontinue and open them later? [c]
-```
-
-Answer `r` after you opened the ports: it looks again for up to a minute and repeats until a connection arrives or you answer `c`. With `--yes`, or without a terminal, it never asks: it prints the warning and the command to run later.
+Forwarding a port on a router is the one step the installer cannot do for you, so it checks the result. At the end of the installation it looks, once, for connections from the internet (for up to 90 seconds). If none has arrived yet, it says so and prints the command to run once you opened the ports. It does not ask anything.
 
 You can run the check at any time (it also works on a full install):
 
@@ -173,7 +167,7 @@ If a newer release widens what is shared, the node waits until you run `join` ag
 ./scripts/install.sh --full
 ```
 
-The installer asks the dashboard questions, takes a backup, starts the dashboard and the VPN service, and keeps your data and your membership. Without a VPN file, the node waits until you upload one in Settings. A full install needs a VPN for the network node, because every call to the hub goes through it. A full install cannot be switched back to participant mode.
+The installer takes a backup, starts the dashboard and the VPN service, and keeps your data and your membership. Without a VPN file, the node waits until you upload one in Settings. A full install needs a VPN for the network node, because every call to the hub goes through it. A full install cannot be switched back to participant mode.
 
 ## Useful flags
 

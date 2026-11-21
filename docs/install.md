@@ -30,9 +30,9 @@ The memory figures are sizing targets. Check the real use on your host with `doc
 | `full` (default) | Everything: sensors, database, ingest, API and dashboard, and the VPN service (optional; idle until you add a WireGuard file) | You want the dashboard, reports and blocklists |
 | `participant` (`--participant`) | Sensors, database, ingest and the network node. No dashboard, no admin account, no VPN needed | You only want to help the network. See [Join the network](participate.md) |
 
-Participant mode has its own flags: `--pseudonym`, `--no-pseudonym`, `--country`, `--show-country`, `--verifier`, `--no-auto-update`, `--feeds`, `--self-address` and `--repair`. It refuses the dashboard flags (`--dashboard-*`, `--public-host`, `--admin-*`, `--allow-lan`). Choosing it is your consent to join the network.
+Participant mode has its own flags: `--pseudonym`, `--no-pseudonym`, `--country`, `--show-country`, `--verifier`, `--no-auto-update`, `--feeds`, `--lite`, `--no-firewall` and `--repair`. Without `--participant` or `--full`, the installer asks which one on a terminal (see [what the installer asks](#what-the-installer-asks)). It refuses the dashboard flags (`--dashboard-*`, `--public-host`, `--admin-*`, `--allow-lan`). Choosing it is your consent to join the network.
 
-To switch an existing participant install to full mode, run `./scripts/install.sh --full`. It asks the dashboard questions, takes a backup and keeps your data. The other way (full to participant) is not supported. Running the installer again on an existing install only prints its status. Add `--repair` to run the volume, start and schedule steps again.
+To switch an existing participant install to full mode, run `./scripts/install.sh --full`. It takes a backup, sets up the dashboard with a generated admin password (shown once) and keeps your data. The other way (full to participant) is not supported. Running the installer again on an existing install only prints its status. Add `--repair` to run the volume, start and schedule steps again.
 
 ## Images or source build
 
@@ -50,7 +50,7 @@ Clone the repository, switch to the latest release, then run the installer from 
 ```bash
 git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
 git switch --detach "$(git describe --tags --abbrev=0)"
-./scripts/install.sh
+./scripts/install.sh --full
 ```
 
 The second line switches to the newest release tag, so these commands always install the latest release. For an older release, run `git switch --detach vX.Y.Z` instead, with a release name from the repository's Releases page.
@@ -63,7 +63,7 @@ If you clone without a tag, or you want to build from source, run:
 
 The installer does not use `curl | bash`. Read the script first, then run it from the checkout.
 
-To install without questions, use `--yes`. It takes the default for every question. **It does not join the SuckerPot network**: that needs your explicit `--join-network`. The admin password is then generated and printed once, or you can pass your own on standard input:
+To install without any question, use `--yes`. With no `--participant`, it makes a full install. **It does not join the SuckerPot network**: that needs your explicit `--join-network`. The admin password is generated and printed once, or you can pass your own on standard input:
 
 ```bash
 ./scripts/install.sh --yes --sensors recommended
@@ -80,29 +80,40 @@ The second form keeps the password out of the command line and out of your shell
 
 ## What the installer asks
 
-Each question has a default. Press Enter to accept it. With `--yes`, every question takes its default.
+At most two questions, both on the terminal:
 
-| Question | Default | Notes |
+1. **What do you want to install?** `1` participant node (the default) or `2` full install. Asked only when neither `--participant` nor `--full` is given, and no flag of one mode already says it. Without a terminal, or with `--yes`, the installer makes a full install, as it always did.
+2. **Join the SuckerPot network as described?** Participant installs only, after the consent screen. `--yes` counts as your consent. Without a terminal, a participant install needs `--yes`.
+
+Everything else takes a default. Each default has a flag:
+
+| Setting | Default | Flag |
 | --- | --- | --- |
-| Install mode | `images` | `images` or `source`. See [images or source build](#images-or-source-build). |
-| Sensors | `recommended` | `recommended` is SSH, Telnet, Web, Redis, Docker and ADB. `all` turns on all twelve. Or type a list such as `ssh,web`. |
-| How the dashboard is reached | local | `l` for this machine or an SSH tunnel. `h` for an HTTPS tunnel such as cloudflared. With `h` the installer asks for the public host name, for example `dash.example.com`. |
-| Admin user name | `admin` | Letters, digits, `.`, `_` and `-`. |
-| Admin password | generate one | Type it twice, at least 12 characters. Leave it empty to generate a 24-character password. The generated password is shown once. |
-| Low-memory mode | `yes` below 6 GiB, `no` above | Only asked on machines with less than 6 GiB. See [low-memory hosts](#low-memory-hosts). |
-| Daily update check | `no` | One request a day through the VPN, off by default. See [updates](updates.md#the-optional-update-check). |
-| WireGuard `.conf` file | empty | Path to the file from your VPN provider. Empty means you upload it later in the dashboard. See [the VPN](#the-vpn-before-a-wireguard-file-is-uploaded). |
-| Join the SuckerPot network? | `no` | An experimental preview. Shows what would be shared, then asks `[y/N]`. An empty answer is a no. A yes writes a consent record and a random pseudonym; the join waits for a VPN. `--yes` alone never joins: use `--join-network` to join without the question, or `--no-network` to skip it. See [the network](network.md). |
-| Your own public address | empty | Optional. The installer never looks it up. If you type it, it goes to `INDICATORS_IGNORE`, so it never shows up as attack infrastructure. |
-| Port in use | depends | Asked only when a port the chosen sensors need is already taken. See [port 22](#port-22-is-already-in-use). |
-| Admin SSH port | empty, or `22` when port 22 is busy | The port of this machine's own SSH daemon. It is protected so no sensor can take it. `sudo ./scripts/move-admin-ssh.sh` moves it off port 22 for you. |
+| Install mode | `images` | `--source`. See [images or source build](#images-or-source-build). |
+| Sensors | `recommended` (SSH, Telnet, Web, Redis, Docker and ADB; on a lite node SSH, Telnet, Web and Redis) | `--sensors all` or a list such as `--sensors ssh,web` |
+| How the dashboard is reached | this machine, `127.0.0.1:8443` (use an SSH tunnel) | `--public-host HOST` for an HTTPS tunnel, `--dashboard-bind`, `--dashboard-port` |
+| Admin user name | `admin` | `--admin-user NAME` |
+| Admin password | generated (24 characters) and shown once at the end | `--admin-password-stdin` reads your own from standard input |
+| Low-memory mode | on below 6 GiB | `--lowmem on\|off`. See [low-memory hosts](#low-memory-hosts). |
+| Lite setup (participant) | taken by itself on a machine with 0.875 to 1.75 GiB | `--lite` |
+| Daily update check (full) | off | `--update-check`. See [updates](updates.md#the-optional-update-check). |
+| WireGuard `.conf` file | none: upload it later in the dashboard | `--wg-conf PATH`. See [the VPN](#the-vpn-before-a-wireguard-file-is-uploaded). |
+| The SuckerPot network (full) | not joined: join later in the dashboard | `--join-network` (shows the consent screen and joins). See [the network](network.md). |
+| Your own public address | none: the dashboard learns it from traffic | `--self-address ADDR` (full and participant). The installer never looks it up. |
+| Port 22 busy | the SSH sensor uses host port 2222 (forward router port 22 to it) | `--admin-ssh-port`, or move your SSH first: `sudo ./scripts/move-admin-ssh.sh`. See [port 22](#port-22-is-already-in-use). |
+| Another port busy | that sensor stays off (the installer says which) | free the port, then `just sensors` |
+| Admin SSH port | detected (`22` when port 22 is busy, else what sshd is configured for) | `--admin-ssh-port N` |
+| Little swap | a warning, the install goes on | add swap, then `./scripts/install.sh --repair` |
+| Host firewall (participant) | installed; `sudo` may ask for your password | `--no-firewall` |
+
+When Docker is not installed, the installer shows the commands that install Docker Engine from Docker's own package repository (Debian, Ubuntu, Fedora and the RHEL family): it downloads Docker's signing key, imports it into a throwaway keyring (a file with more than one key is refused), exports only the key with the fingerprint pinned in the script and gives that export to the package manager, adds the repository and installs `docker-ce`, `docker-ce-cli`, `containerd.io` and `docker-compose-plugin`. No script is piped to a shell. On a terminal it asks once, `Run them now? [Y/n]`, runs them with `sudo`, then starts again in the `docker` group (`sg docker`), so you do not need to log in again; if that is not possible it tells you to log out and back in. Without a terminal, on `n`, or on another distribution, it prints the commands (or the link to Docker's install guide) and stops with exit status 1. Podman is not offered yet.
 
 ## What the installer does
 
-On a terminal, the installer shows a short list of steps with one progress bar, and the full output of every command goes to `install.log`. If a step fails, it shows that step, the last lines of the log and the log path. Without a terminal (CI, a redirected output, `TERM=dumb`) or with `--plain`, it prints one line per step, `[n/10]`, and the output of each command, as before. Either way it stops at the first failure and says why.
+On a terminal, the installer shows a short list of steps with one progress bar, and the full output of every command goes to `install.log`. If a step fails, it shows that step, the last lines of the log and the log path. Without a terminal (CI, a redirected output, `TERM=dumb`) or with `--plain`, it prints `[n/10] title` when a step starts, `[n/10] ok` when it ends, the output of each command, and a last line for scripts: `result: ok type=... version=... engine=... log=...`, or `result: failed step=N log=...`. Either way it stops at the first failure and says why.
 
 1. **Check this machine.** Linux, CPU, Docker, Compose, memory, disk, existing install, existing data.
-2. **Settings.** Asks the questions above.
+2. **Settings.** The install type and the consent (see above), then the defaults and flags.
 3. **Check ports.** Looks at the host ports of the chosen sensors and the dashboard port.
 4. **Generate secrets.** Every database, Redis and proxy password, the session secret and the settings encryption key. Each is at least 24 characters, and no two are equal.
 5. **Hash the admin password.** The password goes to a container with no network, through standard input. It never appears in a command line, an environment variable or a file.
@@ -138,6 +149,11 @@ On a terminal, the installer shows a short list of steps with one progress bar, 
 | `--skip-verify` | Do not check the image signatures. Not recommended. See [updates](updates.md#image-signatures). |
 | `--dry-run --env-out PATH` | Write the `.env` that would be made to `PATH`, with a placeholder hash. Makes no Docker call. Used to test the installer. |
 | `--plain` | Plain line-by-line output, as without a terminal: no progress display, no colours, no cursor movement. |
+| `--update-check` | Full mode: check once a day whether a newer release exists (one anonymous request through the VPN; it never installs anything). Off by default. |
+| `--self-address ADDR` | Your own public address, so it never shows up as attack infrastructure. The installer never looks it up. |
+| `--join-network` | Full mode: join the SuckerPot network (shows the consent screen). Without it, a full install does not join. |
+| `--no-network` | Accepted for older scripts. The network is off unless `--join-network`. |
+| `--no-firewall` | Participant mode: do not install the host firewall (you filter the sp-* bridges elsewhere). Writes `SUCKERPOT_NO_FIREWALL=1` to `.env`. |
 | `-h`, `--help` | Print the usage. |
 
 ## What the installer refuses

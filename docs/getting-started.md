@@ -35,10 +35,10 @@ Clone the repository, switch to the latest release and run the installer from th
 ```bash
 git clone https://github.com/<your-account>/suckerpot.git && cd suckerpot
 git switch --detach "$(git describe --tags --abbrev=0)"
-./scripts/install.sh
+./scripts/install.sh --full
 ```
 
-The second line switches to the newest release tag. The installer asks a few questions. The six recommended sensors are on by default, and the SuckerPot network is off unless you answer yes to its question. It then writes `.env` with new secrets, starts the stack and prints the dashboard address. Every question and every flag is explained in [Install SuckerPot](install.md).
+The second line switches to the newest release tag. With `--full` the installer asks nothing (without it, it first asks whether you want a participant node or a full install). The six recommended sensors are on by default, the admin password is generated and shown once, and the SuckerPot network is off unless you add `--join-network`. It then writes `.env` with new secrets, starts the stack and prints the dashboard address. Every question and every flag is explained in [Install SuckerPot](install.md).
 
 When the installer is done, sign in. The first-run setup opens by itself. It walks you through the sensors, the ports to forward, the VPN and the rest. See [the first-run setup](install.md#first-run-setup-in-the-dashboard).
 
