@@ -26,6 +26,7 @@
 #                      [--join-network]  (join the experimental SuckerPot network; without it the answer is no)
 #                      [--no-network]  (do not ask about the SuckerPot network)
 #                      [--dry-run --env-out PATH]
+#                      [--plain]  (one line per step, as without a terminal)
 #
 #   Participant mode (docs/dev/design/m32.md): sensors, database, ingest and the network node, no
 #   dashboard, no admin account, no VPN needed (the hub is reached through hubproxy):
@@ -43,6 +44,9 @@
 # consent to join.
 # --dry-run --env-out writes the would-be .env to PATH with a placeholder admin hash and makes
 # no Docker call (used by the tests).
+# On a terminal the installer shows a step list with a progress bar and writes the output of every
+# command to install.log. Without a terminal, with TERM=dumb or with --plain, it prints one line per
+# step and the command output, as it always did. NO_COLOR keeps the display without colours.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -52,18 +56,42 @@ cd "$(dirname "$0")/.."
 TOTAL=10
 LOG=install.log
 
+# shellcheck source=scripts/lib/ui.sh
+. scripts/lib/ui.sh
+UI_PREFIX=install
+
+# Plain mode (no terminal, TERM=dumb, --plain) prints exactly what the installer always printed.
+# On a terminal, scripts/lib/ui.sh shows a step list with a progress bar instead, and the output
+# of every command goes to install.log (docs/dev/design/installer-ux.md).
 die() {
-  echo "install: $*" >&2
-  log "FAILED: $*"
-  exit 1
+  if [ -n "$UI_LOG" ]; then UI_FAIL_LOGLINE="$(date -u +%Y-%m-%dT%H:%M:%SZ) FAILED: $*"; else log "FAILED: $*"; fi
+  # Once this run has written .env, a new run only says "already installed": --repair goes on.
+  local fix=""
+  [ "${env_written:-0}" = 0 ] || fix="when the cause is fixed: ./scripts/install.sh --repair"
+  ui_fail "$*" "$fix"
 }
 log() { [ "$dry_run" = 1 ] || printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG"; }
+# STEP_ROW maps the ten numbered steps onto the shorter list of the rich display ("" = no change).
+declare -A STEP_ROW=()
 step() {
-  printf '[%s/%s] %s\n' "$1" "$TOTAL" "$2"
+  if [ "$UI_MODE" = plain ]; then printf '[%s/%s] %s\n' "$1" "$TOTAL" "$2"; fi
   log "step $1: $2"
+  if [ -n "${STEP_ROW[$1]:-}" ]; then ui_begin "${STEP_ROW[$1]}"; fi
 }
-note() { echo "      $*"; }
-warn() { echo "      warning: $*" >&2; }
+# note: a line under the step (plain), the short result of the step (rich).
+note() {
+  if [ "$UI_MODE" = plain ]; then echo "      $*"; else echo "      $*"; ui_detail "$*"; fi
+}
+warn() {
+  if [ "$UI_MODE" = plain ]; then echo "      warning: $*" >&2; else echo "      warning: $*"; ui_warn "$*"; fi
+}
+# say: text for the person at the terminal (stdout in plain mode, the display in rich mode).
+say() { echo "$@" 1>&"$UI_OUT"; }
+# quiet CMD...: CMD with its stdout dropped (its errors still reach the log).
+quiet() { "$@" > /dev/null; }
+# answered: after an answer read on fd 3. A typed answer ends its line on the terminal; an answer
+# from a file does not, so the rich display ends it (the list must not draw over the question).
+answered() { [ "$UI_MODE" = plain ] || [ -t 3 ] || echo 1>&"$UI_ERR"; }
 
 # ---------------------------------------------------------------- arguments
 assume_yes=0
@@ -97,7 +125,7 @@ feeds=0
 self_address=""
 repair=0
 lite=0
-
+plain=0
 need_value() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
 while [ $# -gt 0 ]; do
   case $1 in
@@ -134,6 +162,7 @@ while [ $# -gt 0 ]; do
     --self-address) need_value "$@"; self_address=$2; shift ;;
     --repair) repair=1 ;;
     --lite) lite=1 ;;
+    --plain) plain=1 ;;
     -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
@@ -143,6 +172,17 @@ done
 
 if [ "$dry_run" = 1 ] && [ -z "$env_out" ]; then die "--dry-run needs --env-out PATH"; fi
 if [ "$dry_run" = 0 ] && [ -n "$env_out" ]; then die "--env-out is only for --dry-run"; fi
+
+# The display. The dry run writes no log, as before.
+if [ "$dry_run" = 1 ]; then ui_init "" "$plain"; else ui_init "$LOG" "$plain"; fi
+if [ "$UI_MODE" = rich ]; then
+  case $stack in participant) ui_ctx="participant node" ;; full) ui_ctx="full install" ;; *) ui_ctx="installer" ;; esac
+  [ "$repair" = 0 ] || ui_ctx="$ui_ctx · repair"
+  [ "$dry_run" = 0 ] || ui_ctx="$ui_ctx · dry run"
+  [ "$UI_UTF8" = 1 ] || ui_ctx=${ui_ctx// · / - }
+  ui_header "$ui_ctx"
+fi
+log "install.sh started ($UI_MODE display)"
 case ${lowmem:-auto} in auto | on | off) ;; *) die "--lowmem must be auto, on or off" ;; esac
 lowmem=${lowmem:-auto}
 # Applies what --lite implies for --lowmem. Also called when the installer switches to lite itself.
@@ -195,8 +235,10 @@ ask() {
     printf -v "$__var" %s "$__d"
     return 0
   fi
-  printf '  %s [%s]: ' "$__q" "$__d" >&2
+  ui_pause
+  printf '  %s [%s]: ' "$__q" "$__d" 1>&"$UI_ERR"
   IFS= read -r __ans <&3 || __ans=""
+  answered
   printf -v "$__var" %s "${__ans:-$__d}"
 }
 
@@ -231,9 +273,9 @@ if [ -e .env ]; then
       || die "--repair keeps the mode of the install ($cur_stack); use --full to switch a participant install"
     stack=$cur_stack
   elif [ -z "$stack" ] || [ "$stack" = "$cur_stack" ]; then
-    echo "SuckerPot is already installed here in $cur_stack mode (.env exists). Nothing was changed."
-    echo "Update: just update. Start the steps again without changing settings: ./scripts/install.sh --repair"
-    if [ -f scripts/status.sh ]; then bash scripts/status.sh || true; fi
+    say "SuckerPot is already installed here in $cur_stack mode (.env exists). Nothing was changed."
+    say "Update: just update. Start the steps again without changing settings: ./scripts/install.sh --repair"
+    if [ -f scripts/status.sh ]; then bash scripts/status.sh 1>&"$UI_OUT" 2>&"$UI_ERR" || true; fi
     exit 0
   elif [ "$cur_stack" = participant ] && [ "$stack" = full ]; then
     case ":$(env_get COMPOSE_FILE docker-compose.yml):" in
@@ -252,6 +294,20 @@ fresh=$((1 - existing))
 # A fresh install takes SUCKERPOT_ENGINE from the environment, else the engine this host has.
 if [ "$fresh" = 1 ] && [ "$ENGINE_FROM" = default ]; then engine_use "$(engine_detect)"; fi
 engine_ready || die "$ENGINE_UNREADY_MSG"
+
+# The rich display: a fixed list of steps (weights for the bar), and where the numbered steps go.
+if [ "$stack" = participant ]; then
+  ui_plan "check|Check this machine|4" "settings|Settings and secrets|8" "volumes|Data volumes and checks|4" \
+    "images|Verify and download images|35" "start|Start SuckerPot|30" "updates|Automatic updates|2" \
+    "firewall|Host firewall|5" "reach|Sensor reachability|12"
+else
+  ui_plan "check|Check this machine|4" "settings|Settings and secrets|8" "admin|Admin account|12" \
+    "volumes|Data volumes and checks|4" "images|Verify and download images|35" "start|Start SuckerPot|30" \
+    "dashboard|Dashboard answers|7"
+fi
+STEP_ROW=([1]=check [2]=settings [3]=settings [4]=settings [5]=settings [7]=volumes [8]=volumes)
+if [ "$stack" = full ]; then STEP_ROW[5]="admin"; fi
+ui_begin check
 # dash is 1 when the dashboard questions apply: a fresh full install, or the switch to full mode.
 dash=0
 if [ "$stack" = full ] && [ "$repair" = 0 ]; then dash=1; fi
@@ -499,16 +555,17 @@ if [ "$dash" = 1 ]; then
     pw=$(gen_secret 24)
     pw_generated=1
   else
-    printf '  Admin password (at least 12 characters, empty = generate one): ' >&2
+    ui_pause
+    printf '  Admin password (at least 12 characters, empty = generate one): ' 1>&"$UI_ERR"
     IFS= read -rs pw <&3 || pw=""
-    echo >&2
+    echo 1>&"$UI_ERR"
     if [ -z "$pw" ]; then
       pw=$(gen_secret 24)
       pw_generated=1
     else
-      printf '  Repeat the password: ' >&2
+      printf '  Repeat the password: ' 1>&"$UI_ERR"
       IFS= read -rs pw2 <&3 || pw2=""
-      echo >&2
+      echo 1>&"$UI_ERR"
       [ "$pw" = "$pw2" ] || die "the two passwords differ"
       unset pw2
     fi
@@ -586,17 +643,19 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
   fi
   vpn_flag=0
   [ -z "$wg_conf" ] || vpn_flag=1
-  echo
-  consent_screen "$pseudonym" "$vpn_flag"
+  ui_pause
+  say
+  consent_screen "$pseudonym" "$vpn_flag" 1>&"$UI_OUT"
   if [ "$assume_yes" = 1 ]; then
-    echo "--yes was given: this counts as your agreement to join as described above."
-    echo
+    say "--yes was given: this counts as your agreement to join as described above."
+    say
   else
-    printf 'Join the SuckerPot network as described? [y/N] ' >&2
+    printf 'Join the SuckerPot network as described? [y/N] ' 1>&"$UI_ERR"
     IFS= read -r a <&3 || a=""
+    answered
     case $a in
       y | Y | yes | YES | Yes) ;;
-      *) echo "Not joined. Nothing was installed." >&2; log "consent declined"; exit 1 ;;
+      *) echo "Not joined. Nothing was installed." 1>&"$UI_ERR"; log "consent declined"; exit 1 ;;
     esac
   fi
 fi
@@ -610,23 +669,26 @@ if [ "$stack" = full ] && [ "$fresh" = 1 ] && [ "$no_network" = 0 ]; then
   if [ "$join_flag" = 1 ]; then
     # shellcheck source=scripts/lib/pseudonym.sh
     . scripts/lib/pseudonym.sh
-    echo
+    ui_pause
+    say
     pseudonym=$(pseudonym_random) || die "could not make a pseudonym"
-    consent_screen_full "$pseudonym"
-    echo "--join-network was given: this counts as your agreement to join as described above."
-    echo
+    consent_screen_full "$pseudonym" 1>&"$UI_OUT"
+    say "--join-network was given: this counts as your agreement to join as described above."
+    say
     join_network=1
   elif [ "$assume_yes" = 1 ]; then
     note "the SuckerPot network is off: --yes does not join it (add --join-network to join)"
   else
     # shellcheck source=scripts/lib/pseudonym.sh
     . scripts/lib/pseudonym.sh
-    echo
+    ui_pause
+    say
     pseudonym=$(pseudonym_random) || die "could not make a pseudonym"
-    consent_screen_full "$pseudonym"
-    printf 'Join the SuckerPot network? [y/N] ' >&2
+    consent_screen_full "$pseudonym" 1>&"$UI_OUT"
+    printf 'Join the SuckerPot network? [y/N] ' 1>&"$UI_ERR"
     # End of input is not a yes: only a typed y is.
     IFS= read -r a <&3 || die "no answer to the network question; use --join-network or --no-network"
+    answered
     case $a in
       y | Y | yes | YES | Yes) join_network=1 ;;
       "" | n | N | no | NO | No) pseudonym=""; log "network declined" ;;
@@ -754,9 +816,9 @@ if [ "$stack" = participant ]; then
   elif [ "$dry_run" = 1 ] || [ "$mode" = source ]; then
     note "no image check needed here"
   elif [ "$skip_verify" = 1 ]; then
-    ctr pull "${image_prefix}-ingest:${version}" > /dev/null || die "could not pull ${image_prefix}-ingest:${version}"
+    ui_run --expect 60 -- quiet ctr pull "${image_prefix}-ingest:${version}" || die "could not pull ${image_prefix}-ingest:${version}"
   else
-    SUCKERPOT_IMAGE_PREFIX=$image_prefix bash scripts/verify-images.sh --pull --only ingest "$version" \
+    ui_run --expect 60 -- env SUCKERPOT_IMAGE_PREFIX="$image_prefix" bash scripts/verify-images.sh --pull --only ingest "$version" \
       || die "the ingest image could not be verified, so nothing was started. Check the version, or only if you accept the risk: --skip-verify"
   fi
   if [ "$fresh" = 1 ]; then
@@ -772,17 +834,17 @@ elif [ "$dash" = 1 ]; then
     if [ "$mode" = images ]; then
       api_image="${image_prefix}-api:${version}"
       if [ "$skip_verify" = 1 ]; then
-        ctr pull "$api_image" > /dev/null || die "could not pull $api_image"
+        ui_run --expect 60 -- quiet ctr pull "$api_image" || die "could not pull $api_image"
       else
         # Verify before the image ever runs (it hashes the password): pulled by the verified digest.
-        SUCKERPOT_IMAGE_PREFIX=$image_prefix bash scripts/verify-images.sh --pull --only api "$version" \
+        ui_run --expect 60 -- env SUCKERPOT_IMAGE_PREFIX="$image_prefix" bash scripts/verify-images.sh --pull --only api "$version" \
           || die "the api image could not be verified, so it was not run. Check the version, or only if you accept the risk: --skip-verify"
       fi
     else
       api_image=suckerpot-install-api
       # The end-to-end test must not retag anything that a live install may use.
       [ "${SELFHOSTR_TEST_INSTALL:-}" != 1 ] || api_image="local/${project}-install-api:test"
-      ctr build -q -f api/Dockerfile -t "$api_image" . > /dev/null || die "could not build the api image"
+      ui_run --expect 120 -- quiet ctr build -q -f api/Dockerfile -t "$api_image" . || die "could not build the api image"
     fi
     hash=$(printf '%s\n' "$pw" | ctr run --rm -i --network none --cap-drop ALL \
       --security-opt no-new-privileges:true "$api_image" python -m api.hashpw --stdin) \
@@ -806,7 +868,7 @@ else
   umask 077
   tmp="${target}.tmp"
   rm -f "$tmp"
-  trap 'rm -f "$tmp"' EXIT
+  trap 'rm -f "$tmp"; ui_exit' EXIT
   if [ "$switching" = 1 ]; then cp .env "$tmp"; else cp .env.example "$tmp"; fi
   chmod 600 "$tmp"
 
@@ -972,7 +1034,7 @@ else
   if [ "$switching" = 1 ]; then
     # A backup of the participant database first. If it fails, .env is left exactly as it was.
     note "taking a database backup before the switch"
-    if ! dc exec -T backup /bin/sh /backup-service.sh now preswitch; then
+    if ! ui_run --expect 60 -- dc exec -T backup /bin/sh /backup-service.sh now preswitch; then
       rm -f "$tmp"
       die "the backup before the switch failed; nothing was changed"
     fi
@@ -981,15 +1043,18 @@ else
     chmod 600 .env.participant.bak
   fi
   mv "$tmp" "$target"
-  trap - EXIT
+  trap ui_exit EXIT
   chmod 600 "$target"
   note "wrote $target (mode 0600)"
+  [ "$dry_run" = 1 ] || env_written=1
   umask "$caller_umask"
 fi
 
 if [ "$dry_run" = 1 ]; then
-  echo
-  echo "Dry run finished: $target holds the would-be configuration. No Docker call was made."
+  ui_skip_rest "dry run"
+  ui_end
+  say
+  say "Dry run finished: $target holds the would-be configuration. No Docker call was made."
   exit 0
 fi
 
@@ -1000,21 +1065,24 @@ if [ "${SELFHOSTR_TEST_INSTALL:-}" = 1 ]; then
   # throwaway project, so there is nothing to create here.
   note "test install: volumes are local to the throwaway project"
 else
-  SUCKERPOT_VOLUME_PREFIX=$prefix bash scripts/ensure-volumes.sh
+  ui_run --expect 10 -- env SUCKERPOT_VOLUME_PREFIX="$prefix" bash scripts/ensure-volumes.sh \
+    || die "the data volumes could not be created (see the messages above)"
+  ui_detail "data volumes ready"
 fi
 
 # ---------------------------------------------------------------- 8. guards
 step 8 "Checking the port layout and VPN settings"
-scripts/check-ports.sh
+ui_run -- scripts/check-ports.sh || die "the port layout check failed (see the messages above)"
 # Empty VPN_WG_* values are valid (the vpn container idles until a file is uploaded), so this
 # always runs: it still checks the egress passwords and any WireGuard values that were written.
 # It does nothing unless the egress profile is on.
-scripts/check-vpn-env.sh
+ui_run -- scripts/check-vpn-env.sh || die "the VPN settings check failed (see the messages above)"
 if [ "$stack" = participant ]; then
-  scripts/check-participant.sh
+  ui_run -- scripts/check-participant.sh || die "the participant settings check failed (see the messages above)"
 elif [ -z "$(env_get VPN_WG_PRIVATE_KEY)" ]; then
   note "no WireGuard file given: upload it in the dashboard (Settings > VPN); the gate stays closed until then"
 fi
+ui_done
 
 # ---------------------------------------------------------------- 9. start
 step 9 "Starting SuckerPot (this can take several minutes)"
@@ -1028,22 +1096,29 @@ if [ "$switching" = 1 ]; then
   dc --profile direct rm -sf hubproxy > /dev/null 2>&1 || true
   up_extra=(--remove-orphans)
 fi
+ui_begin images
 if [ "$mode" = images ]; then
   if [ "$skip_verify" = 1 ]; then
     warn "--skip-verify: the image signatures were NOT checked"
-    dc pull || die "could not pull the images. Check the version and your network, then run: docker compose pull"
+    ui_run --expect 120 -- dc pull || die "could not pull the images. Check the version and your network, then run: docker compose pull"
   else
-    SUCKERPOT_IMAGE_PREFIX=$image_prefix bash scripts/verify-images.sh --pull "$version" || die "the image signatures could not be verified, so nothing was started. Check the version, or run scripts/verify-images.sh $version. Only if you accept the risk: --skip-verify"
+    ui_run --count "^  ok " 19 -- env SUCKERPOT_IMAGE_PREFIX="$image_prefix" bash scripts/verify-images.sh --pull "$version" || die "the image signatures could not be verified, so nothing was started. Check the version, or run scripts/verify-images.sh $version. Only if you accept the risk: --skip-verify"
     # Our images are now local (pulled by verified digest); this fetches only the pinned third-party ones.
-    dc pull --policy missing || die "could not pull the remaining images (database, VPN). Check your network, then run: docker compose pull --policy missing"
+    ui_detail "${UI_COUNT:-0} signatures valid, now the database and VPN images"
+    ui_run --expect 60 -- dc pull --policy missing || die "could not pull the remaining images (database, VPN). Check your network, then run: docker compose pull --policy missing"
   fi
-  dc up -d --no-build --pull never --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
+  if [ "$skip_verify" = 1 ]; then ui_done "pulled, signatures NOT checked"; else ui_done "${UI_COUNT:-0} signatures valid"; fi
+  ui_begin start
+  ui_run --expect 150 -- dc up -d --no-build --pull never --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 else
   SUCKERPOT_BUILD_VERSION=$(git describe --tags --always --dirty 2> /dev/null || echo dev)
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
-  with_public_umask dc up -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
+  ui_skip "source mode: built during the start"
+  ui_begin start
+  ui_run --expect 600 -- with_public_umask dc up -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 fi
+ui_done "all services healthy"
 if [ "$stack" = full ]; then
   if [ "$repair" = 1 ]; then
     bind=$(env_get DASHBOARD_BIND 127.0.0.1)
@@ -1052,17 +1127,172 @@ if [ "$stack" = full ]; then
   fi
   hbind=$bind
   [ "$hbind" = 0.0.0.0 ] && hbind=127.0.0.1
-  ok=0
+  ui_begin dashboard
   # Host: localhost is always accepted by the API, whatever address the dashboard is bound to.
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -fsS --max-time 5 -H "Host: localhost" "http://$hbind:$dport/healthz" > /dev/null 2>&1; then ok=1; break; fi
-    sleep 3
-  done
-  [ "$ok" = 1 ] || die "the dashboard does not answer on http://$hbind:$dport/healthz. See: docker compose logs api"
+  dashboard_wait() {
+    local _
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      if curl -fsS --max-time 5 -H "Host: localhost" "http://$hbind:$dport/healthz" > /dev/null 2>&1; then return 0; fi
+      sleep 3
+    done
+    return 1
+  }
+  ui_run --expect 10 -- dashboard_wait || die "the dashboard does not answer on http://$hbind:$dport/healthz. See: docker compose logs api"
+  ui_done "http://$hbind:$dport"
 fi
+
+# ---------------------------------------------------------------- rich final screens
+# The rich display ends with a short screen. Plain mode prints the full text below, unchanged.
+
+# sched_text: the update schedule in a few words.
+sched_text() {
+  local when=${sched#* }
+  when=${when%/6h}
+  case $sched in
+    "cron "*/6h | "systemd "*/6h) echo "every 6 h from ${when} local time" ;;
+    "cron "* | "systemd "*) echo "daily at ${when} local time" ;;
+    *) echo "off" ;;
+  esac
+}
+
+# Host firewall on the rich display: the same question and the same loader as fw_step, with the
+# sudo password asked in the open (the list is off the screen while sudo asks).
+fw_rich() {
+  local ans=y out
+  # shellcheck source=scripts/lib/firewall.sh
+  . scripts/lib/firewall.sh
+  if [ "$assume_yes" = 0 ]; then
+    ui_pause
+    printf '  Install the host firewall now? It stops a compromised sensor from reaching this machine or the internet. Needs sudo. [Y/n] ' 1>&"$UI_ERR"
+    IFS= read -r ans <&3 || ans=n
+    answered
+    case $ans in "" | y | Y | yes | YES | Yes) ans=y ;; *) ans=n ;; esac
+  fi
+  if [ "$ans" = n ]; then
+    ui_skip "later: ./scripts/participant.sh firewall"
+    return 0
+  fi
+  if ! fw_can_sudo; then
+    if [ "$assume_yes" = 1 ] || ! command -v sudo > /dev/null 2>&1; then
+      ui_skip "needs sudo: ./scripts/participant.sh firewall"
+      return 0
+    fi
+    ui_pause
+    printf '  The host firewall needs root rights: sudo asks for your password.\n' 1>&"$UI_ERR"
+    # shellcheck disable=SC2024 # the redirects are the terminal, on purpose
+    if ! sudo -v < /dev/tty > /dev/tty 2>&1; then
+      ui_skip "sudo failed: ./scripts/participant.sh firewall"
+      return 0
+    fi
+  fi
+  ui_detail "loading"
+  out=$(fw_step participant 4 4<<< y 2>&1) || true
+  printf '%s\n' "$out"
+  case $out in
+    *"The host firewall is loaded"*) ui_done "loaded, starts at every boot" ;;
+    *"could not be rendered"*) ui_skip "not rendered (see the log): ./scripts/participant.sh firewall" ;;
+    *) ui_skip "not installed (see the log): ./scripts/participant.sh firewall" ;;
+  esac
+}
+
+participant_rich() {
+  local adm rp hp proto sname ports="" line pc_rc=0 pc_since pc_ans
+  ui_begin firewall
+  fw_rich
+  ui_begin reach
+  # shellcheck source=scripts/lib/ports-check.sh
+  . scripts/lib/ports-check.sh
+  pc_since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+  ui_run --expect 90 -- ports_check_run 90 "$pc_since" || pc_rc=$?
+  while [ "$pc_rc" = 3 ] && [ "$assume_yes" = 0 ]; do
+    ui_pause
+    printf '  Ports not reachable yet. [r]echeck now (after you opened them), or [c]ontinue and open them later? [c] ' 1>&"$UI_ERR"
+    pc_ans=""
+    IFS= read -r pc_ans <&3 || pc_ans=c
+    answered
+    case $pc_ans in
+      r | R) pc_rc=0; ui_run --expect 60 -- ports_check_run 60 "$pc_since" || pc_rc=$? ;;
+      *) break ;;
+    esac
+  done
+  case $pc_rc in
+    0) ui_done "the internet reaches your sensors" ;;
+    3) ui_done "no traffic yet (normal before the port forwards)" ;;
+    *) ui_skip "could not check: ./scripts/participant.sh ports-check" ;;
+  esac
+  ui_end
+
+  while read -r rp hp proto sname; do
+    if [ "$rp" = "$hp" ]; then line="$rp $sname"; else line="$rp→$hp $sname"; fi
+    [ "$UI_UTF8" = 1 ] || line=${line//→/->}
+    [ "$proto" = TCP ] || line="$line/${proto,,}"
+    ports+="${ports:+   }$line"
+  done < <(ports_table)
+  adm=$(env_get ADMIN_SSH_PORT)
+  {
+    echo
+    if [ "$repair" = 1 ]; then
+      printf '  %sSuckerPot is repaired and running in participant mode (%s).%s\n' "$UI_B" "${version:-source build}" "$UI_R"
+    else
+      printf '  %sSuckerPot is running in participant mode (%s).%s\n' "$UI_B" "${version:-source build}" "$UI_R"
+    fi
+    printf '    Pseudonym  %s\n    Path       %s\n    Hub        %s\n    Updates    %s\n' "${pseudonym:-none}" "$path" "${hub_host:-unknown}" "$(sched_text)"
+    echo
+    echo "  Forward these router ports to this machine (port forwards, not a DMZ):"
+    printf '%s\n' "$ports" | fold -s -w $((UI_COLS > 20 ? UI_COLS - 5 : 60)) | sed 's/^/    /'
+    if [ -n "$adm" ]; then
+      echo "  Never forward your admin SSH port ($adm on this machine)."
+    else
+      echo "  Never forward the admin SSH port of this machine."
+    fi
+    echo
+    printf '  %sNext%s   %s./scripts/participant.sh ports-check%s   once the ports are forwarded\n' "$UI_B" "$UI_R" "$UI_PR" "$UI_R"
+    printf '         %s./scripts/status.sh%s                    any time (probation date, what needs attention)\n' "$UI_PR" "$UI_R"
+    printf '  %sMore%s   docs/participate.md: DMZ, firewall, updates. Take a snapshot of this machine now.\n' "$UI_B" "$UI_R"
+    printf '  %sLog%s    %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$LOG")"
+  } 1>&"$UI_OUT"
+}
+
+full_rich() {
+  ui_end
+  {
+    echo
+    printf '  %sSuckerPot is running.%s\n' "$UI_B" "$UI_R"
+    if [ -n "$public_host" ]; then
+      printf '    Dashboard   %shttps://%s%s  (through your tunnel to http://%s:%s)\n' "$UI_PR" "$public_host" "$UI_R" "$hbind" "$dport"
+    else
+      printf '    Dashboard   %shttp://%s:%s%s\n' "$UI_PR" "$hbind" "$dport" "$UI_R"
+      if [ "$bind" = 127.0.0.1 ]; then
+        printf '    Tunnel      ssh -L %s:127.0.0.1:%s <you>@<this-host>   (on a remote machine)\n' "$dport" "$dport"
+      fi
+    fi
+    printf '    Admin user  %s\n' "$(env_get ADMIN_USERNAME)"
+    if [ "$pw_generated" = 1 ]; then
+      echo "  Admin password (shown once, store it in your password manager now): $pw"
+    fi
+    if [ "$switching" = 1 ]; then
+      echo
+      echo "  Switched from participant mode to full mode. Your data and your network membership are kept."
+      echo "  The participant settings are in .env.participant.bak (delete it once all is well)."
+    fi
+    if [ "${join_network:-0}" = 1 ]; then
+      echo "  Network     joined; it starts once a VPN is configured (Settings > VPN)"
+    elif [ "$fresh" = 1 ]; then
+      echo "  Network     not joined (you can join later in the dashboard)"
+    fi
+    echo
+    printf '  %sNext%s   1. Sign in. The setup opens by itself.\n' "$UI_B" "$UI_R"
+    echo "         2. Forward the ports listed on the Ports page (never $dport or your admin SSH port)."
+    printf '         3. %s./scripts/participant.sh firewall%s   (the host firewall)\n' "$UI_PR" "$UI_R"
+    echo "         4. Take a snapshot of the machine."
+    printf '  %sLog%s    %s\n' "$UI_B" "$UI_R" "$(_ui_abs "$LOG")"
+  } 1>&"$UI_OUT"
+  pw=""
+}
 
 # ---------------------------------------------------------------- 10. summary
 step 10 "Done"
+if [ "$stack" = participant ] || [ "$switching" = 1 ]; then ui_begin updates; fi
 
 # Automatic updates: the schedule is a line in the crontab of this user (or a systemd user timer).
 sched=off
@@ -1089,6 +1319,7 @@ if [ "$stack" = participant ] || [ "$switching" = 1 ]; then
     fi
   fi
 fi
+if [ "$stack" = participant ]; then ui_done "$(sched_text)"; fi
 
 if [ "$stack" = participant ]; then
   hub_host=$(url_host "$(env_get NETWORK_HUB_URL "$(network_default NETWORK_HUB_URL)")")
@@ -1096,6 +1327,10 @@ if [ "$stack" = participant ]; then
     pseudonym=$(sed -n 's/^NETWORK_PSEUDONYM=//p' .env | tail -n 1 | tr -d "\"'\r")
   fi
   if [ -n "$(env_get VPN_WG_PRIVATE_KEY)" ]; then path="through your VPN"; else path="direct (no VPN)"; fi
+  if [ "$UI_MODE" = rich ]; then
+    participant_rich
+    exit 0
+  fi
   echo
   if [ "$repair" = 1 ]; then echo "SuckerPot is repaired and running in participant mode (${version:-source build})."; else echo "SuckerPot is running in participant mode (${version:-source build})."; fi
   echo "  Pseudonym: ${pseudonym:-none}   Hub: ${hub_host:-unknown}   Path: $path"
@@ -1164,6 +1399,10 @@ if [ "$stack" = participant ]; then
   exit 0
 fi
 
+if [ "$UI_MODE" = rich ]; then
+  full_rich
+  exit 0
+fi
 echo
 echo "SuckerPot is running."
 if [ -n "$public_host" ]; then

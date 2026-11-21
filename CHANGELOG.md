@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The installer is easier to read on a terminal: a short list of steps with one progress bar in
+  the project colours, the questions shown in the open, and a short final screen. The full output
+  of every command goes to `install.log` (mode `0600`). A failed step shows the last lines of the
+  log, the log path and, once `.env` is written, the `--repair` command. Ctrl-C restores the
+  terminal. Without a terminal, with `TERM=dumb` or with the new `--plain` flag, the output is the
+  same as before, plus the log path after a failure. `NO_COLOR` keeps the display without
+  colours. The questions, flags and defaults do not change.
 - Internal, no behaviour change: the host scripts call the container engine through
   `scripts/lib/engine.sh` (`dc`, `ctr`), and `.env` records `SUCKERPOT_ENGINE=docker`. This
   prepares Podman support; until it is finished, the installer and the updater refuse Podman.

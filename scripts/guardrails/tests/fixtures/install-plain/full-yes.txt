@@ -1,0 +1,81 @@
+[1/10] Checking this machine
+[2/10] Settings
+      the SuckerPot network is off: --yes does not join it (add --join-network to join)
+[3/10] Checking ports
+[4/10] Generating secrets
+      24 secrets generated (written to .env only)
+[5/10] Hashing the admin password
+verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
+  ok      api (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+verify-images: all 1 images carry a valid signature
+verify-images: pulled by verified digest and tagged v0.8.0
+[6/10] Writing .env
+      wrote .env (mode 0600)
+[7/10] Creating the data volumes
+ensure-volumes: created suckerpot_redis-data
+ensure-volumes: created suckerpot_db-data
+ensure-volumes: created suckerpot_ssh-hostkeys
+ensure-volumes: created suckerpot_rdp-data
+ensure-volumes: created suckerpot_telnet-data
+ensure-volumes: created suckerpot_web-data
+ensure-volumes: created suckerpot_redis-sensor-data
+ensure-volumes: created suckerpot_docker-sensor-data
+ensure-volumes: created suckerpot_mysql-sensor-data
+ensure-volumes: created suckerpot_mssql-sensor-data
+ensure-volumes: created suckerpot_adb-sensor-data
+ensure-volumes: created suckerpot_smb-sensor-data
+ensure-volumes: created suckerpot_sip-sensor-data
+ensure-volumes: created suckerpot_synology-sensor-data
+ensure-volumes: created suckerpot_geoip-data
+ensure-volumes: created suckerpot_quarantine
+ensure-volumes: created suckerpot_vpn-config
+0
+ensure-volumes: created suckerpot_backups
+0
+ensure-volumes: created suckerpot_trap-packs
+0
+[8/10] Checking the port layout and VPN settings
+check-ports: ok
+      no WireGuard file given: upload it in the dashboard (Settings > VPN); the gate stays closed until then
+[9/10] Starting SuckerPot (this can take several minutes)
+verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
+  ok      redis (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      migrate (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      ingest (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      api (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      collector (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      hubproxy (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      demo (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-ssh (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-rdp (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-telnet (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-web (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-redis (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-docker (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-mysql (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-mssql (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-adb (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-smb (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-sip (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+  ok      sensor-synology (sha256:0000000000000000000000000000000000000000000000000000000000000000)
+verify-images: all 19 images carry a valid signature
+verify-images: pulled by verified digest and tagged v0.8.0
+[10/10] Done
+
+SuckerPot is running.
+  Dashboard: http://127.0.0.1:8443
+  On a remote machine, open a tunnel first:
+    ssh -L 8443:127.0.0.1:8443 <you>@<this-host>
+  Admin user: admin
+  Admin password (shown once, store it in your password manager now): <password>
+
+SuckerPot network: not joined. You can join later in the dashboard.
+
+Next steps:
+  1. Sign in. The setup opens by itself.
+  2. Forward the ports listed on the Ports page of the dashboard on your router.
+     Never forward the dashboard port (8443) or your admin SSH port.
+  3. Install the host firewall: ./scripts/participant.sh firewall (details: docs/deployment.md#host-firewall)
+  4. Take a snapshot of the machine.
+--- stderr
+      warning: Docker Engine 27.0.1 is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended.
