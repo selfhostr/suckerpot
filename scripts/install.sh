@@ -248,6 +248,10 @@ else
 fi
 stack=${stack:-full}
 fresh=$((1 - existing))
+# The container engine. An existing install keeps the one in its .env (none there means Docker).
+# A fresh install takes SUCKERPOT_ENGINE from the environment, else the engine this host has.
+if [ "$fresh" = 1 ] && [ "$ENGINE_FROM" = default ]; then engine_use "$(engine_detect)"; fi
+engine_ready || die "$ENGINE_UNREADY_MSG"
 # dash is 1 when the dashboard questions apply: a fresh full install, or the switch to full mode.
 dash=0
 if [ "$stack" = full ] && [ "$repair" = 0 ]; then dash=1; fi
@@ -355,13 +359,17 @@ if [ "$dry_run" = 1 ]; then
   note "dry run: Docker, memory, disk and volume checks skipped"
 else
   command -v docker > /dev/null 2>&1 || die "Docker is not installed"
-  engine=$(docker version --format '{{.Server.Version}}' 2> /dev/null) \
+  engine=$(ctr version --format '{{.Server.Version}}' 2> /dev/null) \
     || die "Docker does not answer for this user. Try: sudo usermod -aG docker \$USER, then log in again."
-  ver_ge "${engine%%[-+]*}" 24.0 || die "Docker Engine 24 or newer is required (found $engine)"
+  if ! ver_ge "${engine%%[-+]*}" 24.0; then
+    # With the podman-docker package, `docker` is Podman and reports the Podman version.
+    case $(ctr --version 2> /dev/null) in [Pp]odman*) die "$ENGINE_UNREADY_MSG (the docker command on this host is Podman $engine)" ;; esac
+    die "Docker Engine 24 or newer is required (found $engine)"
+  fi
   if ! ver_ge "${engine%%[-+]*}" 28.0; then
     warn "Docker Engine $engine is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended."
   fi
-  cver=$(docker compose version --short 2> /dev/null) || die "Docker Compose v2 is not available"
+  cver=$(dc version --short 2> /dev/null) || die "Docker Compose v2 is not available"
   ver_ge "${cver#v}" 2.24 || die "Docker Compose 2.24 or newer is required (found $cver)"
 
   meminfo=${SELFHOSTR_MEMINFO:-/proc/meminfo}
@@ -386,7 +394,7 @@ else
   fi
   if [ "$fresh" = 1 ]; then
 
-    root=$(docker info --format '{{.DockerRootDir}}' 2> /dev/null || true)
+    root=$(engine_data_root 2> /dev/null || true)
     free_kb=${SELFHOSTR_FREE_DISK_KB:-$(df -Pk "${root:-/}" 2> /dev/null | awk 'NR==2 {print $4}')}
     [[ ${free_kb:-} =~ ^[0-9]+$ ]] || die "cannot read the free disk space"
     if [ "$free_kb" -lt $((15 * 1024 * 1024)) ]; then
@@ -396,10 +404,10 @@ else
     fi
 
     # Never adopt or mix with an existing install: its database password lives inside the data.
-    if [ -n "$(docker volume ls -q --filter "name=^${prefix}_" 2> /dev/null | head -n 1)" ]; then
+    if [ -n "$(ctr volume ls -q --filter "name=^${prefix}_" 2> /dev/null | head -n 1)" ]; then
       die "Data volumes named '${prefix}_*' already exist. Restore your old .env, or pick another --prefix. (They are never adopted: the database password lives inside the data.)"
     fi
-    if [ -n "$(docker ps -a -q --filter "label=com.docker.compose.project=$project" 2> /dev/null | head -n 1)" ]; then
+    if [ -n "$(ctr ps -a -q --filter "label=com.docker.compose.project=$project" 2> /dev/null | head -n 1)" ]; then
       die "Containers of the compose project '$project' already exist. Pick another --project, or remove that stack yourself first."
     fi
   fi
@@ -746,7 +754,7 @@ if [ "$stack" = participant ]; then
   elif [ "$dry_run" = 1 ] || [ "$mode" = source ]; then
     note "no image check needed here"
   elif [ "$skip_verify" = 1 ]; then
-    docker pull "${image_prefix}-ingest:${version}" > /dev/null || die "could not pull ${image_prefix}-ingest:${version}"
+    ctr pull "${image_prefix}-ingest:${version}" > /dev/null || die "could not pull ${image_prefix}-ingest:${version}"
   else
     SUCKERPOT_IMAGE_PREFIX=$image_prefix bash scripts/verify-images.sh --pull --only ingest "$version" \
       || die "the ingest image could not be verified, so nothing was started. Check the version, or only if you accept the risk: --skip-verify"
@@ -764,7 +772,7 @@ elif [ "$dash" = 1 ]; then
     if [ "$mode" = images ]; then
       api_image="${image_prefix}-api:${version}"
       if [ "$skip_verify" = 1 ]; then
-        docker pull "$api_image" > /dev/null || die "could not pull $api_image"
+        ctr pull "$api_image" > /dev/null || die "could not pull $api_image"
       else
         # Verify before the image ever runs (it hashes the password): pulled by the verified digest.
         SUCKERPOT_IMAGE_PREFIX=$image_prefix bash scripts/verify-images.sh --pull --only api "$version" \
@@ -774,9 +782,9 @@ elif [ "$dash" = 1 ]; then
       api_image=suckerpot-install-api
       # The end-to-end test must not retag anything that a live install may use.
       [ "${SELFHOSTR_TEST_INSTALL:-}" != 1 ] || api_image="local/${project}-install-api:test"
-      docker build -q -f api/Dockerfile -t "$api_image" . > /dev/null || die "could not build the api image"
+      ctr build -q -f api/Dockerfile -t "$api_image" . > /dev/null || die "could not build the api image"
     fi
-    hash=$(printf '%s\n' "$pw" | docker run --rm -i --network none --cap-drop ALL \
+    hash=$(printf '%s\n' "$pw" | ctr run --rm -i --network none --cap-drop ALL \
       --security-opt no-new-privileges:true "$api_image" python -m api.hashpw --stdin) \
       || die "could not hash the admin password"
     hash=${hash//$'\r'/}
@@ -869,6 +877,7 @@ else
     printf '\n# Added by the SuckerPot installer\n' >> "$tmp"
     setv UPDATE_CHECK_ENABLED "$update_check"
     setv NETWORK_DEFAULT_PINNED 1
+    setv SUCKERPOT_ENGINE "$ENGINE_ID"
     setv SUCKERPOT_INSTALL_MODE "$mode"
     if [ "$mode" = images ]; then
       setv SUCKERPOT_IMAGE_PREFIX "$image_prefix"
@@ -963,7 +972,7 @@ else
   if [ "$switching" = 1 ]; then
     # A backup of the participant database first. If it fails, .env is left exactly as it was.
     note "taking a database backup before the switch"
-    if ! docker compose exec -T backup /bin/sh /backup-service.sh now preswitch; then
+    if ! dc exec -T backup /bin/sh /backup-service.sh now preswitch; then
       rm -f "$tmp"
       die "the backup before the switch failed; nothing was changed"
     fi
@@ -1016,24 +1025,24 @@ up_extra=()
 if [ "$switching" = 1 ]; then
   # hubproxy goes away, api and vpn start. A service of a profile that is no longer on is not an
   # orphan to compose, so it is stopped by name.
-  docker compose --profile direct rm -sf hubproxy > /dev/null 2>&1 || true
+  dc --profile direct rm -sf hubproxy > /dev/null 2>&1 || true
   up_extra=(--remove-orphans)
 fi
 if [ "$mode" = images ]; then
   if [ "$skip_verify" = 1 ]; then
     warn "--skip-verify: the image signatures were NOT checked"
-    docker compose pull || die "could not pull the images. Check the version and your network, then run: docker compose pull"
+    dc pull || die "could not pull the images. Check the version and your network, then run: docker compose pull"
   else
     SUCKERPOT_IMAGE_PREFIX=$image_prefix bash scripts/verify-images.sh --pull "$version" || die "the image signatures could not be verified, so nothing was started. Check the version, or run scripts/verify-images.sh $version. Only if you accept the risk: --skip-verify"
     # Our images are now local (pulled by verified digest); this fetches only the pinned third-party ones.
-    docker compose pull --policy missing || die "could not pull the remaining images (database, VPN). Check your network, then run: docker compose pull --policy missing"
+    dc pull --policy missing || die "could not pull the remaining images (database, VPN). Check your network, then run: docker compose pull --policy missing"
   fi
-  docker compose up -d --no-build --pull never --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
+  dc up -d --no-build --pull never --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 else
   SUCKERPOT_BUILD_VERSION=$(git describe --tags --always --dirty 2> /dev/null || echo dev)
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
-  with_public_umask docker compose up -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
+  with_public_umask dc up -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 fi
 if [ "$stack" = full ]; then
   if [ "$repair" = 1 ]; then

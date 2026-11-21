@@ -36,6 +36,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/engine.sh
+. scripts/lib/engine.sh
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d"
 ISSUER="https://token.actions.githubusercontent.com"
@@ -107,11 +109,11 @@ chmod 644 "$work/$MANIFEST_NAME" "$work/$BUNDLE_NAME"
 size=$(wc -c < "$work/$MANIFEST_NAME" | tr -d ' ')
 { [ "$size" -gt 0 ] && [ "$size" -le 16384 ]; } || die "the release manifest has a bad size"
 # The verifier itself must be available before its answer means anything.
-docker image inspect "$COSIGN_IMAGE" > /dev/null 2>&1 \
-  || docker pull --quiet "$COSIGN_IMAGE" > /dev/null 2>&1 \
+ctr image inspect "$COSIGN_IMAGE" > /dev/null 2>&1 \
+  || ctr pull --quiet "$COSIGN_IMAGE" > /dev/null 2>&1 \
   || die "could not get the signature verifier image (is Docker running? is the registry reachable?)" 9
 cosign_rc=0
-docker run --rm --network host --user 65532:65532 --read-only --cap-drop ALL \
+ctr run --rm --network host --user 65532:65532 --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=32m,uid=65532,gid=65532 \
   -e HOME=/tmp -e TUF_ROOT=/tmp/tuf -v "$work:/m:ro" \
   "$COSIGN_IMAGE" verify-blob \

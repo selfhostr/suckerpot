@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # dc exec ... sh -c '...': expanded by the shell inside the container
 # Tests the broker image (redis/) against persisted data written by other versions.
 # Everything runs in throwaway containers, volumes and networks named sp-brokertest-<pid>-*,
 # so it cannot touch a real install. Needs Docker and the network to pull the Redis image.
@@ -17,6 +18,8 @@
 #   stop-time        A clean docker stop ends with exit 0 inside the grace period (no SIGKILL).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/engine.sh
+. scripts/lib/engine.sh
 
 REDIS8_IMAGE=${REDIS8_IMAGE:-redis:8.10.3-alpine3.23@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80}
 P=sp-brokertest-$$
@@ -26,10 +29,10 @@ C=$P-c
 fail=0
 
 cleanup() {
-  docker rm -f "$C" "$P-old" >/dev/null 2>&1 || true
-  docker volume ls -q --filter "name=$P-" | xargs -r docker volume rm >/dev/null 2>&1 || true
-  docker network rm "$NET" >/dev/null 2>&1 || true
-  docker image rm "$IMG" >/dev/null 2>&1 || true
+  ctr rm -f "$C" "$P-old" >/dev/null 2>&1 || true
+  ctr volume ls -q --filter "name=$P-" | xargs -r "${ENGINE_CTR[@]}" volume rm >/dev/null 2>&1 || true
+  ctr network rm "$NET" >/dev/null 2>&1 || true
+  ctr image rm "$IMG" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -38,13 +41,13 @@ pw() { echo "brokertest-$1-0123456789abcdef"; }
 env_args=()
 for v in $VARS; do env_args+=(-e "$v=$(pw "$v")"); done
 
-docker build -q -t "$IMG" redis >/dev/null
-docker network create --internal "$NET" >/dev/null
+ctr build -q -t "$IMG" redis >/dev/null
+ctr network create --internal "$NET" >/dev/null
 
 # Starts the broker image on volume $1 (optional command in $2...) with the same hardening as docker-compose.yml.
 start_broker() {
-  docker rm -f "$C" >/dev/null 2>&1 || true
-  docker run -d --name "$C" --network "$NET" --read-only --cap-drop ALL \
+  ctr rm -f "$C" >/dev/null 2>&1 || true
+  ctr run -d --name "$C" --network "$NET" --read-only --cap-drop ALL \
     --security-opt no-new-privileges:true --user 999:999 \
     --memory 384m --memory-swap 384m --pids-limit 64 \
     --tmpfs /run/redis:rw,noexec,nosuid,nodev,size=1m,mode=0700,uid=999,gid=999 \
@@ -53,7 +56,7 @@ start_broker() {
 
 wait_healthy() {
   for _ in $(seq 1 90); do
-    case "$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$C")" in
+    case "$(ctr inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$C")" in
       "running healthy") return 0 ;;
       exited* | dead*) return 1 ;;
     esac
@@ -62,12 +65,12 @@ wait_healthy() {
   return 1
 }
 
-bcli() { docker exec -i -e REDISCLI_AUTH="$(pw REDIS_PASSWORD)" "$C" valkey-cli --user admin "$@"; }
-ocli() { docker exec -i "$P-old" redis-cli "$@"; }
+bcli() { ctr exec -i -e REDISCLI_AUTH="$(pw REDIS_PASSWORD)" "$C" valkey-cli --user admin "$@"; }
+ocli() { ctr exec -i "$P-old" redis-cli "$@"; }
 
 # Starts the pinned Redis 8 server (no auth, internal network only) on volume $1.
 start_old() {
-  docker run -d --name "$P-old" --network "$NET" --user 999:999 -v "$1:/data" "$REDIS8_IMAGE" \
+  ctr run -d --name "$P-old" --network "$NET" --user 999:999 -v "$1:/data" "$REDIS8_IMAGE" \
     redis-server --appendonly yes --appendfsync always --save "" "${@:2}" >/dev/null
   for _ in $(seq 1 30); do ocli ping 2>/dev/null | grep -q PONG && return 0; sleep 1; done
   return 1
@@ -100,7 +103,7 @@ summary() {
   echo "$out"
 }
 
-aside_count() { docker exec "$C" sh -c 'ls -1d /data/*.unreadable-* 2>/dev/null | wc -l' | tr -d ' '; }
+aside_count() { ctr exec "$C" sh -c 'ls -1d /data/*.unreadable-* 2>/dev/null | wc -l' | tr -d ' '; }
 
 checks=0
 ok() { checks=$((checks + 1)); echo "ok   $1"; }
@@ -112,11 +115,11 @@ check() { # description command...
 }
 eq() { [ "$1" = "$2" ] || { echo "     expected: $2"; echo "     got:      $1"; return 1; }; }
 
-new_volume() { docker volume create "$P-$1" >/dev/null; echo "$P-$1"; }
+new_volume() { ctr volume create "$P-$1" >/dev/null; echo "$P-$1"; }
 
 # Replaces the incremental AOF file of volume $1's running-or-stopped broker (container stopped).
 corrupt_aof() { # volume
-  docker run --rm -v "$1:/data" --entrypoint sh "$IMG" -c \
+  ctr run --rm -v "$1:/data" --entrypoint sh "$IMG" -c \
     'for f in /data/appendonlydir/*.incr.aof; do echo "this is not an append only file" > "$f"; done'
 }
 
@@ -130,13 +133,13 @@ scenario_upgrade_rdb() {
   ocli XADD events:ssh '*' type login_attempt n after-rewrite >/dev/null
   before=$(summary ocli)
   echo "     redis 8 before: $before"
-  docker stop -t 30 "$P-old" >/dev/null && docker rm "$P-old" >/dev/null
+  ctr stop -t 30 "$P-old" >/dev/null && ctr rm "$P-old" >/dev/null
   start_broker "$v"
   check "upgrade-rdb: broker becomes healthy" wait_healthy
   check "upgrade-rdb: old files moved aside" eq "$(aside_count)" 1
-  check "upgrade-rdb: logged once" bash -c "docker logs $C 2>&1 | grep -c 'persisted data could not be loaded' | grep -qx 1"
-  check "upgrade-rdb: accepts writes" bash -c "[ -n \"\$(docker exec -e REDISCLI_AUTH=$(pw REDIS_SENSOR_SSH_PASSWORD) $C valkey-cli --user sensor-ssh XADD events:ssh '*' a b)\" ]"
-  docker rm -f "$C" >/dev/null
+  check "upgrade-rdb: logged once" bash -c "${ENGINE_CTR[*]} logs $C 2>&1 | grep -c 'persisted data could not be loaded' | grep -qx 1"
+  check "upgrade-rdb: accepts writes" bash -c "[ -n \"\$(${ENGINE_CTR[*]} exec -e REDISCLI_AUTH=$(pw REDIS_SENSOR_SSH_PASSWORD) $C valkey-cli --user sensor-ssh XADD events:ssh '*' a b)\" ]"
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_upgrade_aof() {
@@ -150,14 +153,14 @@ scenario_upgrade_aof() {
   ocli XADD events:ssh '*' type login_attempt n after-rewrite >/dev/null
   before=$(summary ocli)
   echo "     redis 8 before: $before"
-  docker stop -t 30 "$P-old" >/dev/null && docker rm "$P-old" >/dev/null
+  ctr stop -t 30 "$P-old" >/dev/null && ctr rm "$P-old" >/dev/null
   start_broker "$v"
   check "upgrade-aof: broker becomes healthy" wait_healthy
   after=$(summary bcli)
   echo "     valkey after:  $after"
   check "upgrade-aof: streams, group and pending identical" eq "$after" "$before"
   check "upgrade-aof: nothing moved aside" eq "$(aside_count)" 0
-  docker rm -f "$C" >/dev/null
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_corrupt() {
@@ -166,18 +169,18 @@ scenario_corrupt() {
   start_broker "$v"
   wait_healthy || bad "corrupt: first start"
   seed bcli
-  docker stop -t 30 "$C" >/dev/null
+  ctr stop -t 30 "$C" >/dev/null
   corrupt_aof "$v"
   start_broker "$v"
   check "corrupt: broker becomes healthy" wait_healthy
   check "corrupt: files moved aside" eq "$(aside_count)" 1
   check "corrupt: stream buffer is empty" eq "$(bcli XLEN events:ssh)" 0
   # Restart on the repaired (empty) volume: nothing more to move.
-  docker stop -t 30 "$C" >/dev/null
+  ctr stop -t 30 "$C" >/dev/null
   start_broker "$v"
   check "corrupt: restart is healthy" wait_healthy
   check "corrupt: still one copy" eq "$(aside_count)" 1
-  docker rm -f "$C" >/dev/null
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_corrupt_keeps_2() {
@@ -187,15 +190,15 @@ scenario_corrupt_keeps_2() {
     start_broker "$v"
     wait_healthy || bad "corrupt-keeps-2: start $n"
     bcli XADD events:ssh '*' type login_attempt n "$n" >/dev/null
-    docker stop -t 30 "$C" >/dev/null
+    ctr stop -t 30 "$C" >/dev/null
     corrupt_aof "$v"
     sleep 1 # distinct timestamps
   done
   start_broker "$v"
   check "corrupt-keeps-2: broker becomes healthy" wait_healthy
   check "corrupt-keeps-2: at most 2 copies of the AOF directory" \
-    eq "$(docker exec "$C" sh -c 'ls -1d /data/appendonlydir.unreadable-* | wc -l' | tr -d ' ')" 2
-  docker rm -f "$C" >/dev/null
+    eq "$(ctr exec "$C" sh -c 'ls -1d /data/appendonlydir.unreadable-* | wc -l' | tr -d ' ')" 2
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_truncated() {
@@ -204,16 +207,16 @@ scenario_truncated() {
   start_broker "$v"
   wait_healthy || bad "truncated: first start"
   seed bcli
-  docker kill "$C" >/dev/null
+  ctr kill "$C" >/dev/null
   # A torn last write: the last few bytes of the incremental file are missing.
-  docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c \
+  ctr run --rm -v "$v:/data" --entrypoint sh "$IMG" -c \
     'for f in /data/appendonlydir/*.incr.aof; do s=$(wc -c < "$f"); truncate -s $((s - 5)) "$f"; done'
   start_broker "$v"
   check "truncated: broker becomes healthy" wait_healthy
   check "truncated: nothing moved aside" eq "$(aside_count)" 0
   # Only the torn last write (an XACK) may be missing: both streams are complete.
   check "truncated: streams complete" eq "$(bcli XLEN events:ssh) $(bcli XLEN events:web)" "600 600"
-  docker rm -f "$C" >/dev/null
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_other_failure() {
@@ -222,19 +225,19 @@ scenario_other_failure() {
   start_broker "$v"
   wait_healthy || bad "other-failure: first start"
   seed bcli
-  docker stop -t 30 "$C" >/dev/null
+  ctr stop -t 30 "$C" >/dev/null
   start_broker "$v" valkey-server /etc/redis/redis.conf --not-a-directive 1
   for _ in $(seq 1 60); do
-    [ "$(docker inspect -f '{{.State.Status}}' "$C")" = exited ] && break
+    [ "$(ctr inspect -f '{{.State.Status}}' "$C")" = exited ] && break
     sleep 1
   done
-  check "other-failure: container exits with 1" eq "$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$C")" "exited 1"
-  check "other-failure: reports that the data was left untouched" bash -c "docker logs $C 2>&1 | grep -q 'persisted data was left untouched'"
-  check "other-failure: nothing moved aside" eq "$(docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'ls -1d /data/*.unreadable-* 2>/dev/null | wc -l' | tr -d ' ')" 0
+  check "other-failure: container exits with 1" eq "$(ctr inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$C")" "exited 1"
+  check "other-failure: reports that the data was left untouched" bash -c "${ENGINE_CTR[*]} logs $C 2>&1 | grep -q 'persisted data was left untouched'"
+  check "other-failure: nothing moved aside" eq "$(ctr run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'ls -1d /data/*.unreadable-* 2>/dev/null | wc -l' | tr -d ' ')" 0
   start_broker "$v"
   check "other-failure: healthy afterwards" wait_healthy
   check "other-failure: streams intact" eq "$(bcli XLEN events:ssh) $(bcli XLEN events:web) $(bcli XPENDING events:ssh ingest | head -1)" "600 600 200"
-  docker rm -f "$C" >/dev/null
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_stale_rdb() {
@@ -243,14 +246,14 @@ scenario_stale_rdb() {
   start_broker "$v"
   wait_healthy || bad "stale-rdb: first start"
   seed bcli
-  docker stop -t 30 "$C" >/dev/null
-  docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'echo "not an rdb file" > /data/dump.rdb && chmod 644 /data/dump.rdb'
+  ctr stop -t 30 "$C" >/dev/null
+  ctr run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'echo "not an rdb file" > /data/dump.rdb && chmod 644 /data/dump.rdb'
   start_broker "$v"
   check "stale-rdb: broker becomes healthy" wait_healthy
   check "stale-rdb: nothing moved aside" eq "$(aside_count)" 0
-  check "stale-rdb: dump.rdb kept" docker exec "$C" test -f /data/dump.rdb
+  check "stale-rdb: dump.rdb kept" ctr exec "$C" test -f /data/dump.rdb
   check "stale-rdb: streams intact" eq "$(bcli XLEN events:ssh) $(bcli XLEN events:web) $(bcli XPENDING events:ssh ingest | head -1)" "600 600 200"
-  docker rm -f "$C" >/dev/null
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_stop_time() {
@@ -259,14 +262,14 @@ scenario_stop_time() {
   start_broker "$v"
   wait_healthy || bad "stop-time: first start"
   t0=$(date +%s)
-  docker stop -t 30 "$C" >/dev/null
+  ctr stop -t 30 "$C" >/dev/null
   t=$(($(date +%s) - t0))
   echo "     docker stop took ${t}s"
   # The elapsed time is informational (a busy Docker daemon adds seconds of its own): the check is
   # that the stop was a clean shutdown, not a SIGKILL after the grace period (that exits 137).
   check "stop-time: not killed after the grace period" test "$t" -lt 30
-  check "stop-time: exit status 0" eq "$(docker inspect -f '{{.State.ExitCode}}' "$C")" 0
-  docker rm -f "$C" >/dev/null
+  check "stop-time: exit status 0" eq "$(ctr inspect -f '{{.State.ExitCode}}' "$C")" 0
+  ctr rm -f "$C" >/dev/null
 }
 
 scenario_unreadable_aof() {
@@ -275,21 +278,21 @@ scenario_unreadable_aof() {
   start_broker "$v"
   wait_healthy || bad "unreadable-aof: first start"
   seed bcli
-  docker stop -t 30 "$C" >/dev/null
+  ctr stop -t 30 "$C" >/dev/null
   # A good AOF that the server's user cannot read (restored as root, mode 000).
   # With appendonly yes a dump.rdb is never loaded, so the AOF is the file that matters.
-  docker run --rm --user 0:0 -v "$v:/data" --entrypoint sh "$IMG" -c \
+  ctr run --rm --user 0:0 -v "$v:/data" --entrypoint sh "$IMG" -c \
     'chown 0:0 /data/appendonlydir/*.incr.aof && chmod 000 /data/appendonlydir/*.incr.aof'
   start_broker "$v"
   for _ in $(seq 1 60); do
-    [ "$(docker inspect -f '{{.State.Status}}' "$C")" = exited ] && break
+    [ "$(ctr inspect -f '{{.State.Status}}' "$C")" = exited ] && break
     sleep 1
   done
-  check "unreadable-aof: container fails" eq "$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$C")" "exited 1"
-  check "unreadable-aof: says what to check" bash -c "docker logs $C 2>&1 | grep -q 'unreadable by this user'"
+  check "unreadable-aof: container fails" eq "$(ctr inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$C")" "exited 1"
+  check "unreadable-aof: says what to check" bash -c "${ENGINE_CTR[*]} logs $C 2>&1 | grep -q 'unreadable by this user'"
   check "unreadable-aof: files kept under their own name, no copy" \
-    eq "$(docker run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'ls -A /data')" "appendonlydir"
-  docker rm -f "$C" >/dev/null
+    eq "$(ctr run --rm -v "$v:/data" --entrypoint sh "$IMG" -c 'ls -A /data')" "appendonlydir"
+  ctr rm -f "$C" >/dev/null
 }
 
 selected=${1:-all}

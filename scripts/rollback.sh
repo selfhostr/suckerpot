@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # dc exec ... sh -c '...': expanded by the shell inside the container
 # Puts SuckerPot back to the state recorded by the last `just update`: the previous code and
 # version, and the database as it was in the dump taken just before the update, but only if the
 # update changed the schema.
@@ -38,6 +39,7 @@ done
 STATE_DIR=.suckerpot-state
 STATE=$STATE_DIR/last-update.json
 die() { echo "rollback: $*" >&2; exit 1; }
+engine_ready || die "$ENGINE_UNREADY_MSG"
 
 [ -f .env ] || die ".env not found"
 need_project
@@ -72,7 +74,7 @@ alembic_before=$(state_get "$STATE" alembic_before)
 git rev-parse -q --verify "$from_ref^{commit}" > /dev/null || die "commit $from_ref is not in this checkout"
 
 # Did the schema move? Compare the revision recorded before the update with the live one.
-alembic_now=$(docker compose exec -T db sh -c \
+alembic_now=$(dc exec -T db sh -c \
   'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -q -At -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT version_num FROM alembic_version"' \
   2> /dev/null | tr -d '\r' | head -n 1 || true)
 [[ $alembic_now =~ ^[A-Za-z0-9_]{1,64}$ ]] || alembic_now=""
@@ -99,9 +101,9 @@ if [ "$restore_db" = 1 ]; then
   db_image=$(awk '/^  db:/ {indb=1} indb && /image: / {print $2; exit}' docker-compose.yml)
   [ -n "$db_image" ] || die "could not read the db image from docker-compose.yml"
   # Never let docker create a missing volume (it would be empty, and a false "dump gone" answer).
-  docker volume inspect "${SUCKERPOT_VOLUME_PREFIX}_backups" > /dev/null 2>&1 \
+  ctr volume inspect "${SUCKERPOT_VOLUME_PREFIX}_backups" > /dev/null 2>&1 \
     || die "the backups volume ${SUCKERPOT_VOLUME_PREFIX}_backups does not exist. Nothing was changed."
-  docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true --user 70:70 \
+  ctr run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true --user 70:70 \
     -v "${SUCKERPOT_VOLUME_PREFIX}_backups:/b:ro" --entrypoint test "$db_image" -s "/b/$dump" \
     || die "the dump $dump is no longer in the backups volume (retention removed it?). Nothing was changed."
 fi
@@ -139,12 +141,12 @@ if [ "$mode" = images ]; then
   # Same gate as an update: verify the signatures, pull the verified digests, run only those.
   bash scripts/verify-images.sh --pull "$from_version" \
     || die "the image signatures of $from_version could not be verified; nothing was started"
-  docker compose pull --policy missing
+  dc pull --policy missing
 else
   SUCKERPOT_BUILD_VERSION=$(git describe --tags --always --dirty 2> /dev/null || echo dev)
   SUCKERPOT_BUILD_COMMIT=$(git rev-parse --short HEAD 2> /dev/null || echo unknown)
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
-  with_public_umask docker compose build
+  with_public_umask dc build
 fi
 
 if [ "$restore_db" = 1 ]; then

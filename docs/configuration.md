@@ -112,6 +112,7 @@ The port guard (`scripts/check-ports.sh`) accepts only `0` or `1`. Host ports ar
 
 | Variable | Default | Source | Description |
 | --- | --- | --- | --- |
+| `SUCKERPOT_ENGINE` | `docker` | `.env`, written by the installer | Container engine of the node. The scripts call it through `scripts/lib/engine.sh`. Only `docker` works for now: the installer and the updater refuse `podman` until Podman support is finished. A missing value means `docker`. |
 | `SUCKERPOT_INSTALL_MODE` | `source` | `.env`, written by the installer | `images` runs the signed release images. `source` builds them from the checkout. `just up` and the update scripts read it. |
 | `SUCKERPOT_VOLUME_PREFIX` | none, required | `.env`, written by the installer | Prefix of the external data volumes, such as `suckerpot_db-data`. Compose refuses to start without it. |
 

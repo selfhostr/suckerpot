@@ -37,6 +37,12 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# The engine of this checkout (its .env, whatever the current folder). Read-only: an unknown
+# value falls back to docker with a warning.
+ENV_FILE="$here/../../.env" ENGINE_LENIENT=1
+# shellcheck source=scripts/lib/engine.sh
+. "$here/../lib/engine.sh"
+unset ENV_FILE
 
 die() {
   echo "render-firewall: $*" >&2
@@ -136,11 +142,11 @@ host_bridges() {
 # Docker's bridge interfaces, one per line; fails when Docker cannot be asked.
 docker_bridges() {
   local ids id name
-  command -v docker > /dev/null 2>&1 || return 1
-  ids=$(docker network ls --filter driver=bridge --no-trunc -q 2> /dev/null) || return 1
+  command -v "${ENGINE_CTR[0]}" > /dev/null 2>&1 || return 1
+  ids=$(ctr network ls --filter driver=bridge --no-trunc -q 2> /dev/null) || return 1
   [ -n "$ids" ] || return 0
   # shellcheck disable=SC2086 # one argument per network id
-  docker network inspect --format '{{.Id}} {{index .Options "com.docker.network.bridge.name"}}' \
+  ctr network inspect --format '{{.Id}} {{index .Options "com.docker.network.bridge.name"}}' \
     $ids 2> /dev/null | while read -r id name; do
     if [ -n "$name" ] && [ "$name" != "<no value>" ]; then echo "$name"; else echo "br-${id:0:12}"; fi
   done

@@ -20,6 +20,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/engine.sh
+. scripts/lib/engine.sh
 
 die() { echo "test-backup-restore: $*" >&2; exit 1; }
 
@@ -32,7 +34,7 @@ case $project in selfhostr*) die "refusing to run: '$project' looks like a live 
 echo "test-backup-restore: project $project"
 # A throwaway project starts empty. Containers already there mean a real stack (or a clash): the
 # cleanup below runs "down -v", so refuse before anything is created.
-existing=$(docker ps -aq --filter "label=com.docker.compose.project=$project")
+existing=$(ctr ps -aq --filter "label=com.docker.compose.project=$project")
 [ -z "$existing" ] || die "refusing to run: the compose project '$project' already has containers"
 
 command -v openssl > /dev/null || die "openssl is required to generate the throwaway secrets"
@@ -70,7 +72,6 @@ export ADMIN_PASSWORD_HASH=ci-placeholder
 POSTGRES_COLLECTOR_PASSWORD=$(openssl rand -hex 20)
 export POSTGRES_COLLECTOR_PASSWORD
 
-dc() { docker compose "$@"; }
 cleanup() {
   local rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -110,7 +111,7 @@ roleq() {
 }
 # Runs a command on the backups volume as the backup user.
 in_backups() {
-  docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
+  ctr run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
     --user 70:70 -v "$backups_volume:/b" --entrypoint "$1" "$image" "${@:2}"
 }
 checks=0
@@ -123,7 +124,7 @@ healthy() { # service
   local cid
   cid=$(dc ps -q "$1")
   [ -n "$cid" ] || die "$1 is not running"
-  [ "$(docker inspect --format '{{.State.Health.Status}}' "$cid")" = healthy ] || die "$1 is not healthy"
+  [ "$(ctr inspect --format '{{.State.Health.Status}}' "$cid")" = healthy ] || die "$1 is not healthy"
 }
 
 # Row counts of the tables that matter, the continuous aggregate (raw and materialised) and the chunks.
@@ -161,7 +162,7 @@ case $dumped in 100/3/0/*) die "the continuous aggregate holds no materialised d
 echo "== take a dump with the backup service"
 dc create backup > /dev/null
 # The volume is new and root-owned; the live one is made writable for uid 70 by scripts/ensure-volumes.sh.
-docker run --rm --network none --user 0:0 --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
+ctr run --rm --network none --user 0:0 --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
   --entrypoint chown -v "$backups_volume:/b" "$image" 70:70 /b
 dc run --rm --no-deps backup now
 dump=$(in_backups sh -c 'ls -1t /b/suckerpot-*.dump | head -n 1')

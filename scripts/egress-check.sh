@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2016 # dc exec ... sh -c '...': expanded by the shell inside the container
 # Live check of the anonymous egress (M21). Run it on the machine with the stack up and
 # COMPOSE_PROFILES=egress. Prints PASS or FAIL per line, exits non-zero on any FAIL.
 # It never prints the VPN exit address.
@@ -12,6 +13,8 @@
 # then skipped; no kill-switch test applies (there is no tunnel).
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/engine.sh
+. scripts/lib/engine.sh || exit 1
 
 quick=0
 [ "${1:-}" = "--quick" ] && quick=1
@@ -24,7 +27,6 @@ check() { local label=$1; shift; if "$@" >/dev/null 2>&1; then pass "$label"; el
 # check_not "label" cmd... (PASS when the command fails)
 check_not() { local label=$1; shift; if "$@" >/dev/null 2>&1; then fail "$label"; else pass "$label"; fi; }
 
-dc() { docker compose "$@"; }
 selftest() { local svc=$1; shift; dc exec -T "$svc" python -m suckerpot_egress.selftest "$@"; }
 
 # Direct mode (M32): ingest has no route and no DNS; hubproxy tunnels to the allowed names only.
@@ -77,12 +79,12 @@ vpn_cid=$(dc ps -q vpn 2>/dev/null | head -n 1)
 gateway=""
 vpn_ip=""
 if [ -n "$vpn_cid" ]; then
-  gateway=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{if eq $k "sp-vpn"}}{{$v.Gateway}}{{end}}{{end}}' "$vpn_cid")
-  vpn_ip=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{if ne $k "sp-vpn"}}{{$v.IPAddress}}{{end}}{{end}}' "$vpn_cid")
+  gateway=$(ctr inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{if eq $k "sp-vpn"}}{{$v.Gateway}}{{end}}{{end}}' "$vpn_cid")
+  vpn_ip=$(ctr inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{if ne $k "sp-vpn"}}{{$v.IPAddress}}{{end}}{{end}}' "$vpn_cid")
 fi
 proxy_gw=""
 if [ -n "$vpn_cid" ]; then
-  proxy_gw=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{if ne $k "sp-vpn"}}{{$v.Gateway}}{{end}}{{end}}' "$vpn_cid")
+  proxy_gw=$(ctr inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{if ne $k "sp-vpn"}}{{$v.Gateway}}{{end}}{{end}}' "$vpn_cid")
 fi
 if [ -z "$proxy_gw" ] && [ -n "$vpn_cid" ]; then
   pass "egress-proxy bridge has no gateway address (isolated): the host is not reachable through it"
