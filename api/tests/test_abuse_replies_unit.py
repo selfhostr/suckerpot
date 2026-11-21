@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from api.abuse_core import reply_args
-from api.abuse_imap import ImapBody, mailbox_is_shared, valid_folder
+from api.abuse_imap import ImapBody, authserv_hint, mailbox_is_shared, valid_folder
 from api.abuse_outcomes import _bucket_start, _next_bucket, _window, no_answer_days, to_out
 from api.abuse_replies import (
     ImportJson,
@@ -287,3 +287,19 @@ def test_free_mail_mailboxes_are_flagged() -> None:
     assert mailbox_is_shared("imap.gmail.com", "reports@example.org")
     assert mailbox_is_shared("mail.example.org", "me@outlook.com")
     assert not mailbox_is_shared("imap.example.org", "reports@example.org")
+
+
+def test_only_a_valid_provider_hint_is_passed_on() -> None:
+    good = {"id": "MX.Example.org", "seen": 18, "of": 20}
+    assert authserv_hint(good) == {"id": "mx.example.org", "seen": 18, "of": 20}
+    for bad in (
+        None,
+        "mx.example.org",
+        {"id": "<b>x</b>", "seen": 1, "of": 1},
+        {"id": "mx example", "seen": 1, "of": 1},
+        {"id": "x" * 256, "seen": 1, "of": 1},
+        {"id": "mx.example.org", "seen": 3, "of": 2},
+        {"id": "mx.example.org", "seen": 0, "of": 2},
+        {"id": "mx.example.org", "seen": "1", "of": 2},
+    ):
+        assert authserv_hint(bad) is None

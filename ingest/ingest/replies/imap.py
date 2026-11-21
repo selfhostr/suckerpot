@@ -103,6 +103,7 @@ class Mailbox(Protocol):
     def login(self) -> None: ...
     def select(self, folder: str, *, readonly: bool = False) -> Selected: ...
     def search_new(self, last_uid: int, since: date, limit: int) -> list[int]: ...
+    def search_last(self, exists: int, limit: int) -> list[int]: ...
     def fetch_headers(self, uids: list[int]) -> list[HeaderItem]: ...
     def fetch_partial(self, uid: int, size: int) -> bytes: ...
     def mark_seen(self, uid: int) -> None: ...
@@ -273,6 +274,18 @@ class SafeMailbox:
             return [u for u in found if u > last_uid][:limit]
         except Exception as exc:
             raise self._fail(exc, "protocol") from None
+
+    def search_last(self, exists: int, limit: int) -> list[int]:
+        """UIDs of the last ``limit`` messages of a folder holding ``exists`` (by sequence
+        number, so the answer stays small whatever the folder size)."""
+        if exists <= 0 or limit <= 0:
+            return []
+        try:
+            data = self._uid("SEARCH", f"{max(1, exists - limit + 1)}:{exists}")
+            found = sorted({int(x) for x in (data[0] or b"").split() if x.isdigit()})
+        except Exception as exc:
+            raise self._fail(exc, "protocol") from None
+        return found[-limit:]
 
     def fetch_headers(self, uids: list[int]) -> list[HeaderItem]:
         """Size, date and a bounded set of header fields. ``BODY.PEEK``: nothing is marked."""

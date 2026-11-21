@@ -27,7 +27,8 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.message import Message
@@ -77,6 +78,8 @@ _ID: Final = re.compile(rf"<([^<>\s]{{1,{MAX_ID_LEN}}})>")
 _STATUS: Final = re.compile(r"^[245]\.\d{1,3}\.\d{1,3}$")
 _BLANKS: Final = re.compile(r"\n{3,}")
 _SPACES: Final = re.compile(r"[ \t]+\n")
+# The rule of the "Mail provider name" field (the API and the web form use the same one).
+_AUTHSERV_OK: Final = re.compile(r"^[a-z0-9.\-]{1,255}$")
 _WROTE: Final = re.compile(r"^(on .{1,200} )?(wrote|schrieb|a écrit|escribió|schreef):\s*$", re.I)
 
 _BREAKS: Final = "\r\n\t\x0b\x0c\x85" + chr(0x2028) + chr(0x2029)
@@ -317,6 +320,59 @@ def authentication(
         ):
             verdict = "pass"
     return verdict
+
+
+HINT_MIN_MESSAGES: Final = 3  # a suggested name is on at least this many messages
+HINT_MIN_DOMAINS: Final = 3  # from at least this many sender domains
+
+
+def authserv_sample(raw: bytes) -> tuple[str, str]:
+    """(authserv-id of the top-most Authentication-Results header, sender domain) of a header
+    block, each ``""`` when missing.
+
+    Only the top-most header counts: it is the one the owner's own provider added last, and a
+    sender can write any number of lower ones. A value that is not a valid provider name (the
+    rule of the settings field) is dropped, so raw header text never leaves this function.
+    Never raises."""
+    try:
+        msg = _parse(raw[: 64 * 1024], headers_only=True)
+        domain = _from(msg)[1] or ""
+        value = msg.get("Authentication-Results")
+        found = "" if value is None else _authserv_id(_header_text(value)[:MAX_HEADER_VALUE])
+    except Exception:
+        return "", ""
+    return (found if _AUTHSERV_OK.match(found) else ""), domain
+
+
+def top_authserv_id(raw: bytes) -> str | None:
+    """The valid authserv-id of the top-most Authentication-Results header, or None."""
+    return authserv_sample(raw)[0] or None
+
+
+def authserv_hint(samples: Iterable[tuple[str, str]]) -> dict[str, Any] | None:
+    """The most common top-most authserv-id over some (name, sender domain) samples, as
+    ``{"id": name, "seen": messages with it, "of": messages read}``.
+
+    If the provider adds no header of its own, the top-most one is whatever a sender wrote. So a
+    name is only suggested when it is on at least 3 messages from at least 3 sender domains, and
+    on at least half of the messages read. Otherwise None."""
+    seen: Counter[str] = Counter()
+    domains: dict[str, set[str]] = {}
+    total = 0
+    for name, domain in samples:
+        total += 1
+        if name:
+            seen[name] += 1
+            if domain:
+                domains.setdefault(name, set()).add(domain)
+    if not seen:
+        return None
+    best, count = seen.most_common(1)[0]
+    if count < HINT_MIN_MESSAGES or len(domains.get(best, ())) < HINT_MIN_DOMAINS:
+        return None
+    if count * 2 < total:
+        return None
+    return {"id": best, "seen": count, "of": total}
 
 
 def message_id_hash(value: str | None) -> str | None:

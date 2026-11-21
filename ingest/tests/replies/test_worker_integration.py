@@ -77,6 +77,10 @@ class FakeMailbox:
         self._go("search")
         return sorted(u for u in self.messages if u > last_uid)[:limit]
 
+    def search_last(self, exists: int, limit: int) -> list[int]:
+        self._go("search_last")
+        return sorted(self.messages)[-limit:]
+
     def fetch_headers(self, uids: list[int]) -> list[HeaderItem]:
         self._go("fetch_headers")
         out = []
@@ -873,6 +877,59 @@ async def test_no_trusted_authserv_id_means_no_mail_is_authenticated(world: Worl
     await poll(world, FakeMailbox({1: good}))
     (row,) = await world.replies()
     assert row.auth == "none" and row.verified is False
+
+
+def _signed(by: str, *lower: str, sender: str = "example.net") -> bytes:
+    raw = mail(in_reply_to=None, subject="Hello", from_=f"Desk <desk@{sender}>")
+    extra = "".join(f"Authentication-Results: {v}; dkim=pass\r\n" for v in (by, *lower))
+    return extra.encode() + raw
+
+
+async def test_a_poll_without_a_trusted_id_records_the_provider_hint(world: World) -> None:
+    await world.profile()  # nothing trusted
+    box = FakeMailbox({1: _signed("mx.example.org", sender="a.example.net")})
+    await poll(world, box)
+    assert "authserv_hint" not in (await world.state()).counters  # one sender is not enough
+    async with world.owner.begin() as conn:
+        await conn.execute(text("UPDATE report_imap_state SET last_poll_at = NULL"))
+    box = FakeMailbox(
+        {
+            1: _signed("mx.example.org", sender="a.example.net"),
+            2: _signed("mx.example.org", "forged.x", sender="b.example.net"),
+            3: _signed("mx.example.org", sender="c.example.net"),
+        }
+    )
+    await poll(world, box)  # the rolling sample keeps the first poll's entry
+    row = await world.state()
+    assert row.counters["authserv_hint"] == {"id": "mx.example.org", "seen": 3, "of": 3}
+    assert len(row.counters["authserv_sample"]) == 3
+    assert "search_last" not in box.log  # the poll reads only the new mail
+    await world.profile(trusted="mx.example.org")
+    async with world.owner.begin() as conn:
+        await conn.execute(text("UPDATE report_imap_state SET last_poll_at = NULL"))
+    await poll(world, FakeMailbox({3: _signed("mx.example.org")}))
+    assert "authserv_hint" not in (await world.state()).counters
+
+
+async def test_a_mailbox_test_suggests_the_provider_name(world: World) -> None:
+    await world.profile()
+    async with world.api.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO report_imap_requests (kind, requested_by) VALUES ('test', 'admin')")
+        )
+    box = FakeMailbox(
+        {
+            1: _signed("mx.example.org", sender="a.example.net"),
+            2: _signed("mx.example.org", sender="b.example.net"),
+            3: _signed("mx.example.org", sender="c.example.net"),
+            4: _signed("forged.example.net"),
+        }
+    )
+    await poll(world, box)
+    async with world.owner.connect() as conn:
+        result = await conn.scalar(text("SELECT result FROM report_imap_requests"))
+    assert result["authserv_hint"] == {"id": "mx.example.org", "seen": 3, "of": 4}
+    assert box.seen == []
 
 
 async def test_a_bounce_verifies_with_authentication_or_from_a_domain_we_wrote_to(

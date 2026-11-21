@@ -152,6 +152,26 @@ export interface ReportOutcome {
 export type ImapSecurity = "ssl" | "starttls"
 export type ProcessedAction = "mark_read" | "move"
 
+/** The provider name seen on the top-most Authentication-Results of recent mail. */
+export interface AuthservHint {
+  id: string
+  /** Messages that carried it. */
+  seen: number
+  /** Messages read. */
+  of: number
+}
+
+/** The rule of the "Mail provider name" field (the API checks the same one). */
+export const AUTHSERV_RE = /^[A-Za-z0-9.-]{1,255}$/
+
+/** A hint fit to show: a valid provider name with sane counts, else null. */
+export function validHint(h: AuthservHint | null | undefined): AuthservHint | null {
+  if (!h || typeof h.id !== "string" || !AUTHSERV_RE.test(h.id)) return null
+  if (!Number.isInteger(h.seen) || !Number.isInteger(h.of) || h.seen < 1 || h.seen > h.of)
+    return null
+  return { id: h.id.toLowerCase(), seen: h.seen, of: h.of }
+}
+
 export interface ImapState {
   last_poll_at: string | null
   last_ok_at: string | null
@@ -159,6 +179,8 @@ export interface ImapState {
   last_error: string | null
   move_supported: boolean | null
   counters: Record<string, number>
+  /** Set by the poll while no provider name is saved. */
+  authserv_hint?: AuthservHint | null
 }
 
 export type RequestState = "pending" | "done" | "failed"
@@ -172,6 +194,7 @@ export interface ImapRequest {
     messages?: number
     move_supported?: boolean
     folders?: string[]
+    authserv_hint?: AuthservHint | null
   }
   requested_at: string
   done_at: string | null
