@@ -10,15 +10,20 @@ from datetime import date
 from ingest.features import FeatureSettings
 from ingest.replies.config import RepliesSettings
 from ingest.replies.imap import HeaderItem, ImapProfile, MailboxError, Selected
-from ingest.replies.parse import authserv_hint, top_authserv_id
+from ingest.replies.parse import authserv_hint, authserv_sample, top_authserv_id
 from ingest.replies.worker import HINT_MESSAGES, ReplyWorker
 
 from ..helpers import fake_gate
 
 
-def head(*results: str) -> bytes:
+def head(*results: str, sender: str = "example.net") -> bytes:
     lines = [f"Authentication-Results: {r}\r\n" for r in results]
-    return ("".join(lines) + "From: abuse@example.net\r\nSubject: Hi\r\n\r\n").encode()
+    return ("".join(lines) + f"From: abuse@{sender}\r\nSubject: Hi\r\n\r\n").encode()
+
+
+def senders(n: int, *results: str, start: int = 0) -> list[bytes]:
+    """``n`` blocks, each from its own sender domain."""
+    return [head(*results, sender=f"d{start + i}.example.net") for i in range(n)]
 
 
 def test_only_the_top_most_header_counts() -> None:
@@ -40,11 +45,47 @@ def test_a_value_that_is_not_a_name_is_dropped() -> None:
     assert top_authserv_id(b"\xff\xfe garbage") is None
 
 
+def hint(blocks: list[bytes]) -> dict[str, object] | None:
+    return authserv_hint(authserv_sample(b) for b in blocks)
+
+
+def test_the_sample_is_the_name_and_the_sender_domain() -> None:
+    assert authserv_sample(head("mx.example.org", sender="Example.NET")) == (
+        "mx.example.org",
+        "example.net",
+    )
+    assert authserv_sample(b"\xff garbage") == ("", "")
+
+
 def test_a_forged_lower_header_does_not_win() -> None:
-    blocks = [head("mx.example.org", "evil.example.net") for _ in range(3)]
+    blocks = senders(3, "mx.example.org", "evil.example.net")
     blocks += [head("evil.example.net")]
-    assert authserv_hint(blocks) == {"id": "mx.example.org", "seen": 3, "of": 4}
-    assert authserv_hint([head(), head("bad!value; dkim=pass")]) is None
+    assert hint(blocks) == {"id": "mx.example.org", "seen": 3, "of": 4}
+    assert hint([head(), head("bad!value; dkim=pass")]) is None
+
+
+def test_the_normal_case_gives_a_hint() -> None:
+    assert hint(senders(18, "mx.example.org") + [head()] * 2) == {
+        "id": "mx.example.org",
+        "seen": 18,
+        "of": 20,
+    }
+
+
+def test_a_single_sender_forging_a_name_gives_no_hint() -> None:
+    # The provider adds no header of its own: the top-most one is the sender's.
+    assert hint([head("spam.example.com", sender="spam.example.com")] * 20) is None
+    assert hint([head("spam.example.com", sender="spam.example.com")] * 10 + [head()] * 2) is None
+
+
+def test_three_senders_under_half_of_the_messages_give_no_hint() -> None:
+    assert hint(senders(3, "mx.example.org") + senders(4, start=10)) is None
+    assert hint(senders(3, "mx.example.org") + senders(3, start=10)) is not None  # exactly half
+
+
+def test_two_sender_domains_are_not_enough() -> None:
+    blocks = [head("mx.example.org", sender=f"d{i % 2}.example.net") for i in range(10)]
+    assert hint(blocks) is None
 
 
 @dataclass
@@ -105,7 +146,7 @@ def run_test(box: Box) -> tuple[dict[str, object], str | None]:
 
 
 def test_the_connection_test_reports_the_most_common_provider() -> None:
-    blocks = [head("mx.example.org; dkim=pass")] * 18 + [head("other.example.net")] * 7
+    blocks = senders(18, "mx.example.org; dkim=pass") + senders(7, "other.example.net", start=50)
     box = Box(blocks)
     result, code = run_test(box)
     assert code is None and result["ok"] is True

@@ -74,6 +74,7 @@ SuckerPot can find it for you:
 - **Test connection** reads the headers of the last 20 mails in the folder. It looks at the top-most `Authentication-Results` header of each mail, and counts the names it sees. The most common name is shown under the field, for example: "Your provider signs as mx.example.net (seen on 18 of 20 recent messages)." Press **Use it** to fill the field. Then press **Save**: the suggestion is never saved on its own.
 - While the field is empty, each regular check does the same with the new mails it reads. The settings page then shows the suggestion without a test.
 - Only the top-most header counts. Your provider adds it last, on top. A sender can write any number of lower ones, so those are ignored.
+- If your provider adds no header of its own, the top-most one is the sender's. So a name is suggested only when it is on at least 3 mails from at least 3 sender domains, and on at least half of the mails read (for the regular check, over its last 20 mails).
 - A suggestion follows the same rules as the field (letters, digits, dots and hyphens). Anything else is dropped. Raw header text is never shown.
 
 Check that the suggested name really belongs to your provider before you save it. If the folder holds mail that came in another way (a forward, an import), the most common name may not be the right one.

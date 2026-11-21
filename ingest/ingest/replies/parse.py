@@ -322,36 +322,56 @@ def authentication(
     return verdict
 
 
-def top_authserv_id(raw: bytes) -> str | None:
-    """The authserv-id of the top-most Authentication-Results header of a header block, or None.
+HINT_MIN_MESSAGES: Final = 3  # a suggested name is on at least this many messages
+HINT_MIN_DOMAINS: Final = 3  # from at least this many sender domains
 
-    Only the top-most one counts: it is the one the owner's own provider added last, and a
+
+def authserv_sample(raw: bytes) -> tuple[str, str]:
+    """(authserv-id of the top-most Authentication-Results header, sender domain) of a header
+    block, each ``""`` when missing.
+
+    Only the top-most header counts: it is the one the owner's own provider added last, and a
     sender can write any number of lower ones. A value that is not a valid provider name (the
     rule of the settings field) is dropped, so raw header text never leaves this function.
     Never raises."""
     try:
-        value = _parse(raw[: 64 * 1024], headers_only=True).get("Authentication-Results")
-        if value is None:
-            return None
-        found = _authserv_id(_header_text(value)[:MAX_HEADER_VALUE])
+        msg = _parse(raw[: 64 * 1024], headers_only=True)
+        domain = _from(msg)[1] or ""
+        value = msg.get("Authentication-Results")
+        found = "" if value is None else _authserv_id(_header_text(value)[:MAX_HEADER_VALUE])
     except Exception:
-        return None
-    return found if _AUTHSERV_OK.match(found) else None
+        return "", ""
+    return (found if _AUTHSERV_OK.match(found) else ""), domain
 
 
-def authserv_hint(headers: Iterable[bytes]) -> dict[str, Any] | None:
-    """The most common top-most authserv-id over some header blocks, as
-    ``{"id": name, "seen": messages with it, "of": messages read}``; None when none had one."""
+def top_authserv_id(raw: bytes) -> str | None:
+    """The valid authserv-id of the top-most Authentication-Results header, or None."""
+    return authserv_sample(raw)[0] or None
+
+
+def authserv_hint(samples: Iterable[tuple[str, str]]) -> dict[str, Any] | None:
+    """The most common top-most authserv-id over some (name, sender domain) samples, as
+    ``{"id": name, "seen": messages with it, "of": messages read}``.
+
+    If the provider adds no header of its own, the top-most one is whatever a sender wrote. So a
+    name is only suggested when it is on at least 3 messages from at least 3 sender domains, and
+    on at least half of the messages read. Otherwise None."""
     seen: Counter[str] = Counter()
+    domains: dict[str, set[str]] = {}
     total = 0
-    for raw in headers:
+    for name, domain in samples:
         total += 1
-        found = top_authserv_id(raw)
-        if found:
-            seen[found] += 1
+        if name:
+            seen[name] += 1
+            if domain:
+                domains.setdefault(name, set()).add(domain)
     if not seen:
         return None
     best, count = seen.most_common(1)[0]
+    if count < HINT_MIN_MESSAGES or len(domains.get(best, ())) < HINT_MIN_DOMAINS:
+        return None
+    if count * 2 < total:
+        return None
     return {"id": best, "seen": count, "of": total}
 
 

@@ -240,6 +240,7 @@ async def _state(db: AsyncSession) -> StateOut:
         return StateOut()
     counters = dict(row.counters or {})
     hint = authserv_hint(counters.pop("authserv_hint", None))
+    counters.pop("authserv_sample", None)  # ingest's own working data
     return StateOut(
         last_poll_at=row.last_poll_at,
         last_ok_at=row.last_ok_at,
