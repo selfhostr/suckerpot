@@ -970,7 +970,7 @@ async def test_the_downgrade_refuses_while_groups_exist_and_round_trips_otherwis
     refused = _alembic("downgrade", "0033", check=False)
     assert refused.returncode != 0 and "downgrade refused" in refused.stderr
     async with owner.connect() as conn:
-        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0036"
+        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0037"
         assert await conn.scalar(text("SELECT count(*) FROM sessions WHERE kind = 'burst'")) == 1
 
     async with owner.begin() as conn:
@@ -1005,7 +1005,7 @@ async def test_the_downgrade_refuses_while_groups_exist_and_round_trips_otherwis
     fresh = create_async_engine(database_url_from_env(ENV))  # no statement cached before the change
     try:
         async with fresh.connect() as conn:
-            assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0036"
+            assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0037"
             kept = (await conn.execute(text("SELECT kind, connections FROM sessions"))).one()
             assert tuple(kept) == ("session", 1)  # existing rows get the defaults
         await seed(fresh, plain_rows(25, "n"))

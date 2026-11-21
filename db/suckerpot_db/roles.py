@@ -155,7 +155,7 @@ DECLARE
                   'outcome_rollup_monthly', 'network_membership',
                   'network_submissions', 'network_targets', 'network_summary',
                   'network_feed_state', 'network_feed_entries',
-                  'network_verify_tasks', 'pipeline_state']
+                  'network_verify_tasks', 'pipeline_state', 'trap_state']
         ) AS c WHERE to_regclass('public.' || c) IS NOT NULL
     );
 BEGIN
@@ -368,6 +368,10 @@ BEGIN
         EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON network_feed_state TO %I', r);
         EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON network_feed_entries TO %I', r);
     END IF;
+    IF to_regclass('public.trap_state') IS NOT NULL THEN
+        -- M37: the trap pack worker records the last verified bundle (one row).
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE ON trap_state TO %I', r);
+    END IF;
     IF to_regclass('public.pipeline_state') IS NOT NULL THEN
         -- 0031: ingest stamps its heartbeat and last failure in the one row.
         EXECUTE format('GRANT SELECT, UPDATE ON pipeline_state TO %I', r);
@@ -438,7 +442,7 @@ DECLARE
                   'outcome_rollup_monthly', 'network_membership',
                   'network_submissions', 'network_targets', 'network_summary',
                   'network_feed_state', 'network_feed_entries',
-                  'network_verify_tasks', 'pipeline_state']
+                  'network_verify_tasks', 'pipeline_state', 'trap_state']
         ) AS c WHERE to_regclass('public.' || c) IS NOT NULL
     );
 BEGIN
@@ -621,6 +625,10 @@ BEGIN
     IF to_regclass('public.network_feed_state') IS NOT NULL THEN
         -- M30: the API serves the feed status, entries and the local mirror; it never writes them.
         EXECUTE format('GRANT SELECT ON network_feed_state, network_feed_entries TO %I', r);
+    END IF;
+    IF to_regclass('public.trap_state') IS NOT NULL THEN
+        -- M37: the dashboard may show the trap pack state; it never writes it.
+        EXECUTE format('GRANT SELECT ON trap_state TO %I', r);
     END IF;
     IF to_regclass('public.egress_trusted_exits') IS NOT NULL THEN
         -- M23: the owner trusts or removes a VPN exit range from the dashboard.
