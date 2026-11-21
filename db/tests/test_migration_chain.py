@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0035() -> None:
+def test_the_chain_is_linear_up_to_0036() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0035"}
+    assert heads == {"0036"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -105,6 +105,8 @@ def test_the_chain_is_linear_up_to_0035() -> None:
     assert revs["0034"][0] == "0033"
     # What replies taught us about a recipient (web form only, dead address) follows 0034.
     assert revs["0035"][0] == "0034"
+    # The partial index on demo connect events (blocklist cycle timeout) follows 0035.
+    assert revs["0036"][0] == "0035"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:

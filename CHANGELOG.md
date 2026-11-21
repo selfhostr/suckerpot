@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   **Use it** button, which fills the field but does not save it. While the field is empty, the
   regular check records the same suggestion for the settings page.
 
+### Fixed
+
+- The blocklist worker no longer fails every cycle on a large database. To mark demo addresses
+  it read every `connect` event of the 30-day window again for each 2,000 candidate addresses
+  (8 s and 1.4 GB of disk reads each time on a 5 GB node), and the cycle hit its 30 s statement
+  timeout. It now reads only the addresses that sent a demo `connect`, from a new small partial
+  index (migration 0036, empty on a node that never ran `just demo`). Each step of the cycle now
+  runs in its own transaction, and a failure logs the step and the database error (for example
+  `step ip-demo: QueryCanceledError: canceling statement due to statement timeout`) instead of
+  only `DBAPIError`. The statement and its values are never logged.
+
 ## [0.12.0] - 2026-11-21
 
 ### Upgrading

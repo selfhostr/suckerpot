@@ -128,8 +128,10 @@ class FeatureWorker:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # isolate errors per cycle; the message may hold a statement
-                self.last_error = type(exc).__name__
-                log.warning("%s cycle failed (%s)", self.name, type(exc).__name__)
+                # A worker may attach a ``summary`` that is safe to log (no statement, no values).
+                summary = str(getattr(exc, "summary", "") or type(exc).__name__)[:200]
+                self.last_error = summary
+                log.warning("%s cycle failed (%s)", self.name, summary)
             if publish is not None:
                 try:
                     await publish(await self.status())
