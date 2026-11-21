@@ -10,6 +10,8 @@ Reads one JSON document on stdin, written by status.sh:
     auto_enabled, auto_schedule    AUTO_UPDATE_ENABLED and `schedule_status` ("cron 04:37/6h", "off")
     auto_state_raw                 text of .suckerpot-state/auto-update.json, or ""
     firewall                       "installed", "missing" or "not_loaded" (unit stopped or tables gone)
+    engine                         "docker", or "podman <version>" (absent in older status.sh)
+    stack_unit                     Podman only: "active", "inactive" or "missing" (suckerpot-stack.service)
     latest, latest_age_h           newest known release of the same major version, and its age
     cli_raw, cli_error             output of `python -m ingest.network.cli status --json`, or ""
 
@@ -54,6 +56,9 @@ KNOWN_TEXT = {
     "network_status_unavailable": "ingest did not answer the network status request",
     "firewall_missing": "the host firewall is not installed",
     "firewall_not_loaded": "the host firewall is installed but its rules are not loaded: sudo systemctl reload-or-restart suckerpot-firewall.service",
+    "firewall_required": "on Podman the host firewall is required and it is not in force: ./scripts/participant.sh firewall",
+    "stack_unit_missing": "the boot unit suckerpot-stack.service is not installed: the stack does not come back after a reboot (./scripts/participant.sh firewall installs it)",
+    "stack_unit_inactive": "the boot unit suckerpot-stack.service is not active: sudo systemctl start suckerpot-stack.service",
     "release_outdated": "this node runs an older release than the newest one it knows",
     "auto_update_failed": "the last automatic update did not complete: .suckerpot-state/auto-update.log",
     "join_refused": "the hub refused to enrol this node: it is not a member",
@@ -258,6 +263,14 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
             )
         ):
             warnings.append("auto_update_failed")
+    podman = str(doc.get("engine") or "").startswith("podman")
+    # On Podman the firewall carries the isolation of the sensors (design D5): an error.
+    if podman and doc.get("firewall") in ("missing", "not_loaded"):
+        errors.append("firewall_required")
+    if podman and doc.get("stack_unit") == "missing":
+        warnings.append("stack_unit_missing")
+    if podman and doc.get("stack_unit") == "inactive":
+        warnings.append("stack_unit_inactive")
     # Installed but not in force (unit stopped, tables flushed): a warning on every stack.
     if doc.get("firewall") == "not_loaded":
         warnings.append("firewall_not_loaded")
@@ -338,6 +351,14 @@ def needs_attention(doc: dict[str, Any], info: dict[str, Any]) -> list[tuple[str
                 "sudo systemctl reload-or-restart suckerpot-firewall.service",
             )
         )
+    if "firewall_required" in info["errors"]:
+        items.append(
+            ("On Podman the host firewall is required and it is not in force", "./scripts/participant.sh firewall")
+        )
+    if "stack_unit_missing" in info["warnings"]:
+        items.append(("The boot unit is not installed", "./scripts/participant.sh firewall"))
+    if "stack_unit_inactive" in info["warnings"]:
+        items.append(("The boot unit is not active", "sudo systemctl start suckerpot-stack.service"))
     if "release_outdated" in info["warnings"]:
         items.append(
             (
@@ -391,6 +412,12 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
     status = {0: "OK", 1: "WARNING", 2: "ERROR"}[info["exit"]]
     head = f"SuckerPot {version}, {info['stack']} mode, {doc.get('install') or 'source'}"
     out.append(f"{head:<66}{status}")
+    engine = str(doc.get("engine") or "")
+    if engine.startswith("podman"):
+        unit = {"active": "active", "inactive": "not active", "missing": "not installed"}.get(
+            str(doc.get("stack_unit")), "unknown"
+        )
+        out.append(f"Engine: Podman {engine[7:] or '?'} (rootful, netavark), boot unit {unit}")
     out.append("")
 
     sensors = info["sensors"]

@@ -151,9 +151,13 @@ psqlx postgres -c "DROP DATABASE IF EXISTS \"$side\" WITH (FORCE)" -c "CREATE DA
 psqlx "$side" -c "CREATE EXTENSION IF NOT EXISTS timescaledb" -c "SELECT timescaledb_pre_restore()" > /dev/null ||
   side_failed "could not prepare the side database for the restore"
 # Owners and ACLs are not restored: the roles are re-created by the migration below.
-dc exec -T db sh -c \
-  'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$0" --no-owner --no-acl --exit-on-error' "$side" \
-  < <(read_dump) ||
+restore_cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$0" --no-owner --no-acl --exit-on-error'
+# Podman: pg_restore may stop before the end of the stream, and the compat exec then fails with
+# "connection reset by peer" although the restore succeeded. Drain the rest, keep its exit code.
+if [ "$ENGINE_ID" = podman ]; then
+  restore_cmd='PGPASSWORD="$POSTGRES_PASSWORD" pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$0" --no-owner --no-acl --exit-on-error; rc=$?; cat > /dev/null; exit $rc'
+fi
+dc exec -T db sh -c "$restore_cmd" "$side" < <(read_dump) ||
   side_failed "pg_restore failed (the dump may be corrupted, or from a newer TimescaleDB)"
 psqlx "$side" -c "SELECT timescaledb_post_restore()" > /dev/null ||
   side_failed "timescaledb_post_restore failed"
@@ -210,7 +214,7 @@ if [ "$swapped" -ne 1 ]; then
   # Nothing was renamed (the two renames are one transaction): reopen the live database.
   psqlx postgres -c "ALTER DATABASE \"$db\" ALLOW_CONNECTIONS true" > /dev/null 2>&1 || true
   psqlx postgres -c "DROP DATABASE IF EXISTS \"$side\" WITH (FORCE)" > /dev/null 2>&1 || true
-  dc up -d --wait ingest api backup || true
+  engine_stack_up -d --wait ingest api backup || true
   echo "restore: could not swap the databases, the live database was not replaced" >&2
   exit 1
 fi
@@ -237,7 +241,7 @@ if ! dc run --rm migrate; then
   exit 1
 fi
 echo "restore: starting ingest, api and backup"
-if ! dc up -d --wait ingest api backup; then
+if ! engine_stack_up -d --wait ingest api backup; then
   echo "restore: the services did not become healthy" >&2
   swap_back_help
   exit 1

@@ -500,7 +500,7 @@ compose_up_recreating() {
       engine_prepare_networks || rc=$?
     fi
     [ "$rc" = 0 ] || return "$rc"
-    dc up "$@"
+    engine_stack_up "$@"
     return
   fi
   out=$(mktemp)

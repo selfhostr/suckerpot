@@ -138,6 +138,9 @@ echo "[2/4] Restoring the images"
 if [ "$mode" = images ]; then
   env_set_line .env SUCKERPOT_VERSION "$from_version"
   env_drop_loaded
+  # The drop above also removed the prefix that restore-db.sh needs (step 3).
+  SUCKERPOT_VOLUME_PREFIX=$(env_get SUCKERPOT_VOLUME_PREFIX)
+  export SUCKERPOT_VOLUME_PREFIX
   # Same gate as an update: verify the signatures, pull the verified digests, run only those.
   bash scripts/verify-images.sh --pull "$from_version" \
     || die "the image signatures of $from_version could not be verified; nothing was started"

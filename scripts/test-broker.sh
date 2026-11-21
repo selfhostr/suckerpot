@@ -50,7 +50,7 @@ start_broker() {
   ctr run -d --name "$C" --network "$NET" --read-only --cap-drop ALL \
     --security-opt no-new-privileges:true --user 999:999 \
     --memory 384m --memory-swap 384m --pids-limit 64 \
-    --tmpfs /run/redis:rw,noexec,nosuid,nodev,size=1m,mode=0700,uid=999,gid=999 \
+    --tmpfs "/run/redis:rw,noexec,nosuid,nodev,size=1m,mode=0700$(engine_tmpfs_owner 999 999)" \
     -v "$1:/data" "${env_args[@]}" "$IMG" "${@:2}" >/dev/null
 }
 

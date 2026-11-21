@@ -679,3 +679,75 @@ def test_a_fresh_member_without_contact_is_fine(st: Status) -> None:
     st.set_cli(cli)
     rc, out, _ = st.run()
     assert rc == 0, out
+
+
+# --- Podman (phase 3): engine line, required firewall, boot unit -------------------------------
+
+RENDER = ROOT / "scripts/lib/status_render.py"
+
+
+def _render(doc: dict[str, Any], *args: str) -> tuple[int, str]:
+    import subprocess
+
+    base: dict[str, Any] = {
+        "stack": "participant",
+        "install": "images",
+        "version": "v0.12.2",
+        "ps": [
+            ["sensor-ssh", "running", "healthy"],
+            ["ingest", "running", "healthy"],
+            ["db", "running", "healthy"],
+        ],
+        "ports": [],
+        "auto_enabled": True,
+        "auto_schedule": "cron 04:37/6h",
+        "auto_state_raw": "",
+        "cli_raw": json.dumps(member_cli()),
+        "cli_error": "",
+        "firewall": "installed",
+        "latest": "",
+        "latest_age_h": 0,
+    }
+    base.update(doc)
+    proc = subprocess.run(  # noqa: S603
+        [sys.executable, "-I", str(RENDER), *args],
+        input=json.dumps(base),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    return proc.returncode, proc.stdout
+
+
+def test_docker_output_has_no_engine_line() -> None:
+    _, out = _render({})
+    assert "Engine:" not in out
+    _, with_key = _render({"engine": "docker", "stack_unit": ""})
+    assert with_key == out
+
+
+def test_podman_shows_the_engine_and_the_boot_unit() -> None:
+    rc, out = _render({"engine": "podman 5.4.2", "stack_unit": "active"})
+    assert "Engine: Podman 5.4.2 (rootful, netavark), boot unit active" in out
+    assert rc == 0, out
+
+
+@pytest.mark.parametrize("firewall", ["missing", "not_loaded"])
+def test_podman_without_the_firewall_in_force_is_an_error(firewall: str) -> None:
+    rc, out = _render({"engine": "podman 5.4.2", "stack_unit": "active", "firewall": firewall})
+    assert rc == 2, out
+    _, js = _render(
+        {"engine": "podman 5.4.2", "stack_unit": "active", "firewall": firewall}, "--json"
+    )
+    assert "firewall_required" in js
+
+
+@pytest.mark.parametrize(
+    ("unit", "code"), [("missing", "stack_unit_missing"), ("inactive", "stack_unit_inactive")]
+)
+def test_podman_boot_unit_problems_are_warnings(unit: str, code: str) -> None:
+    rc, out = _render({"engine": "podman 5.4.2", "stack_unit": unit})
+    assert rc == 1, out
+    _, js = _render({"engine": "podman 5.4.2", "stack_unit": unit}, "--json")
+    assert code in js

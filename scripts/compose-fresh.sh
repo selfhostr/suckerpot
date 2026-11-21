@@ -31,10 +31,15 @@ fi
 # Images mode runs only images that the installer or updater verified: never build or pull here.
 if [ "$(env_get SUCKERPOT_INSTALL_MODE source)" = images ] && [ "${1:-}" = up ]; then
   shift
-  dc up --no-build --pull never "$@" || {
+  engine_stack_up --no-build --pull never "$@" || {
     echo "compose-fresh: an image may be missing locally; run: just update (it verifies and pulls the release images)" >&2
     exit 1
   }
   exit 0
+fi
+if [ "$ENGINE_ID" = podman ] && [ "${1:-}" = up ]; then
+  shift
+  engine_stack_up "$@"
+  exit
 fi
 exec "${ENGINE_DC[@]}" "$@"

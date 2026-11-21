@@ -739,6 +739,8 @@ def test_stack_unit_requires_the_firewall_and_runs_compose_as_the_user(
     assert "PartOf=suckerpot-firewall.service\n" in unit
     # After a stop and after a failed start alike.
     assert f"ExecStopPost={shims}/docker-compose stop\n" in unit
+    # netavark uses its nftables driver: its table must exist after the start (as root).
+    assert re.search(r"^ExecStartPost=\+\S*nft list table inet netavark$", unit, re.M)
     assert "\nExecStop=" not in unit
     # The tables are checked as root before anything starts.
     assert re.search(r"^ExecStartPre=\+\S*nft list table inet suckerpot_host$", unit, re.M)
@@ -771,7 +773,13 @@ def test_no_firewall_drops_the_requirement_with_a_warning(
     assert "WARNING" in result.stderr
     unit = (fsroot / "etc/systemd/system/suckerpot-stack.service").read_text()
     lines = [ln for ln in unit.splitlines() if not ln.startswith("#")]
-    assert not [ln for ln in lines if "suckerpot-firewall" in ln or "list table" in ln]
+    assert not [
+        ln
+        for ln in lines
+        if "suckerpot-firewall" in ln
+        or "list table inet suckerpot" in ln
+        or "suckerpot_bridge" in ln
+    ]
     assert "Requires=podman.socket" in lines
     assert "ExecStopPost=" + str(shims) + "/docker-compose stop" in lines
     # ensure-networks.sh must not refuse at boot for the missing firewall.
@@ -808,7 +816,7 @@ def test_stack_unit_uninstall(shims: Path, fsroot: Path) -> None:
     unit.write_text("x")
     assert _stack(shims, fsroot, "--uninstall").returncode == 0
     assert not unit.exists()
-    assert "systemctl disable suckerpot-stack.service" in _calls(shims)
+    assert "systemctl disable --now suckerpot-stack.service" in _calls(shims)
 
 
 # --- Library hooks for the installer (Podman phase 3): engine.sh, firewall.sh, env.sh ---------
@@ -953,6 +961,8 @@ def test_compose_up_recreating_on_podman_recreates_networks_once(libbox: Path) -
     assert calls == [
         "ensure-networks ",
         "docker-compose down --remove-orphans",
+        "ensure-networks ",
+        # engine_stack_up checks again (idempotent) right before the start.
         "ensure-networks ",
         "docker-compose up -d --wait",
     ]
@@ -1342,3 +1352,66 @@ def test_a_podman_rendering_without_a_valid_project_is_refused(
     assert result.returncode == 4
     assert "names no valid compose project" in result.stderr
     assert not (fsroot / "etc/suckerpot-firewall.nft").exists()
+
+
+# --- podman-socket.sh (phase 3): the socket group -------------------------------------------
+
+
+def test_socket_group_setup_writes_the_drop_in_and_the_tmpfiles_rule(
+    shims: Path, fsroot: Path, tmp_path: Path
+) -> None:
+    for name in ("groupadd", "usermod", "systemd-tmpfiles", "chgrp", "chmod"):
+        _write_exec(shims / name, SHIM + "exit 0\n")
+    _write_exec(shims / "getent", SHIM + "exit 2\n")  # the group does not exist yet
+    rundir = tmp_path / "run-podman"
+    rundir.mkdir()
+    result = _run(
+        HOST / "podman-socket.sh", shims, fsroot, "alice", SUCKERPOT_PODMAN_RUNDIR=str(rundir)
+    )
+    assert result.returncode == 0, result.stderr
+    dropin = (fsroot / "etc/systemd/system/podman.socket.d/suckerpot.conf").read_text()
+    assert "SocketGroup=suckerpot-podman\n" in dropin and "SocketMode=0660\n" in dropin
+    conf = (fsroot / "etc/containers/containers.conf.d/50-suckerpot.conf").read_text()
+    assert '[network]\nfirewall_driver = "nftables"\n' in conf
+    tmpfiles = (fsroot / "etc/tmpfiles.d/00-suckerpot-podman.conf").read_text()
+    # Named to sort before Podman's own rule (0700 root), which it overrides for this path only.
+    assert "D! /run/podman 0750 root suckerpot-podman\n" in tmpfiles
+    calls = _calls(shims)
+    assert "groupadd --system suckerpot-podman" in calls
+    assert "usermod -aG suckerpot-podman alice" in calls
+    assert f"chgrp suckerpot-podman {rundir}" in calls
+    assert "systemctl restart podman.socket" in calls
+    assert "root-equivalent" in result.stdout
+
+
+@pytest.mark.parametrize("user", ["root", "Bad Name", "a;b"])
+def test_socket_group_refuses_odd_users(shims: Path, fsroot: Path, user: str) -> None:
+    assert _run(HOST / "podman-socket.sh", shims, fsroot, user).returncode == 2
+
+
+def test_socket_group_uninstall(shims: Path, fsroot: Path) -> None:
+    _write_exec(shims / "getent", SHIM + 'echo "suckerpot-podman:x:996:alice,bob"\n')
+    _write_exec(shims / "gpasswd", SHIM + "exit 0\n")
+    for rel in (
+        "etc/tmpfiles.d/00-suckerpot-podman.conf",
+        "etc/containers/containers.conf.d/50-suckerpot.conf",
+    ):
+        (fsroot / rel).parent.mkdir(parents=True, exist_ok=True)
+        (fsroot / rel).write_text("x")
+    result = _run(HOST / "podman-socket.sh", shims, fsroot, "--uninstall", "alice")
+    assert result.returncode == 0, result.stderr
+    assert not (fsroot / "etc/tmpfiles.d/00-suckerpot-podman.conf").exists()
+    assert not (fsroot / "etc/containers/containers.conf.d/50-suckerpot.conf").exists()
+    assert "gpasswd -d alice suckerpot-podman" in _calls(shims)
+
+
+def test_socket_group_names_the_existing_members(shims: Path, fsroot: Path) -> None:
+    for name in ("groupadd", "usermod", "systemd-tmpfiles", "chgrp", "chmod"):
+        _write_exec(shims / name, SHIM + "exit 0\n")
+    _write_exec(shims / "getent", SHIM + 'echo "suckerpot-podman:x:996:bob"\n')
+    result = _run(
+        HOST / "podman-socket.sh", shims, fsroot, "alice", SUCKERPOT_PODMAN_RUNDIR="/nonexistent"
+    )
+    assert result.returncode == 0, result.stderr
+    assert "already exists; members: bob (each one is root-equivalent)" in result.stdout
+    assert not [c for c in _calls(shims) if c.startswith("groupadd")]

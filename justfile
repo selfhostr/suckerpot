@@ -59,12 +59,12 @@ up *flags: _need-project ports
     if [ "${SUCKERPOT_INSTALL_MODE:-source}" = images ]; then
       # Release images are pulled and verified by the installer and the updater: never build over them.
       # An image that is not local was never verified: --pull never fails instead of fetching it.
-      dc up -d --no-build --pull never --wait || {
+      engine_stack_up -d --no-build --pull never --wait || {
         echo "an image is missing locally; run: just update (it verifies and pulls the release images)" >&2
         exit 1
       }
     else
-      dc up -d --build --wait
+      engine_stack_up -d --build --wait
     fi
 
 # Start the stack for tests: dashboard authentication OFF (docker-compose.ci.yml).
@@ -74,6 +74,11 @@ up-test: ports
     #!/usr/bin/env bash
     set -euo pipefail
     . scripts/lib/engine.sh
+    # Docker only: on Podman this would skip the overlay, the host checks and the firewall.
+    if [ "$ENGINE_ID" = podman ]; then
+      echo "up-test runs on Docker only: on Podman it would start sensors without the overlay and the host firewall" >&2
+      exit 1
+    fi
     # The test overlay makes every volume project-local. Always a throwaway project, never the live one.
     export COMPOSE_PROJECT_NAME=sp-test SUCKERPOT_VOLUME_PREFIX=sp-test
     : "${ADMIN_PASSWORD_HASH:=test-placeholder}"
