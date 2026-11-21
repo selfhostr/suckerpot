@@ -10,6 +10,9 @@ name: Trap packs
 #    the owner. The pack secret key is a secret of that environment only (TRAP_PACK_SECRET_KEY,
 #    the minisign secret key file). The bundle is signed, verified against the public key
 #    committed in config/network-defaults.env, and attached to the fixed release "trap-packs".
+#    Before signing, it rebuilds the bundle from the checked-out commit and refuses to sign one
+#    that differs (anything but issued_at). Configure the environment to allow deployments from
+#    the main branch only (Settings > Environments > trap-packs > Deployment branches).
 #    The hub relays it unchanged to the feed site; every node verifies it again.
 #
 # Never runs on pull requests: no secret is ever exposed to code that was not merged.
@@ -87,14 +90,17 @@ jobs:
         with:
           name: trap-bundle
           path: dist
+      - name: Install the tool (no secret in this step)
+        working-directory: ingest
+        run: uv sync -q --frozen
+      - name: Refuse a bundle this commit does not build
+        working-directory: ingest
+        run: uv run --frozen --no-sync python -m tools.trap_packs verify ../dist/traps.json
       - name: Sign and verify with the committed public key
         working-directory: ingest
         env:
           TRAP_PACK_SECRET_KEY: ${{ secrets.TRAP_PACK_SECRET_KEY }}
-        run: |
-          set -eu
-          uv sync -q --frozen
-          uv run python -m tools.trap_packs sign ../dist/traps.json
+        run: uv run --frozen --no-sync python -m tools.trap_packs sign ../dist/traps.json
       - name: Attach to the release trap-packs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

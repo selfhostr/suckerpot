@@ -47,6 +47,16 @@ def test_the_secret_lives_only_in_the_protected_environment_job() -> None:
     sign = next(s for s in jobs["publish"]["steps"] if s.get("name", "").startswith("Sign"))
     assert sign["env"] == {"TRAP_PACK_SECRET_KEY": "${{ secrets.TRAP_PACK_SECRET_KEY }}"}
     assert "trap_packs sign" in sign["run"]
+    # The secret is only in the environment of the sign command, never while packages install.
+    assert "uv sync" not in sign["run"] and "\n" not in sign["run"].strip()
+    names = [s.get("name", "") for s in jobs["publish"]["steps"]]
+    verify = names.index("Refuse a bundle this commit does not build")
+    assert (
+        names.index("Install the tool (no secret in this step)")
+        < verify
+        < names.index(sign["name"])
+    )
+    assert "trap_packs verify" in jobs["publish"]["steps"][verify]["run"]
 
 
 def test_actions_are_pinned_and_checkout_keeps_no_credentials() -> None:

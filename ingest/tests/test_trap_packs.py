@@ -169,3 +169,22 @@ def test_sign_verifies_with_the_public_key_and_keygen_never_overwrites(
     assert not (tmp_path / "traps.json.minisig").exists()
     monkeypatch.setenv("TRAP_PACK_SECRET_KEY", "")
     assert trap_packs.main(["sign", str(bundle), "--public", public]) == 1
+
+
+def test_verify_refuses_a_bundle_this_commit_does_not_build(tmp_path: Path) -> None:
+    """Security review of #163: publish rebuilds from the checked-out commit before signing."""
+    good = tmp_path / "traps.json"
+    good.write_bytes(trap_packs.release_bundle(21)[0])
+    assert trap_packs.main(["verify", str(good)]) == 0
+    doc = json.loads(good.read_bytes())
+    doc["issued_at"] = "2030-01-01T00:00:00Z"  # only the time differs: fine
+    good.write_bytes(json.dumps(doc).encode())
+    assert trap_packs.main(["verify", str(good)]) == 0
+    doc["disabled"] = [{"id": "log4j-log4shell", "reason": "x"}]
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(json.dumps(doc).encode())
+    assert trap_packs.main(["verify", str(bad)]) == 1
+    doc["disabled"] = []
+    doc["packs"][0]["title"] = "changed"
+    bad.write_bytes(json.dumps(doc).encode())
+    assert trap_packs.main(["verify", str(bad)]) == 1

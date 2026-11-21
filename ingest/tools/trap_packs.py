@@ -250,6 +250,33 @@ def cmd_release(args: argparse.Namespace) -> int:
     return 0
 
 
+def same_as_checkout(data: bytes) -> list[str]:
+    """Rebuild the bundle from this checkout with the artifact's seq and compare everything but
+    ``issued_at``. The publish job signs only a bundle it could have built itself."""
+    try:
+        doc = traps.parse_bundle(data)
+    except traps.PackError as err:
+        return [f"the bundle to sign is unreadable: {err}"]
+    rebuilt, errors = release_bundle(int(doc["seq"]))
+    if errors:
+        return errors
+    fresh = json.loads(rebuilt)
+    for d in (doc, fresh):
+        d.pop("issued_at", None)
+    if doc != fresh:
+        return ["the bundle to sign differs from the one this commit builds"]
+    return []
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    errors = same_as_checkout(args.bundle.read_bytes())
+    for e in errors:
+        print(f"error: {e}", file=sys.stderr)
+    if not errors:
+        print(f"{args.bundle.name} matches this commit")
+    return 1 if errors else 0
+
+
 def committed_public_key() -> str:
     for line in DEFAULTS.read_text(encoding="utf-8").splitlines():
         name, sep, value = line.strip().partition("=")
@@ -316,6 +343,8 @@ def main(argv: list[str] | None = None) -> int:
     sign = sub.add_parser("sign", help="sign traps.json with the pack key (secret from env)")
     sign.add_argument("bundle", type=Path)
     sign.add_argument("--public", default="", help="public key to check against (RW...)")
+    verify = sub.add_parser("verify", help="check that traps.json is what this commit builds")
+    verify.add_argument("bundle", type=Path)
     keygen = sub.add_parser("keygen", help="create a new pack key pair (owner only)")
     keygen.add_argument("--out", type=Path, required=True, help="where to write the secret key")
     args = parser.parse_args(argv)
@@ -325,6 +354,7 @@ def main(argv: list[str] | None = None) -> int:
         "new": cmd_new,
         "release": cmd_release,
         "sign": cmd_sign,
+        "verify": cmd_verify,
         "keygen": cmd_keygen,
     }
     return handlers[str(args.cmd)](args)
