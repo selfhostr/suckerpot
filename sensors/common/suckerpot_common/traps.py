@@ -174,9 +174,15 @@ TRACKING_PARAMS = frozenset(
 )  # fmt: skip
 _PARAM_KEY = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-[]%")
 TRACKING_PREFIXES = ("utm_",)
+# Keys that search, paging, sorting and cache busting put in ordinary requests. Their values are
+# never evidence, whatever the value: "&page=123456" is a page number, not an exploit.
 COMMON_PARAMS = frozenset(
     {"page", "paged", "lang", "s", "p", "q", "id", "search", "query", "sort", "order", "format",
-     "callback", "v", "ver", "cat", "tag", "author", "feed", "preview", "replytocom"}
+     "callback", "v", "ver", "cat", "tag", "author", "feed", "preview", "replytocom",
+     "offset", "limit", "start", "per_page", "count", "size", "num", "n", "t", "ts", "_", "cb",
+     "year", "month", "day", "hl", "locale", "type", "category", "keyword", "keywords", "filter",
+     "orderby", "sortby", "dir", "view", "amp", "nocache", "rand", "random", "timestamp",
+     "time", "date"}
 )  # fmt: skip
 
 # Content rules: what a fake answer may never contain. Checked lowercased with placeholders masked,
@@ -762,6 +768,12 @@ def _trap(obj: object, where: str, reserved_flags: frozenset[str], pack_id: str)
         if op in ("contains", "suffix") and len(text) < PATH_MIN_LOOSE:
             raise _fail("limits", f"{where}.match.path: {op} needs {PATH_MIN_LOOSE} bytes or more")
         raw = text.encode("ascii")
+        if _has_percent_escape(raw):
+            raise _fail(
+                "schema",
+                f"{where}.match.path: the path is percent-decoded before matching: write the "
+                "decoded bytes, not %xx",
+            )
         path = PathCond(op, raw if exact else raw.lower())
 
     def names(key: str, token: bool) -> tuple[str, ...]:
@@ -854,15 +866,15 @@ def _header_needle_specific(n: bytes) -> bool:
 
 def _param_needle_generic(n: bytes) -> bool:
     """A query or form needle that ordinary requests carry: any "key=value" part of it on a
-    tracking or login-form key (utm_*, fbclid, log, pwd...), or on a common key (page, s, id...)
-    with a value under 6 bytes. A "key=value" needle is anchored at a parameter start, so a key
-    suffix ("og=admin") cannot match a longer key ("log=admin")."""
+    tracking or login-form key (utm_*, fbclid, log, pwd...) or on a common key (page, s, id...),
+    whatever the value ("&page=123456" is a page number). A "key=value" needle is anchored at a
+    parameter start, so a key suffix ("og=admin") cannot match a longer key ("log=admin")."""
     for part in n.split(b"&"):
-        key, sep, value = part.lstrip(b"?").partition(b"=")
+        key = part.lstrip(b"?").partition(b"=")[0]
         text = key.decode("latin-1")
         if text in TRACKING_PARAMS or text.startswith(TRACKING_PREFIXES):
             return True
-        if sep and text in COMMON_PARAMS and len(value) < EVIDENCE_MIN:
+        if text in COMMON_PARAMS:
             return True
     return False
 

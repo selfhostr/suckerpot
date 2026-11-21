@@ -711,8 +711,20 @@ def test_tracking_and_common_query_needles_are_not_evidence(needle: str) -> None
         assert reason(_claiming({"needles": [{"in": area, "any": [anchored]}]})) == "evidence"
 
 
+@pytest.mark.parametrize(
+    "needle",
+    ["&page=123456", "&page=../../../etc", "&id=1234567", "&s=searchterm", "&cmd=wget&page=1",
+     "&offset=100000", "&q=longer-query", "?ver=6.8.1-abc"],
+)  # fmt: skip
+def test_common_param_values_are_never_evidence(needle: str) -> None:
+    """P1 security review (b): the value of a common parameter is never evidence, however long
+    it is ("&page=123456" is a page number)."""
+    for area in ("query", "body"):
+        assert reason(_claiming({"needles": [{"in": area, "any": [needle]}]})) == "evidence"
+
+
 def test_specific_query_needles_still_count() -> None:
-    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&page=../../../etc"]}]}))
+    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&file=../../../etc"]}]}))
     traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&cmd=wget "]}]}))
     traps.validate_pack(
         _claiming({"needles": [{"in": "headers", "any": ["\nx-api-version: ${jndi"]}]})
@@ -832,6 +844,20 @@ def test_percent_escapes_are_refused_in_decoded_areas(area: str) -> None:
     assert reason(obj) == "schema"
     obj["traps"][1]["match"]["needles"][0]["any"] = ["100% sure"]  # a lone % is fine
     obj["traps"][1]["outcome"]["claim_cve"] = False
+    traps.validate_pack(obj)
+
+
+@pytest.mark.parametrize("op", ["exact", "prefix", "suffix", "contains"])
+@pytest.mark.parametrize("value", ["/api/v1/%2e%2e/diag", "/cgi-bin/%2F/x.cgi", "/a/b%41c/d/e"])
+def test_percent_escapes_are_refused_in_paths(op: str, value: str) -> None:
+    """P1 security review (a): match.path is matched on the percent-decoded path, like the
+    needles of decoded areas, so "%xx" in it could never match."""
+    obj = example()
+    obj["traps"][0]["match"]["path"] = {op: value}
+    with pytest.raises(PackError) as err:
+        traps.validate_pack(obj)
+    assert err.value.reason == "schema" and "percent-decoded" in err.value.detail
+    obj["traps"][0]["match"]["path"] = {op: "/api/v1/100%-sure"}  # a lone % is fine
     traps.validate_pack(obj)
 
 
