@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `scripts/lib/engine.sh` (`dc`, `ctr`), and `.env` records `SUCKERPOT_ENGINE=docker`. This
   prepares Podman support; until it is finished, the installer and the updater refuse Podman.
 
+### Fixed
+
+- The blocklist worker's per-address read of `sessions` no longer times out after a restart or
+  under load. It walked the address index and fetched one table row per session, scattered over
+  a table that flood folding left mostly empty: about 200,000 page reads, 5.6 s with a warm cache
+  and past the 30 s statement timeout with a cold one. A new covering index (migration 0038,
+  window filter first, every column the read needs) turns it into an index-only scan: 0.44 s
+  instead of 12 s on a copy of that table, from cold shared buffers. The first blocklist cycle
+  now also waits 5 minutes after ingest starts.
+
 ## [0.12.1] - 2026-11-21
 
 ### Added

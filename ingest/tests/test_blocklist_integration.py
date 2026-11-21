@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ingest.blocklist import BlocklistWorker
+from ingest.blocklist.worker import _ip_rows
 from ingest.features import FeatureSettings
 
 from .helpers import fold_hour
@@ -149,6 +150,48 @@ async def test_an_address_is_demo_only_when_every_connect_is_demo(
     assert got[("ip", "203.0.113.30")]["demo"] is True
     assert got[("ip", "203.0.113.31")]["demo"] is False  # one real connect: not demo data
     assert got[("ip", "203.0.113.32")]["demo"] is False
+
+
+class _Explain:
+    """Stands for a session: runs ``EXPLAIN (VERBOSE)`` of each statement instead of it."""
+
+    def __init__(self, conn: Any) -> None:
+        self.conn = conn
+        self.plans: list[str] = []
+
+    async def execute(self, stmt: Any, params: Any = None) -> Any:
+        result = await self.conn.execute(text("EXPLAIN (VERBOSE) " + str(stmt)), params)
+        self.plans.append("\n".join(str(r[0]) for r in result))
+        return await self.conn.execute(text("SELECT 1 WHERE false"))
+
+
+async def test_the_covering_index_holds_every_column_the_address_aggregate_reads(
+    engine: AsyncEngine,
+) -> None:
+    """``ix_sessions_blocklist`` lets the address aggregate skip the table (an index-only scan).
+    A column added to the query must be added to the index too, or the read is slow again."""
+    async with engine.connect() as conn:
+        covered = set(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT a.attname FROM pg_index i "
+                        "JOIN pg_attribute a ON a.attrelid = i.indrelid "
+                        "AND a.attnum = ANY(i.indkey) "
+                        "WHERE i.indexrelid = 'ix_sessions_blocklist'::regclass"
+                    )
+                )
+            ).scalars()
+        )
+        probe = _Explain(conn)
+        await _ip_rows(probe, NOW - timedelta(days=30))  # type: ignore[arg-type]
+    lines = probe.plans[0].splitlines()
+    scan = next(i for i, line in enumerate(lines) if " on public.sessions" in line)
+    output = lines[scan + 1].strip()
+    assert output.startswith("Output: "), output
+    read = {c.strip() for c in output.removeprefix("Output: ").split(",")}
+    assert "started_at" in read and "src_ip" in read
+    assert read <= covered, read - covered
 
 
 async def test_the_demo_read_uses_the_partial_index(engine: AsyncEngine) -> None:

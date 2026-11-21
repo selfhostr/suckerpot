@@ -146,6 +146,7 @@ async def test_the_cycle_log_and_status_carry_the_step_and_the_error(
     patch_reads(monkeypatch, calls, fail="ip-demo")
     w = BlocklistWorker(FeatureSettings(blocklist_enabled=True), fake_factory([]))
     w.interval_s = 60
+    w.start_delay_s = 0
     caplog.set_level(logging.WARNING, logger="ingest.features")
     task = asyncio.create_task(w.run())
     for _ in range(100):
@@ -167,3 +168,28 @@ def test_the_demo_flag_comes_from_the_demo_step() -> None:
     assert got["198.51.100.4"].demo is True
     assert got["203.0.113.9"].demo is False
     assert got["203.0.113.9"].score > 0
+
+
+async def test_the_first_cycle_waits_after_the_start_and_the_status_is_published_first() -> None:
+    w = BlocklistWorker(FeatureSettings(blocklist_enabled=True), fake_factory([]))
+    assert w.start_delay_s >= 120  # a few minutes: not while the stack starts
+    w.start_delay_s = 0.2
+    cycles: list[float] = []
+    seen: list[dict[str, Any]] = []
+
+    async def run_once() -> None:
+        cycles.append(asyncio.get_running_loop().time())
+
+    async def publish(status: dict[str, Any]) -> None:
+        seen.append(status)
+
+    w.run_once = run_once  # type: ignore[method-assign]
+    started = asyncio.get_running_loop().time()
+    task = asyncio.create_task(w.run(publish))
+    await asyncio.sleep(0.1)
+    assert cycles == [] and len(seen) == 1  # waiting, but the status is already out
+    await asyncio.sleep(0.3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(cycles) == 1 and cycles[0] - started >= 0.2

@@ -548,6 +548,7 @@ async def write_entries(db: AsyncSession, entries: Sequence[Candidate], cycle: d
 class BlocklistWorker(FeatureWorker):
     name = "blocklist"
     interval_s = 900.0
+    start_delay_s = 300.0  # its reads are the heaviest of the feature workers
 
     def __init__(
         self,
