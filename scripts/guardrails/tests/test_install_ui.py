@@ -669,3 +669,25 @@ def test_consent_and_prompts_are_indented_like_the_screen(sandbox: Sandbox) -> N
     assert "\n    - source addresses seen by your sensors" in text  # wording unchanged
     assert "\n  Join the SuckerPot network as described? [y/N]" in text
     assert "\n  Install the host firewall now?" in text
+
+
+def _admin_port(sb: Sandbox) -> str:
+    proc = subprocess.run(
+        ["bash", "-c", ". scripts/lib/env.sh; . scripts/lib/firewall.sh; fw_admin_port"],  # noqa: S607
+        cwd=sb.root,
+        env=sb.env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    return proc.stdout
+
+
+def test_the_admin_port_probe_ignores_the_host(sandbox: Sandbox) -> None:
+    """The sandbox hides ssh.socket, sshd and /etc/ssh: the probe falls back to its default."""
+    add_participant_files(sandbox)
+    assert _admin_port(sandbox) == "22 default\n"
+    # Its own sshd_config in SELFHOSTR_SSH_DIR is read, the host's /etc/ssh is not.
+    (Path(sandbox.env["SELFHOSTR_SSH_DIR"]) / "sshd_config").write_text("Port 2201\n")
+    assert _admin_port(sandbox) == "2201 sshd_config\n"

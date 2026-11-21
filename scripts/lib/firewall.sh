@@ -36,7 +36,9 @@ fw_admin_port() {
     echo "$p sshd -T"
     return 0
   fi
-  p=$(cat /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2> /dev/null | sed -n 's/^[[:space:]]*Port[[:space:]]\{1,\}\([0-9]\{1,5\}\)[[:space:]]*$/\1/p' | head -n 1 || true)
+  # SELFHOSTR_SSH_DIR: the tests point it at an empty folder, so they never read this host's sshd.
+  local ssh_dir=${SELFHOSTR_SSH_DIR:-/etc/ssh}
+  p=$(cat "$ssh_dir/sshd_config" "$ssh_dir"/sshd_config.d/*.conf 2> /dev/null | sed -n 's/^[[:space:]]*Port[[:space:]]\{1,\}\([0-9]\{1,5\}\)[[:space:]]*$/\1/p' | head -n 1 || true)
   if [[ $p =~ ^[1-9][0-9]{0,4}$ ]] && [ "$p" -le 65535 ]; then
     echo "$p sshd_config"
     return 0
