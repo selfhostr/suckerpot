@@ -586,6 +586,23 @@ def test_a_refused_pseudonym_is_an_error_not_a_membership(st: Status) -> None:
     assert doc["needs_attention"][0]["fix"] == "./scripts/participant.sh join --pseudonym NEW-NAME"
 
 
+def test_a_refused_join_the_worker_retries_says_so(st: Status) -> None:
+    st.schedule()
+    st.set_cli(
+        member_cli(
+            state="error",
+            pseudonym="bignoe3",
+            last_error={"code": "pseudonym_taken", "since": None},
+            network={"membership": {"desired": "off", "state": "error", "auto_retry": True}},
+        )
+    )
+    rc, out, _ = st.run()
+    assert rc == 2, out
+    assert "(pseudonym_taken). SuckerPot tries again by itself within 24 hours." in out
+    assert "SuckerPot stopped trying" not in out
+    assert "Fix: ./scripts/participant.sh join --pseudonym NEW-NAME" in out
+
+
 @pytest.mark.parametrize(
     ("code", "fix"),
     [

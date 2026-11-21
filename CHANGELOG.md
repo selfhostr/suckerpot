@@ -101,6 +101,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   passes `--pseudonym` sends the new name to the hub.
 - The participant consent screen said signed releases install "once a day". It now says the
   check runs every 6 h and a release installs once it is 48 h old.
+- Network: a refused enrolment heals by itself. A node left in state `error` after
+  `pseudonym_taken` or `pseudonym_invalid` no longer needs a command: the network worker tries a
+  new `NETWORK_PSEUDONYM` from `.env` on its next cycle, replaces a taken generated name (with
+  backoff), and tries a chosen name again once every 24 hours. Only while the consent in `.env`
+  is valid and fresh, and never after a leave. A node stuck this way heals on its first cycle
+  after the update. `status.sh` says when SuckerPot tries again by itself.
 
 ## [0.12.1] - 2026-11-21
 

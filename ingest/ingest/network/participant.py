@@ -8,6 +8,10 @@ leave stores ``network_membership.left_day`` and a restart never re-joins. A rec
 record of a version this release does not know (``consent_outdated``) never joins; the participant
 re-runs ``participant.sh join`` to agree again.
 
+A refused enrolment heals by itself (``can_self_heal``): the worker tries again with a new
+pseudonym from ``.env`` at once, and with the same one once a day, as long as the record is valid
+and fresh and the owner did not leave. The consent rules above are unchanged.
+
 Format: ``v2:sources,payloads,c2,files,rechecks[,verify_reveals]:2026-11-03``.
 """
 
@@ -32,6 +36,17 @@ STALE = "consent_stale"
 MAX_AGE_DAYS = 7
 
 _VERSION = re.compile(r"^v\d{1,3}$")
+
+# Codes of a refused enrolment (membership state ``error``, desired ``off``) that the worker tries
+# again by itself: the hub may free a name later (a ghost of an earlier install), or the owner sets
+# another name. Anything else (a leave, a missing settings key) is never retried this way.
+HEALABLE = frozenset(
+    {
+        "pseudonym_taken", "pseudonym_invalid", "enrolment_closed", "pow_timeout",
+        "waiting_enrolment", "rate_limited", "hub_error", "hub_unreachable", "egress_closed",
+        "challenge_expired", "pow_invalid",
+    }
+)  # fmt: skip
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,3 +84,29 @@ def parse(raw: str) -> tuple[str, Consent | None]:
     except ValueError:
         return INVALID, None
     return VALID, Consent(version, items, day)
+
+
+def can_self_heal(
+    *,
+    state: str,
+    desired: str,
+    left_day: date | None,
+    requested_by: str | None,
+    error_code: str | None,
+    consent: Consent | None,
+    today: date,
+) -> bool:
+    """True when a refused enrolment may be tried again without the owner.
+
+    Only a join that came from the consent record (``requested_by = installer``) and ended in a
+    healable refusal. Never after a leave (``left_day``) and never without a valid, fresh record.
+    """
+    return (
+        state == "error"
+        and desired == "off"
+        and left_day is None
+        and requested_by == "installer"
+        and error_code in HEALABLE
+        and consent is not None
+        and is_fresh(consent, today)
+    )

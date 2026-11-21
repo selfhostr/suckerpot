@@ -17,7 +17,7 @@ The network shape (written by ingest/network/cli.py) is read defensively: every 
     state, pseudonym, node, standing, counts_from, path, self_address, reveals_7d,
     hub {host, last_contact, signature_ok}, sent [{day, sources, links, files}],
     sessions_24h {sensor: n}, warnings [code], errors [code],
-    network {membership {desired, last_error}}   (the only place older ingest images carry these)
+    network {membership {desired, last_error, auto_retry}}   (older ingest images: no auto_retry)
 
 Prints the text report (or JSON with --json) and exits 0 (OK), 1 (warning) or 2 (error).
 Standard library only. It never prints a secret: it never receives one.
@@ -433,8 +433,14 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
         why = ERROR_HELP.get(code, (JOIN_PROBLEMS.get(code, "an unexpected problem"), ""))[0]
         if code == "pseudonym_taken" and name:
             why = f"the hub refused the pseudonym '{name}' (already used by another node)"
-        desired = _dict(_dict(cli.get("network")).get("membership")).get("desired")
-        tail = "SuckerPot keeps trying." if desired == "member" else "SuckerPot stopped trying."
+        membership = _dict(_dict(cli.get("network")).get("membership"))
+        desired = membership.get("desired")
+        if desired == "member":
+            tail = "SuckerPot keeps trying."
+        elif membership.get("auto_retry") is True:
+            tail = "SuckerPot tries again by itself within 24 hours."
+        else:
+            tail = "SuckerPot stopped trying."
         out.append(f"  Not a member: {why} ({code}). {tail}")
         fix = ERROR_HELP.get(code, ("", ""))[1] or "./scripts/participant.sh join"
         out.append(f"  Fix: {_fix(fix, info['stack'])}")

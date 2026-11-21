@@ -22,7 +22,8 @@ addresses (design M32 section 10).
                    "day": "<date>"|null, "items": [str]},
        "membership": {"desired", "state", "pseudonym", "fingerprint", "standing",
                       "enrolled_day", "eligible_from_day", "counts_toward_consensus": bool,
-                      "left_day", "requested_by", "last_error"},
+                      "left_day", "requested_by", "last_error",
+                      "auto_retry": bool},   # a refused join the worker tries again by itself
        "hub_contact": {"last_at": "<UTC>"|null, "age_hours": float|null},
        "own_address": {"state": "manual|learned|waiting", "waiting_days": int|null},
        "sent": [{"day", "status", "sources", "links", "c2", "files"}],   # newest first, <= 7
@@ -208,6 +209,12 @@ async def build_status(
         if m.last_error_code is not None and detail.get("error_code") == m.last_error_code
         else None
     )
+    # A refused join the worker tries again by itself (the same rule as the worker's).
+    heals = participant.can_self_heal(
+        state=m.state, desired=m.desired, left_day=m.left_day, requested_by=m.requested_by,
+        error_code=m.last_error_code, consent=consent, today=moment.date(),
+    )  # fmt: skip
+    auto_retry = settings.enabled and settings.hub_configured and heals
     joined_at = m.requested_at
     if joined_at is None and m.enrolled_day is not None:
         joined_at = datetime.combine(m.enrolled_day, datetime.min.time(), UTC)
@@ -261,6 +268,7 @@ async def build_status(
                 "left_day": _day(m.left_day),
                 "requested_by": m.requested_by,
                 "last_error": m.last_error_code,
+                "auto_retry": auto_retry,
             },
             "hub_contact": {
                 "last_at": _iso(last_contact),

@@ -7,7 +7,8 @@
 # Caddy's internal CA), runs the REAL scripts/install.sh --participant --yes in a temporary copy of
 # this repository, and checks the result: the participant services, the containment of the
 # ingest container, the hubproxy allow-list, enrolment at the test hub, an accepted batch,
-# status.sh, participant.sh leave, and the switch to full mode (data kept).
+# status.sh, participant.sh leave, a refused join that heals by itself, and the switch to full
+# mode (data kept).
 #
 # Hermetic by construction:
 #   - the compose project is sp-it-participant-<random>; the test installer mode
@@ -379,6 +380,37 @@ else
 fi
 left=$(node_state || true)
 case $left in off | left | not_joined) ok "the node reports state $left" ;; *) bad "the node reports state ${left:-unknown}" ;; esac
+
+# ---------------------------------------------------------------- 10b. a refused join heals itself
+# The 2026-11-21 field report: a join refused with pseudonym_taken left the node in state error,
+# and a new name in .env changed nothing. Rebuild that state in the throwaway database (a refused
+# join of the installer, no leave marker), put a new name and the network back in .env, restart
+# ingest once: the worker must enrol under the new name by itself, with no command.
+log "a node stuck after a refused pseudonym heals by itself"
+old_name=$(envget NETWORK_PSEUDONYM)
+heal_name=heal-test-node
+psql_node -c "UPDATE network_membership SET state = 'error', desired = 'off',
+                last_error_code = 'pseudonym_taken', pseudonym = NULLIF('$old_name', ''),
+                left_day = NULL, requested_by = 'installer', requested_at = now() - interval '2 days'" > /dev/null
+sed -i -e '/^NETWORK_PSEUDONYM=/d' -e '/^NETWORK_ENABLED=/d' "$work/.env"
+printf 'NETWORK_PSEUDONYM=%s\nNETWORK_ENABLED=true\n' "$heal_name" >> "$work/.env"
+dc up -d --no-build --no-deps --wait --wait-timeout 120 ingest > /dev/null 2>&1 || bad "ingest did not restart for the heal test"
+healed=""
+for _ in $(seq 1 40); do
+  healed=$(node_state || true)
+  [ "$healed" = member ] && break
+  sleep 5
+done
+[ "$healed" = member ] && ok "the stuck node enrolled by itself (state: $healed)" || {
+  bad "the stuck node did not heal (state: ${healed:-unknown})"
+  psql_node -c "SELECT desired, state, pseudonym, last_error_code FROM network_membership" | sed 's/^/    | membership: /'
+}
+hub_name=$(psql_hub -c 'SELECT pseudonym FROM nodes' 2> /dev/null || echo "?")
+[ "$hub_name" = "$heal_name" ] && ok "the hub holds the node under the new name" || bad "the hub holds '$hub_name', not '$heal_name'"
+(cd "$work" && PATH="$shim:$PATH" SELFHOSTR_TEST_INSTALL=1 E2E_UPLINK_NET=$UPLINK timeout 400 ./scripts/participant.sh leave) > "$work/leave2.out" 2>&1 \
+  && ok "participant.sh leave succeeded again" || { bad "the second leave failed"; tail -n 15 "$work/leave2.out" | sed 's/^/    | /'; }
+hub_nodes=$(psql_hub -c 'SELECT count(*) FROM nodes' 2> /dev/null || echo "?")
+[ "$hub_nodes" = 0 ] && ok "the hub deleted the healed node" || bad "the hub still holds $hub_nodes node(s)"
 
 # ---------------------------------------------------------------- 11. switch to full mode
 log "install.sh --full (switch; builds the api image)"
