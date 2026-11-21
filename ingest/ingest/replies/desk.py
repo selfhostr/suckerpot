@@ -23,7 +23,9 @@ from suckerpot_db.blocklist_values import valid_domain
 
 from .parse import ParsedReply, strip_quoted
 
-FORM_RULES: Final = frozenset({"form-required", "form-required-unmonitored"})
+FORM_RULES: Final = frozenset(
+    {"form-required", "form-required-portal", "form-required-unmonitored"}
+)
 MAX_FORM_URL: Final = 500
 URL_END: Final = frozenset(" \t\r\n<>\"'`\\^{}|[]")
 TRAILING: Final = ".,;:!?)("
@@ -74,12 +76,20 @@ def form_url_of(excerpt: str) -> str | None:
 
 
 def _smtp_code_at_line_start(text_: str) -> bool:
-    """A reply code (550 to 554 followed by a space) that starts a line, in what the sender
-    wrote. A number inside a sentence ("1550 sessions") or in the quoted report does not count."""
+    """A reply code (550 to 554 followed by a space) at the start of a line, or right after
+    ``said:`` or a colon (qmail: "Remote host said: 550 5.1.1 ..."), in what the sender wrote.
+    A number inside a sentence ("1550 sessions") or in the quoted report does not count."""
     for line in strip_quoted(text_)[:2000].lower().split("\n"):
         line = line.strip()
-        if line[:3] in PLAIN_CODES and line[3:4] == " ":
-            return True
+        starts = [0]
+        pos = line.find(": ")
+        while pos != -1:
+            starts.append(pos + 2)
+            pos = line.find(": ", pos + 1)
+        for at in starts:
+            rest = line[at:].lstrip()
+            if rest[:3] in PLAIN_CODES and rest[3:4] == " ":
+                return True
     return False
 
 

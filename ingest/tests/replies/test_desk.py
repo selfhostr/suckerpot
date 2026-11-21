@@ -65,3 +65,13 @@ def test_a_code_inside_a_sentence_or_the_quoted_report_is_not_a_bounce() -> None
 
 def test_host_of_url() -> None:
     assert host_of_url("https://support.example.net:8443/a?b") == "support.example.net"
+
+
+def test_a_code_after_said_or_a_colon_is_a_bounce() -> None:
+    qmail = (
+        "Hi. I'm afraid I wasn't able to deliver.\r\nRemote host said: 550 5.1.1 No such user\r\n"
+    )
+    assert hard_bounce(ParsedReply(body=qmail))
+    assert hard_bounce(ParsedReply(body="SMTP error: 554 blocked\r\n"))
+    assert not hard_bounce(ParsedReply(body="Sessions today: 1550 from one host\r\n"))
+    assert not hard_bounce(ParsedReply(body="Total: 5500 events\r\n"))

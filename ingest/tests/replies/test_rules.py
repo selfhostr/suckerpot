@@ -84,7 +84,7 @@ def test_resolved_by_subject(rules: ReplyRules) -> None:
         ("the range is not hosted by us", "not-our-customer"),
         ("we have insufficient evidence", "insufficient-evidence"),
         ("please use our web form", "form-required"),
-        ("Please submit via our portal", "form-required"),
+        ("Please submit via our portal", "form-required-portal"),
         ("Reports sent to this email address will not be processed", "form-required"),
         ("Please submit your report using webform", "form-required"),
         ("This email inbox is not monitored", "form-required-unmonitored"),
@@ -350,3 +350,15 @@ def test_a_signature_or_an_acknowledgement_is_not_a_web_form_request(rules: Repl
     assert classify(rules, signature) == ("human_reply", None)
     plain = mail(body="Mail to the old address will not be processed after the move, sorry.\r\n")
     assert classify(rules, plain)[0] != "rejected"
+
+
+def test_a_ticket_acknowledgement_that_names_a_portal_is_not_a_web_form_request(
+    rules: ReplyRules,
+) -> None:
+    ack = mail(
+        extra={"Auto-Submitted": "auto-replied"},
+        body="You can follow your ticket #123 via our portal.\r\n",
+    )
+    assert classify(rules, ack)[0] != "rejected"
+    only = mail(body="Reports must go through our portal, nothing else is read.\r\n")
+    assert classify(rules, only) == ("rejected", "form-required-portal")
