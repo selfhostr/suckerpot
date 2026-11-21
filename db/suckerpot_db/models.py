@@ -152,6 +152,25 @@ class SessionRow(Base):
         Index(
             "ix_sessions_not_benign", text("started_at DESC"), postgresql_where=text("NOT benign")
         ),
+        # The blocklist worker's per-address aggregate reads only this index (0038).
+        Index(
+            "ix_sessions_blocklist",
+            "started_at",
+            postgresql_include=[
+                "src_ip",
+                "sensor",
+                "last_event_at",
+                "connections",
+                "login_attempts",
+                "login_success",
+                "commands",
+                "downloads",
+                "abuse_score",
+                "known_scanner",
+                "benign",
+                "campaign_id",
+            ],
+        ),
     )
 
 

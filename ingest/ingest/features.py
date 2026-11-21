@@ -93,6 +93,9 @@ class FeatureWorker:
 
     name = "feature"
     interval_s = 300.0
+    # Seconds to wait before the first cycle, so a heavy cycle does not compete with the start of
+    # the stack (cold caches, catch-up of the event stream). The status is published first.
+    start_delay_s = 0.0
 
     def __init__(self, settings: FeatureSettings, *, enabled: bool) -> None:
         self.settings = settings
@@ -120,6 +123,9 @@ class FeatureWorker:
             if publish is not None:
                 await publish(await self.status())
             return
+        if self.start_delay_s > 0:
+            await self._publish(publish)
+            await asyncio.sleep(self.start_delay_s)
         while True:
             try:
                 await self.run_once()
@@ -132,14 +138,18 @@ class FeatureWorker:
                 summary = str(getattr(exc, "summary", "") or type(exc).__name__)[:200]
                 self.last_error = summary
                 log.warning("%s cycle failed (%s)", self.name, summary)
-            if publish is not None:
-                try:
-                    await publish(await self.status())
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    log.warning("%s status publish failed", self.name)
+            await self._publish(publish)
             await asyncio.sleep(self.interval_s)
+
+    async def _publish(self, publish: Publish | None) -> None:
+        if publish is None:
+            return
+        try:
+            await publish(await self.status())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.warning("%s status publish failed", self.name)
 
     async def aclose(self) -> None:
         """Release resources (none in the base worker)."""

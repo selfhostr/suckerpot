@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0037() -> None:
+def test_the_chain_is_linear_up_to_0038() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0037"}
+    assert heads == {"0038"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -109,6 +109,8 @@ def test_the_chain_is_linear_up_to_0037() -> None:
     assert revs["0036"][0] == "0035"
     # The signed trap pack state (M37 P2) follows 0036.
     assert revs["0037"][0] == "0036"
+    # The covering index for the blocklist aggregate on sessions follows 0037.
+    assert revs["0038"][0] == "0037"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
