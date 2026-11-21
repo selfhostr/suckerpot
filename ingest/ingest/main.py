@@ -50,6 +50,7 @@ from ingest.scanners import load_scanners
 from ingest.scripts import ScriptWorker, load_annotations
 from ingest.tagging import load_rules
 from ingest.takedown import TakedownWorker
+from ingest.trappacks import SqlGateSource, build_trap_worker
 from ingest.updatecheck import UpdateChecker
 
 log = logging.getLogger(__name__)
@@ -72,7 +73,12 @@ def build_network_worker(features: FeatureSettings, factory: Any) -> NetworkWork
         log.error("network settings are invalid (%s): the network stays off", exc)
         network = NetworkSettings()
     terms = TermsCache(factory)
-    builder = BatchBuilder(SqlSource(factory), terms, max_sources=network.max_sources)
+    builder = BatchBuilder(
+        SqlSource(factory),
+        terms,
+        max_sources=network.max_sources,
+        trap_gate=SqlGateSource(factory),  # gate G (M37): new pack CVEs wait 48 h for `exploit`
+    )
 
     async def learn() -> int:
         # Participant mode has no abuse worker to learn the own address (M32 8.4).
@@ -235,6 +241,8 @@ async def run() -> None:
         TakedownWorker(features, factory, intel=intel, reputation=reputation, asn_lookup=exit_asn),
         build_network_worker(features, factory),
         build_feed_worker(features, factory),
+        # M37: the signed trap pack bundle for the sensors (on unless TRAP_PACKS_REMOTE=false).
+        build_trap_worker(features, factory),
         # Flood groups (0034): the writer folds as connections close; this sweep does the rest and
         # the history. On by default, SESSION_FOLD_ENABLED=false switches both off. It measures
         # idle connections against how far the consumer has stored the streams.
