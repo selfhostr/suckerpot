@@ -20,6 +20,7 @@ These are the design documents written before the larger milestones were built. 
 | [M36](m36.md) | Useful from the first node |
 | [M37](m37.md) | Trap packs for new CVEs |
 | [Podman](podman.md) | Podman as a second container engine (approved, not implemented yet) |
+| [Installer UX](installer-ux.md) | A shorter, clearer installer: fewer questions, a progress display, a plain mode (approved, not implemented yet) |
 
 ```{toctree}
 :maxdepth: 1
@@ -41,4 +42,5 @@ m34
 m36
 m37
 podman
+installer-ux
 ```
