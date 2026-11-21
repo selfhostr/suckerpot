@@ -571,6 +571,26 @@ Things to know:
 - The bootstrap figures are counted once per ISO week and kept in `worker_state`.
 - The file is not signed and not listed in the feed index. It is informational.
 
+## Trap pack relay
+
+Trap packs (design [M37](../docs/dev/design/m37.md), section 5) teach the node sensors new traps without a release. The project signs the pack bundle in a protected GitHub workflow and attaches `traps.json` and `traps.json.minisig` to the fixed release `trap-packs`. The hub worker copies them to the feed site, where nodes fetch them through the paths they already have.
+
+The hub **relays; it cannot sign**. It holds only the pack public key. Nodes verify the same signature with the key shipped in their release, so a compromised hub can withhold or delay a bundle, never forge one.
+
+It is **off by default**.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `HUB_TRAP_PACK_KEY` | empty | The minisign public key of the bundles (`RW...`, the `TRAP_PACK_KEY` of `config/network-defaults.env`). Empty = off: nothing is contacted |
+| `HUB_TRAP_PACK_REPO` | `selfhostr/suckerpot` | The repository whose release `trap-packs` is relayed |
+| `HUB_TRAP_RELAY_INTERVAL_S` | `600` | Seconds between two checks (60 to 86400) |
+
+Every check downloads the signature (4 KiB cap) and, when it changed, the bundle (1 MiB cap), through the worker's proxy settings, https only, from `github.com` and its asset storage hosts only (at most 3 redirects, 120 s deadline). The worker verifies the signature, that the signed `seq` is the one in the file, and that `seq` is not lower than the last relayed one (`trap_relay_state`; a new key starts a new sequence). It then writes `traps/traps.json`, `traps/traps.json.minisig` and `traps/traps.json.gz` into `HUB_FEED_DIR`, each with an atomic rename, the bundle and signature byte for byte. Caddy serves them at `https://<HUB_FEEDS_DOMAIN>/v1/traps/`.
+
+A forged or altered bundle, another key, a lower `seq`, a different bundle under a `seq` already relayed, an oversized answer or a redirect elsewhere changes nothing: the last good copy stays and `trap_relay_state.error_code` records a short code. Logs carry the `seq` and error codes only, never bundle content.
+
+To turn it on, set `HUB_TRAP_PACK_KEY` in `hub/.env` and run `docker compose up -d hub-worker`. To unpublish, empty the key and delete the `traps/` folder from the feeds volume.
+
 ## Operator CLI
 
 ```bash
@@ -622,6 +642,8 @@ Each cycle runs these steps. A failing step is logged by type and does not stop 
 9. Queues, approves and sends reports, if the mode allows it.
 10. Queues, approves and sends abuse.ch submissions, if a mode and an Auth-Key are set.
 11. Writes a heartbeat. The container health check fails when the heartbeat is older than three cycles.
+
+Beside the cycle, with `HUB_TRAP_PACK_KEY` set, the trap pack relay checks the release `trap-packs` every `HUB_TRAP_RELAY_INTERVAL_S` (see [Trap pack relay](#trap-pack-relay)).
 
 Takedown votes come from nodes' local re-checks. A vote counts only for a target the hub asked that node to re-check that day, once (the `recheck_assignments` table, pruned after 3 days). Nodes do not send those yet in this release, so no target moves to `taken_down` for now. See [Takedown checks](../docs/network.md#takedown-checks).
 

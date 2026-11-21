@@ -5,6 +5,8 @@ never-list re-check, expiry, link verification tasks (when enabled), daily jobs 
 statistics and the network summary), the public observatory (when enabled), retention, then
 grouped reports (queue, auto-approve in ``auto`` mode, send what is approved), then the abuse.ch
 submissions (same three steps) when a mode and an Auth-Key are set.
+The trap pack relay (design M37) runs beside the cycle on its own 10 minute cadence when
+``HUB_TRAP_PACK_KEY`` is set.
 A failing step is logged by type only and never stops the others.
 """
 
@@ -18,10 +20,21 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from . import abusech, consensus, egress_check, observatory, reputation, retention, stats, verify
+from . import (
+    abusech,
+    consensus,
+    egress_check,
+    observatory,
+    reputation,
+    retention,
+    stats,
+    trap_relay,
+    verify,
+)
 from . import logging as hub_logging
 from .config import Settings
 from .db import make_engine, make_sessionmaker, utcnow
@@ -245,13 +258,28 @@ async def main_async(argv: list[str]) -> int:
         abusech_client = abusech.AbusechClient() if s.abusech_active else None
         if abusech_client is not None:
             ctx.abusech_submit = abusech_client.submit
+        relay: asyncio.Task[None] | None = None
         try:
+            if "--once" in argv:
+                if s.trap_relay_enabled:
+                    async with httpx.AsyncClient(
+                        timeout=trap_relay.TIMEOUT, follow_redirects=False
+                    ) as http:
+                        async with ctx.sessionmaker() as session:
+                            await trap_relay.relay_once(session, s, ctx.clock(), http)
+                await run_cycle(ctx)
+                return 0
+            if s.trap_relay_enabled:
+                relay = asyncio.create_task(
+                    trap_relay.run_forever(ctx.sessionmaker, s, clock=ctx.clock),
+                    name="trap-relay",
+                )
             while True:
                 await run_cycle(ctx)
-                if "--once" in argv:
-                    return 0
                 await asyncio.sleep(s.worker_interval_s)
         finally:
+            if relay is not None:
+                relay.cancel()
             await corroborator.aclose()
             await directory.aclose()
             if abusech_client is not None:
