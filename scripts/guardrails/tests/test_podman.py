@@ -1344,3 +1344,43 @@ def test_a_podman_rendering_without_a_valid_project_is_refused(
     assert result.returncode == 4
     assert "names no valid compose project" in result.stderr
     assert not (fsroot / "etc/suckerpot-firewall.nft").exists()
+
+
+# --- podman-socket.sh (phase 3): the socket group -------------------------------------------
+
+
+def test_socket_group_setup_writes_the_drop_in_and_the_tmpfiles_rule(
+    shims: Path, fsroot: Path, tmp_path: Path
+) -> None:
+    for name in ("groupadd", "usermod", "systemd-tmpfiles", "chgrp", "chmod"):
+        _write_exec(shims / name, SHIM + "exit 0\n")
+    _write_exec(shims / "getent", SHIM + "exit 2\n")  # the group does not exist yet
+    rundir = tmp_path / "run-podman"
+    rundir.mkdir()
+    result = _run(
+        HOST / "podman-socket.sh", shims, fsroot, "alice", SUCKERPOT_PODMAN_RUNDIR=str(rundir)
+    )
+    assert result.returncode == 0, result.stderr
+    dropin = (fsroot / "etc/systemd/system/podman.socket.d/suckerpot.conf").read_text()
+    assert "SocketGroup=suckerpot-podman\n" in dropin and "SocketMode=0660\n" in dropin
+    tmpfiles = (fsroot / "etc/tmpfiles.d/00-suckerpot-podman.conf").read_text()
+    # Named to sort before Podman's own rule (0700 root), which it overrides for this path only.
+    assert "D! /run/podman 0750 root suckerpot-podman\n" in tmpfiles
+    calls = _calls(shims)
+    assert "groupadd --system suckerpot-podman" in calls
+    assert "usermod -aG suckerpot-podman alice" in calls
+    assert f"chgrp suckerpot-podman {rundir}" in calls
+    assert "systemctl restart podman.socket" in calls
+    assert "root-equivalent" in result.stdout
+
+
+@pytest.mark.parametrize("user", ["root", "Bad Name", "a;b"])
+def test_socket_group_refuses_odd_users(shims: Path, fsroot: Path, user: str) -> None:
+    assert _run(HOST / "podman-socket.sh", shims, fsroot, user).returncode == 2
+
+
+def test_socket_group_uninstall(shims: Path, fsroot: Path) -> None:
+    (fsroot / "etc/tmpfiles.d").mkdir(parents=True)
+    (fsroot / "etc/tmpfiles.d/00-suckerpot-podman.conf").write_text("x")
+    assert _run(HOST / "podman-socket.sh", shims, fsroot, "--uninstall").returncode == 0
+    assert not (fsroot / "etc/tmpfiles.d/00-suckerpot-podman.conf").exists()
