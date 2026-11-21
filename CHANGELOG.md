@@ -39,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The host firewall unit now starts after the stock `nftables.service` and is restarted with it
   (`PartOf=`), so `systemctl restart nftables` no longer leaves the host without the SuckerPot
   table. Run `scripts/host/install-firewall.sh FILE` once to install the new unit.
+- Docker nodes, visible changes: `just egress-check` (and `just isolation-check`) now has sensor
+  lines, and it FAILs when the host firewall is installed but not in force: the unit is stopped
+  or failed (`sudo systemctl start suckerpot-firewall.service`), or its table is gone after a
+  `nft flush ruleset` (`sudo systemctl reload suckerpot-firewall.service`). Run it with `sudo` to
+  let it read the tables; without root, an active unit is only a NOTE. It also FAILs when no
+  sensor runs. `just status` shows a new warning in the same case, "the host firewall is installed
+  but its rules are not loaded", on full and participant nodes. A node without the host firewall
+  is not affected (it stays optional on Docker).
 
 ### Changed
 

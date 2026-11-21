@@ -23,6 +23,8 @@ fw_root=${SUCKERPOT_FW_ROOT:-}
 target=$fw_root/etc/suckerpot-firewall.nft
 unit=suckerpot-firewall.service
 unit_path=$fw_root/etc/systemd/system/$unit
+# Podman renderings only: a drop-in that stops the SuckerPot containers before the tables go.
+dropin=$fw_root/etc/systemd/system/$unit.d/podman-stop.conf
 
 usage() {
   echo "usage: install-firewall.sh FILE | --uninstall" >&2
@@ -62,7 +64,7 @@ if [ "$1" = --uninstall ]; then
   systemctl disable --now "$unit" > /dev/null 2>&1 || true
   nft delete table inet suckerpot_host > /dev/null 2>&1 || true
   nft delete table bridge suckerpot_bridge > /dev/null 2>&1 || true
-  rm -f "$unit_path" "$target"
+  rm -f "$unit_path" "$target" "$dropin"
   systemctl daemon-reload
   echo "install-firewall: removed; the host firewall table is no longer loaded"
   exit 0
@@ -89,6 +91,22 @@ nft -c -f "$tmp" || fail 4 "nft -c refused $src (nothing was changed)"
 mv -f "$tmp" "$target"
 trap - EXIT
 install -m 0644 -o root -g root "$here/suckerpot-firewall.service" "$unit_path"
+# On Podman (the rendering holds the bridge table) the containers must never run unfiltered: when
+# this unit stops (by hand, with nftables.service, at shutdown), it first stops every container of
+# a compose project, then deletes the tables. That holds even when suckerpot-stack.service is not
+# active (enabled but not started yet, or failed). Docker: no drop-in, the unit is unchanged.
+if grep -q '^table bridge suckerpot_bridge' "$target"; then
+  podman_bin=$(command -v podman || echo /usr/bin/podman)
+  mkdir -p "$(dirname "$dropin")"
+  printf '%s\n' "# Installed by scripts/host/install-firewall.sh for a Podman rendering." \
+    "[Service]" "ExecStop=" \
+    "ExecStop=-$podman_bin stop --time 10 --filter label=com.docker.compose.project" \
+    "ExecStop=/usr/sbin/nft delete table inet suckerpot_host" \
+    "ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge" > "$dropin"
+  chmod 0644 "$dropin"
+else
+  rm -f "$dropin"
+fi
 systemctl daemon-reload
 systemctl enable "$unit" > /dev/null 2>&1 || fail 5 "systemctl enable $unit failed"
 # Active: reload, which loads the new file in one transaction and never stops what is bound to the

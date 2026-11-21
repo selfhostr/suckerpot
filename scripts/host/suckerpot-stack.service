@@ -3,7 +3,9 @@
 # containers must never run without the host firewall:
 #   - they start only after suckerpot-firewall.service (After=), and only when its tables are
 #     loaded (the two ExecStartPre=+ lines, run as root);
-#   - they stop when the firewall unit stops, fails or restarts (BindsTo=, PartOf=, ExecStop=).
+#   - they stop when the firewall unit stops, fails or restarts (BindsTo=, PartOf=), and when a
+#     start fails (ExecStopPost= runs after a failed start too). The firewall unit's own drop-in
+#     (install-firewall.sh) also stops them when this unit is not active.
 # Install: scripts/host/install-stack-unit.sh (it fills in the placeholders; with --no-firewall
 # the firewall lines are left out).
 [Unit]
@@ -27,7 +29,7 @@ ExecStartPre=+@NFT@ list table bridge suckerpot_bridge
 # is not active.
 ExecStartPre=/bin/bash @CHECKOUT@/scripts/ensure-networks.sh
 ExecStart=@COMPOSE@ up -d --no-build --pull never --wait --wait-timeout 600
-ExecStop=@COMPOSE@ stop
+ExecStopPost=@COMPOSE@ stop
 TimeoutStartSec=900
 TimeoutStopSec=300
 

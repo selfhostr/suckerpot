@@ -737,7 +737,9 @@ def test_stack_unit_requires_the_firewall_and_runs_compose_as_the_user(
     # Bound to the firewall: the stack stops when the firewall unit stops, fails or restarts.
     assert "BindsTo=suckerpot-firewall.service\n" in unit
     assert "PartOf=suckerpot-firewall.service\n" in unit
-    assert f"ExecStop={shims}/docker-compose stop\n" in unit
+    # After a stop and after a failed start alike.
+    assert f"ExecStopPost={shims}/docker-compose stop\n" in unit
+    assert "\nExecStop=" not in unit
     # The tables are checked as root before anything starts.
     assert re.search(r"^ExecStartPre=\+\S*nft list table inet suckerpot_host$", unit, re.M)
     assert re.search(r"^ExecStartPre=\+\S*nft list table bridge suckerpot_bridge$", unit, re.M)
@@ -771,7 +773,7 @@ def test_no_firewall_drops_the_requirement_with_a_warning(
     lines = [ln for ln in unit.splitlines() if not ln.startswith("#")]
     assert not [ln for ln in lines if "suckerpot-firewall" in ln or "list table" in ln]
     assert "Requires=podman.socket" in lines
-    assert "ExecStop=" + str(shims) + "/docker-compose stop" in lines
+    assert "ExecStopPost=" + str(shims) + "/docker-compose stop" in lines
     # ensure-networks.sh must not refuse at boot for the missing firewall.
     assert "Environment=DOCKER_HOST=unix:///run/podman/podman.sock SUCKERPOT_NO_FIREWALL=1" in lines
 
@@ -1213,3 +1215,41 @@ def test_no_running_sensor_is_a_failure(libbox: Path) -> None:
     result = _isolation(libbox, DOCKER_ENV, SHIM_NO_SENSORS="1")
     assert result.returncode == 1
     assert "FAIL  at least one sensor is running" in result.stdout
+
+
+def test_a_podman_rendering_gets_a_drop_in_that_stops_the_containers_first(
+    tmp_path: Path, resolv: Path, shims: Path, fsroot: Path
+) -> None:
+    dropin = fsroot / "etc/systemd/system/suckerpot-firewall.service.d/podman-stop.conf"
+    rendered = tmp_path / "fw.nft"
+    rendered.write_text(_podman(tmp_path, resolv, "participant"))
+    assert _run(HOST / "install-firewall.sh", shims, fsroot, str(rendered)).returncode == 0
+    stops = [ln for ln in dropin.read_text().splitlines() if ln.startswith("ExecStop=")]
+    # The list is reset, then: containers first, then the tables.
+    assert stops[0] == "ExecStop="
+    assert (
+        stops[1]
+        == f"ExecStop=-{shims}/podman stop --time 10 --filter label=com.docker.compose.project"
+    )
+    assert stops[2:] == [
+        "ExecStop=/usr/sbin/nft delete table inet suckerpot_host",
+        "ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge",
+    ]
+    # A Docker rendering removes it again: the Docker unit is the plain unit file.
+    docker = tmp_path / "docker.nft"
+    docker.write_text("table inet suckerpot_host {\n}\n")
+    assert _run(HOST / "install-firewall.sh", shims, fsroot, str(docker)).returncode == 0
+    assert not dropin.exists()
+    rendered_again = _run(HOST / "install-firewall.sh", shims, fsroot, str(rendered))
+    assert rendered_again.returncode == 0 and dropin.exists()
+    assert _run(HOST / "install-firewall.sh", shims, fsroot, "--uninstall").returncode == 0
+    assert not dropin.exists()
+
+
+def test_the_docker_firewall_unit_is_unchanged_apart_from_the_nftables_binding() -> None:
+    unit = (HOST / "suckerpot-firewall.service").read_text()
+    assert not [ln for ln in unit.splitlines() if "podman" in ln and not ln.startswith("#")]
+    assert [ln for ln in unit.splitlines() if ln.startswith("ExecStop")] == [
+        "ExecStop=/usr/sbin/nft delete table inet suckerpot_host",
+        "ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge",
+    ]

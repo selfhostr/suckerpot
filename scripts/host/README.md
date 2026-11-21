@@ -233,6 +233,11 @@ What differs, for reference:
   stops or restarts the stack. Load a new rendering with `install-firewall.sh FILE`: it reloads
   the unit (one nft transaction) and never stops the stack. `install-firewall.sh --uninstall`
   refuses while SuckerPot containers run on Podman, unless `SUCKERPOT_NO_FIREWALL=1`.
+  For a Podman rendering it also installs a drop-in
+  (`suckerpot-firewall.service.d/podman-stop.conf`): when the firewall unit stops, it first stops
+  every container of a compose project, then deletes the tables, even when the stack unit is not
+  active (enabled but not started yet, or failed). The stack unit also stops the containers after
+  a failed start (`ExecStopPost=`).
 - Every start of the stack on Podman goes through `scripts/ensure-networks.sh`, which refuses
   when the firewall unit is not active or its tables are gone (`SUCKERPOT_NO_FIREWALL=1` skips the
   check). Without root or passwordless sudo the tables cannot be read; an active unit is then
