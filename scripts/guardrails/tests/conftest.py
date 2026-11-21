@@ -34,6 +34,7 @@ COPIED = [
     "scripts/compose-fresh.sh",
     "scripts/lib/env.sh",
     "scripts/lib/engine.sh",
+    "scripts/lib/firewall.sh",
     "scripts/lib/fwcheck.sh",
     "scripts/lib/ui.sh",
     "scripts/lib/pseudonym.sh",

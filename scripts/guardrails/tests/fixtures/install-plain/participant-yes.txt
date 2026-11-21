@@ -1,5 +1,6 @@
 --- stdout
 [1/10] Checking this machine
+[1/10] ok
 [2/10] Settings
 
 SuckerPot participant mode (experimental preview)
@@ -30,16 +31,21 @@ Pseudonym: <pseudonym>   (change: --pseudonym NAME, none: --no-pseudonym)
 
 --yes was given: this counts as your agreement to join as described above.
 
+[2/10] ok
 [3/10] Checking ports
+[3/10] ok
 [4/10] Generating secrets
       24 secrets generated (written to .env only)
+[4/10] ok
 [5/10] Checking the images (no admin account in participant mode)
 verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
   ok      ingest (sha256:0000000000000000000000000000000000000000000000000000000000000000)
 verify-images: all 1 images carry a valid signature
 verify-images: pulled by verified digest and tagged v0.8.0
+[5/10] ok
 [6/10] Writing .env
       wrote .env (mode 0600)
+[6/10] ok
 [7/10] Creating the data volumes
 ensure-volumes: created suckerpot_redis-data
 ensure-volumes: created suckerpot_db-data
@@ -63,8 +69,10 @@ ensure-volumes: created suckerpot_backups
 0
 ensure-volumes: created suckerpot_trap-packs
 0
+[7/10] ok
 [8/10] Checking the port layout and VPN settings
 check-ports: ok
+[8/10] ok
 [9/10] Starting SuckerPot (this can take several minutes)
 verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
   ok      redis (sha256:0000000000000000000000000000000000000000000000000000000000000000)
@@ -88,6 +96,7 @@ verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
   ok      sensor-synology (sha256:0000000000000000000000000000000000000000000000000000000000000000)
 verify-images: all 19 images carry a valid signature
 verify-images: pulled by verified digest and tagged v0.8.0
+[9/10] ok
 [10/10] Done
 
 SuckerPot is running in participant mode (v0.8.0).
@@ -99,11 +108,7 @@ Open these ports on your router or firewall, all to this machine:
   80            ->  80            TCP        web
   443           ->  443           TCP        web
 Never forward the admin SSH port of this machine.
-Use port forwards, not your router's DMZ. A DMZ puts every service of this machine on the
-internet, the real sshd included. It is acceptable only if this machine runs nothing else
-and its admin SSH port is not 22. The host firewall does not filter internet traffic to this
-machine's own services: under a DMZ the admin SSH faces the internet, so allow key-only SSH
-and add a rule on the router or on this machine for the admin port.
+Use port forwards, not your router's DMZ (why: docs/participate.md#open-the-ports).
 
 Host firewall
   Admin SSH port used: 22 (default). If that is wrong, set ADMIN_SSH_PORT in .env and run again.
@@ -133,5 +138,7 @@ WARNING: No connection from the internet has reached your sensors yet.
 Your router probably does not forward the ports yet (or you set up a DMZ that is not active).
 Forward the ports of the table above to this machine, then check again: ./scripts/participant.sh ports-check
 Check again any time: ./scripts/participant.sh ports-check
+[10/10] ok
+result: ok type=participant version=v0.8.0 engine=docker log=<root>/install.log
 --- stderr
       warning: Docker Engine 27.0.1 is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended.

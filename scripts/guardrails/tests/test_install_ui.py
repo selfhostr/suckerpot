@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 from conftest import ROOT, Sandbox
-from test_install import PASSWORD, SECRET_NAMES, add_participant_files, wrap_docker
+from test_install import SECRET_NAMES, add_participant_files, wrap_docker
 from vt import Screen
 
 GOLDEN = Path(__file__).parent / "fixtures" / "install-plain"
@@ -439,15 +439,21 @@ def test_ctrl_c_restores_the_terminal_and_keeps_the_log(sandbox: Sandbox) -> Non
 
 
 def test_the_questions_are_never_hidden(sandbox: Sandbox) -> None:
+    """Phase C: the type question is the one screen of a full install, above the list."""
     answers = sandbox.root / "answers"
-    answers.write_text("source\nssh,telnet\nl\nowner\n" + PASSWORD + "\n" + PASSWORD + "\n\n\n\n\n")
-    rc, raw = run_pty(sandbox, env={"SELFHOSTR_TTY": str(answers)}, cols=200)
+    answers.write_text("2\n")
+    rc, raw = run_pty(
+        sandbox, "--images", "--version", "v0.8.0", env={"SELFHOSTR_TTY": str(answers)}, cols=100
+    )
     assert rc == 0, raw
-    text = screen(raw, 200).text()
-    for question in ("Install mode: images (download) or source", "Admin user name [admin]:"):
-        assert question in text
-    assert "Join the SuckerPot network? [y/N]" in text
-    assert PASSWORD not in raw
+    text = screen(raw, 100).text()
+    assert "  What do you want to install?" in text
+    assert "    1  Participant node   Sensors only. Joins the SuckerPot network." in text
+    assert "    2  Full install       Sensors, dashboard, VPN egress, reports." in text
+    assert "  Choose 1 or 2 [1]:" in text
+    assert text.index("Choose 1 or 2") < text.index("✓ Check this machine")
+    assert "Join the SuckerPot network? [y/N]" not in text
+    assert "    Network     not joined" in text
     assert "✓ Dashboard answers" in text
 
 
@@ -656,7 +662,7 @@ def test_a_missing_log_folder_prints_no_shell_error(tmp_path: Path) -> None:
 def test_consent_and_prompts_are_indented_like_the_screen(sandbox: Sandbox) -> None:
     quiet_firewall(sandbox)
     answers = sandbox.root / "answers"
-    answers.write_text("y\nn\nc\n")
+    answers.write_text("y\n")
     rc, raw = run_pty(
         sandbox,
         *("--participant", "--version", "v0.8.0", "--sensors", "ssh,web"),
@@ -668,7 +674,10 @@ def test_consent_and_prompts_are_indented_like_the_screen(sandbox: Sandbox) -> N
     assert "\n  SuckerPot participant mode (experimental preview)\n" in text
     assert "\n    - source addresses seen by your sensors" in text  # wording unchanged
     assert "\n  Join the SuckerPot network as described? [y/N]" in text
-    assert "\n  Install the host firewall now?" in text
+    # The firewall is on by default: no question, sudo asks in the open (decision O7).
+    assert "Install the host firewall now?" not in text
+    assert "  The host firewall needs root rights: sudo asks for your password." in text
+    assert "\u2013 Host firewall                sudo failed" in text
 
 
 def _admin_port(sb: Sandbox) -> str:
@@ -691,3 +700,179 @@ def test_the_admin_port_probe_ignores_the_host(sandbox: Sandbox) -> None:
     # Its own sshd_config in SELFHOSTR_SSH_DIR is read, the host's /etc/ssh is not.
     (Path(sandbox.env["SELFHOSTR_SSH_DIR"]) / "sshd_config").write_text("Port 2201\n")
     assert _admin_port(sandbox) == "2201 sshd_config\n"
+
+
+# ------------------------------------------------------------------ phase C: fewer questions
+
+
+def _write(sb: Sandbox, name: str, text: str) -> None:
+    path = sb.shim / name
+    path.write_text(text)
+    path.chmod(0o755)
+
+
+def _participant_tools(sb: Sandbox, uid: str, sudo_rc: int) -> None:
+    """A firewall renderer and loader that only record, and sudo/id that behave as asked."""
+    add_participant_files(sb)
+    for rel, body in (
+        ("scripts/host/render-firewall.sh", 'echo "render-firewall $*" >> "$SHIM_LOG"\n'),
+        ("scripts/host/install-firewall.sh", 'echo "install-firewall $*" >> "$SHIM_LOG"\n'),
+    ):
+        path = sb.root / rel
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+    _write(sb, "sudo", f'#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\nexit {sudo_rc}\n')
+    _write(sb, "id", f'#!/bin/sh\n[ "$1" = -u ] && echo {uid} && exit 0\nexec /usr/bin/id "$@"\n')
+
+
+def test_the_firewall_is_installed_without_a_question(sandbox: Sandbox) -> None:
+    """Decision O7: on by default; sudo may ask for its password, the installer asks nothing."""
+    _participant_tools(sandbox, "1000", 0)
+    answers = sandbox.root / "answers"
+    answers.write_text("y\n")
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        extra_env={"SELFHOSTR_TTY": str(answers)},
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert "Install the host firewall now?" not in out
+    assert any(c.startswith("install-firewall ") for c in sandbox.calls())
+
+
+def test_no_firewall_skips_it_and_records_the_choice(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    _participant_tools(sandbox, "0", 0)
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--yes", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        "--no-firewall",
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "Skipped (--no-firewall)" in proc.stdout
+    assert not any(c.startswith("install-firewall ") for c in sandbox.calls())
+    assert parse_env(sandbox.root / ".env")["SUCKERPOT_NO_FIREWALL"] == "1"
+
+
+def test_a_participant_without_a_terminal_needs_yes(sandbox: Sandbox) -> None:
+    add_participant_files(sandbox)
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--dry-run", "--env-out", str(sandbox.root / "x.env")),
+        extra_env={"SELFHOSTR_TTY": "/nonexistent/tty"},
+    )
+    assert proc.returncode != 0
+    assert "no terminal to ask the participant consent on; use --yes" in proc.stderr
+
+
+def test_update_check_and_self_address_are_flags_of_a_full_install(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    target = sandbox.root / "f.env"
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--yes", "--dry-run", "--env-out", str(target)),
+        *("--update-check", "--self-address", "203.0.113.9"),
+    )
+    assert proc.returncode == 0, proc.stderr
+    env = parse_env(target)
+    assert env["UPDATE_CHECK_ENABLED"] == "true"
+    assert env["INDICATORS_IGNORE"] == "203.0.113.9"
+    default = sandbox.root / "d.env"
+    proc = sandbox.run("scripts/install.sh", "--yes", "--dry-run", "--env-out", str(default))
+    assert parse_env(default)["UPDATE_CHECK_ENABLED"] == "false"
+    add_participant_files(sandbox)
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--yes", "--dry-run", "--env-out", str(sandbox.root / "p.env")),
+        "--update-check",
+    )
+    assert proc.returncode != 0 and "--update-check" in proc.stderr
+
+
+def test_plain_output_ends_with_a_result_line(sandbox: Sandbox) -> None:
+    proc = sandbox.run("scripts/install.sh", *FULL)
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    assert lines[-2] == "[10/10] ok"
+    assert lines[-1] == (
+        f"result: ok type=full version=v0.8.0 engine=docker log={sandbox.root}/install.log"
+    )
+    assert "[1/10] ok" in lines and "[9/10] ok" in lines
+    sandbox.env["SHIM_UP_RC"] = "1"
+    (sandbox.root / ".env").unlink()
+    proc = sandbox.run("scripts/install.sh", *FULL)
+    assert proc.returncode == 1
+    assert proc.stdout.splitlines()[-2:] == [
+        "[9/10] failed",
+        f"result: failed step=9 log={sandbox.root}/install.log",
+    ]
+
+
+def _without_an_engine(sb: Sandbox) -> None:
+    """PATH without docker, podman and docker-compose, whatever the host has installed."""
+    for name in ("docker", "podman", "docker-compose"):
+        (sb.shim / name).unlink(missing_ok=True)
+    sysbin = sb.shim.parent / "sysbin"
+    sysbin.mkdir(exist_ok=True)
+    for folder in ("/usr/bin", "/bin"):
+        for entry in os.listdir(folder):
+            link = sysbin / entry
+            if entry in ("docker", "podman", "docker-compose") or link.exists():
+                continue
+            link.symlink_to(Path(folder) / entry)
+    sb.env["PATH"] = f"{sb.shim}:{sysbin}"
+    _write(sb, "curl", '#!/bin/sh\necho "curl $*" >> "$SHIM_LOG"\necho "echo docker-script"\n')
+    _write(
+        sb,
+        "sudo",
+        '#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\n[ "$1" = sh ] && cat > /dev/null\nexit 0\n',
+    )
+    _write(sb, "sg", '#!/bin/sh\necho "sg $*" >> "$SHIM_LOG"\nexit 0\n')
+
+
+def test_without_docker_a_terminal_run_offers_to_install_it(sandbox: Sandbox) -> None:
+    """Decision O4: Docker's script (as the website), then the installer again under sg docker."""
+    _without_an_engine(sandbox)
+    sandbox.env["USER"] = "tester"  # when this uid has no name (a container)
+    answers = sandbox.root / "answers"
+    answers.write_text("1\n")
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--full", "--images", "--version", "v0.8.0"),
+        extra_env={"SELFHOSTR_TTY": str(answers)},
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert "No container engine was found. SuckerPot needs Docker Engine." in out
+    assert "1  Install Docker now" in out
+    calls = sandbox.calls()
+    assert "curl -fsSL https://get.docker.com" in calls
+    assert "sudo sh" in calls
+    who = subprocess.run(["id", "-un"], capture_output=True, text=True, check=False)  # noqa: S607
+    user = who.stdout.strip() or "tester"
+    assert f"sudo usermod -aG docker {user}" in calls
+    sg = [c for c in calls if c.startswith("sg ")]
+    assert len(sg) == 1
+    assert sg[0].startswith("sg docker -c SELFHOSTR_DOCKER_INSTALLED=1 bash ")
+    assert sg[0].endswith("/scripts/install.sh --full --images --version v0.8.0 ")
+    assert not (sandbox.root / ".env").exists()
+
+
+def test_without_docker_the_command_is_shown_on_request_or_without_a_terminal(
+    sandbox: Sandbox,
+) -> None:
+    _without_an_engine(sandbox)
+    answers = sandbox.root / "answers"
+    answers.write_text("2\n")
+    proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
+    assert proc.returncode == 0, proc.stderr
+    assert "curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker" in proc.stdout
+    assert proc.stdout.splitlines()[-1].startswith("result: stopped reason=docker-missing step=1 ")
+    assert not [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert proc.returncode != 0
+    assert "Docker is not installed. Install it, then run the installer again:" in proc.stderr
+    assert not [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]

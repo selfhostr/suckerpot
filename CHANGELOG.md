@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Installer: `--update-check` (the daily release check of a full install, off by default),
+  `--no-firewall` (participant mode: skip the host firewall; writes `SUCKERPOT_NO_FIREWALL=1`),
+  and `--self-address` now also in full mode.
+- Installer: when Docker is missing, a run on a terminal offers to install it with Docker's own
+  script from `get.docker.com` (the command on the website), then continues in the `docker`
+  group with `sg docker`. Without a terminal it prints the command and stops.
+- Installer: the rich display shows whether the hub accepted the new participant node ("Join the
+  network"), as the plain output already did.
+- Installer, plain output: `[n/10] ok` when a step ends, and a last `result: ok ...` or
+  `result: failed step=N ...` line for scripts and CI.
+
+### Changed
+
+- The installer asks at most two questions: the install type (participant node or full install,
+  when no `--participant` or `--full` says it), and the participant consent. Everything else takes
+  its default, and each default has a flag:
+  - a full install no longer asks about the SuckerPot network: it is off unless `--join-network`;
+  - the admin password is generated and shown once (`--admin-password-stdin` for your own);
+  - the install mode, sensors, dashboard access, admin user, low-memory mode, WireGuard file,
+    own address, busy ports and admin SSH port are no longer asked (see `docs/install.md`);
+  - little swap is a warning, not a question; a small participant machine takes the lite setup
+    by itself;
+  - the participant host firewall is installed without a question (`sudo` may ask for its
+    password; `--no-firewall` skips it);
+  - the end of a participant install no longer asks to recheck the ports;
+  - the switch to full mode keeps the automatic updates without asking.
+  Without a terminal, or with `--yes`, the default type stays the full install, so existing
+  scripts keep working. A participant install without a terminal still needs `--yes`.
+- The participant summary gives the DMZ advice in one line that links to
+  `docs/participate.md#open-the-ports`.
+
 ## [0.12.2] - 2026-11-21
 
 ### Added

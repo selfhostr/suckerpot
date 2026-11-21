@@ -1,17 +1,23 @@
 --- stdout
 [1/10] Checking this machine
+[1/10] ok
 [2/10] Settings
       the SuckerPot network is off: --yes does not join it (add --join-network to join)
+[2/10] ok
 [3/10] Checking ports
+[3/10] ok
 [4/10] Generating secrets
       24 secrets generated (written to .env only)
+[4/10] ok
 [5/10] Hashing the admin password
 verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
   ok      api (sha256:0000000000000000000000000000000000000000000000000000000000000000)
 verify-images: all 1 images carry a valid signature
 verify-images: pulled by verified digest and tagged v0.8.0
+[5/10] ok
 [6/10] Writing .env
       wrote .env (mode 0600)
+[6/10] ok
 [7/10] Creating the data volumes
 ensure-volumes: created suckerpot_redis-data
 ensure-volumes: created suckerpot_db-data
@@ -35,9 +41,11 @@ ensure-volumes: created suckerpot_backups
 0
 ensure-volumes: created suckerpot_trap-packs
 0
+[7/10] ok
 [8/10] Checking the port layout and VPN settings
 check-ports: ok
       no WireGuard file given: upload it in the dashboard (Settings > VPN); the gate stays closed until then
+[8/10] ok
 [9/10] Starting SuckerPot (this can take several minutes)
 verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
   ok      redis (sha256:0000000000000000000000000000000000000000000000000000000000000000)
@@ -61,6 +69,8 @@ verify-images: v0.8.0, signer github.com/selfhostr/suckerpot release workflow
   ok      sensor-synology (sha256:0000000000000000000000000000000000000000000000000000000000000000)
 verify-images: all 19 images carry a valid signature
 verify-images: pulled by verified digest and tagged v0.8.0
+[9/10] failed
+result: failed step=9 log=<root>/install.log
 --- stderr
       warning: Docker Engine 27.0.1 is older than 28. On this engine the internal networks are NOT isolated from the host (the isolation needs gateway_mode_ipv4: isolated, from Engine 28). Upgrading Docker Engine to 28 or newer is strongly recommended.
 install: the stack did not become healthy. See: docker compose ps, docker compose logs

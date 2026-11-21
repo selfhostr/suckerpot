@@ -32,7 +32,7 @@ Any provider works. Choose one that allows Linux with a public IPv4 address and 
 ./scripts/install.sh --participant --lite
 ```
 
-A machine sold as "2 GB" (about 1.9 GiB) runs the default setup, not this one: add swap. On a machine that reports less than 1.75 GiB, the participant installer offers this setup by itself and, once you accept, behaves exactly as if you had passed `--lite`. With `--yes` it takes it without asking.
+A machine sold as "2 GB" (about 1.9 GiB) runs the default setup, not this one: add swap. On a machine that reports less than 1.75 GiB, the participant installer takes this setup by itself and behaves exactly as if you had passed `--lite`.
 
 `--lite` is for fresh participant installs only. It does two things:
 
@@ -67,7 +67,7 @@ Docker (2375) and ADB (5555) are also useful. They are not in the lite set becau
 
 ### Add swap
 
-A 1 GiB machine should have swap, as headroom for the host (the installer warns below 512 MiB and asks before it continues). Check what you have:
+A 1 GiB machine should have swap, as headroom for the host (the installer warns below 512 MiB). Check what you have:
 
 ```bash
 free -m
