@@ -1019,7 +1019,10 @@ def test_only_the_pinned_key_reaches_the_package_manager(sandbox: Sandbox, tmp_p
     both = alone + _gpg(extra_home, "--export", "--armor")
     _without_an_engine(sandbox)
     (sandbox.shim / "gpg").unlink()  # the real one, from the host
+    # The throwaway key replaces the pinned one only in test mode, which also wants an sp-it name.
     sandbox.env["SELFHOSTR_DOCKER_KEY_DEB"] = pinned
+    sandbox.env["SELFHOSTR_TEST_INSTALL"] = "1"
+    project = ("--project", "sp-it-participant-abcdef12", "--prefix", "sp-it-participant-abcdef12")
     served = sandbox.shim / "served-key"
     _write(
         sandbox,
@@ -1033,7 +1036,7 @@ def test_only_the_pinned_key_reaches_the_package_manager(sandbox: Sandbox, tmp_p
         served.write_text(text)
         (sandbox.shim / "calls.log").unlink(missing_ok=True)
         proc = sandbox.run(
-            "scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)}
+            "scripts/install.sh", "--full", *project, extra_env={"SELFHOSTR_TTY": str(answers)}
         )
         calls = sandbox.calls()
         installed = "sudo install -m 0644 .suckerpot-state/docker.asc /etc/apt/keyrings/docker.asc"
@@ -1054,3 +1057,28 @@ def test_only_the_pinned_key_reaches_the_package_manager(sandbox: Sandbox, tmp_p
             assert installed not in calls
             assert not any("docker-ce" in c for c in calls)
         (sandbox.root / ".suckerpot-state/docker.asc").unlink(missing_ok=True)
+
+
+def test_the_test_key_hook_is_ignored_outside_test_mode(sandbox: Sandbox) -> None:
+    """A real run never lets an environment variable replace Docker's pinned fingerprint."""
+    _without_an_engine(sandbox)
+    sandbox.env["SELFHOSTR_DOCKER_KEY_DEB"] = "A" * 40
+    sandbox.env["SELFHOSTR_DOCKER_KEY_RPM"] = "B" * 40
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert proc.returncode == 1
+    assert "are for the tests only (SELFHOSTR_TEST_INSTALL=1): ignored" in proc.stderr
+    assert f"= {DOCKER_KEY_DEB}" in proc.stdout
+    assert "A" * 40 not in proc.stdout
+    sandbox.env["SELFHOSTR_TEST_INSTALL"] = "1"
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *(
+            "--yes",
+            "--project",
+            "sp-it-participant-abcdef12",
+            "--prefix",
+            "sp-it-participant-abcdef12",
+        ),
+    )
+    assert proc.returncode == 1
+    assert "= " + "A" * 40 in proc.stdout

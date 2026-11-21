@@ -478,8 +478,21 @@ if [ "$dry_run" = 0 ] && [ "$stack" = participant ] && [ "$lite" = 0 ] && { [ "$
 fi
 
 # Docker's signing keys (checked 2026-11-21 against download.docker.com/linux/<distro>/gpg).
-DOCKER_KEY_DEB=${SELFHOSTR_DOCKER_KEY_DEB:-9DC858229FC7DD38854AE2D88D81803C0EBFCD88}  # Debian, Ubuntu (public; gitleaks:allow)
-DOCKER_KEY_RPM=${SELFHOSTR_DOCKER_KEY_RPM:-060A61C51B558A7F742B77AAC52FEB6B621E9F35}  # Fedora, RHEL (public; gitleaks:allow)
+DOCKER_KEY_DEB=9DC858229FC7DD38854AE2D88D81803C0EBFCD88  # Debian, Ubuntu (public; gitleaks:allow)
+DOCKER_KEY_RPM=060A61C51B558A7F742B77AAC52FEB6B621E9F35  # Fedora, RHEL (public; gitleaks:allow)
+
+# docker_test_keys: the guardrail tests pin throwaway keys with SELFHOSTR_DOCKER_KEY_DEB/RPM. Only
+# the test mode (SELFHOSTR_TEST_INSTALL=1) honours them; a real run warns and keeps Docker's keys.
+docker_test_keys() {
+  [ -n "${SELFHOSTR_DOCKER_KEY_DEB:-}${SELFHOSTR_DOCKER_KEY_RPM:-}" ] || return 0
+  if [ "${SELFHOSTR_TEST_INSTALL:-}" = 1 ]; then
+    DOCKER_KEY_DEB=${SELFHOSTR_DOCKER_KEY_DEB:-$DOCKER_KEY_DEB}
+    DOCKER_KEY_RPM=${SELFHOSTR_DOCKER_KEY_RPM:-$DOCKER_KEY_RPM}
+  else
+    warn "SELFHOSTR_DOCKER_KEY_DEB and SELFHOSTR_DOCKER_KEY_RPM are for the tests only (SELFHOSTR_TEST_INSTALL=1): ignored, Docker's pinned keys are used"
+  fi
+  return 0
+}
 
 # docker_key_cmd FPR: the command that turns the downloaded key file into a file holding ONLY the
 # pinned key. The download is imported into a throwaway keyring; a file with more than one key is
@@ -548,6 +561,7 @@ docker_plan() {
 # Podman is not offered yet: it is refused until its isolation work is complete (phase 3).
 offer_docker() {
   local a again user c reason
+  docker_test_keys
   # id -un prints the number when this uid has no name (a container): then $USER.
   user=$(id -un 2> /dev/null || true)
   [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || user=${USER:-}
