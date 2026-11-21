@@ -14,6 +14,7 @@ import difflib
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -282,15 +283,24 @@ def test_install_repair_refuses_an_env_that_says_podman(sandbox: Sandbox) -> Non
 
 
 def _path_without_docker(sb: Sandbox) -> str:
-    """A PATH with the host tools and the fake podman, and no docker command at all."""
+    """A PATH with the sandbox's tools and the fake podman, and no docker command at all.
+
+    The tools are links to what the sandbox PATH finds after the fakes, first match wins, so a
+    folder that appears twice (/bin -> /usr/bin on a merged /usr) or a dangling link is harmless.
+    """
     tools = sb.shim.parent / "tools"
     tools.mkdir()
-    for d in ("/usr/bin", "/bin"):
-        for entry in Path(d).iterdir():
-            name = entry.name
-            if name in ("docker", "docker-compose", "podman") or (tools / name).exists():
+    seen: set[str] = set()
+    for d in sb.env["PATH"].split(":"):
+        real = os.path.realpath(d)
+        if d == str(sb.shim) or real in seen or not os.path.isdir(real):
+            continue
+        seen.add(real)
+        for entry in sorted(Path(real).iterdir()):
+            link = tools / entry.name
+            if entry.name in ("docker", "docker-compose", "podman") or os.path.lexists(link):
                 continue
-            (tools / name).symlink_to(entry)
+            link.symlink_to(entry)
     nodocker = sb.shim.parent / "nodocker"
     nodocker.mkdir()
     for name in ("podman", "git", "curl", "ss", "sleep"):
@@ -705,3 +715,18 @@ def test_the_e2e_script_needs_no_work_folder_before_it_exists() -> None:
         if re.match(r"^(hubdc|dc)\s", line) or re.search(r"^[^\s#].*\$\((hubdc|dc)\s", line)
     ]
     assert early == []
+
+
+def test_the_docker_free_path_survives_a_merged_usr(sandbox: Sandbox, tmp_path: Path) -> None:
+    """/bin -> /usr/bin and dangling links, as on the CI runner."""
+    usr = tmp_path / "usr-bin"
+    usr.mkdir()
+    (usr / "dangling").symlink_to(tmp_path / "nowhere")
+    (usr / "docker").write_text("#!/bin/sh\nexit 99\n")
+    (tmp_path / "bin").symlink_to(usr)
+    sandbox.env["PATH"] = f"{sandbox.shim}:{usr}:{tmp_path / 'bin'}:{usr}:/usr/bin:/bin"
+    path = _path_without_docker(sandbox)
+    tools = Path(path.split(":")[1])
+    assert os.path.islink(tools / "dangling")
+    assert not os.path.lexists(tools / "docker")
+    assert shutil.which("docker", path=path) is None
