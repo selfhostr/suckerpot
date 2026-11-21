@@ -1,0 +1,16 @@
+# A Debian 13 machine with rootful Podman 5.4 and systemd as PID 1, for scripts/e2e/podman.sh.
+# GitHub's runners (Ubuntu 24.04) ship Podman 4.9, which SuckerPot refuses; this image runs as a
+# privileged container on the runner's Docker, with its own network namespace, nftables and units.
+FROM debian:13@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends systemd systemd-sysv dbus podman netavark \
+       aardvark-dns nftables docker-compose iproute2 sudo procps curl ca-certificates uidmap git cron \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# The installing user: sudo without a password, as on a VPS set up for unattended installs.
+RUN useradd -m -s /bin/bash node && echo 'node ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/node
+# The runner's kernel has br_netfilter loaded (for Docker); a Podman host normally does not.
+RUN printf 'net.bridge.bridge-nf-call-iptables=0\nnet.bridge.bridge-nf-call-ip6tables=0\nnet.bridge.bridge-nf-call-arptables=0\n' \
+    > /etc/sysctl.d/90-no-br-netfilter.conf
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

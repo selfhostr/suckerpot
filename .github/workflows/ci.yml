@@ -400,3 +400,28 @@ jobs:
           df -h / /var/lib/docker
       - name: Participant end-to-end test
         run: scripts/e2e/participant.sh
+
+  # Podman end to end (docs/dev/design/podman.md, phase 4). Informational while Podman support is
+  # experimental (decision D1): it runs on every pull request, and becomes a required check once
+  # it has been green on main for 10 runs in a row. Ubuntu 24.04 ships Podman 4.9, which SuckerPot
+  # refuses, so the job runs a Debian 13 machine (rootful Podman 5.4, systemd as PID 1) as a
+  # privileged container on the runner's Docker: a real participant install with the release
+  # images, the isolation checks, a reboot, and a negative check without the firewall. The hub is
+  # never contacted (the copy points it at example.com); no secret is used.
+  podman:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The newest release tag picks the signed images to install.
+          fetch-depth: 0
+          persist-credentials: false
+      # The installer refuses less than 15 GiB free under Podman's data folder (a Docker volume
+      # here). Remove preinstalled toolchains this job never uses.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h / /var/lib/docker
+      - name: Podman end-to-end test
+        run: scripts/e2e/podman.sh debian
