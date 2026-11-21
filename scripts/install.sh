@@ -478,34 +478,44 @@ if [ "$dry_run" = 0 ] && [ "$stack" = participant ] && [ "$lite" = 0 ] && { [ "$
 fi
 
 # Docker's signing keys (checked 2026-11-21 against download.docker.com/linux/<distro>/gpg).
-DOCKER_KEY_DEB=9DC858229FC7DD38854AE2D88D81803C0EBFCD88  # Debian and Ubuntu repositories (public; gitleaks:allow)
-DOCKER_KEY_RPM=060A61C51B558A7F742B77AAC52FEB6B621E9F35  # Fedora and RHEL-family repositories (public; gitleaks:allow)
+DOCKER_KEY_DEB=${SELFHOSTR_DOCKER_KEY_DEB:-9DC858229FC7DD38854AE2D88D81803C0EBFCD88}  # Debian, Ubuntu (public; gitleaks:allow)
+DOCKER_KEY_RPM=${SELFHOSTR_DOCKER_KEY_RPM:-060A61C51B558A7F742B77AAC52FEB6B621E9F35}  # Fedora, RHEL (public; gitleaks:allow)
+
+# docker_key_cmd FPR: the command that turns the downloaded key file into a file holding ONLY the
+# pinned key. The download is imported into a throwaway keyring; a file with more than one key is
+# refused; only the pinned fingerprint is exported, and the export is checked to be exactly that
+# one key. The package manager gets the export, never the download.
+docker_key_cmd() {
+  local in=.suckerpot-state/docker-download.gpg out=.suckerpot-state/docker.asc
+  # shellcheck disable=SC2016 # the command is shown and run as written
+  printf '( g=$(mktemp -d) && gpg --homedir "$g" --batch --quiet --import %s && test "$(gpg --homedir "$g" --batch --with-colons --list-keys | grep -c ^pub:)" = 1 && gpg --homedir "$g" --batch --export --armor %s > %s && test "$(gpg --batch --with-colons --show-keys %s | grep -c ^pub:)" = 1 && test "$(gpg --batch --with-colons --show-keys %s | awk -F: '\''/^fpr/ {print $10; exit}'\'')" = %s; r=$?; rm -rf "$g"; exit $r )' \
+    "$in" "$1" "$out" "$out" "$out" "$1"
+}
 
 # docker_plan USER: fills DOCKER_CMDS with the commands that install Docker Engine from Docker's
 # own package repository on this distribution (no script piped to a shell: the project's rule).
-# The key is downloaded to a file and its fingerprint checked against the pinned value before
-# the package manager trusts it. Returns 1 on a distribution it does not know.
+# Every value put into a command is checked first (a known distribution, a plain codename and user
+# name). Returns 1 on a distribution it does not know.
 docker_plan() {
-  local user=$1 osr=${SELFHOSTR_OS_RELEASE:-/etc/os-release} id="" code="" repo key
+  local user=$1 osr=${SELFHOSTR_OS_RELEASE:-/etc/os-release} id="" code="" repo
+  local dl=.suckerpot-state/docker-download.gpg key=.suckerpot-state/docker.asc
   id=$(sed -n 's/^ID=//p' "$osr" 2> /dev/null | tr -d '"' | head -n 1)
   code=$(sed -n 's/^VERSION_CODENAME=//p' "$osr" 2> /dev/null | tr -d '"' | head -n 1)
   [ -n "$code" ] || code=$(sed -n 's/^UBUNTU_CODENAME=//p' "$osr" 2> /dev/null | tr -d '"' | head -n 1)
-  key=.suckerpot-state/docker.gpg
+  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || return 1
   DOCKER_CMDS=()
-  # The check, as a command that fails on another key.
-  # shellcheck disable=SC2016 # the command is shown and run as written
-  fpr_cmd() { printf 'test "$(gpg --show-keys --with-colons %s | awk -F: '\''/^fpr/ {print $10; exit}'\'')" = %s' "$key" "$1"; }
   case $id in
     debian | ubuntu)
-      [ -n "$code" ] || return 1
+      [[ $code =~ ^[a-z0-9-]{1,32}$ ]] || return 1
       DOCKER_CMDS=(
         "sudo apt-get update"
         "sudo apt-get install -y ca-certificates curl gnupg"
-        "mkdir -p .suckerpot-state && curl -fsSL https://download.docker.com/linux/$id/gpg -o $key"
-        "$(fpr_cmd "$DOCKER_KEY_DEB")"
+        "mkdir -p .suckerpot-state && curl -fsSL https://download.docker.com/linux/$id/gpg -o $dl"
+        "$(docker_key_cmd "$DOCKER_KEY_DEB")"
+        "printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$id $code stable\\n' \"\$(dpkg --print-architecture)\" > .suckerpot-state/docker.list"
         "sudo install -m 0755 -d /etc/apt/keyrings"
         "sudo install -m 0644 $key /etc/apt/keyrings/docker.asc"
-        "echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$id $code stable\" | sudo tee /etc/apt/sources.list.d/docker.list"
+        "sudo install -m 0644 .suckerpot-state/docker.list /etc/apt/sources.list.d/docker.list"
         "sudo apt-get update"
         "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin"
       )
@@ -513,8 +523,8 @@ docker_plan() {
     fedora | rhel | centos | rocky | almalinux)
       case $id in fedora) repo=fedora ;; rhel) repo=rhel ;; *) repo=centos ;; esac
       DOCKER_CMDS=(
-        "mkdir -p .suckerpot-state && curl -fsSL https://download.docker.com/linux/$repo/gpg -o $key"
-        "$(fpr_cmd "$DOCKER_KEY_RPM")"
+        "mkdir -p .suckerpot-state && curl -fsSL https://download.docker.com/linux/$repo/gpg -o $dl"
+        "$(docker_key_cmd "$DOCKER_KEY_RPM")"
         "sudo rpm --import $key"
         "curl -fsSL https://download.docker.com/linux/$repo/docker-ce.repo -o .suckerpot-state/docker-ce.repo"
         "sudo install -m 0644 .suckerpot-state/docker-ce.repo /etc/yum.repos.d/docker-ce.repo"
@@ -533,12 +543,14 @@ docker_plan() {
 # offer_docker: no container engine on this host (decision O4). Shows the commands that install
 # Docker Engine from Docker's repository and, on a terminal, runs them after one "yes"; then the
 # installer starts again under `sg docker`, so this login needs no new session for the group.
-# Without a terminal, on "no", or on an unknown distribution: the commands, and stop.
+# Without a terminal, on "no", or on an unknown distribution: the commands, and stop. Every path where
+# nothing was installed ends with status 1 (and a plain "result: stopped" line).
 # Podman is not offered yet: it is refused until its isolation work is complete (phase 3).
 offer_docker() {
   local a again user c reason
+  # id -un prints the number when this uid has no name (a container): then $USER.
   user=$(id -un 2> /dev/null || true)
-  [ -n "$user" ] || user=${USER:-$(id -u)}
+  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || user=${USER:-}
   if [ "${SELFHOSTR_DOCKER_INSTALLED:-0}" = 1 ]; then
     die "Docker was installed, but the docker command is still not found. Log out and back in, then run the installer again."
   fi
@@ -550,7 +562,7 @@ offer_docker() {
     say "Install Docker Engine as described on https://docs.docker.com/engine/install/ then run the installer again."
     stopped_why=docker-missing
     UI_ENDED=1
-    exit 0
+    exit 1
   fi
   say
   say "No container engine was found. SuckerPot needs Docker Engine."
@@ -560,7 +572,7 @@ offer_docker() {
     say "Run them, log out and back in, then run the installer again."
     stopped_why=docker-missing
     UI_ENDED=1
-    exit 0
+    exit 1
   fi
   printf '%sRun them now? sudo asks for your password. [Y/n] ' "$UI_IND" 1>&"$UI_ERR"
   IFS= read -r a <&3 || a=n
@@ -571,7 +583,7 @@ offer_docker() {
       say "Run them yourself, log out and back in, then run the installer again."
       stopped_why=docker-missing
       UI_ENDED=1
-      exit 0
+      exit 1
       ;;
   esac
   command -v sudo > /dev/null 2>&1 || die "sudo is needed to install Docker. Run the commands above as root."
@@ -588,7 +600,7 @@ offer_docker() {
     say "(sg could not start a shell in the docker group: ${reason:-no reason given})"
     stopped_why=relogin
     UI_ENDED=1
-    exit 0
+    exit 1
   fi
   # The new run asks nothing again: it gets the install type as a flag.
   again=("$PWD/scripts/install.sh" "${orig_args[@]}")

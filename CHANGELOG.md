@@ -13,10 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `--no-firewall` (participant mode: skip the host firewall; writes `SUCKERPOT_NO_FIREWALL=1`),
   and `--self-address` now also in full mode.
 - Installer: when Docker is missing, it shows the commands that install Docker Engine from
-  Docker's package repository on Debian, Ubuntu, Fedora and the RHEL family (signing key checked
-  against a pinned fingerprint, no script piped to a shell). On a terminal it runs them after one
-  "yes", then continues in the `docker` group with `sg docker`, or says to log in again. Without a
-  terminal it prints the commands and stops.
+  Docker's package repository on Debian, Ubuntu, Fedora and the RHEL family, with no script piped
+  to a shell. The downloaded key file goes through a throwaway keyring: a file with more than one
+  key is refused, and the package manager gets only the key with the pinned fingerprint. On a
+  terminal it runs the commands after one "yes", then continues in the `docker` group with
+  `sg docker`, or says to log in again. Without a terminal it prints the commands and stops.
+  Every path that installs nothing exits with status 1.
 - Installer: the rich display shows whether the hub accepted the new participant node ("Join the
   network"), as the plain output already did.
 - Installer, plain output: `[n/10] ok` when a step ends, and a last `result: ok ...` or

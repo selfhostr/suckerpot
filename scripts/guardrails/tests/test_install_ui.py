@@ -10,8 +10,10 @@ import fcntl
 import os
 import re
 import select
+import shutil
 import struct
 import subprocess
+import tempfile
 import termios
 import time
 from collections.abc import Callable
@@ -813,6 +815,15 @@ def test_plain_output_ends_with_a_result_line(sandbox: Sandbox) -> None:
 
 DOCKER_KEY_DEB = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 
+# A fake gpg for the key steps: one key in the throwaway keyring, an export, and FPR as its key.
+GPG_SHIM = """#!/bin/sh
+case "$*" in
+  *--list-keys* | *--show-keys*) echo "pub:u:4096:1:8D81803C0EBFCD88:"; echo "fpr:::::::::FPR:" ;;
+  *--export*) echo "-----BEGIN PGP PUBLIC KEY BLOCK-----" ;;
+esac
+exit 0
+"""
+
 
 def _without_an_engine(
     sb: Sandbox, os_release: str = "ID=debian\nVERSION_CODENAME=trixie\n"
@@ -840,7 +851,7 @@ def _without_an_engine(
         '#!/bin/sh\necho "curl $*" >> "$SHIM_LOG"\n'
         'while [ $# -gt 0 ]; do [ "$1" = -o ] && : > "$2"; shift; done\n',
     )
-    _write(sb, "gpg", f'#!/bin/sh\necho "fpr:::::::::{DOCKER_KEY_DEB}:"\n')
+    _write(sb, "gpg", GPG_SHIM.replace("FPR", DOCKER_KEY_DEB))
     _write(sb, "sudo", '#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\ncat > /dev/null &\nexit 0\n')
     # sg: the probe succeeds; the second run gets docker back on PATH and really runs.
     later = sb.shim / "later"
@@ -858,18 +869,19 @@ def _without_an_engine(
 
 def _user() -> str:
     who = subprocess.run(["id", "-un"], capture_output=True, text=True, check=False)  # noqa: S607
-    return who.stdout.strip() or "tester"
+    name = who.stdout.strip()
+    return name if re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", name) else "tester"
 
 
 def test_without_docker_the_commands_come_from_docker_s_repository(sandbox: Sandbox) -> None:
     """Decision O4, without a pipe to a shell: the key is checked, then the package manager."""
     _without_an_engine(sandbox)
     proc = sandbox.run("scripts/install.sh", "--yes")
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1, proc.stderr  # nothing was installed
     out = proc.stdout
     assert "These commands install it from Docker's own package repository" in out
     assert (
-        "curl -fsSL https://download.docker.com/linux/debian/gpg -o .suckerpot-state/docker.gpg"
+        "curl -fsSL https://download.docker.com/linux/debian/gpg -o .suckerpot-state/docker-download.gpg"
         in out
     )
     assert f"= {DOCKER_KEY_DEB}" in out
@@ -886,7 +898,7 @@ def test_without_docker_the_commands_come_from_docker_s_repository(sandbox: Sand
 def test_fedora_and_rhel_use_the_rpm_repository_and_its_key(sandbox: Sandbox) -> None:
     _without_an_engine(sandbox, "ID=rocky\nVERSION_ID=10\n")
     proc = sandbox.run("scripts/install.sh", "--yes")
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1, proc.stderr  # nothing was installed
     assert "https://download.docker.com/linux/centos/docker-ce.repo" in proc.stdout
     assert "= 060A61C51B558A7F742B77AAC52FEB6B621E9F35" in proc.stdout
     assert (
@@ -898,7 +910,7 @@ def test_fedora_and_rhel_use_the_rpm_repository_and_its_key(sandbox: Sandbox) ->
 def test_an_unknown_distribution_only_gets_the_docs_link(sandbox: Sandbox) -> None:
     _without_an_engine(sandbox, "ID=arch\n")
     proc = sandbox.run("scripts/install.sh", "--yes")
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1, proc.stderr  # nothing was installed
     assert "https://docs.docker.com/engine/install/" in proc.stdout
     assert "sudo apt-get" not in proc.stdout
 
@@ -908,7 +920,7 @@ def test_a_no_answer_runs_nothing(sandbox: Sandbox) -> None:
     answers = sandbox.root / "answers"
     answers.write_text("n\n")
     proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1, proc.stderr  # nothing was installed
     assert "Run them now? sudo asks for your password. [Y/n]" in proc.stderr
     assert "Run them yourself, log out and back in" in proc.stdout
     assert not [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]
@@ -916,14 +928,12 @@ def test_a_no_answer_runs_nothing(sandbox: Sandbox) -> None:
 
 def test_a_failed_key_check_stops_before_the_package_manager(sandbox: Sandbox) -> None:
     _without_an_engine(sandbox)
-    _write(
-        sandbox, "gpg", '#!/bin/sh\necho "fpr:::::::::0000000000000000000000000000000000000000:"\n'
-    )
+    _write(sandbox, "gpg", GPG_SHIM.replace("FPR", "0" * 40))
     answers = sandbox.root / "answers"
     answers.write_text("y\n")
     proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
     assert proc.returncode == 1
-    assert "this command failed (see the log): test " in proc.stderr
+    assert "this command failed (see the log): ( g=$(mktemp -d)" in proc.stderr
     calls = sandbox.calls()
     assert not any("docker-ce" in c or "keyrings" in c for c in calls)
 
@@ -934,7 +944,7 @@ def test_sg_failing_says_to_log_in_again(sandbox: Sandbox) -> None:
     answers = sandbox.root / "answers"
     answers.write_text("y\n")
     proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1, proc.stderr  # nothing was installed
     assert "Docker is installed. Log out and back in, then run the installer again." in proc.stdout
     assert "sg could not start a shell in the docker group" in proc.stdout
     assert proc.stdout.splitlines()[-1].startswith("result: stopped reason=relogin ")
@@ -966,3 +976,81 @@ def test_the_second_run_under_sg_draws_on_the_terminal(sandbox: Sandbox) -> None
     printed = re.findall(r"now\):\n    (\S+)\n", text)
     assert len(printed) == 1
     assert printed[0] not in (sandbox.root / "install.log").read_text()
+
+
+def test_a_strange_codename_is_never_put_in_a_command(sandbox: Sandbox) -> None:
+    _without_an_engine(sandbox, 'ID=debian\nVERSION_CODENAME="trixie stable; rm -rf /"\n')
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert proc.returncode == 1
+    assert "https://docs.docker.com/engine/install/" in proc.stdout
+    assert "rm -rf" not in proc.stdout
+
+
+def _gpg(home: Path, *args: str, stdin: str | None = None) -> str:
+    return subprocess.run(  # noqa: S603
+        ["gpg", "--homedir", str(home), "--batch", *args],  # noqa: S607
+        input=stdin,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def _throwaway_key(home: Path, name: str) -> str:
+    home.mkdir(mode=0o700, exist_ok=True)
+    _gpg(
+        home,
+        *("--pinentry-mode", "loopback", "--passphrase", ""),
+        *("--quick-gen-key", f"{name} <{name}@example.org>", "ed25519"),
+    )
+    fpr = [line for line in _gpg(home, "--with-colons", "--list-keys").splitlines()]
+    return next(line.split(":")[9] for line in fpr if line.startswith("fpr:"))
+
+
+@pytest.mark.skipif(shutil.which("gpg") is None, reason="needs a real gpg")
+def test_only_the_pinned_key_reaches_the_package_manager(sandbox: Sandbox, tmp_path: Path) -> None:
+    """Real gpg, throwaway keys: the download with an extra key is refused."""
+    # Short folders: gpg-agent puts its socket there, and a socket path has a length limit.
+    short = Path(tempfile.mkdtemp(prefix="gpg"))
+    pinned_home, extra_home = short / "p", short / "e"
+    pinned = _throwaway_key(pinned_home, "pinned")
+    _throwaway_key(extra_home, "extra")
+    alone = _gpg(pinned_home, "--export", "--armor")
+    both = alone + _gpg(extra_home, "--export", "--armor")
+    _without_an_engine(sandbox)
+    (sandbox.shim / "gpg").unlink()  # the real one, from the host
+    sandbox.env["SELFHOSTR_DOCKER_KEY_DEB"] = pinned
+    served = sandbox.shim / "served-key"
+    _write(
+        sandbox,
+        "curl",
+        '#!/bin/sh\necho "curl $*" >> "$SHIM_LOG"\n'
+        f'while [ $# -gt 0 ]; do [ "$1" = -o ] && cp "{served}" "$2"; shift; done\n',
+    )
+    answers = sandbox.root / "answers"
+    answers.write_text("y\n")
+    for text, ok in ((alone, True), (both, False)):
+        served.write_text(text)
+        (sandbox.shim / "calls.log").unlink(missing_ok=True)
+        proc = sandbox.run(
+            "scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)}
+        )
+        calls = sandbox.calls()
+        installed = "sudo install -m 0644 .suckerpot-state/docker.asc /etc/apt/keyrings/docker.asc"
+        if ok:
+            assert installed in calls, proc.stdout + proc.stderr
+            export = (sandbox.root / ".suckerpot-state/docker.asc").read_text()
+            keys = subprocess.run(
+                ["gpg", "--batch", "--with-colons", "--show-keys"],  # noqa: S607
+                input=export,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            assert keys.count("\npub:") + keys.startswith("pub:") == 1
+            assert pinned in keys
+        else:
+            assert proc.returncode == 1
+            assert installed not in calls
+            assert not any("docker-ce" in c for c in calls)
+        (sandbox.root / ".suckerpot-state/docker.asc").unlink(missing_ok=True)
