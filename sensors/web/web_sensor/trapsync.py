@@ -7,7 +7,8 @@ checks the signature with ``TRAP_PACK_KEY`` itself, validates and compiles a new
 ``TrapSet`` and hands it over: one reference swap, requests in flight finish with the old set.
 
 * No key (``TRAP_PACK_KEY`` empty): bundled packs only.
-* A bad signature, another key, a lower ``seq`` than the one loaded, or an unparsable bundle:
+* A bad signature, another key, a lower ``seq`` than the highest accepted (kept in the data
+  directory as ``trap-seq.json``, so a restart keeps the floor), or an unparsable bundle:
   the current set stays (at start: bundled packs only).
 * The files are gone: back to the bundled packs (ingest can stop updates, never add a trap).
 * A downloaded ``seq`` below the image's bundled ``seq``: ignored (the image is newer).
@@ -20,6 +21,7 @@ Logs carry pack ids, reasons and seq numbers only, never pack content.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from collections.abc import Callable, Mapping
@@ -36,6 +38,7 @@ from web_sensor.traps import BUNDLED, TrapSet, load_docs
 log = logging.getLogger("web_sensor.trapsync")
 
 ACTIVE = "active.json"
+FLOOR = "trap-seq.json"  # in data_dir: the highest accepted (key id, seq), the rollback floor
 SIGNATURE = "active.json.minisig"
 
 type Stamp = tuple[tuple[int, int, int] | None, tuple[int, int, int] | None]
@@ -65,6 +68,7 @@ class SyncSettings:
     directory: Path = Path("/traps")
     disabled: frozenset[str] = frozenset()
     interval_s: float = 30.0
+    data_dir: Path | None = None  # WEB_DATA_DIR: where the highest accepted seq is kept
 
     @classmethod
     def from_env(
@@ -79,18 +83,22 @@ class SyncSettings:
         directory = e.get("TRAP_PACKS_DIR", "/traps").strip() or "/traps"
         if not directory.startswith("/") or ".." in directory.split("/"):
             raise ValueError("TRAP_PACKS_DIR must be an absolute path")
+        # A typo in these two must not stop the sensor: the bad part is logged and ignored.
         disabled: set[str] = set()
         for item in e.get("TRAP_PACKS_DISABLED", "").split(","):
             item = item.strip()
             if not item:
                 continue
             if not fmt.is_slug(item, 3, 48):
-                raise ValueError("TRAP_PACKS_DISABLED is a comma-separated list of pack ids")
+                log.error("TRAP_PACKS_DISABLED holds an entry that is not a pack id: ignored")
+                continue
             disabled.add(item)
         raw = e.get("TRAP_PACKS_RELOAD_S", "").strip() or "30"
         if not raw.isdigit() or not 5 <= int(raw) <= 3600:
-            raise ValueError("TRAP_PACKS_RELOAD_S must be between 5 and 3600")
-        return cls(key, Path(directory), frozenset(disabled), float(raw))
+            log.error("TRAP_PACKS_RELOAD_S must be between 5 and 3600: using 30")
+            raw = "30"
+        data_dir = e.get("WEB_DATA_DIR", "/data").strip() or "/data"
+        return cls(key, Path(directory), frozenset(disabled), float(raw), data_dir=Path(data_dir))
 
 
 def _stat(path: Path) -> tuple[int, int, int] | None:
@@ -124,6 +132,9 @@ class TrapSync:
                 self._key = packsig.parse_key(settings.key)
             except packsig.SignatureError:
                 log.error("TRAP_PACK_KEY is not a minisign public key: downloaded packs are off")
+        self._floor_path = settings.data_dir / FLOOR if settings.data_dir else None
+        if self._key is not None:
+            self.loaded_seq = self._read_floor(self._key)
         self._bundled = self._read_bundled(bundled_path)
         self.current = self._build(None)
         if self._key is None:
@@ -140,6 +151,45 @@ class TrapSync:
         except (OSError, fmt.PackError) as err:
             log.error("bundled trap packs rejected: %s", getattr(err, "reason", "unreadable"))
             return None
+
+    # -- the rollback floor, kept across restarts -------------------------------------------
+
+    def _read_floor(self, key: packsig.PublicKey) -> int | None:
+        """The highest seq accepted under this key before a restart (in the data_dir), or
+        None. A floor of another key is ignored: a new key starts a new seq space."""
+        path = self._floor_path
+        if path is None:
+            return None
+        try:
+            if path.stat().st_size > 256:
+                raise ValueError("too large")
+            doc = json.loads(path.read_text("ascii"))
+            key_id, seq = doc["key_id"], doc["seq"]
+        except FileNotFoundError:
+            return None
+        except OSError, ValueError, KeyError, TypeError:
+            log.error("trap seq floor unreadable: ignored")
+            return None
+        if key_id != key.key_id.hex() or not isinstance(seq, int) or isinstance(seq, bool):
+            return None
+        return seq if 0 <= seq <= 2**53 else None
+
+    def _write_floor(self, key: packsig.PublicKey, seq: int) -> None:
+        """Atomically record the highest accepted (key id, seq) below data_dir."""
+        path = self._floor_path
+        if path is None:
+            return
+        tmp = path.with_name(f".{FLOOR}.tmp")
+        body = json.dumps({"key_id": key.key_id.hex(), "seq": seq}).encode("ascii")
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(body)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+        except OSError:
+            log.error("trap seq floor not saved (data_dir not writable)")
 
     @property
     def bundled_seq(self) -> int:
@@ -214,7 +264,10 @@ class TrapSync:
             self.using_downloaded = False
             self.current = self._build(None)
             return self.current
-        self.loaded_seq = max(int(doc["seq"]), self.loaded_seq or 0)
+        seq = int(doc["seq"])
+        if self.loaded_seq is None or seq > self.loaded_seq:
+            self._write_floor(self._key, seq)
+        self.loaded_seq = max(seq, self.loaded_seq or 0)
         self.using_downloaded = True
         self.current = self._build(doc)
         return self.current

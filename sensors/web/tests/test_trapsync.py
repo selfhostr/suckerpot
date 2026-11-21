@@ -205,17 +205,17 @@ def test_local_disabled_setting(tmp_path: Path) -> None:
     assert ids(s) == ["log4j-log4shell", "router-boaform-gponform"]
 
 
-@pytest.mark.parametrize(
-    ("env", "message"),
-    [
-        ({"TRAP_PACKS_DISABLED": "Bad Id"}, "TRAP_PACKS_DISABLED"),
-        ({"TRAP_PACKS_RELOAD_S": "1"}, "TRAP_PACKS_RELOAD_S"),
-        ({"TRAP_PACKS_DIR": "relative"}, "TRAP_PACKS_DIR"),
-    ],
-)
-def test_settings_are_checked(env: dict[str, str], message: str) -> None:
-    with pytest.raises(ValueError, match=message):
-        SyncSettings.from_env(env)
+def test_bad_settings_are_logged_and_fall_back(caplog: pytest.LogCaptureFixture) -> None:
+    """Security review: a typo in TRAP_PACKS_DISABLED or TRAP_PACKS_RELOAD_S must not stop the
+    sensor. The bad part is logged and ignored."""
+    s = SyncSettings.from_env(
+        {"TRAP_PACKS_DISABLED": "Bad Id, log4j-log4shell", "TRAP_PACKS_RELOAD_S": "1"}
+    )
+    assert s.disabled == frozenset({"log4j-log4shell"}) and s.interval_s == 30.0
+    assert SyncSettings.from_env({"TRAP_PACKS_RELOAD_S": "x"}).interval_s == 30.0
+    assert "TRAP_PACKS_DISABLED" in caplog.text and "TRAP_PACKS_RELOAD_S" in caplog.text
+    with pytest.raises(ValueError, match="TRAP_PACKS_DIR"):
+        SyncSettings.from_env({"TRAP_PACKS_DIR": "relative"})
 
 
 def test_files_gone_fall_back_to_bundled(tmp_path: Path) -> None:
@@ -363,3 +363,48 @@ def test_key_comes_from_the_release_defaults_unless_set(tmp_path: Path) -> None:
 def test_the_image_carries_the_release_defaults() -> None:
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
     assert "COPY config/network-defaults.env /app/network-defaults.env" in dockerfile
+
+
+# -- the rollback floor survives a restart (security review) ---------------------------------------
+
+
+def test_a_lower_seq_stays_refused_after_a_restart(tmp_path: Path) -> None:
+    traps_dir, data = tmp_path / "traps", tmp_path / "data"
+    traps_dir.mkdir()
+    data.mkdir()
+    s = sync(traps_dir, data_dir=data)
+    put(traps_dir, 12, [], disabled=[{"id": "log4j-log4shell", "reason": "benign hits"}])
+    assert s.check() is not None and "log4j-log4shell" not in ids(s)
+    floor = json.loads((data / "trap-seq.json").read_text())
+    assert floor == {"key_id": KEY.key_id.hex(), "seq": 12}
+    assert not list(data.glob(".*.tmp"))
+    # Restart, then a compromised ingest puts back an older, validly signed bundle that does not
+    # kill the pack: refused, the killed pack does not come back.
+    put(traps_dir, 11, [])
+    again = sync(traps_dir, data_dir=data)
+    assert again.loaded_seq == 12
+    assert again.check() is None and again.last_error == "rollback"
+    put(traps_dir, 13, [], disabled=[{"id": "log4j-log4shell", "reason": "benign hits"}])
+    assert again.check() is not None
+    assert json.loads((data / "trap-seq.json").read_text())["seq"] == 13
+
+
+def test_the_floor_belongs_to_its_key_and_bad_files_are_ignored(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "trap-seq.json").write_text(json.dumps({"key_id": OTHER.key_id.hex(), "seq": 99}))
+    assert sync(tmp_path, data_dir=data).loaded_seq is None  # another key: a new seq space
+    for bad in ("not json", '{"key_id": 1}', json.dumps({"key_id": KEY.key_id.hex(), "seq": True})):
+        (data / "trap-seq.json").write_text(bad)
+        assert sync(tmp_path, data_dir=data).loaded_seq is None
+
+
+def test_an_unwritable_data_dir_does_not_stop_loading(tmp_path: Path) -> None:
+    s = sync(tmp_path, data_dir=tmp_path / "missing")
+    put(tmp_path, 4, [new_pack()])
+    assert s.check() is not None and s.loaded_seq == 4
+
+
+def test_settings_point_the_floor_at_the_data_dir() -> None:
+    assert SyncSettings.from_env({}).data_dir == Path("/data")
+    assert SyncSettings.from_env({"WEB_DATA_DIR": "/srv/w"}).data_dir == Path("/srv/w")
