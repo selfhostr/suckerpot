@@ -284,6 +284,17 @@ rendered=$(
 )
 header="# Rendered by scripts/host/render-firewall.sh --$mode on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
 [ "$engine" = docker ] || header="# Rendered by scripts/host/render-firewall.sh --$mode --engine $engine on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+# Podman: the compose project of this checkout, resolved the way compose does it
+# (COMPOSE_PROJECT_NAME in .env, else the folder name, lowercased, other characters dropped).
+# install-firewall.sh stops exactly that project's containers before it removes the tables.
+if [ "$engine" = podman ]; then
+  checkout=$(cd "$here/../.." && pwd)
+  project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$checkout/.env" 2> /dev/null | tail -n 1 | sed 's/[[:space:]]#.*//' | tr -d "\"' \r" || true)
+  [ -n "$project" ] || project=$(basename "$checkout")
+  project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g; s/^[^a-z0-9]*//')
+  [[ $project =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "cannot work out the compose project name of $checkout (set COMPOSE_PROJECT_NAME in .env)"
+  header+=$'\n'"# suckerpot-compose-project: $project"
+fi
 rendered="$header"$'\n'"$rendered"
 
 if grep -q 'CHANGE_ME\|@[A-Z_]*@' <<< "$rendered"; then

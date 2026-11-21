@@ -235,7 +235,9 @@ What differs, for reference:
   refuses while SuckerPot containers run on Podman, unless `SUCKERPOT_NO_FIREWALL=1`.
   For a Podman rendering it also installs a drop-in
   (`suckerpot-firewall.service.d/podman-stop.conf`): when the firewall unit stops, it first stops
-  every container of a compose project, then deletes the tables, even when the stack unit is not
+  the containers of the SuckerPot compose project (its name is written into the Podman rendering,
+  resolved like compose: `COMPOSE_PROJECT_NAME` in `.env`, else the folder name), then deletes the
+  tables; other compose projects on the host are not touched, even when the stack unit is not
   active (enabled but not started yet, or failed). The stack unit also stops the containers after
   a failed start (`ExecStopPost=`).
 - Every start of the stack on Podman goes through `scripts/ensure-networks.sh`, which refuses

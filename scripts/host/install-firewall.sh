@@ -88,19 +88,29 @@ fi
 grep -q '^table inet suckerpot_host' "$tmp" || fail 4 "$src is not a SuckerPot host firewall"
 nft -c -f "$tmp" || fail 4 "nft -c refused $src (nothing was changed)"
 
+# A Podman rendering names the SuckerPot compose project: the unit stops only that project's
+# containers, never another compose project on this host.
+project=""
+if grep -q '^table bridge suckerpot_bridge' "$tmp"; then
+  project=$(sed -n 's/^# suckerpot-compose-project: //p' "$tmp" | head -n 1)
+  [[ $project =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] ||
+    fail 4 "$src names no valid compose project ('$project'): render it again with scripts/host/render-firewall.sh"
+fi
+
 mv -f "$tmp" "$target"
 trap - EXIT
 install -m 0644 -o root -g root "$here/suckerpot-firewall.service" "$unit_path"
 # On Podman (the rendering holds the bridge table) the containers must never run unfiltered: when
-# this unit stops (by hand, with nftables.service, at shutdown), it first stops every container of
-# a compose project, then deletes the tables. That holds even when suckerpot-stack.service is not
-# active (enabled but not started yet, or failed). Docker: no drop-in, the unit is unchanged.
+# this unit stops (by hand, with nftables.service, at shutdown), it first stops the containers of
+# the SuckerPot compose project (named in the rendering), then deletes the tables. That holds even
+# when suckerpot-stack.service is not active (enabled but not started yet, or failed). Docker: no
+# drop-in, the unit is unchanged.
 if grep -q '^table bridge suckerpot_bridge' "$target"; then
   podman_bin=$(command -v podman || echo /usr/bin/podman)
   mkdir -p "$(dirname "$dropin")"
   printf '%s\n' "# Installed by scripts/host/install-firewall.sh for a Podman rendering." \
     "[Service]" "ExecStop=" \
-    "ExecStop=-$podman_bin stop --time 10 --filter label=com.docker.compose.project" \
+    "ExecStop=-$podman_bin stop --time 10 --filter label=com.docker.compose.project=$project" \
     "ExecStop=/usr/sbin/nft delete table inet suckerpot_host" \
     "ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge" > "$dropin"
   chmod 0644 "$dropin"

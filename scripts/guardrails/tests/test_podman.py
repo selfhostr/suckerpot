@@ -1223,13 +1223,16 @@ def test_a_podman_rendering_gets_a_drop_in_that_stops_the_containers_first(
     dropin = fsroot / "etc/systemd/system/suckerpot-firewall.service.d/podman-stop.conf"
     rendered = tmp_path / "fw.nft"
     rendered.write_text(_podman(tmp_path, resolv, "participant"))
+    found = re.search(r"^# suckerpot-compose-project: (\S+)$", rendered.read_text(), re.M)
+    assert found
+    project = found.group(1)
     assert _run(HOST / "install-firewall.sh", shims, fsroot, str(rendered)).returncode == 0
     stops = [ln for ln in dropin.read_text().splitlines() if ln.startswith("ExecStop=")]
     # The list is reset, then: containers first, then the tables.
     assert stops[0] == "ExecStop="
     assert (
         stops[1]
-        == f"ExecStop=-{shims}/podman stop --time 10 --filter label=com.docker.compose.project"
+        == f"ExecStop=-{shims}/podman stop --time 10 --filter label=com.docker.compose.project={project}"
     )
     assert stops[2:] == [
         "ExecStop=/usr/sbin/nft delete table inet suckerpot_host",
@@ -1253,3 +1256,89 @@ def test_the_docker_firewall_unit_is_unchanged_apart_from_the_nftables_binding()
         "ExecStop=/usr/sbin/nft delete table inet suckerpot_host",
         "ExecStop=-/usr/sbin/nft delete table bridge suckerpot_bridge",
     ]
+
+
+RENDER_PODMAN = ("--participant", "--admin-ssh-port", "2200", "--engine", "podman")
+
+
+def _render_in(checkout: Path, env_text: str | None) -> str:
+    """Render from a copy of the host scripts in CHECKOUT (with that .env, or none)."""
+    (checkout / "scripts" / "host").mkdir(parents=True)
+    (checkout / "scripts" / "lib").mkdir(parents=True)
+    for name in ("render-firewall.sh", "firewall.nft", "firewall-participant.nft"):
+        shutil.copy2(HOST / name, checkout / "scripts" / "host" / name)
+    shutil.copy2(ROOT / "scripts/lib/engine.sh", checkout / "scripts/lib/engine.sh")
+    if env_text is not None:
+        (checkout / ".env").write_text(env_text)
+    stubs = checkout.parent / "stubs"
+    stubs.mkdir(exist_ok=True)
+    _write_exec(stubs / "ip", IP_STUB)
+    _write_exec(stubs / "podman", ENGINE_STUB)
+    result = subprocess.run(  # noqa: S603
+        ["bash", str(checkout / "scripts/host/render-firewall.sh"), *RENDER_PODMAN],  # noqa: S607
+        env={"PATH": f"{stubs}:{PATH}"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.mark.parametrize(
+    ("folder", "env_text", "want"),
+    [
+        ("anything", "COMPOSE_PROJECT_NAME=suckerpot\n", "suckerpot"),
+        ("anything", "COMPOSE_PROJECT_NAME='My.Node_1'  # comment\n", "mynode_1"),
+        ("SuckerPot.Live", None, "suckerpotlive"),
+        ("-x-node", "OTHER=1\n", "x-node"),
+    ],
+)
+def test_the_podman_rendering_names_the_compose_project_like_compose(
+    tmp_path: Path, folder: str, env_text: str | None, want: str
+) -> None:
+    text = _render_in(tmp_path / folder, env_text)
+    assert f"\n# suckerpot-compose-project: {want}\n" in text
+
+
+def test_the_docker_rendering_names_no_project(tmp_path: Path, resolv: Path) -> None:
+    result = render(
+        tmp_path, "--participant", "--admin-ssh-port", "2200", "--resolv-conf", str(resolv)
+    )
+    assert "suckerpot-compose-project" not in result.stdout
+
+
+def test_the_drop_in_never_stops_another_compose_project(
+    tmp_path: Path, shims: Path, fsroot: Path
+) -> None:
+    """The stop is scoped to label com.docker.compose.project=<SuckerPot's project>: a container of
+    another project (an owner's unrelated app) has another value and is not matched."""
+    text = _render_in(tmp_path / "node", "COMPOSE_PROJECT_NAME=suckerpot\n")
+    rendered = tmp_path / "fw.nft"
+    rendered.write_text(text)
+    assert _run(HOST / "install-firewall.sh", shims, fsroot, str(rendered)).returncode == 0
+    dropin = fsroot / "etc/systemd/system/suckerpot-firewall.service.d/podman-stop.conf"
+    podman_lines = [
+        ln for ln in dropin.read_text().splitlines() if "podman" in ln and "ExecStop" in ln
+    ]
+    assert podman_lines == [
+        f"ExecStop=-{shims}/podman stop --time 10 --filter label=com.docker.compose.project=suckerpot"
+    ]
+    assert not re.search(r"--all\b|label=com\.docker\.compose\.project(\s|$)", dropin.read_text())
+
+
+@pytest.mark.parametrize("line", [None, "# suckerpot-compose-project: Bad Name"])
+def test_a_podman_rendering_without_a_valid_project_is_refused(
+    tmp_path: Path, resolv: Path, shims: Path, fsroot: Path, line: str | None
+) -> None:
+    text = _podman(tmp_path, resolv, "participant")
+    text = re.sub(
+        r"^# suckerpot-compose-project: .*\n", "" if line is None else line + "\n", text, flags=re.M
+    )
+    rendered = tmp_path / "fw.nft"
+    rendered.write_text(text)
+    result = _run(HOST / "install-firewall.sh", shims, fsroot, str(rendered))
+    assert result.returncode == 4
+    assert "names no valid compose project" in result.stderr
+    assert not (fsroot / "etc/suckerpot-firewall.nft").exists()
