@@ -185,7 +185,7 @@ case $cmd in
         if [ "$code" = pseudonym_taken ] && [ -n "$name" ]; then
           suggestion=$(pseudonym_suggest "$name") || suggestion=NEW-NAME
           echo "participant: the hub refused the pseudonym '$name': another node already uses it." >&2
-          echo "  If that is your own earlier install, the hub frees the name once that node has been silent for 48 h." >&2
+          echo "  If that is your own earlier install, the hub frees the name after two days without contact, if that node never sent a batch." >&2
           echo "  Pick another name: ./scripts/participant.sh join --pseudonym $suggestion" >&2
           if [ "$assume_yes" = 0 ] && [ -r "${SELFHOSTR_TTY:-/dev/tty}" ] && confirm "Join as '$suggestion' instead?"; then
             exec bash scripts/participant.sh join --yes --pseudonym "$suggestion"

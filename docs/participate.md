@@ -115,7 +115,7 @@ It shows the sensors and their ports, your standing in the network, the last con
 
 Right after the install, the network section may say `Joining as <your pseudonym>: not accepted by the hub yet`, with the last problem (for example a closed path to the hub). Your agreement is already recorded: SuckerPot keeps trying by itself, and a problem makes the exit code 1 until the hub accepts the node.
 
-The installer and `./scripts/participant.sh join` wait a few minutes for the hub's answer. If the hub refuses the pseudonym because another node already uses it, they say so and suggest a free variant, for example `./scripts/participant.sh join --pseudonym amber-falcon-42-17`. The other node can be your own earlier install: the hub frees the name of a node that has not contacted the hub at all for 48 hours (up to 72 hours, the hub only keeps days), and of a node that sent no batch for 30 days. A node that is running keeps its name, even when it sends no batch.
+The installer and `./scripts/participant.sh join` wait a few minutes for the hub's answer. If the hub refuses the pseudonym because another node already uses it, they say so and suggest a free variant, for example `./scripts/participant.sh join --pseudonym amber-falcon-42-17`. The other node can be your own earlier install: the hub frees the name of a node that never sent a batch and made no request for two days on which the hub was working. A node that ever sent a batch keeps its name for good.
 
 If the hub refused the join, the network section says `Not a member: ...` with the reason and the fix, and the exit code is 2. For a member, the last network error shows as `Last network error: <code> (<age>)`, with a plain explanation and the fix when one is known. Two cases go to **Needs attention**: a member with no contact with the hub 2 hours after joining, and the same error for more than 6 hours.
 
@@ -123,7 +123,7 @@ If something needs your action, the report ends with a **Needs attention** block
 
 By default, your sensor counts toward confirmations after 14 days of regular batches. Until then its standing is `new`.
 
-A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is **dormant**. The hub keeps it, but leaves it out of the member list and of the member counts (network summary, public figures). It counts again from its next batch.
+A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is **dormant**. The hub keeps it, but leaves it out of the member list and of the member counts (network summary, public figures). It counts again from the week after its next batch.
 
 ## Automatic updates
 

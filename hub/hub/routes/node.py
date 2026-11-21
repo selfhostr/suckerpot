@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Request
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 from suckerpot_netproto import ProtoError, models, sign
@@ -71,6 +72,7 @@ async def patch_node(request: Request) -> Response:
         node = (await session.execute(select(Node).where(Node.id == caller.node_id))).scalar_one()
         today = ctx.today()
         values: dict[str, object] = {}
+        claimed: str | None = None
         given = patch.model_fields_set
         if "pseudonym" in given:
             if patch.pseudonym is None:
@@ -83,8 +85,7 @@ async def patch_node(request: Request) -> Response:
                         days=PSEUDONYM_CHANGE_DAYS
                     ):
                         raise ProtoError("rate_limited", str(86400))
-                    if not await dormant.claim_pseudonym(session, key, today, node.id):
-                        raise ProtoError("pseudonym_taken")
+                    claimed = key
                 values.update(
                     pseudonym=patch.pseudonym,
                     pseudonym_key=key,
@@ -100,8 +101,19 @@ async def patch_node(request: Request) -> Response:
         if new_country is None:
             values["show_country"] = False
         if values:
-            await session.execute(update(Node).where(Node.id == node.id).values(**values))
-            await session.commit()
+            try:
+                # A name is refused unless its holder is a silent ghost (hub/hub/dormant.py).
+                if claimed is not None and not await dormant.claim_pseudonym(
+                    session, claimed, today, node.id
+                ):
+                    raise ProtoError("pseudonym_taken")
+                await session.execute(update(Node).where(Node.id == node.id).values(**values))
+                await session.commit()
+            except DBAPIError as exc:
+                await session.rollback()
+                if dormant.lost_race(exc):  # a concurrent claim of the same name
+                    raise ProtoError("pseudonym_taken") from None
+                raise
             node = (
                 await session.execute(select(Node).where(Node.id == caller.node_id))
             ).scalar_one()

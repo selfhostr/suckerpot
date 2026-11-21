@@ -261,6 +261,15 @@ class HubAudit(Base):
     detail: Mapped[dict[str, object] | None] = mapped_column(JSONB)
 
 
+class HubServedDay(Base):
+    """Days the API served authenticated requests (migration h0013). No node data."""
+
+    __tablename__ = "hub_served_days"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    blocked: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+
+
 class WorkerState(Base):
     """Job markers of the worker (migration h0002). No node data."""
 

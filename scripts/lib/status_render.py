@@ -93,7 +93,7 @@ ERROR_HELP = {
     "rate_limited": ("the hub asked this node to slow down", ""),
     "pseudonym_taken": (
         "the hub refused the pseudonym: another node already uses it (this can be your own "
-        "earlier install; the hub frees such a name once that node has been silent for 48 h)",
+        "earlier install that never sent a batch: the hub frees its name after two silent days)",
         NEW_NAME,
     ),
     "pseudonym_invalid": ("the hub does not allow this pseudonym", NEW_NAME),

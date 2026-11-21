@@ -11,6 +11,7 @@ from starlette.requests import Request
 from suckerpot_netproto import sign
 
 from .config import Settings
+from .dormant import ServedDays
 from .never import NeverCache
 from .ratelimit import AddressLimiter, Counter
 
@@ -27,6 +28,8 @@ class AppContext:
     node_limiter: Counter
     reveal_limiter: Counter
     never: NeverCache = field(default_factory=NeverCache)
+    # Days the API served (hub/hub/dormant.py: a pseudonym holder's silence counts on those only).
+    served_days: ServedDays = field(default_factory=ServedDays)
     # Alternate key of a signing-key rollover: answers carry a second signature (design M32 6.4).
     hub_private_alt: bytes | None = None
 
