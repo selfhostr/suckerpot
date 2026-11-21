@@ -40,7 +40,7 @@ Saving asks for your dashboard password again. The first save needs the mailbox 
 
 Buttons:
 
-- **Test connection** logs in, lists the folders and reports what it found. It does not read any mail.
+- **Test connection** logs in, lists the folders and reports what it found. It also reads the headers of the last 20 mails in the folder to suggest the provider name (see below). It opens the folder read-only and never reads a mail body. Nothing is marked as read.
 - **Check now** reads the mailbox at once, without waiting for the interval.
 
 The status line under the card shows when the mailbox was last checked, or the last error, in one sentence.
@@ -69,7 +69,16 @@ SuckerPot checks the **Authentication-Results** header that your mail provider a
 
 The header starts with a name, then a semicolon. That name is the **trusted provider name**. Enter it in the **Mail provider name** field. Only the first header with that name counts. Without the name, no reply is ever treated as authenticated. Then a reply is verified only when it matches your Message-ID from a trusted sender, or when you confirm it by hand.
 
-To find it:
+SuckerPot can find it for you:
+
+- **Test connection** reads the headers of the last 20 mails in the folder. It looks at the top-most `Authentication-Results` header of each mail, and counts the names it sees. The most common name is shown under the field, for example: "Your provider signs as mx.example.net (seen on 18 of 20 recent messages)." Press **Use it** to fill the field. Then press **Save**: the suggestion is never saved on its own.
+- While the field is empty, each regular check does the same with the new mails it reads. The settings page then shows the suggestion without a test.
+- Only the top-most header counts. Your provider adds it last, on top. A sender can write any number of lower ones, so those are ignored.
+- A suggestion follows the same rules as the field (letters, digits, dots and hyphens). Anything else is dropped. Raw header text is never shown.
+
+Check that the suggested name really belongs to your provider before you save it. If the folder holds mail that came in another way (a forward, an import), the most common name may not be the right one.
+
+To find it by hand:
 
 1. Send a test mail from another account to the report mailbox. Wait until it arrives.
 2. Open the mail in your mail app and show the full headers (the "original message" or "show source" view).

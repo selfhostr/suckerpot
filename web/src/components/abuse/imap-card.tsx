@@ -16,9 +16,11 @@ import { formatNumber, plural } from "@/lib/format"
 import {
   describeImapError,
   describeRepliesError,
+  AUTHSERV_RE,
   POLL_RANGE,
   repliesApi,
   repliesKeys,
+  validHint,
   type ImapConfig,
   type ImapForm,
   type ImapRequest,
@@ -133,6 +135,11 @@ function ImapSettingsForm({ initial }: { initial: ImapConfig }) {
   })
   const req: ImapRequest | undefined = pending ? request.data : undefined
   const folders = req?.result.folders ?? []
+  // A finished test wins over the hint of the last poll. Never saved by itself.
+  const hint =
+    validHint(req?.kind === "test" && req.status === "done" ? req.result.authserv_hint : null) ??
+    validHint(initial.state.authserv_hint)
+  const suggest = hint && f.trusted_authserv_id.toLowerCase() !== hint.id ? hint : null
 
   function validate(): string | null {
     if (!f.host.trim()) return "Enter the mail server name, such as imap.example.net."
@@ -140,7 +147,7 @@ function ImapSettingsForm({ initial }: { initial: ImapConfig }) {
       return "The port must be a number from 1 to 65535."
     if (!f.username.trim()) return "Enter the mailbox username."
     if (!initial.password_set && !f.password) return "Enter the mailbox password."
-    if (f.trusted_authserv_id && !/^[A-Za-z0-9.-]{1,255}$/.test(f.trusted_authserv_id))
+    if (f.trusted_authserv_id && !AUTHSERV_RE.test(f.trusted_authserv_id))
       return "The provider name can only use letters, digits, dots and hyphens."
     if (!f.folder.trim()) return "Enter the folder to read, usually INBOX."
     if (f.processed_action === "move" && (!f.move_folder.trim() || f.move_folder === f.folder))
@@ -342,6 +349,22 @@ function ImapSettingsForm({ initial }: { initial: ImapConfig }) {
               placeholder="mx.example.net"
               onChange={(e) => set("trusted_authserv_id", e.target.value.trim())}
             />
+            {suggest ? (
+              <p className="flex flex-wrap items-center gap-x-2 text-xs text-fg">
+                <span>
+                  Your provider signs as <code>{suggest.id}</code> (seen on {suggest.seen} of{" "}
+                  {plural(suggest.of, "recent message")}).
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => set("trusted_authserv_id", suggest.id)}
+                >
+                  Use it
+                </Button>
+              </p>
+            ) : null}
           </Field>
           <Field
             id={ids.since}

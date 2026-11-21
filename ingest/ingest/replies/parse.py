@@ -27,7 +27,8 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.message import Message
@@ -77,6 +78,8 @@ _ID: Final = re.compile(rf"<([^<>\s]{{1,{MAX_ID_LEN}}})>")
 _STATUS: Final = re.compile(r"^[245]\.\d{1,3}\.\d{1,3}$")
 _BLANKS: Final = re.compile(r"\n{3,}")
 _SPACES: Final = re.compile(r"[ \t]+\n")
+# The rule of the "Mail provider name" field (the API and the web form use the same one).
+_AUTHSERV_OK: Final = re.compile(r"^[a-z0-9.\-]{1,255}$")
 _WROTE: Final = re.compile(r"^(on .{1,200} )?(wrote|schrieb|a écrit|escribió|schreef):\s*$", re.I)
 
 _BREAKS: Final = "\r\n\t\x0b\x0c\x85" + chr(0x2028) + chr(0x2029)
@@ -317,6 +320,39 @@ def authentication(
         ):
             verdict = "pass"
     return verdict
+
+
+def top_authserv_id(raw: bytes) -> str | None:
+    """The authserv-id of the top-most Authentication-Results header of a header block, or None.
+
+    Only the top-most one counts: it is the one the owner's own provider added last, and a
+    sender can write any number of lower ones. A value that is not a valid provider name (the
+    rule of the settings field) is dropped, so raw header text never leaves this function.
+    Never raises."""
+    try:
+        value = _parse(raw[: 64 * 1024], headers_only=True).get("Authentication-Results")
+        if value is None:
+            return None
+        found = _authserv_id(_header_text(value)[:MAX_HEADER_VALUE])
+    except Exception:
+        return None
+    return found if _AUTHSERV_OK.match(found) else None
+
+
+def authserv_hint(headers: Iterable[bytes]) -> dict[str, Any] | None:
+    """The most common top-most authserv-id over some header blocks, as
+    ``{"id": name, "seen": messages with it, "of": messages read}``; None when none had one."""
+    seen: Counter[str] = Counter()
+    total = 0
+    for raw in headers:
+        total += 1
+        found = top_authserv_id(raw)
+        if found:
+            seen[found] += 1
+    if not seen:
+        return None
+    best, count = seen.most_common(1)[0]
+    return {"id": best, "seen": count, "of": total}
 
 
 def message_id_hash(value: str | None) -> str | None:

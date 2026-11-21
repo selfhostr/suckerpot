@@ -293,6 +293,7 @@ export const repliesHandlers: RequestHandler[] = [
           last_error: "tls_failed",
           last_ok_at: iso(26 * HOUR),
           counters: {},
+          authserv_hint: { id: "mx.example.com", seen: 9, of: 11 },
         },
       })
     return HttpResponse.json(imap)
@@ -352,6 +353,7 @@ export const repliesHandlers: RequestHandler[] = [
       messages: 14,
       move_supported: true,
       folders: ["INBOX", "Reports", "Archive"],
+      authserv_hint: { id: "mx.example.net", seen: 12, of: 14 },
     })
     return HttpResponse.json({ id }, { status: 202 })
   }),

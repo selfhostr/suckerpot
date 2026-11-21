@@ -196,6 +196,17 @@ def test_search_never_uses_unseen_and_filters_old_uids() -> None:
     assert box.search_new(0, date(2026, 11, 1), 2) == [5, 40]
 
 
+def test_search_last_asks_for_a_bounded_sequence_range() -> None:
+    box, client = opened()
+    FakeImap.answers["SEARCH"] = [b"90 91 x 99"]
+    assert box.search_last(120, 20) == [90, 91, 99]
+    assert client.calls[-1] == ("uid", "SEARCH", "101:120")
+    assert box.search_last(5, 20) == [90, 91, 99]
+    assert client.calls[-1] == ("uid", "SEARCH", "1:5")
+    calls = len(client.calls)
+    assert box.search_last(0, 20) == [] and len(client.calls) == calls
+
+
 def test_headers_are_fetched_with_peek_in_bounded_batches() -> None:
     box, client = opened()
     FakeImap.answers["FETCH"] = [None]

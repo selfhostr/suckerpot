@@ -39,7 +39,7 @@ from . import outcome
 from .config import RepliesSettings
 from .imap import ImapProfile, Mailbox, MailboxError, SafeMailbox
 from .match import recent_reports
-from .parse import parse_headers, parse_message
+from .parse import authserv_hint, parse_headers, parse_message
 from .rules import ReplyRules, load_reply_rules
 from .store import is_relevant, store_reply
 
@@ -48,6 +48,8 @@ log = logging.getLogger(__name__)
 PASSWORD_AAD = "report_imap"  # noqa: S105 - a label, not a secret; bound to the ciphertext
 MAX_IMPORTS = 10
 MAX_REQUESTS = 5
+HINT_MESSAGES = 20  # "Test connection" reads the headers of this many recent messages
+HINT_KEY = "authserv_hint"  # kept inside the counters column, carried over from day to day
 COUNTER_KEYS = ("fetched", "relevant", "matched", "ignored", "oversize", "failed")
 # A broken connection or database: nothing more can be done in this poll. A mail that cannot be
 # stored (its own data is the problem) is counted as failed and skipped, never fatal: it must not
@@ -79,6 +81,8 @@ class State:
     last_ok_at: datetime | None = None
     last_error: str | None = None
     counters: dict[str, Any] = field(default_factory=dict)
+    # The most common top-most authserv-id seen while no trusted id is set: {id, seen, of}.
+    authserv_hint: dict[str, Any] | None = None
 
 
 def fresh_counters(day: date) -> dict[str, Any]:
@@ -167,6 +171,8 @@ class ReplyWorker(FeatureWorker):
             ).first()
         if row is None:
             return State()
+        counters = dict(row.counters or {})
+        hint = counters.pop(HINT_KEY, None)
         return State(
             row.profile_fingerprint,
             row.uidvalidity,
@@ -175,7 +181,8 @@ class ReplyWorker(FeatureWorker):
             row.last_poll_at,
             row.last_ok_at,
             row.last_error,
-            dict(row.counters or {}),
+            counters,
+            hint if isinstance(hint, dict) else None,
         )
 
     async def save_state(self, state: State) -> None:
@@ -200,7 +207,11 @@ class ReplyWorker(FeatureWorker):
                     "poll": state.last_poll_at,
                     "ok": state.last_ok_at,
                     "err": state.last_error,
-                    "c": json.dumps(state.counters),
+                    "c": json.dumps(
+                        {**state.counters, HINT_KEY: state.authserv_hint}
+                        if state.authserv_hint
+                        else state.counters
+                    ),
                 },
             )
 
@@ -368,6 +379,7 @@ class ReplyWorker(FeatureWorker):
             await asyncio.to_thread(mailbox.login)
             selected = await asyncio.to_thread(mailbox.select, profile.folder, readonly=True)
             folders = await asyncio.to_thread(mailbox.list_folders)
+            hint = await self._hint(mailbox, selected.exists)
         except MailboxError as exc:
             return {"ok": False}, exc.code
         finally:
@@ -377,11 +389,23 @@ class ReplyWorker(FeatureWorker):
             "messages": selected.exists,
             "move_supported": mailbox.move_supported,
             "folders": folders,
+            "authserv_hint": hint,
         }
         if profile.processed_action == "move" and profile.move_folder not in folders:
             result["ok"] = False
             return result, "no_move_folder"
         return result, None
+
+    @staticmethod
+    async def _hint(mailbox: Mailbox, exists: int) -> dict[str, Any] | None:
+        """Read the headers of the last messages (BODY.PEEK, the folder opened read-only) and
+        name the provider that signs them. Best effort: a failure here only drops the hint."""
+        try:
+            uids = await asyncio.to_thread(mailbox.search_last, exists, HINT_MESSAGES)
+            items = await asyncio.to_thread(mailbox.fetch_headers, uids) if uids else []
+        except MailboxError:
+            return None
+        return authserv_hint(i.headers for i in items)
 
     # -- polling -------------------------------------------------------------------------
 
@@ -428,6 +452,9 @@ class ReplyWorker(FeatureWorker):
         )
         budget = min(cfg.max_per_poll, cfg.daily_cap - int(counters.get("fetched", 0)))
         move_supported = state.move_supported
+        hint = state.authserv_hint if state.fingerprint == fp else None
+        if profile.trusted_authserv_id:
+            hint = None  # the owner chose: nothing to suggest
         mailbox = self.mailbox_factory(profile, self.gate, float(cfg.poll_deadline_s))
         error: str | None = None
         try:
@@ -441,6 +468,8 @@ class ReplyWorker(FeatureWorker):
                 uids = await asyncio.to_thread(mailbox.search_new, last_uid, profile.since, budget)
                 items = await asyncio.to_thread(mailbox.fetch_headers, uids) if uids else []
                 counters["fetched"] = int(counters.get("fetched", 0)) + len(items)
+                if not profile.trusted_authserv_id:
+                    hint = authserv_hint(i.headers for i in items) or hint
                 async with self.factory() as session:
                     recent = await recent_reports(session, cfg.match_days)
                 for item in items:
@@ -485,6 +514,7 @@ class ReplyWorker(FeatureWorker):
                 last_ok_at=now if error is None else state.last_ok_at,
                 last_error=error,
                 counters=counters,
+                authserv_hint=hint,
             ),
             error,
         )

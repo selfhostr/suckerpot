@@ -65,12 +65,22 @@ class RequestOut(BaseModel):
     done_at: datetime | None
 
 
+class AuthservHint(BaseModel):
+    """The provider name ingest saw on the top-most Authentication-Results of recent mail."""
+
+    id: str
+    seen: int  # messages that carried it
+    of: int  # messages read
+
+
 class StateOut(BaseModel):
     last_poll_at: datetime | None = None
     last_ok_at: datetime | None = None
     last_error: str | None = None
     move_supported: bool | None = None
     counters: dict[str, Any] = {}
+    # Set by the poll while no trusted id is saved: a suggestion, never applied by itself.
+    authserv_hint: AuthservHint | None = None
 
 
 class ImapOut(BaseModel):
@@ -196,13 +206,29 @@ async def load_profile(db: AsyncSession) -> Profile | None:
     return None if row is None else Profile(*tuple(row))
 
 
+def authserv_hint(value: Any) -> dict[str, Any] | None:
+    """The hint ingest stored, only if it is a valid provider name (the rule of the field) with
+    sane counts. Anything else is dropped: header text is never passed on."""
+    if not isinstance(value, dict):
+        return None
+    name, seen, of = value.get("id"), value.get("seen"), value.get("of")
+    if not (isinstance(name, str) and _AUTHSERV.match(name)):
+        return None
+    if not (isinstance(seen, int) and isinstance(of, int) and 0 < seen <= of <= 1000):
+        return None
+    return {"id": name.lower(), "seen": seen, "of": of}
+
+
 def _request_out(row: ReportImapRequestRow) -> RequestOut:
+    result = dict(row.result or {})
+    if "authserv_hint" in result:
+        result["authserv_hint"] = authserv_hint(result["authserv_hint"])
     return RequestOut(
         id=row.id,
         kind=row.kind,  # type: ignore[arg-type]
         status=row.status,  # type: ignore[arg-type]
         error_code=row.error_code,
-        result=dict(row.result or {}),
+        result=result,
         requested_at=row.requested_at,
         done_at=row.done_at,
     )
@@ -212,12 +238,15 @@ async def _state(db: AsyncSession) -> StateOut:
     row = await db.get(ReportImapStateRow, 1)
     if row is None:
         return StateOut()
+    counters = dict(row.counters or {})
+    hint = authserv_hint(counters.pop("authserv_hint", None))
     return StateOut(
         last_poll_at=row.last_poll_at,
         last_ok_at=row.last_ok_at,
         last_error=row.last_error,
         move_supported=row.move_supported,
-        counters=dict(row.counters or {}),
+        counters=counters,
+        authserv_hint=AuthservHint(**hint) if hint else None,
     )
 
 

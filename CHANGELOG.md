@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Replies: the node now suggests the "Mail provider name". **Test connection** reads the headers
+  of the last 20 mails (read-only, nothing marked as read) and counts the name on the top-most
+  `Authentication-Results` header of each. The most common one is shown under the field with a
+  **Use it** button, which fills the field but does not save it. While the field is empty, the
+  regular check records the same suggestion for the settings page.
+
 ## [0.12.0] - 2026-11-21
 
 ### Upgrading
