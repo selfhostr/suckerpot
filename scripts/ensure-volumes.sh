@@ -74,4 +74,10 @@ for v in "${volumes[@]}"; do
     docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
       --user 0:0 --entrypoint chown -v "$v:/b" "$image" 10001:10001 /b
   fi
+  if [ "$v" = "${prefix}_trap-packs" ]; then
+    # The signed trap pack bundle (M37): ingest (uid 10001) writes it, the web sensor (uid 10001)
+    # reads it read-only.
+    docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges:true \
+      --user 0:0 --entrypoint chown -v "$v:/b" "$image" 10001:10001 /b
+  fi
 done

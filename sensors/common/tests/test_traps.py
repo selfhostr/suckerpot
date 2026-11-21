@@ -711,8 +711,20 @@ def test_tracking_and_common_query_needles_are_not_evidence(needle: str) -> None
         assert reason(_claiming({"needles": [{"in": area, "any": [anchored]}]})) == "evidence"
 
 
+@pytest.mark.parametrize(
+    "needle",
+    ["&page=123456", "&page=../../../etc", "&id=1234567", "&s=searchterm", "&cmd=wget&page=1",
+     "&offset=100000", "&q=longer-query", "?ver=6.8.1-abc"],
+)  # fmt: skip
+def test_common_param_values_are_never_evidence(needle: str) -> None:
+    """P1 security review (b): the value of a common parameter is never evidence, however long
+    it is ("&page=123456" is a page number)."""
+    for area in ("query", "body"):
+        assert reason(_claiming({"needles": [{"in": area, "any": [needle]}]})) == "evidence"
+
+
 def test_specific_query_needles_still_count() -> None:
-    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&page=../../../etc"]}]}))
+    traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&file=../../../etc"]}]}))
     traps.validate_pack(_claiming({"needles": [{"in": "query", "any": ["&cmd=wget "]}]}))
     traps.validate_pack(
         _claiming({"needles": [{"in": "headers", "any": ["\nx-api-version: ${jndi"]}]})
@@ -835,6 +847,103 @@ def test_percent_escapes_are_refused_in_decoded_areas(area: str) -> None:
     traps.validate_pack(obj)
 
 
+@pytest.mark.parametrize("op", ["exact", "prefix", "suffix", "contains"])
+@pytest.mark.parametrize("value", ["/api/v1/%2e%2e/diag", "/cgi-bin/%2F/x.cgi", "/a/b%41c/d/e"])
+def test_percent_escapes_are_refused_in_paths(op: str, value: str) -> None:
+    """P1 security review (a): match.path is matched on the percent-decoded path, like the
+    needles of decoded areas, so "%xx" in it could never match."""
+    obj = example()
+    obj["traps"][0]["match"]["path"] = {op: value}
+    with pytest.raises(PackError) as err:
+        traps.validate_pack(obj)
+    assert err.value.reason == "schema" and "percent-decoded" in err.value.detail
+    obj["traps"][0]["match"]["path"] = {op: "/api/v1/100%-sure"}  # a lone % is fine
+    traps.validate_pack(obj)
+
+
 def test_newline_anchor_only_in_headers() -> None:
     assert reason(_claim_needle("query", "\n&cmd=x")) == "schema"
     traps.validate_pack(_claim_needle("headers", "\nx-forwarded-host: evil.example"))
+
+
+# -- several bundles (M37 P2: bundled packs plus the downloaded bundle) --------------------------
+
+
+def _doc(packs: list[dict[str, Any]], seq: int, **extra: Any) -> dict[str, Any]:
+    return traps.parse_bundle(
+        json.dumps({"schema": "suckerpot-traps/1", "seq": seq, "packs": packs, **extra}).encode()
+    )
+
+
+def test_downloaded_kill_list_turns_off_a_bundled_pack() -> None:
+    bundled = _doc([pack("core-pack"), pack("kept-pack")], 0)
+    downloaded = _doc(
+        [pack("new-pack")], 9, disabled=[{"id": "core-pack", "reason": "flags benign traffic"}]
+    )
+    res = traps.load_docs([bundled, downloaded], today=TODAY)
+    assert [p.id for p in res.packs] == ["kept-pack", "new-pack"]
+    assert res.disabled == ["core-pack"] and res.seq == 9
+
+
+def test_local_disabled_set_applies_to_every_bundle() -> None:
+    res = traps.load_docs(
+        [_doc([pack("core-pack")], 0), _doc([pack("new-pack")], 4)],
+        today=TODAY,
+        disabled=frozenset({"core-pack", "new-pack"}),
+    )
+    assert res.packs == [] and sorted(res.disabled) == ["core-pack", "new-pack"]
+
+
+def test_higher_version_wins_across_bundles() -> None:
+    v3 = pack("same-pack")
+    v3["version"], v3["title"] = 3, "downloaded"
+    v5 = pack("same-pack")
+    v5["version"], v5["title"] = 5, "bundled"
+    res = traps.load_docs([_doc([v5], 0), _doc([v3], 7)], today=TODAY)
+    assert [(p.id, p.title) for p in res.packs] == [("same-pack", "bundled")]
+    res = traps.load_docs([_doc([v3], 0), _doc([v5], 7)], today=TODAY)
+    assert [(p.id, p.title) for p in res.packs] == [("same-pack", "bundled")]
+
+
+def test_bad_pack_in_a_downloaded_bundle_does_not_stop_the_others() -> None:
+    bad = pack("bad-pack")
+    bad["traps"][0]["outcome"]["flags"] = ["rce"]
+    res = traps.load_docs(
+        [_doc([pack("core-pack")], 0), _doc([bad, pack("good-pack")], 2)], today=TODAY
+    )
+    assert [p.id for p in res.packs] == ["core-pack", "good-pack"]
+    assert res.rejected == [("bad-pack", "schema")]
+
+
+def test_distributed_bundle_fields() -> None:
+    data = traps.build_bundle(
+        [pack("a-pack")],
+        seq=1_790_000_000,
+        disabled=[{"id": "z-pack", "reason": "r"}, {"id": "b-pack", "reason": "r"}],
+        issued_at="2026-11-21T10:00:00Z",
+    )
+    doc = traps.parse_bundle(data)
+    assert [d["id"] for d in doc["disabled"]] == ["b-pack", "z-pack"]
+    assert doc["issued_at"] == "2026-11-21T10:00:00Z" and doc["seq"] == 1_790_000_000
+    traps.parse_bundle(
+        json.dumps(
+            {"schema": "suckerpot-traps/1", "seq": 1, "packs": [], "bundled_seq_min": 0}
+        ).encode()
+    )
+    with pytest.raises(PackError):
+        traps.parse_bundle(
+            json.dumps(
+                {"schema": "suckerpot-traps/1", "seq": 1, "packs": [], "bundled_seq_min": "1"}
+            ).encode()
+        )
+
+
+@pytest.mark.parametrize("tag", ["php2shell", "sql-rce", "cve-2026-55501", "cve-anything"])
+def test_pack_tags_cannot_be_exploit_or_cve_tags(tag: str) -> None:
+    """Security review of #163: a pack tag that makes the activity "exploit" by itself would
+    get past gate G, so the validator refuses it."""
+    obj = example()
+    obj["tag"] = tag
+    with pytest.raises(PackError) as err:
+        traps.validate_pack(obj)
+    assert err.value.reason == "schema" and "reserved" in err.value.detail

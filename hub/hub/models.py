@@ -476,3 +476,21 @@ class ObservatoryDaily(Base):
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     total: Mapped[int] = mapped_column(Integer)
     nodes: Mapped[int] = mapped_column(Integer)
+
+
+class TrapRelayState(Base):
+    """The last trap pack bundle relayed to the feed site (design M37, migration h0012).
+
+    One row. No node data; nothing from the bundle but its sequence and hashes."""
+
+    __tablename__ = "trap_relay_state"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    key_id: Mapped[str | None] = mapped_column(Text)
+    seq: Mapped[int | None] = mapped_column(BigInteger)
+    sha256: Mapped[str | None] = mapped_column(Text)
+    sig_sha256: Mapped[str | None] = mapped_column(Text)
+    relayed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

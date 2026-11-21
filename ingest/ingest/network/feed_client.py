@@ -121,12 +121,16 @@ class FeedClient:
         *,
         gate: EgressGate | None = None,
         client: httpx.AsyncClient | None = None,
+        scoped: bool = False,
     ) -> None:
         if not settings.configured:
             raise ValueError("no feed configured")
         self.settings = settings
         self._gate = gate
         self._client = client
+        # True: ask the gate for this host, so participant direct mode (M32) may reach the feed
+        # host through hubproxy. False (the blocklist feed): only an open VPN gate counts.
+        self._scoped = scoped
 
     def _url(self, name: str) -> str:
         if not name or "/" in name or "?" in name or "#" in name or name.startswith("."):
@@ -140,7 +144,7 @@ class FeedClient:
     async def get(self, name: str, *, max_bytes: int, etag: str | None = None) -> FeedResponse:
         """``GET <base>/<name>``. 200 and 304 are answers; anything else raises."""
         url = self._url(name)
-        if not gate_open(self._gate):
+        if not gate_open(self._gate, host=self.settings.host if self._scoped else None):
             raise EgressClosed("egress_closed")
         headers = {"User-Agent": USER_AGENT, "Accept-Encoding": "identity", "Accept": "*/*"}
         if etag:

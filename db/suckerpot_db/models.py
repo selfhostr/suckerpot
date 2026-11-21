@@ -1765,6 +1765,29 @@ class NetworkFeedStateRow(Base):
     )
 
 
+class TrapStateRow(Base):
+    """The signed trap pack bundle this node last accepted (M37 P2): one row."""
+
+    __tablename__ = "trap_state"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, server_default=text("1"))
+    key_id: Mapped[str | None] = mapped_column(Text)
+    seq: Mapped[int | None] = mapped_column(BigInteger)
+    sha256: Mapped[str | None] = mapped_column(Text)
+    etag: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(Text)
+    packs: Mapped[int | None] = mapped_column(Integer)
+    rejected: Mapped[list[Any]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    first_seen: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
 class NetworkFeedEntryRow(Base):
     """One entry of a stored public feed list (M30). Replaced list by list on every fetch."""
 

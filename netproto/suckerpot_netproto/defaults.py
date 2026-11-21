@@ -29,8 +29,12 @@ KNOWN_KEYS = (
     "NETWORK_HUB_KEY",
     "NETWORK_FEED_URL",
     "NETWORK_FEED_KEY",
+    "TRAP_PACK_KEY",
 )
 KEY_NAMES = ("NETWORK_HUB_KEY", "NETWORK_FEED_KEY")
+# May be absent (older defaults files). Empty means "not configured": downloaded trap packs
+# (M37) stay off and the bundled packs run.
+OPTIONAL_KEYS = ("TRAP_PACK_KEY",)
 SUPPORTED_VERSION = 1
 RESERVED_SUFFIXES = (".local", ".lan", ".internal", ".home.arpa", ".localhost", ".test")
 
@@ -107,7 +111,7 @@ def parse(text: str) -> dict[str, str]:
         if name in out:
             raise DefaultsError(f"duplicate key {name}")
         out[name] = value
-    missing = [k for k in KNOWN_KEYS if k not in out]
+    missing = [k for k in KNOWN_KEYS if k not in out and k not in OPTIONAL_KEYS]
     if missing:
         raise DefaultsError(f"missing key {missing[0]}")
     return out
@@ -120,6 +124,7 @@ class Defaults:
     hub_key: str
     feed_url: str
     feed_key: str
+    trap_key: str = ""
 
     def placeholders(self) -> tuple[str, ...]:
         """Names of the settings that still hold a placeholder (empty tuple when releasable)."""
@@ -167,6 +172,7 @@ def from_text(text: str) -> Defaults:
         hub_key=data["NETWORK_HUB_KEY"],
         feed_url=data["NETWORK_FEED_URL"],
         feed_key=data["NETWORK_FEED_KEY"],
+        trap_key=data.get("TRAP_PACK_KEY", ""),
     )
     if not is_placeholder(d.hub_url):
         check_https_url(d.hub_url, allow_path=False)
@@ -174,6 +180,8 @@ def from_text(text: str) -> Defaults:
         check_https_url(d.feed_url, allow_path=True)
     if not is_placeholder(d.hub_key):
         check_key_list(d.hub_key)
+    if not is_placeholder(d.trap_key):
+        check_feed_key(d.trap_key)
     if not is_placeholder(d.feed_key):
         check_feed_key(d.feed_key)
     return d
@@ -196,6 +204,7 @@ def effective(env: Mapping[str, str], name: str) -> str:
         "NETWORK_HUB_KEY": d.hub_key,
         "NETWORK_FEED_URL": d.feed_url,
         "NETWORK_FEED_KEY": d.feed_key,
+        "TRAP_PACK_KEY": d.trap_key,
     }.get(name, "")
     return "" if is_placeholder(value) else value
 

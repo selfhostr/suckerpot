@@ -17,7 +17,7 @@ BANNED_OS = {
     "spawnl", "spawnv", "spawnlp", "spawnvp", "fork", "forkpty", "posix_spawn", "startfile",
 }  # fmt: skip
 # Only these modules may create files, and only below the data directory.
-WRITERS = {"profile.py", "tls.py"}
+WRITERS = {"profile.py", "tls.py", "trapsync.py"}  # trapsync: the trap seq floor (M37)
 WRITE_ATTRS = {"write_text", "write_bytes", "mkdir", "touch", "rename", "unlink"}
 
 

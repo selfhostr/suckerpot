@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from suckerpot_netproto import sign
+from suckerpot_netproto.feeds import minisign
 
 
 class ConfigError(RuntimeError):
@@ -46,6 +47,37 @@ def _bool(env: Mapping[str, str], name: str, default: bool = False) -> bool:
     if raw is None or raw == "":
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trap_key(raw: str) -> str:
+    """The minisign public key of the trap pack bundles, or empty (relay off)."""
+    value = raw.strip()
+    if not value:
+        return ""
+    try:
+        minisign.parse_public_key(value)
+    except ValueError as exc:
+        raise ConfigError("HUB_TRAP_PACK_KEY must be a minisign public key (RW...)") from exc
+    return value
+
+
+_REPO_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+
+
+def _repo(raw: str) -> str:
+    """``owner/name`` of the GitHub repository whose release ``trap-packs`` is relayed."""
+    owner, sep, name = raw.strip().partition("/")
+    ok = (
+        sep
+        and 1 <= len(owner) <= 39
+        and 1 <= len(name) <= 100
+        and all(c in _REPO_CHARS for c in owner + name)
+        and not name.startswith(".")
+        and not owner.startswith(".")
+    )
+    if not ok:
+        raise ConfigError("HUB_TRAP_PACK_REPO must be owner/name")
+    return f"{owner}/{name}"
 
 
 @dataclass(frozen=True)
@@ -130,6 +162,12 @@ class Settings:
     # Public network observatory (design M34): network.json in HUB_FEED_DIR, once a day. Off until
     # the operator turns it on; independent of HUB_FEED_MODE.
     observatory_enabled: bool = False
+    # Trap pack relay (design M37 section 5): copies the signed bundle of the GitHub release
+    # trap-packs to <feed dir>/traps/ unchanged. The hub verifies it with the pack PUBLIC key; it
+    # never holds the private key, so it cannot sign. Empty key = relay off, nothing is contacted.
+    trap_pack_key: str = ""
+    trap_pack_repo: str = "selfhostr/suckerpot"
+    trap_relay_interval_s: int = 600
     # Public delisting (design M30 section 9): proof-of-work bits, requests per day, and how many
     # inbound values may be hidden at once, per day, before an operator has looked at them.
     delist_pow_difficulty: int = 20
@@ -162,6 +200,10 @@ class Settings:
     def abusech_active(self) -> bool:
         """Submissions are queued and sent only with a mode other than off AND an Auth-Key."""
         return self.abusech_mode != "off" and bool(self.abusech_auth_key)
+
+    @property
+    def trap_relay_enabled(self) -> bool:
+        return bool(self.trap_pack_key)
 
     @property
     def verify_enabled(self) -> bool:
@@ -221,6 +263,9 @@ class Settings:
             ),
             external_ranges_enabled=_bool(e, "HUB_EXTERNAL_RANGES_ENABLED", True),
             observatory_enabled=_bool(e, "HUB_OBSERVATORY_ENABLED"),
+            trap_pack_key=_trap_key(e.get("HUB_TRAP_PACK_KEY", "")),
+            trap_pack_repo=_repo(e.get("HUB_TRAP_PACK_REPO", "") or "selfhostr/suckerpot"),
+            trap_relay_interval_s=_int(e, "HUB_TRAP_RELAY_INTERVAL_S", 600, 60, 86_400),
             delist_pow_difficulty=_int(e, "HUB_DELIST_POW_DIFFICULTY", 20, 0, 32),
             delist_daily_cap=_int(e, "HUB_DELIST_DAILY_CAP", 200, 0),
             delist_auto_suppress_daily=_int(e, "HUB_DELIST_AUTO_SUPPRESS_DAILY", 50, 0),

@@ -321,6 +321,12 @@ class Detector:
         self.traps = bundled() if traps is None else traps
         self.severe = SEVERE | self.traps.severe
 
+    def use_traps(self, traps: TrapSet) -> None:
+        """Swap the trap set (a reload). ``analyze`` never awaits, so a request is analysed
+        with one set from start to end; the next request uses the new one."""
+        self.severe = SEVERE | traps.severe
+        self.traps = traps
+
     def _remember_sid(self, sid: str, ip: str) -> None:
         if not sid:
             return

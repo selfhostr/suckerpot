@@ -59,6 +59,12 @@ UDP_SENSORS: Final = frozenset({"sip"})
 _INT_HOST = re.compile(r"^(0x[0-9a-f]+|0[0-7]*|[0-9]+)$", re.IGNORECASE)
 
 
+class TrapGateSource(Protocol):
+    """Gate G (M37 P2): the CVE tags held back on a day, ``None`` when unknown."""
+
+    async def gated_tags(self, day: date) -> frozenset[str] | None: ...
+
+
 class TermsSource(Protocol):
     async def get(self) -> SelfTerms | None: ...
 
@@ -109,7 +115,14 @@ def _tags(values: set[str]) -> list[str]:
     return sorted(t for t in values if is_valid_tag(t))[:32]
 
 
-def activities_of(f: SessionFact) -> set[str]:
+def _ungated(tag: str, gated: frozenset[str] | None) -> bool:
+    return gated is not None and tag not in gated
+
+
+def activities_of(f: SessionFact, gated: frozenset[str] | None = frozenset()) -> set[str]:
+    """The activities of a session fact. ``gated`` (gate G, M37): CVE tags of trap packs that
+    first loaded here less than 48 h ago; they stay in the tags but do not make the activity
+    ``exploit``. ``None`` means the gate state is unknown: no CVE tag counts (fail closed)."""
     out: set[str] = set()
     if f.login_attempts > 0:
         out.add("login")
@@ -121,7 +134,7 @@ def activities_of(f: SessionFact) -> set[str]:
         out.add("download")
     if f.http_requests > 0:
         out.add("http")
-    if any(t in EXPLOIT_TAGS or t.startswith("cve-") for t in f.tags):
+    if any(t in EXPLOIT_TAGS or (t.startswith("cve-") and _ungated(t, gated)) for t in f.tags):
         out.add("exploit")
     if not out:
         out.add("scan" if "recon" in f.tags else "connect")
@@ -185,6 +198,7 @@ class BatchBuilder:
         max_sources: int = 5000,
         allow_documentation: bool = False,
         batch_id: Callable[[], str] = sign.new_nonce,
+        trap_gate: TrapGateSource | None = None,
     ) -> None:
         self.source = source
         self.terms = terms
@@ -192,6 +206,13 @@ class BatchBuilder:
         # Test overlay only (the hub has the same switch): documentation ranges pass.
         self.allow_documentation = allow_documentation
         self._batch_id = batch_id
+        self.trap_gate = trap_gate
+
+    async def _gated(self, day: date) -> frozenset[str] | None:
+        """Gate G: the CVE tags that may not set `exploit` on this day (None: every one)."""
+        if self.trap_gate is None:
+            return frozenset()
+        return await self.trap_gate.gated_tags(day)
 
     # -- guards -----------------------------------------------------------------------------
 
@@ -224,7 +245,11 @@ class BatchBuilder:
     # -- sections ---------------------------------------------------------------------------
 
     def _sources(
-        self, facts: list[SessionFact], terms: SelfTerms, dropped: dict[str, int]
+        self,
+        facts: list[SessionFact],
+        terms: SelfTerms,
+        dropped: dict[str, int],
+        gated: frozenset[str] | None = frozenset(),
     ) -> list[dict[str, Any]]:
         per_ip: dict[str, dict[str, Any]] = {}
         for f in facts:
@@ -241,7 +266,7 @@ class BatchBuilder:
             e["sessions"] += f.sessions
             if f.sensor in UDP_SENSORS:
                 continue  # presence only (see UDP_SENSORS)
-            e["activity"] |= activities_of(f)
+            e["activity"] |= activities_of(f, gated)
             e["tags"] |= set(f.tags)
             e["attempts"] += f.login_attempts
         items: list[dict[str, Any]] = []
@@ -366,7 +391,8 @@ class BatchBuilder:
         if not terms.has_self_address:
             return BuildResult("waiting_self_address")
         dropped: dict[str, int] = {}
-        sources = self._sources(await self.source.sessions(day), terms, dropped)
+        gated = await self._gated(day)
+        sources = self._sources(await self.source.sessions(day), terms, dropped, gated)
         if len(sources) > self.max_sources:
             dropped["cap"] = dropped.get("cap", 0) + len(sources) - self.max_sources
             sources = sources[: self.max_sources]

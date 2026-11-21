@@ -174,6 +174,10 @@ services:
       # Public network observatory (design M34): network.json in HUB_FEED_DIR, independent of
       # HUB_FEED_MODE.
       HUB_OBSERVATORY_ENABLED: ${HUB_OBSERVATORY_ENABLED:-false}
+      # Trap pack relay (design M37): the pack PUBLIC key; empty = off. The hub cannot sign.
+      HUB_TRAP_PACK_KEY: ${HUB_TRAP_PACK_KEY:-}
+      HUB_TRAP_PACK_REPO: ${HUB_TRAP_PACK_REPO:-selfhostr/suckerpot}
+      HUB_TRAP_RELAY_INTERVAL_S: ${HUB_TRAP_RELAY_INTERVAL_S:-600}
     healthcheck:
       test: ["CMD", "python", "-m", "hub.worker", "--health"]
       interval: 60s

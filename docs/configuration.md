@@ -835,6 +835,16 @@ The sweep runs every minute: a pass over the last three hours, then, until it ha
 | `NETWORK_FEED_INTERVAL_S` | `3600` | `ingest` | Seconds between fetches, from 900 to 86400 |
 | `NETWORK_FEED_LISTS` | `inbound,outbound,outbound-domains` | `ingest` | Lists to store. Choose from `inbound`, `inbound-high`, `outbound`, `outbound-high` and `outbound-domains`. The high lists are subsets, and each stored row carries its tier. |
 
+### Trap packs (M37) - advanced
+
+Signed trap packs teach the web sensor new traps between releases. See [Trap packs](trap-packs.md#signed-distribution).
+
+| Variable | Default | Service | Description |
+| --- | --- | --- | --- |
+| `TRAP_PACKS_REMOTE` | `true` | `ingest` | Fetch the signed trap pack bundle from the feed host, through the VPN egress gate or `hubproxy` (participant direct mode). `false` stops the fetch and removes a downloaded bundle; the packs bundled in the image keep running. |
+| `TRAP_PACK_KEY` | the shipped default | `ingest`, `sensor-web` | The pack signer's minisign public key, starting with `RW`. Not the feed key and not the hub key. Leave it out to use the key shipped with the release. Empty everywhere: downloaded packs stay off. |
+| `TRAP_PACKS_DISABLED` | empty | `sensor-web` | Pack ids to turn off on this node, comma-separated. Bundled packs too. |
+
 ## Data sources and attribution
 
 SuckerPot shows data from third parties. Keep these credits visible if you publish a screenshot or a page that shows the data.

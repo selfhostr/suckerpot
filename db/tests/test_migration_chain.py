@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0036() -> None:
+def test_the_chain_is_linear_up_to_0037() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0036"}
+    assert heads == {"0037"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -107,6 +107,8 @@ def test_the_chain_is_linear_up_to_0036() -> None:
     assert revs["0035"][0] == "0034"
     # The partial index on demo connect events (blocklist cycle timeout) follows 0035.
     assert revs["0036"][0] == "0035"
+    # The signed trap pack state (M37 P2) follows 0036.
+    assert revs["0037"][0] == "0036"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -638,3 +640,14 @@ def test_ingest_may_execute_the_fold_function_but_never_delete_sessions() -> Non
     assert "fold_session_buckets" not in others and "restore_folded_sessions" not in others
     assert _grants(_GRANTS_INGEST)["sessions"] == {"SELECT", "INSERT", "UPDATE"}
     assert _grants(_GRANTS_API)["sessions"] == {"SELECT"}
+
+
+def test_trap_state_is_modelled_and_granted() -> None:
+    """M37 P2: ingest writes the trap pack state, the API only reads it, nobody deletes it."""
+    assert "trap_state" in models.Base.metadata.tables
+    assert "GRANT SELECT, INSERT, UPDATE ON trap_state TO %I" in _GRANTS_INGEST
+    assert "GRANT SELECT ON trap_state TO %I" in _GRANTS_API
+    for script in (_GRANTS_INGEST, _GRANTS_API):
+        assert "'trap_state'" in script
+    src = (VERSIONS / "0037_trap_state.py").read_text()
+    assert "CHECK (id = 1)" in src and "pg_column_size(first_seen) <= 262144" in src

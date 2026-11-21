@@ -97,3 +97,94 @@ def test_flags_with_a_meaning_in_ingest_rules_are_reserved() -> None:
     owned = dict(traps.PACK_OWNED_FLAGS)
     assert found and found <= traps.WEB_BUILTIN_FLAGS | set(owned), found - traps.WEB_BUILTIN_FLAGS
     assert set(owned) <= found  # the owned flags are the ones the rules use
+
+
+# -- distribution (M37 P2) ------------------------------------------------------------------------
+
+
+def test_release_bundle_holds_every_pack_the_kill_list_and_a_higher_seq(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    data, errors = trap_packs.release_bundle(1_790_000_000, now=datetime(2026, 11, 21, tzinfo=UTC))
+    assert errors == []
+    doc = traps.parse_bundle(data)
+    assert doc["seq"] == 1_790_000_000 and doc["issued_at"] == "2026-11-21T00:00:00Z"
+    assert doc["disabled"] == []  # traps/disabled.yaml
+    assert [p["id"] for p in doc["packs"]] == [
+        "log4j-log4shell", "phpunit-eval-stdin", "router-boaform-gponform"
+    ]  # fmt: skip
+    _, errors = trap_packs.release_bundle(1_790_000_000, previous=data)
+    assert errors == ["seq 1790000000 is not above the published seq 1790000000"]
+    _, errors = trap_packs.release_bundle(0)
+    assert "seq must be a positive integer" in errors
+    out = tmp_path / "dist"
+    assert trap_packs.main(["release", "--seq", "7", "--out", str(out)]) == 0
+    assert traps.parse_bundle((out / "traps.json").read_bytes())["seq"] == 7
+
+
+def test_kill_list_file_is_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "disabled.yaml"
+    monkeypatch.setattr(trap_packs, "DISABLED", path)
+    path.write_text("disabled:\n  - {id: log4j-log4shell, reason: flags benign traffic}\n")
+    assert trap_packs.load_disabled() == (
+        [{"id": "log4j-log4shell", "reason": "flags benign traffic"}],
+        [],
+    )
+    data, errors = trap_packs.release_bundle(9)
+    assert errors == [] and traps.parse_bundle(data)["disabled"][0]["id"] == "log4j-log4shell"
+    path.write_text("disabled:\n  - {id: x}\n")
+    assert trap_packs.load_disabled()[1] == [
+        "traps/disabled.yaml: entry 0 needs exactly id and reason"
+    ]
+    path.write_text("disabled:\n  - {id: Not A Slug, reason: r}\n")
+    _, errors = trap_packs.release_bundle(9)
+    assert any(e.startswith("bundle:") for e in errors)
+
+
+def test_sign_verifies_with_the_public_key_and_keygen_never_overwrites(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from suckerpot_netproto.feeds import minisign
+    from suckerpot_netproto.feeds import traps as tb
+
+    key_file = tmp_path / "pack.key"
+    assert trap_packs.main(["keygen", "--out", str(key_file)]) == 0
+    printed = capsys.readouterr().out
+    public = printed.splitlines()[0].removeprefix("TRAP_PACK_KEY=")
+    assert oct(key_file.stat().st_mode & 0o777) == "0o600"
+    assert minisign.parse_secret_key(key_file.read_text()).public.encoded == public
+    assert trap_packs.main(["keygen", "--out", str(key_file)]) == 1
+
+    bundle = tmp_path / "traps.json"
+    bundle.write_bytes(trap_packs.release_bundle(11)[0])
+    monkeypatch.setenv("TRAP_PACK_SECRET_KEY", key_file.read_text())
+    assert trap_packs.main(["sign", str(bundle), "--public", public]) == 0
+    sig = (tmp_path / "traps.json.minisig").read_text()
+    assert tb.verify_bundle(bundle.read_bytes(), sig, minisign.parse_public_key(public)) == 11
+    assert key_file.read_text().splitlines()[1] not in capsys.readouterr().out
+    # Signed with a key that is not the committed one: refused, nothing written.
+    (tmp_path / "traps.json.minisig").unlink()
+    other = minisign.generate_keypair().public.encoded
+    assert trap_packs.main(["sign", str(bundle), "--public", other]) == 1
+    assert not (tmp_path / "traps.json.minisig").exists()
+    monkeypatch.setenv("TRAP_PACK_SECRET_KEY", "")
+    assert trap_packs.main(["sign", str(bundle), "--public", public]) == 1
+
+
+def test_verify_refuses_a_bundle_this_commit_does_not_build(tmp_path: Path) -> None:
+    """Security review of #163: publish rebuilds from the checked-out commit before signing."""
+    good = tmp_path / "traps.json"
+    good.write_bytes(trap_packs.release_bundle(21)[0])
+    assert trap_packs.main(["verify", str(good)]) == 0
+    doc = json.loads(good.read_bytes())
+    doc["issued_at"] = "2030-01-01T00:00:00Z"  # only the time differs: fine
+    good.write_bytes(json.dumps(doc).encode())
+    assert trap_packs.main(["verify", str(good)]) == 0
+    doc["disabled"] = [{"id": "log4j-log4shell", "reason": "x"}]
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(json.dumps(doc).encode())
+    assert trap_packs.main(["verify", str(bad)]) == 1
+    doc["disabled"] = []
+    doc["packs"][0]["title"] = "changed"
+    bad.write_bytes(json.dumps(doc).encode())
+    assert trap_packs.main(["verify", str(bad)]) == 1

@@ -18,6 +18,7 @@ from web_sensor.profile import load_or_create_profile
 from web_sensor.server import WebSensor, WebServer
 from web_sensor.site import Site
 from web_sensor.tls import ensure_certificate, make_context
+from web_sensor.trapsync import SyncSettings, TrapSync
 from web_sensor.watchdog import LoopWatchdog
 
 
@@ -65,11 +66,14 @@ async def run() -> None:
     sensor_holder: list[WebSensor] = []
     cert, key = ensure_certificate(cfg.data_dir, cfg.hostname, profile)
     ctx = make_context(cert, key, lambda obj, name: sensor_holder[0].on_sni(obj, name))
-    sensor = WebSensor(cfg, sink, site, ctx)
+    trap_sync = TrapSync(SyncSettings.from_env())
+    sensor = WebSensor(cfg, sink, site, ctx, traps=trap_sync.current)
     sensor_holder.append(sensor)
     server = WebServer(cfg, sensor)
     ports = await server.start()
     log.info("listening on %s", json.dumps(ports))
+    # Downloaded trap packs: checked now, then every 30 s; a new set is one reference swap.
+    reloader = asyncio.create_task(trap_sync.run(sensor.detector.use_traps))
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -85,6 +89,7 @@ async def run() -> None:
     await stop.wait()
     log.info("shutting down")
     reporter.cancel()
+    reloader.cancel()
     await server.stop()
     await sink.close()
     watchdog.stop()

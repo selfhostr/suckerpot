@@ -45,7 +45,7 @@ TABLES = (
     "enrol_challenges, nodes, worker_state, payload_links, target_hosts, feed_entries, feed_runs, "
     "feed_daily, feed_allow, feed_auto_ranges, delist_challenges, delist_requests, "
     "abusech_submissions, node_roles, verify_tasks, verify_attestations, verify_daily, "
-    "observatory_daily"
+    "observatory_daily, trap_relay_state"
 )
 
 

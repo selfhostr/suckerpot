@@ -224,3 +224,49 @@ async def test_sip_sessions_add_presence_only() -> None:
     assert sip_only.batch is not None
     assert sip_only.batch["sources"][0]["activity"] == ["connect"]
     assert sip_only.batch["sources"][0]["attempts"] == 0
+
+
+# -- gate G (M37 P2) -------------------------------------------------------------------------------
+
+
+class Gate:
+    def __init__(self, tags: frozenset[str] | None) -> None:
+        self.tags = tags
+        self.days: list[date] = []
+
+    async def gated_tags(self, day: date) -> frozenset[str] | None:
+        self.days.append(day)
+        return self.tags
+
+
+def test_gate_g_holds_back_the_exploit_activity_of_a_new_pack_cve() -> None:
+    fact = session(login_attempts=0, http_requests=1, tags=("cve-2026-55501", "edgegate"))
+    assert "exploit" in activities_of(fact)
+    assert activities_of(fact, frozenset({"cve-2026-55501"})) == {"http"}
+    assert activities_of(fact, None) == {"http"}  # gate state unknown: fail closed
+    # Another CVE tag or a built-in exploit tag is not held back.
+    other = session(login_attempts=0, tags=("cve-2026-55501", "cve-2025-1111"))
+    assert "exploit" in activities_of(other, frozenset({"cve-2026-55501"}))
+    builtin = session(login_attempts=0, tags=("cve-2026-55501", "php2shell"))
+    assert "exploit" in activities_of(builtin, None)
+
+
+async def test_gate_g_in_the_batch_keeps_the_tag_but_not_the_activity() -> None:
+    src = Source(sessions=[session(login_attempts=0, http_requests=2, tags=("cve-2026-55501",))])
+    gate = Gate(frozenset({"cve-2026-55501"}))
+    res = await builder(src, trap_gate=gate).build(DAY)
+    assert res.status == "ok" and res.batch is not None and gate.days == [DAY]
+    item = res.batch["sources"][0]
+    assert item["tags"] == ["cve-2026-55501"] and item["activity"] == ["http"]
+    res = await builder(src, trap_gate=Gate(None)).build(DAY)
+    assert res.batch is not None and res.batch["sources"][0]["activity"] == ["http"]
+    res = await builder(src, trap_gate=Gate(frozenset())).build(DAY)
+    assert res.batch is not None and "exploit" in res.batch["sources"][0]["activity"]
+
+
+def test_the_validator_reserves_the_same_exploit_tags() -> None:
+    from suckerpot_common import traps
+
+    from ingest.network.builder import EXPLOIT_TAGS
+
+    assert traps.EXPLOIT_TAGS == EXPLOIT_TAGS
