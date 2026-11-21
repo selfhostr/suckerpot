@@ -6,7 +6,10 @@ One cycle:
 
 1. idle when there is nothing asked for;
 2. ``desired = leave``: delete at the hub, wipe every local network row and the key (N8);
-3. ``desired = member``: make the key, enrol (proof of work off the event loop);
+3. ``desired = member``: make the key, enrol (proof of work off the event loop). A refused
+   enrolment heals by itself (``_self_heal``): a new name from ``.env`` is tried at once, a
+   generated name that is taken is replaced (with backoff), and a chosen one is tried again once
+   a day;
 4. member: sync a changed pseudonym/country, send due days, pull targets (6 hourly), answer
    reveals and rechecks, fetch the daily summary.
 
@@ -61,6 +64,8 @@ VERIFY_REVEAL_EVERY = timedelta(minutes=15)
 VERIFY_RETRY = timedelta(hours=24)
 LEARN_EVERY = timedelta(hours=1)
 NAME_RETRIES = 5
+# A refused chosen pseudonym is tried again this often: the hub may free a ghost's name (#172).
+HEAL_SAME_NAME_EVERY = timedelta(hours=24)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -198,6 +203,7 @@ class NetworkWorker(FeatureWorker):
             self.state, self.reason = "off", "no_hub" if store is not None else None
             return
         m = await store.membership()
+        m = await self._self_heal(m)
         m = await self._auto_join(m)  # participant and full mode alike (M33)
         self.state = m.state
         pending = m.desired == "leave" or (m.desired == "member" and m.state != "member")
@@ -254,16 +260,66 @@ class NetworkWorker(FeatureWorker):
         if not participant.is_fresh(self.consent, self._now().date()):
             self._consent_reason = participant.STALE
             return m
+        await self._request_join(self.network.pseudonym or None)
+        return await store.membership()
+
+    async def _request_join(self, name: str | None, **extra: Any) -> None:
+        store = self.store
+        assert store is not None  # noqa: S101
         country = self.network.country if valid_country(self.network.country) else None
         await store.update(
             desired="member",
-            pseudonym=self.network.pseudonym or None,
+            pseudonym=name,
             country=country,
             show_country=self.network.show_country and country is not None,
             requested_by="installer",
             requested_at=self._now(),
             last_error_code=None,
+            **extra,
         )
+
+    async def _self_heal(self, m: Membership) -> Membership:
+        """Try a refused enrolment again, without the owner (the 2026-11-21 field report).
+
+        Only from a healable refusal of a join the consent record started, with the record still
+        valid and fresh, and never after a leave (``participant.can_self_heal``). Which name, and
+        when (``requested_at`` is the last try; it survives a restart):
+
+        - the owner set another name in ``.env``: that name, at once;
+        - a generated name was taken: a new generated name, with the enrolment backoff;
+        - otherwise the same name, once every 24 hours (the hub may have freed it meanwhile).
+        """
+        store = self.store
+        assert store is not None  # noqa: S101
+        now = self._now()
+        if not participant.can_self_heal(
+            state=m.state, desired=m.desired, left_day=m.left_day, requested_by=m.requested_by,
+            error_code=m.last_error_code, consent=self.consent, today=now.date(),
+        ):  # fmt: skip
+            return m
+        configured = self.network.pseudonym or None
+        refused = m.pseudonym
+        generated = (
+            m.last_error_code == "pseudonym_taken"
+            and pseudonym.is_generated(refused)
+            and (configured == refused or pseudonym.is_generated(configured))
+        )
+        if generated:
+            wait = min(BACKOFF_FIRST * 2**self._enrol_failures, BACKOFF_MAX)
+        elif configured != refused:
+            wait = timedelta(0)
+        else:
+            wait = HEAL_SAME_NAME_EVERY
+        if self._enrol_retry_at is not None and now < self._enrol_retry_at:
+            return m
+        if m.requested_at is not None and now - m.requested_at < wait:
+            return m
+        name = await pseudonym.fresh(self._pseudonym_ok, self._rng) if generated else configured
+        if generated and name is None:
+            return m
+        self._enrol_failures = min(self._enrol_failures + 1, 10)
+        log.info("network: retrying a refused enrolment")
+        await self._request_join(name, state="off")
         return await store.membership()
 
     async def _retry_name(self, m: Membership) -> bool:

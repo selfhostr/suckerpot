@@ -18,6 +18,8 @@ from ingest.network import cli
 from ingest.network.store import SqlStore
 from ingest.network.verifier import SqlVerifyStore, StaleFetch, TaskRow
 
+from .helpers import HUB_KEY, HUB_URL
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(not os.environ.get("POSTGRES_HOST"), reason="POSTGRES_HOST not set"),
@@ -293,4 +295,31 @@ async def test_join_restarts_a_refused_enrolment_and_renames_a_member(
     await cli.join(factory, ENV, "grey heron")
     m = await store.membership()
     assert m.pseudonym == "grey heron" and m.last_error_code is None and m.state == "member"
+    await clean(engine)
+
+
+async def test_status_says_when_a_refused_join_heals_by_itself(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    await clean(engine)
+    store = SqlStore(factory)
+    await store.update(
+        state="error", desired="off", last_error_code="pseudonym_taken", requested_by="installer"
+    )
+    env = {
+        **ENV,
+        "NETWORK_CONSENT": f"v2:sources,payloads,c2,files,rechecks:{NOW.date()}",
+        "NETWORK_HUB_URL": HUB_URL,
+        "NETWORK_HUB_KEY": HUB_KEY,
+    }
+    doc = await cli.build_status(factory, env, now=NOW)
+    assert doc["network"]["hub_configured"] is True
+    assert doc["network"]["membership"]["auto_retry"] is True
+    stale = {**env, "NETWORK_CONSENT": "v2:sources,payloads,c2,files,rechecks:2026-01-01"}
+    assert (await cli.build_status(factory, stale, now=NOW))["network"]["membership"][
+        "auto_retry"
+    ] is False
+    await store.update(left_day=NOW.date())  # the owner left: never by itself
+    doc = await cli.build_status(factory, env, now=NOW)
+    assert doc["network"]["membership"]["auto_retry"] is False
     await clean(engine)
