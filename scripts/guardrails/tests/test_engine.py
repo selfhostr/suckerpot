@@ -652,3 +652,56 @@ def test_an_update_from_v0_12_1_runs_the_same_docker_calls(sandbox: Sandbox) -> 
     assert sorted(_norm(sandbox, sandbox.docker_calls())) == sorted(want)
     env = (sandbox.root / ".env").read_text()
     assert re.findall(r"^SUCKERPOT_ENGINE=.*$", env, re.M) == ["SUCKERPOT_ENGINE=docker"]
+
+
+# ------------------------------------------------------------------ sourcing has no side effects
+
+STATE_PROBE = r"""
+set -euo pipefail
+trap 'true' EXIT
+state() { set +o; shopt -p; trap -p; echo "umask=$(umask)"; }
+before=$(state)
+{prefix}. scripts/lib/engine.sh
+rc=$?
+after=$(state)
+[ "$before" = "$after" ] || { diff <(echo "$before") <(echo "$after") >&2; exit 3; }
+echo "rc=$rc env_file=${ENV_FILE-unset} engine=$ENGINE_ID"
+rand=$( (set +o pipefail; LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 8) )
+echo "rand=${#rand}"
+"""
+
+
+@pytest.mark.parametrize(
+    ("env", "prefix", "engine"),
+    [
+        ("", "", "docker"),
+        ("", "ENV_FILE=/dev/null ", "docker"),
+        ("SUCKERPOT_ENGINE=docker # default\n", "", "docker"),
+        ("SUCKERPOT_ENGINE=podman\n", "", "podman"),
+    ],
+)
+def test_sourcing_the_library_keeps_the_shell_state(
+    sandbox: Sandbox, env: str, prefix: str, engine: str
+) -> None:
+    if env:
+        sandbox.write_env(env)
+    script = sandbox.root / "state-probe.sh"
+    script.write_text('cd "$(dirname "$0")"\n' + STATE_PROBE.replace("{prefix}", prefix))
+    proc = sandbox.run("state-probe.sh")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert f"rc=0 env_file=unset engine={engine}" in proc.stdout
+    assert "rand=8" in proc.stdout
+    assert _engine_calls(sandbox) == []
+
+
+def test_the_e2e_script_needs_no_work_folder_before_it_exists() -> None:
+    """Its own dc and hubdc run in $work: no top-level call before the copy is made."""
+    lines = (ROOT / "scripts/e2e/participant.sh").read_text().splitlines()
+    start = lines.index('work=""')
+    end = next(i for i, line in enumerate(lines) if line.startswith("work=$(mktemp"))
+    early = [
+        f"{i + 1}: {line}"
+        for i, line in enumerate(lines[start:end], start)
+        if re.match(r"^(hubdc|dc)\s", line) or re.search(r"^[^\s#].*\$\((hubdc|dc)\s", line)
+    ]
+    assert early == []

@@ -130,7 +130,7 @@ cleanup() {
 trap cleanup EXIT
 
 command -v "${ENGINE_CTR[0]}" > /dev/null || fatal "$(engine_name) is not installed"
-dc version > /dev/null || fatal "Docker Compose v2 is required"
+"${ENGINE_DC[@]}" version > /dev/null || fatal "Docker Compose v2 is required"
 ctr network inspect "$UPLINK" > /dev/null 2>&1 && fatal "network $UPLINK exists"
 if ip -4 route 2> /dev/null | grep -q "^11\.251\.77\."; then fatal "the test subnet $UPLINK_SUBNET is in use on this machine"; fi
 
