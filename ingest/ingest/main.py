@@ -50,7 +50,7 @@ from ingest.scanners import load_scanners
 from ingest.scripts import ScriptWorker, load_annotations
 from ingest.tagging import load_rules
 from ingest.takedown import TakedownWorker
-from ingest.trappacks import SqlGateSource, build_trap_worker
+from ingest.trappacks import build_gate_source, build_trap_worker
 from ingest.updatecheck import UpdateChecker
 
 log = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ def build_network_worker(features: FeatureSettings, factory: Any) -> NetworkWork
         SqlSource(factory),
         terms,
         max_sources=network.max_sources,
-        trap_gate=SqlGateSource(factory),  # gate G (M37): new pack CVEs wait 48 h for `exploit`
+        trap_gate=build_gate_source(factory),  # gate G (M37): new pack CVEs wait 48 h for `exploit`
     )
 
     async def learn() -> int:

@@ -421,3 +421,64 @@ def test_gated_tags_cover_48_hours() -> None:
     assert tp.gated_tags(seen, date(2026, 11, 23)) == frozenset()
     broken = {"p@1": {"cves": ["CVE-2026-55501"], "first_at": "not a time"}}
     assert tp.gated_tags(broken, date(2027, 1, 1)) == tag  # unreadable: fail closed
+
+
+# -- security review fixes -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("etag", ['"' + "x" * 300 + '"', '"t\x01"', ""])
+async def test_a_hostile_etag_is_dropped_not_stored(tmp_path: Path, etag: str) -> None:
+    site, store = Site(), Store()
+    site.etag = etag
+    await make(site, store, tmp_path).run_once()
+    assert store.st is not None and store.st.seq == 5 and store.st.etag is None
+    assert tp.clean_etag('"ok-1"') == '"ok-1"'
+    assert tp.clean_etag("caf\u00e9") is None
+
+
+class FailingStore(Store):
+    async def save(self, state: TrapState) -> None:
+        if state.seq is not None and state.error_code is None:
+            raise RuntimeError("check constraint")
+        await super().save(state)
+
+
+async def test_nothing_is_written_when_the_state_cannot_be_saved(tmp_path: Path) -> None:
+    """The state (seq, first_seen) is saved before the files: a failed save leaves the sensors on
+    their current set, so gate G and the rollback floor cannot be skipped."""
+    site = Site()
+    w = make(site, FailingStore(), tmp_path)
+    with pytest.raises(RuntimeError):
+        await w.run_once()  # the worker loop logs it and retries on the next cycle
+    assert files(tmp_path) is None
+
+
+async def test_a_failed_file_write_leaves_no_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site, store = Site(), Store()
+
+    def boom(directory: Path, data: bytes, sig: str) -> None:
+        (directory / tp.ACTIVE_SIG).write_text(sig)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(tp, "write_active", boom)
+    with pytest.raises(OSError):
+        await tp.accept(store, tmp_path, site.data, site.sig, SECRET.public, source="remote",
+                        now=NOW)  # fmt: skip
+    assert files(tmp_path) is None and not (tmp_path / tp.ACTIVE_SIG).exists()
+    assert store.st is not None and store.st.first_seen  # recorded first
+
+
+class _NoRow:
+    async def state(self) -> TrapState | None:
+        return None
+
+
+async def test_gate_holds_every_cve_without_a_record_but_with_a_bundle(tmp_path: Path) -> None:
+    gate = tp.SqlGateSource.__new__(tp.SqlGateSource)
+    gate.store = _NoRow()  # type: ignore[assignment]
+    gate.directory = tmp_path
+    assert await gate.gated_tags(date(2026, 11, 21)) == frozenset()
+    tp.write_active(tmp_path, b"{}", "sig")
+    assert await gate.gated_tags(date(2026, 11, 21)) is None

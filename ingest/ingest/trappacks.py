@@ -330,12 +330,11 @@ async def accept(
     got = verify(data, sig, public, old)
     for pid, reason in got.result.rejected:
         log.warning("trap pack rejected: id=%s reason=%s", pid, reason)
-    write_active(directory, data, sig)
     state = TrapState(
         key_id=public.key_id_hex,
         seq=got.seq,
         sha256=hashlib.sha256(data).hexdigest(),
-        etag=etag,
+        etag=clean_etag(etag),
         source=source,
         packs=len(got.result.packs),
         rejected=[[pid, reason] for pid, reason in got.result.rejected][:256],
@@ -345,9 +344,30 @@ async def accept(
         last_ok_at=now,
         error_code=None,
     )
+    # The state first (seq, hash, first_seen): a failure here writes nothing, so the sensors never
+    # run a bundle whose gate G entry or seq was not recorded. If writing the files fails, the
+    # recorded seq only makes the next check fetch the same bundle again.
     await store.save(state)
+    try:
+        write_active(directory, data, sig)
+    except BaseException:
+        remove_active(directory)
+        raise
     log.info("trap bundle accepted: seq %d, %d packs (%s)", got.seq, state.packs, source)
     return state
+
+
+MAX_ETAG: Final = 256
+
+
+def clean_etag(etag: str | None) -> str | None:
+    """An ETag fit for the bounded column: printable ASCII, 256 characters at most, else None
+    (the next check is then a plain GET). The feed host chooses it, so it is never trusted."""
+    if etag is None or not 1 <= len(etag) <= MAX_ETAG:
+        return None
+    if not all(" " <= c <= "~" for c in etag):
+        return None
+    return etag
 
 
 def library_code(exc: FeedError) -> str:
@@ -471,7 +491,7 @@ class TrapPackWorker(FeatureWorker):
             tb.verify_bundle(resp.body, sig, public, last_seq=old.seq)
             if have:
                 old.last_check_at = old.last_ok_at = now
-                old.error_code, old.etag = None, resp.etag
+                old.error_code, old.etag = None, clean_etag(resp.etag)
                 await store.save(old)
                 self.last_ok_at = now
                 return
@@ -501,8 +521,11 @@ def build_trap_worker(features: FeatureSettings, factory: Any) -> TrapPackWorker
 class SqlGateSource:
     """Gate G for the network batch builder: the CVE tags held back on a day."""
 
-    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, factory: async_sessionmaker[AsyncSession], directory: Path = Path("/traps")
+    ) -> None:
         self.store = SqlTrapStore(factory)
+        self.directory = directory
 
     async def gated_tags(self, day: date) -> frozenset[str] | None:
         try:
@@ -510,7 +533,20 @@ class SqlGateSource:
         except Exception as exc:  # fail closed: the builder holds back every CVE tag
             log.warning("trap state unreadable for gate G (%s)", type(exc).__name__)
             return None
-        return gated_tags(state.first_seen, day) if state is not None else frozenset()
+        if state is None:
+            # No record, yet a bundle is there for the sensors: its packs may be new. Hold back
+            # every CVE tag until the worker has recorded it (fail closed).
+            return None if (self.directory / ACTIVE).exists() else frozenset()
+        return gated_tags(state.first_seen, day)
+
+
+def build_gate_source(factory: async_sessionmaker[AsyncSession]) -> SqlGateSource:
+    """Gate G source looking at the same trap-packs directory as the worker."""
+    try:
+        directory = TrapSettings.from_env().directory
+    except ValueError:
+        directory = Path("/traps")
+    return SqlGateSource(factory, directory)
 
 
 # -- import (just trap-import) -------------------------------------------------------------------
