@@ -29,6 +29,8 @@ ExecStartPre=+@NFT@ list table bridge suckerpot_bridge
 # is not active.
 ExecStartPre=/bin/bash @CHECKOUT@/scripts/ensure-networks.sh
 ExecStart=@COMPOSE@ up -d --no-build --pull never --wait --wait-timeout 600
+# netavark must use its nftables driver (the host firewall is written for it): its table must exist.
+ExecStartPost=+@NFT@ list table inet netavark
 ExecStopPost=@COMPOSE@ stop
 TimeoutStartSec=900
 TimeoutStopSec=300

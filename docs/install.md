@@ -44,7 +44,11 @@ What differs from Docker:
 
 - **Socket access.** The scripts talk to the root Podman socket. `scripts/host/podman-socket.sh
   USER` creates the group `suckerpot-podman`, adds the user and opens the socket to that group
-  (log out and in afterwards). The group is root-equivalent, like the `docker` group.
+  (log out and in afterwards). The group is root-equivalent, like the `docker` group, and the user
+  stays in it until `sudo scripts/host/podman-socket.sh --uninstall USER` (`participant.sh
+  uninstall` offers it). The script also sets netavark's firewall driver to nftables
+  (`/etc/containers/containers.conf.d/50-suckerpot.conf`); the boot unit checks it after each
+  start.
 - **Host firewall: required.** Podman ignores the Docker network options that keep sensors off the
   internet and away from each other. `./scripts/participant.sh firewall` installs the firewall and
   the boot unit `suckerpot-stack.service`, which starts the stack only after the firewall and stops

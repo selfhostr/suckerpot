@@ -155,6 +155,8 @@ engine_stack_up() {
   fi
   if [ "$ENGINE_ID" = podman ] && engine_stack_unit_installed &&
     ! systemctl is-active --quiet suckerpot-stack.service 2> /dev/null; then
+    # Source mode: the unit starts with --no-build, so build first (else it would end "failed").
+    case " $* " in *" --build "*) dc build || return $? ;; esac
     if ! _engine_systemctl start suckerpot-stack.service; then
       echo "note: could not start suckerpot-stack.service (needs root); starting with docker-compose. The firewall unit still stops these containers when it stops." >&2
     fi
@@ -204,6 +206,13 @@ engine_install_boot_unit() {
 engine_remove_boot_unit() {
   [ "$ENGINE_ID" = podman ] || return 0
   bash scripts/host/install-stack-unit.sh --uninstall
+}
+
+# engine_remove_socket_access: Podman: removes the socket settings and this user from the socket
+# group (scripts/host/podman-socket.sh --uninstall USER; needs sudo). Docker: nothing.
+engine_remove_socket_access() {
+  [ "$ENGINE_ID" = podman ] || return 0
+  bash scripts/host/podman-socket.sh --uninstall "$(id -un)"
 }
 
 # engine_socket_group: the group that may use the root Podman socket (design D3).

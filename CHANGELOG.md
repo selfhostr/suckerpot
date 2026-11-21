@@ -31,7 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   update, rollback, restore, `just set`/`just sensors`, participant tools) goes through
   `systemctl start suckerpot-stack` when the boot unit is installed, so the stack is bound to the
   host firewall. New `scripts/host/podman-socket.sh` opens the root Podman socket to the group
-  `suckerpot-podman` (with a tmpfiles rule for `/run/podman`). `participant.sh firewall` also
+  `suckerpot-podman` (with a tmpfiles rule for `/run/podman`) and sets netavark's firewall driver
+  to nftables; the boot unit fails when netavark's nftables table is missing after a start.
+  `participant.sh uninstall` offers to remove the socket access (the group is root-equivalent).
+  `just up-test` refuses Podman. `participant.sh firewall` also
   installs the boot unit on Podman, `participant.sh uninstall` removes it, `participant.sh
   firewall status` reads the tables. `just status` shows the engine and the boot unit on Podman,
   and a missing firewall there is an error.

@@ -375,6 +375,15 @@ case $cmd in
     echo "participant: stopped. The sensors and the node are down; the schedule is removed."
     echo "Your data volumes were NOT deleted. To delete them for good (this cannot be undone), run:"
     echo "  ${ENGINE_CTR[*]} volume ls -q --filter \"name=^${prefix}_\" | xargs ${ENGINE_CTR[*]} volume rm"
+    # Podman: the socket group is root-equivalent; it stays until removed. With --yes it is removed
+    # (the commands above then need sudo, or a new login back in the group).
+    if [ "$ENGINE_ID" = podman ]; then
+      if confirm "Also remove this user's access to the root Podman socket (group $ENGINE_SOCKET_GROUP, root-equivalent)?"; then
+        engine_remove_socket_access || echo "participant: warning: could not remove the socket access (sudo scripts/host/podman-socket.sh --uninstall $(id -un))" >&2
+      else
+        echo "Your user stays in group $ENGINE_SOCKET_GROUP (root-equivalent) until: sudo scripts/host/podman-socket.sh --uninstall $(id -un)"
+      fi
+    fi
     ;;
 
   "" | -h | --help)

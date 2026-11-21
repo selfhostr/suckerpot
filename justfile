@@ -74,6 +74,11 @@ up-test: ports
     #!/usr/bin/env bash
     set -euo pipefail
     . scripts/lib/engine.sh
+    # Docker only: on Podman this would skip the overlay, the host checks and the firewall.
+    if [ "$ENGINE_ID" = podman ]; then
+      echo "up-test runs on Docker only: on Podman it would start sensors without the overlay and the host firewall" >&2
+      exit 1
+    fi
     # The test overlay makes every volume project-local. Always a throwaway project, never the live one.
     export COMPOSE_PROJECT_NAME=sp-test SUCKERPOT_VOLUME_PREFIX=sp-test
     : "${ADMIN_PASSWORD_HASH:=test-placeholder}"

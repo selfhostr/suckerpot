@@ -874,6 +874,9 @@ def _podman_participant(sb: Sandbox) -> Path:
     (sb.root / "scripts/host/install-stack-unit.sh").write_text(
         '#!/bin/sh\necho "install-stack-unit $*" >> "$SHIM_LOG"\n'
     )
+    (sb.root / "scripts/host/podman-socket.sh").write_text(
+        '#!/bin/sh\necho "podman-socket $*" >> "$SHIM_LOG"\n'
+    )
     (sb.root / "scripts/ensure-networks.sh").write_text("#!/bin/sh\nexit 0\n")
     unit_root = sb.shim.parent / "unitroot"
     (unit_root / "etc/systemd/system").mkdir(parents=True, exist_ok=True)
@@ -915,6 +918,8 @@ def test_participant_uninstall_on_podman_removes_the_boot_unit_first(sandbox: Sa
     ]
     assert calls[0] == "install-stack-unit --uninstall"
     assert calls[1].startswith("docker-compose down")
+    # --yes also removes the user's root-equivalent socket access.
+    assert any(c.startswith("podman-socket --uninstall") for c in sandbox.calls())
 
 
 def test_restore_drains_the_stream_on_podman_only() -> None:
@@ -928,3 +933,28 @@ def test_rollback_keeps_the_volume_prefix_for_the_restore() -> None:
     after = text.split('env_set_line .env SUCKERPOT_VERSION "$from_version"', 1)[1]
     _drop, rest = after.split("env_drop_loaded", 1)
     assert "export SUCKERPOT_VOLUME_PREFIX" in rest.split("verify-images.sh", 1)[0]
+
+
+def test_source_mode_builds_before_the_boot_unit_starts(sandbox: Sandbox) -> None:
+    _capable(sandbox)
+    unit_root = sandbox.shim.parent / "unitroot"
+    (unit_root / "etc/systemd/system").mkdir(parents=True)
+    (unit_root / "etc/systemd/system/suckerpot-stack.service").write_text("[Unit]\n")
+    (sandbox.root / "scripts/ensure-networks.sh").write_text("#!/bin/sh\nexit 0\n")
+    _source_and_run(
+        sandbox,
+        "engine_stack_up -d --build --wait\n",
+        extra_env={"SUCKERPOT_UNIT_ROOT": str(unit_root)},
+    )
+    calls = [c for c in sandbox.calls() if not c.startswith("systemctl is-active")]
+    build = next(i for i, c in enumerate(calls) if c.startswith("docker-compose build"))
+    start = calls.index("systemctl --no-ask-password start suckerpot-stack.service")
+    assert build < start
+
+
+def test_up_test_refuses_podman() -> None:
+    text = (ROOT / "justfile").read_text()
+    body = text.split("\nup-test: ports\n", 1)[1].split("\n\n", 1)[0]
+    refusal = body.index('if [ "$ENGINE_ID" = podman ]; then')
+    assert refusal < body.index("dc up")
+    assert "exit 1" in body[refusal : body.index("dc up")]
