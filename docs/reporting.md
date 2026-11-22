@@ -168,7 +168,47 @@ Scans and connections alone are never reportable. Login attempts travel to the h
 
 - **Replies.** SuckerPot can read the answers from your report mailbox over IMAP, match each one to its report and show the outcome: a receipt, a ticket, a resolution, a rejection or a bounce. See [Replies to reports](replies.md).
 - **Takedowns.** SuckerPot follows what happens to each reported target: is the file still served, is the address still attacking, how long did it take, and which providers act. See [Track takedowns](takedowns.md).
+- **Do reports make a difference?** The Results page compares reported attacking addresses with similar ones that were not reported. See [Do reports make a difference?](#do-reports-make-a-difference) below.
 - **CERT exports.** A report page and a campaign page export STIX 2.1 or MISP JSON for a CERT. Administrators can also download a password-protected bundle of samples to upload by hand to a malware repository. Both pass the identity guard.
+
+## Do reports make a difference?
+
+The question: when your node reports an attacking address, is it less often still attacking a week later than a similar address that was not reported? The **Do reports make a difference?** card on the Results page and one line of `just status` answer it. They show nothing but progress until there is enough data.
+
+This compares two groups. It does not prove that a report made an address stop: an address that was not reported may differ in ways the comparison cannot see. The page says so, and its wording never claims a cause.
+
+### How it is measured
+
+- **Who is compared.** Each attacking address named in a sent report (sent by SMTP, or marked sent by hand) is paired with one address that passed the same report rules in the same days (within 3 days) but was not reported. On a node that reports everything, such addresses exist only where something stopped the report: no contact found, a muted or form-only desk, the daily cap, or a draft you discarded. Demo reports, the never list, your own addresses and private ranges never count.
+- **Same kind of attacker.** Both addresses must match exactly, over the 7 UTC days that end on the day of the first report: the kind of activity (exploit, download, a login with commands, logins only), the number of events (1 to 9, 10 to 99, 100 to 999, 1,000 or more), and the last sighting (that day, 1 to 2 days before, 3 to 6 days before).
+- **Closest provider.** Among those, the closest provider wins: the same network (ASN) first, then the same provider size and country, then the same provider size. The size is built from the RDAP block of the address and how many addresses of its ASN your sensors saw in 30 days. A reported address with no match is counted as unmatched and never used. Each control is used once.
+- **Still seen.** An address is still seen at 7 days when any of your sensors saw a session from it in the 7 days from day 7 to day 13 after the report (scans count too). A second horizon, 30 days, uses days 30 to 36.
+- **Only when your sensors were up.** A week counts only when at least 6 of its 7 days had sessions from at least 10 different addresses. Otherwise the pair is left out ("sensors down"), so a week offline never looks like a week without attackers.
+- **Left out.** A pair is also left out when the control was reported later (before the end of its week), or when the SuckerPot network reported either address.
+- **Frozen.** Each outcome is recorded once and never changes. The two addresses of a pair are deleted 30 days after its 30-day outcome; the counts stay.
+
+### When a number is shown
+
+Nothing but progress ("12 of 30 comparable pairs") until there are at least **30 pairs** with a result and at least **10 pairs where only one of the two was seen**. Above that, the card shows the share of each group still seen, with whole percentages and the number of pairs, and a 95 % interval of the difference in points (Newcombe's method for paired data). The verdict comes from the interval only:
+
+| Verdict | When | Example |
+| --- | --- | --- |
+| Not enough data | Below the minimum | "Not enough data yet to tell whether reports help: 12 of 30 comparable pairs." |
+| Less often seen | The whole interval is below 0 | "Reported sources were less often seen attacking a week later: 38 % against 61 % for similar sources that were not reported (84 pairs; the difference is between 9 and 37 points). This compares two groups; it does not prove that the reports made the difference." |
+| No clear difference | The interval contains 0 | "No clear difference yet: 52 % of reported sources and 55 % of similar unreported sources were still seen a week later (84 pairs). The gap could be chance." |
+| More often seen | The whole interval is above 0 | "Reported sources were more often seen attacking a week later: 64 % against 41 % (84 pairs). This compares two groups; it does not say why." |
+
+The interval is wide at first: about 25 points either way with 30 pairs, 14 with 100, 8 with 300. A small node will at best see a clear difference for a large effect. That is the honest answer.
+
+`just status` adds a **Reports** section once an attack-source report was sent, for example `Report effect: not enough data yet (12 of 30 pairs)`. It is information, never a warning. `just status --json` has the same numbers under `report_effect`.
+
+### The random holdout (optional)
+
+Without randomness, an address that was not reported was left out for a reason, and that reason may also explain its future (a provider with no abuse contact may also never clean anything). A fair test needs chance to decide. With `ABUSE_EFFECT_HOLDOUT_PCT` (0 by default, at most 10), that share of new attack candidates is chosen at random and not reported for 21 days. After that it is reported as usual if it still attacks. Held-back addresses become the preferred controls (shown as "random holdout"). Turn it on knowingly: it delays some reports. Turning it off releases every held-back address at once. It never sends a report that would not have been sent.
+
+### Where it runs
+
+The measure runs in `ingest` whenever abuse reporting is on (`ABUSE_REPORTS_ENABLED=true`), at most once an hour, with a bounded amount of work per run. It does not need takedown tracking. On its first runs it pairs the reports sent in the last 45 days. It reads only your own reports and sessions: no lookup, no network access, and no address leaves the node. The dashboard reads counts only, never an address.
 
 ## Related pages
 

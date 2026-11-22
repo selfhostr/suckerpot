@@ -751,3 +751,38 @@ def test_podman_boot_unit_problems_are_warnings(unit: str, code: str) -> None:
     assert rc == 1, out
     _, js = _render({"engine": "podman 5.4.2", "stack_unit": unit}, "--json")
     assert code in js
+
+
+def _effect(**kw: Any) -> dict[str, Any]:
+    doc: dict[str, Any] = {
+        "verdict": "not_enough_data", "horizon": 7, "pairs": 12, "needed": 30,
+        "discordant": 4, "needed_discordant": 10, "seen_reported": None,
+        "seen_control": None, "lo": None, "hi": None,
+        "line": "Report effect: not enough data yet (12 of 30 pairs)",
+    }  # fmt: skip
+    doc.update(kw)
+    return doc
+
+
+def test_the_report_effect_line_is_information_only() -> None:
+    """M38: one line in a Reports section; never a warning, never a change of the exit code."""
+    rc, out = _render({"cli_raw": json.dumps(member_cli(report_effect=_effect()))})
+    assert rc == 0, out
+    assert "Reports\n  Report effect: not enough data yet (12 of 30 pairs)" in out
+    clear = _effect(
+        verdict="lower", pairs=84, seen_reported=38, seen_control=61, lo=-37, hi=-9,
+        line="Report effect: 38% of reported vs 61% of similar sources still active after 7 days "
+        "(84 pairs, clear difference)",
+    )  # fmt: skip
+    rc, out = _render({"cli_raw": json.dumps(member_cli(report_effect=clear))})
+    assert rc == 0 and "38% of reported vs 61% of similar sources" in out
+    rc, out = _render({"cli_raw": json.dumps(member_cli(report_effect=clear))}, "--json")
+    assert rc == 0 and json.loads(out)["report_effect"]["seen_control"] == 61
+
+
+def test_no_report_effect_means_no_reports_section() -> None:
+    _, out = _render({})
+    assert "Report effect" not in out and "\nReports\n" not in out
+    odd = _effect(line="Something else\x1b[31m")
+    _, out = _render({"cli_raw": json.dumps(member_cli(report_effect=odd))})
+    assert "Something else" not in out

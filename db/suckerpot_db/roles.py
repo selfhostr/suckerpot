@@ -372,6 +372,26 @@ BEGIN
         -- M37: the trap pack worker records the last verified bundle (one row).
         EXECUTE format('GRANT SELECT, INSERT, UPDATE ON trap_state TO %I', r);
     END IF;
+    IF to_regclass('public.report_effect_pairs') IS NOT NULL THEN
+        -- M38 P2: the effect worker owns the pairs, the unmatched count, the observation days and
+        -- the holdout. Pairs are never deleted (a trigger freezes their outcomes); the addresses
+        -- are only cleared. The abuse worker records and prunes holdout decisions.
+        EXECUTE format(
+            'REVOKE ALL ON report_effect_pairs, report_effect_unmatched, report_effect_days, '
+            'abuse_holdouts, report_effect_summary, report_effect_unmatched_summary, '
+            'abuse_holdout_summary FROM %I', r);
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE ON report_effect_pairs, report_effect_unmatched, '
+            'report_effect_days TO %I', r);
+        EXECUTE format('GRANT SELECT, INSERT, DELETE ON abuse_holdouts TO %I', r);
+        EXECUTE format(
+            'GRANT SELECT ON report_effect_summary, report_effect_unmatched_summary, '
+            'abuse_holdout_summary TO %I', r);
+        EXECUTE format(
+            'GRANT USAGE ON SEQUENCE %s, %s TO %I',
+            pg_get_serial_sequence('public.report_effect_pairs', 'id'),
+            pg_get_serial_sequence('public.report_effect_unmatched', 'id'), r);
+    END IF;
     IF to_regclass('public.pipeline_state') IS NOT NULL THEN
         -- 0031: ingest stamps its heartbeat and last failure in the one row.
         EXECUTE format('GRANT SELECT, UPDATE ON pipeline_state TO %I', r);
@@ -617,6 +637,16 @@ BEGIN
     IF to_regclass('public.pipeline_state') IS NOT NULL THEN
         -- 0031: the dashboard shows the pipeline banner; it never writes the row.
         EXECUTE format('GRANT SELECT ON pipeline_state TO %I', r);
+    END IF;
+    IF to_regclass('public.report_effect_pairs') IS NOT NULL THEN
+        -- M38 P2: the Results card reads the summary views only, never an address.
+        EXECUTE format(
+            'REVOKE ALL ON report_effect_pairs, report_effect_unmatched, report_effect_days, '
+            'abuse_holdouts, report_effect_summary, report_effect_unmatched_summary, '
+            'abuse_holdout_summary FROM %I', r);
+        EXECUTE format(
+            'GRANT SELECT ON report_effect_summary, report_effect_unmatched_summary, '
+            'abuse_holdout_summary TO %I', r);
     END IF;
     IF to_regclass('public.network_verify_tasks') IS NOT NULL THEN
         -- M32: the dashboard shows verification counts; it never writes a task.

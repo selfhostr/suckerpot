@@ -1828,3 +1828,78 @@ class NetworkFeedEntryRow(Base):
     expires: Mapped[date | None] = mapped_column(Date)
     reported: Mapped[bool | None] = mapped_column(Boolean)
     seen_here: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
+
+
+class ReportEffectPairRow(Base):
+    """A reported attacking address and a similar one that was not reported (M38 G1).
+
+    The outcome at each horizon is frozen once (trigger ``report_effect_pairs_guard``). The two
+    addresses are cleared to NULL 30 days after the 30-day outcome is frozen; the counts stay.
+    """
+
+    __tablename__ = "report_effect_pairs"
+    __table_args__ = (Index("ix_report_effect_pairs_index_at", "index_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    index_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reported_value: Mapped[str | None] = mapped_column(INET)
+    control_value: Mapped[str | None] = mapped_column(INET)
+    tier: Mapped[str] = mapped_column(Text)  # H | A | B | C
+    activity_class: Mapped[str] = mapped_column(Text)
+    volume_bucket: Mapped[int] = mapped_column(SmallInteger)
+    recency_bucket: Mapped[int] = mapped_column(SmallInteger)
+    seen_r_7: Mapped[bool | None] = mapped_column(Boolean)
+    seen_c_7: Mapped[bool | None] = mapped_column(Boolean)
+    observed_7: Mapped[bool | None] = mapped_column(Boolean)
+    excluded_7: Mapped[str | None] = mapped_column(Text)
+    frozen_7_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    seen_r_30: Mapped[bool | None] = mapped_column(Boolean)
+    seen_c_30: Mapped[bool | None] = mapped_column(Boolean)
+    observed_30: Mapped[bool | None] = mapped_column(Boolean)
+    excluded_30: Mapped[str | None] = mapped_column(Text)
+    frozen_30_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ReportEffectUnmatchedRow(Base):
+    """A reported attacking address with no comparable control: counted, never used (M38 G1)."""
+
+    __tablename__ = "report_effect_unmatched"
+    __table_args__ = (Index("ix_report_effect_unmatched_index_at", "index_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    index_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    value: Mapped[str | None] = mapped_column(INET)
+    reason: Mapped[str] = mapped_column(Text)  # no_control | no_activity | network_reported
+
+
+class ReportEffectDayRow(Base):
+    """Distinct addresses seen on one UTC day: the observation check of the effect measure."""
+
+    __tablename__ = "report_effect_days"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    addresses: Mapped[int] = mapped_column(Integer)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class AbuseHoldoutRow(Base):
+    """A new attack candidate decided while the random holdout is on (M38 D9).
+
+    ``held`` ones are not reported before ``release_at`` (at most 21 days after ``chosen_at``).
+    """
+
+    __tablename__ = "abuse_holdouts"
+
+    value: Mapped[str] = mapped_column(INET, primary_key=True)
+    chosen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    release_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    held: Mapped[bool] = mapped_column(Boolean)

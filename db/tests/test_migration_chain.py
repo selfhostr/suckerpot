@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0038() -> None:
+def test_the_chain_is_linear_up_to_0039() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0038"}
+    assert heads == {"0039"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -111,6 +111,8 @@ def test_the_chain_is_linear_up_to_0038() -> None:
     assert revs["0037"][0] == "0036"
     # The covering index for the blocklist aggregate on sessions follows 0037.
     assert revs["0038"][0] == "0037"
+    # The report effect measure (M38 P2) follows 0038.
+    assert revs["0039"][0] == "0038"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -653,3 +655,35 @@ def test_trap_state_is_modelled_and_granted() -> None:
         assert "'trap_state'" in script
     src = (VERSIONS / "0037_trap_state.py").read_text()
     assert "CHECK (id = 1)" in src and "pg_column_size(first_seen) <= 262144" in src
+
+
+REPORT_EFFECT_TABLES = (
+    "report_effect_pairs",
+    "report_effect_unmatched",
+    "report_effect_days",
+    "abuse_holdouts",
+)
+REPORT_EFFECT_VIEWS = (
+    "report_effect_summary",
+    "report_effect_unmatched_summary",
+    "abuse_holdout_summary",
+)
+
+
+def test_report_effect_tables_are_modelled_and_least_privilege() -> None:
+    """M38 P2: ingest owns the measure; the API reads the address-free views only."""
+    assert set(REPORT_EFFECT_TABLES) <= set(models.Base.metadata.tables)
+    ingest = _grants(_GRANTS_INGEST)
+    api = _grants(_GRANTS_API)
+    assert ingest["report_effect_pairs"] == {"SELECT", "INSERT", "UPDATE"}  # never DELETE
+    assert ingest["abuse_holdouts"] == {"SELECT", "INSERT", "DELETE"}
+    for table in REPORT_EFFECT_TABLES:
+        assert table not in api, table  # not even SELECT: the tables hold addresses
+    for view in REPORT_EFFECT_VIEWS:
+        assert api[view] == {"SELECT"}, view
+    src = (VERSIONS / "0039_report_effect.py").read_text()
+    summary = src.split("CREATE VIEW report_effect_summary AS", 1)[1].split('"""', 1)[0]
+    assert "value" not in summary  # no address in what the API reads
+    assert "CREATE TRIGGER report_effect_pairs_guard BEFORE UPDATE" in src
+    assert "the 7-day outcome is frozen" in src and "the 30-day outcome is frozen" in src
+    assert "interval '21 days'" in src

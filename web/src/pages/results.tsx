@@ -4,6 +4,7 @@ import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router"
 import { AnswersCard, DelayCard } from "@/components/results/answers-cards"
 import { CurveCard } from "@/components/results/curve-card"
+import { EffectCard } from "@/components/results/effect-card"
 import { OverTimeCard } from "@/components/results/over-time-card"
 import { ProvidersCard } from "@/components/results/providers-card"
 import { TargetsCard } from "@/components/results/targets-card"
@@ -107,6 +108,16 @@ export function ResultsPage() {
     queryKey: resultKeys.providers(filters),
     queryFn: () => resultsApi.providers(filters),
     enabled: summary.data !== undefined && summary.data.enabled !== false,
+  })
+
+  const effectWeek = useQuery({
+    queryKey: resultKeys.effect({ since, horizon: 7 }),
+    queryFn: () => resultsApi.effect({ since, horizon: 7 }),
+  })
+  const effectMonth = useQuery({
+    queryKey: resultKeys.effect({ since, horizon: 30 }),
+    queryFn: () => resultsApi.effect({ since, horizon: 30 }),
+    enabled: effectWeek.data !== undefined && effectWeek.data.effect.verdict !== "not_enough_data",
   })
 
   const s = summary.data
@@ -217,6 +228,9 @@ export function ResultsPage() {
             <AnswersCard data={byAsn.data} />
             <DelayCard data={byAsn.data} />
           </div>
+          {effectWeek.isError ? null : (
+            <EffectCard week={effectWeek.data} month={effectMonth.data} />
+          )}
           {tracking ? <CurveCard summary={s} filters={filters} /> : null}
           <ProvidersCard
             groups={(group === "asn" ? byAsn.data : grouped.data)?.groups}

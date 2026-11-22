@@ -122,9 +122,10 @@ The **Abuse reports** entry is a hub with two tabs: **Reports** and **Results**.
   2. **Reports over time.** Stacked weekly bars by report kind.
   3. **Did anyone answer?** One bar per outcome. Rejected and bounced use the warning tone, never red.
   4. **How fast they answer.** A delay histogram: under 1 hour, under 6 hours, under 24 hours, under 7 days, later.
-  5. **How fast do things go down?** (tracking on) A step chart of the share of targets that went down, by hours since the report, one line for URLs and one for hosts. The legend has words, not only colours.
-  6. **Providers.** One row per provider: name (an ASN chip, which opens the networks page), country, targets, down within 48 hours, median time to takedown, still up after 30 days, reports sent, answered, median first reply. Sortable. A row opens the Reports tab filtered by that recipient.
-  7. **Targets** (tracking on). Tracked targets with a kind, a channel, a state and a time to takedown. Rows open the target page. A target is shown as defanged text and is never a link.
+  5. **Do reports make a difference?** (M38) Reported attacking addresses against similar ones that were not reported. Below 30 pairs (or 10 pairs where only one was seen) it shows a meter and no percentage. Above, two neutral bars (still seen a week later), the interval in points, a 30-day row when that horizon has enough data, and a "How this is measured" disclosure. See [Do reports make a difference?](reporting.md#do-reports-make-a-difference).
+  6. **How fast do things go down?** (tracking on) A step chart of the share of targets that went down, by hours since the report, one line for URLs and one for hosts. The legend has words, not only colours.
+  7. **Providers.** One row per provider: name (an ASN chip, which opens the networks page), country, targets, down within 48 hours, median time to takedown, still up after 30 days, reports sent, answered, median first reply. Sortable. A row opens the Reports tab filtered by that recipient.
+  8. **Targets** (tracking on). Tracked targets with a kind, a channel, a state and a time to takedown. Rows open the target page. A target is shown as defanged text and is never a link.
 
   Without any report, the page says "No report sent yet. Results appear here once you send one." With takedown tracking off, the page says so and names the variable. Viewers see everything, read-only.
 

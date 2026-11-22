@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Results: **Do reports make a difference?** (M38 phase 2). Each attacking address named in a sent
+  report is paired with a similar address that was not reported (exact match on the kind of
+  activity, the number of events and the last sighting; then the same ASN, the same provider size
+  and country, or the same provider size). The card shows whether reported addresses were still
+  seen attacking 7 and 30 days later less often, with a 95 % interval (Newcombe) and one of three
+  fixed verdicts. Below 30 pairs, or 10 pairs where only one was seen, it shows progress and no
+  number, and the wording never claims a cause. Weeks when the sensors were down are left out.
+  Runs with abuse reporting (no need for takedown tracking), at most once an hour and bounded,
+  from the node's own reports and sessions only; the dashboard reads counts, never an address, and the addresses are deleted once the
+  30-day outcome is old. New `GET /api/v1/results/effect`, a `Report effect` line in
+  `just status` and `report_effect` in `just status --json`. Migration `0039`.
+- Opt-in random holdout for the report effect measure: `ABUSE_EFFECT_HOLDOUT_PCT` (0 by default,
+  at most 10) holds that share of new attacking addresses back from reports for 21 days, as a fair
+  comparison group. It delays reports and never sends one that would not have been sent.
+
 ## [0.13.0] - 2026-11-22
 
 ### Added

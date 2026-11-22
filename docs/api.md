@@ -140,6 +140,7 @@ These pages are generated from the code, so they match the running version. Use 
 | `GET` | `/api/v1/egress` | State of the egress gate, collector quota and quarantine use |
 | `GET` | `/api/v1/abuse/...` | Abuse reports, recipients, settings, self terms and exports (M22). See [Abuse reports](#abuse-reports-m22). |
 | `GET`, `PUT`, `DELETE` | `/api/v1/abuse/smtp` | The optional SMTP profile for sending reports (administrators only). See [Sending abuse reports](#sending-abuse-reports-m25). |
+| `GET` | `/api/v1/results/effect` | Do reports make a difference? `?since=&until=&horizon=7\|30` (M38). Counts and shares only, never an address; shares and bounds are null below the minimum. See [Reporting](reporting.md#do-reports-make-a-difference). |
 | `GET` | `/api/v1/abuse/send-queue` | Ready reports, one page at a time, for the To send view (administrators only). See [Sending abuse reports](#sending-abuse-reports-m25). |
 | `GET`, `PUT`, `DELETE` | `/api/v1/settings/vpn` | The WireGuard configuration of the `vpn` service and the trusted exits (administrators only). See [VPN settings](#vpn-settings-m23-m24). |
 | `GET` | `/api/v1/setup/status` | The setup checklist (administrators only). See [Setup checklist](#setup-checklist-m24). |

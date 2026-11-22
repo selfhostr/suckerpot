@@ -46,6 +46,7 @@ from api.network import router as network_router
 from api.provider_keys import install as install_provider_keys
 from api.provider_keys import remove_retired_keys
 from api.provider_keys import router as provider_keys_router
+from api.report_effect import router as report_effect_router
 from api.reports import router as reports_router
 from api.routes import health_router, router
 from api.samples import router as samples_router
@@ -161,6 +162,7 @@ def create_app(
         abuse_outcomes_router,
         abuse_replies_router,
         takedown_router,
+        report_effect_router,
         search_router,
         today_router,
         live_window_router,

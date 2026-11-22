@@ -9,6 +9,8 @@ entries) and every self term are excluded here, before any contact lookup.
 from __future__ import annotations
 
 import ipaddress
+import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -109,6 +111,80 @@ async def without_network(session: AsyncSession, seeds: list[Seed]) -> list[Seed
     return [s for s in seeds if s.value.lower() not in covered] if covered else seeds
 
 
+HOLDOUT_DAYS = 21
+
+
+def holdout_roll(pct: int, draw: Callable[[int], int] = secrets.randbelow) -> bool:
+    """Is a new candidate held back? ``pct`` out of 100, from a cryptographic random draw."""
+    return pct > 0 and draw(10_000) < pct * 100
+
+
+async def without_holdouts(
+    session: AsyncSession,
+    seeds: list[Seed],
+    pct: int,
+    now: datetime,
+    draw: Callable[[int], int] = secrets.randbelow,
+    *,
+    include_demo: bool = False,
+) -> list[Seed]:
+    """The random holdout of the effect measure (design M38 D9), off unless ``pct`` > 0.
+
+    Each new attack candidate (never in a report, never decided before) is decided once: held back
+    with probability ``pct`` %, then reported as usual from ``release_at`` (21 days later) if it
+    is still a candidate. Every decision is stored, so a source that was not held is never drawn
+    again. Turning the holdout off releases every held source at once. Private addresses are never
+    held, nor documentation ones unless demo reports are on (CI).
+    """
+    if pct <= 0 or not seeds:
+        return seeds
+    values = [
+        s.value for s in seeds if origin_of_ip(s.value, None, include_demo=include_demo) is not None
+    ]
+    rows = await session.execute(
+        text(
+            """
+            SELECT v,
+                   EXISTS (SELECT 1 FROM abuse_holdouts h
+                           WHERE h.value = CAST(v AS inet)) AS decided,
+                   EXISTS (SELECT 1 FROM abuse_holdouts h
+                           WHERE h.value = CAST(v AS inet) AND h.held
+                             AND h.release_at > :now) AS held,
+                   EXISTS (SELECT 1 FROM abuse_report_subjects s
+                           WHERE s.subject_type = 'ip' AND s.value = v) AS known
+            FROM unnest(CAST(:vals AS text[])) AS v
+            """
+        ),
+        {"vals": values, "now": now},
+    )
+    held: set[str] = set()
+    new: list[tuple[str, bool]] = []
+    for r in rows:
+        if r.held:
+            held.add(r.v)
+        elif not r.decided and not r.known:
+            chosen = holdout_roll(pct, draw)
+            new.append((r.v, chosen))
+            if chosen:
+                held.add(r.v)
+    if new:
+        for value, chosen in new:
+            await session.execute(
+                text(
+                    "INSERT INTO abuse_holdouts (value, chosen_at, release_at, held) "
+                    "VALUES (CAST(:v AS inet), :now, :rel, :held) ON CONFLICT (value) DO NOTHING"
+                ),
+                {
+                    "v": value,
+                    "now": now,
+                    "rel": now + timedelta(days=HOLDOUT_DAYS) if chosen else now,
+                    "held": chosen,
+                },
+            )
+        await session.commit()
+    return [s for s in seeds if s.value not in held] if held else seeds
+
+
 def _bounds(settings: AbuseSettings, now: datetime) -> dict[str, Any]:
     return {
         "since": now - timedelta(days=settings.lookback_days),
@@ -152,7 +228,7 @@ async def attack_sources(
             },
         )
     ).all()
-    return await without_network(
+    seeds = await without_network(
         session,
         [
             Seed(
@@ -168,6 +244,9 @@ async def attack_sources(
             )
             for r in rows
         ],
+    )
+    return await without_holdouts(
+        session, seeds, settings.holdout_pct, now, include_demo=settings.include_demo
     )
 
 

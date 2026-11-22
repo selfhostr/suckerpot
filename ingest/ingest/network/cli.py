@@ -29,7 +29,10 @@ addresses (design M32 section 10).
        "sent": [{"day", "status", "sources", "links", "c2", "files"}],   # newest first, <= 7
        "verify_reveals": {"enabled": bool, "last_7_days": int},
        "verifier": {"enabled": bool, "state": str, "tasks": {"<task state>": int}}},
-     "last_batch": {"day": "<date>", "batch": {...}}|null}   # only with --last-batch
+     "last_batch": {"day": "<date>", "batch": {...}}|null,   # only with --last-batch
+     "report_effect": {"verdict", "horizon", "pairs", "needed", "discordant",
+                       "needed_discordant", "seen_reported", "seen_control", "lo", "hi",
+                       "line"}|null}   # M38: null until an attack-source report was sent
 
 Warning codes: ``submit_paused_self_address`` (a due day is held back because the own address is
 unknown or expired), ``waiting_self_address`` (more than 2 days), ``hub_contact_old`` (over 26 h),
@@ -52,6 +55,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db import create_engine, create_session_factory
 from suckerpot_db.network_names import pseudonym_problem
+from suckerpot_db.report_effect import Cells, cells_sql, status_json, status_line, summarize
 from suckerpot_db.session_counts import sql_sessions_count
 from suckerpot_netproto import defaults
 
@@ -126,6 +130,32 @@ async def _own_address(session: AsyncSession, env: Mapping[str, str]) -> str:
     return "manual" if row.manual else "learned" if row.learned else "waiting"
 
 
+EFFECT_DAYS = 90
+
+
+async def report_effect(session: AsyncSession, moment: datetime) -> dict[str, Any] | None:
+    """The report effect at 7 days over the last 90 days (M38 G1), or None when the measure
+    does not exist yet or no report naming an address was ever sent. Information, never a
+    warning."""
+    have = await session.scalar(
+        text(
+            "SELECT to_regclass('public.report_effect_summary') IS NOT NULL AND EXISTS ("
+            "SELECT 1 FROM abuse_reports r JOIN abuse_report_subjects s ON s.report_id = r.id "
+            "WHERE r.sent_at IS NOT NULL AND NOT r.demo AND s.subject_type = 'ip')"
+        )
+    )
+    if not have:
+        return None
+    r = (
+        await session.execute(
+            text(cells_sql(7)),
+            {"since": moment - timedelta(days=EFFECT_DAYS), "until": moment},
+        )
+    ).one()
+    effect = summarize(Cells(int(r.a), int(r.b), int(r.c), int(r.d)), 7)
+    return {**status_json(effect), "line": status_line(effect)}
+
+
 async def build_status(
     factory: async_sessionmaker[AsyncSession],
     env: Mapping[str, str],
@@ -171,6 +201,10 @@ async def build_status(
             if last_batch
             else None
         )
+        try:
+            effect = await report_effect(session, moment)
+        except Exception:  # an old schema or a missing grant must not break the status
+            effect = None
     tasks = await SqlVerifyStore(factory).counts()
     detail: dict[str, Any] = detail_row.detail if detail_row is not None else {}
 
@@ -312,6 +346,7 @@ async def build_status(
         sent=[{k: r[k] for k in ("day", "sources", "links", "files")} for r in sent],
         reveals_7d=revealed,
         sessions_24h={r.sensor: int(r.n) for r in sensors},
+        report_effect=effect,
     )
     if last_batch:
         out["last_batch"] = (
