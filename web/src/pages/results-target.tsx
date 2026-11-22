@@ -199,7 +199,7 @@ function Body({ d }: { d: TargetDetail }) {
         <span>
           Reported <RelativeTime iso={t.reported_at} />
           {t.channels.length > 0
-            ? ` via ${t.channels.map((c) => (c === "mail" ? "email" : CHANNEL_LABEL[c])).join(", ")}`
+            ? ` via ${t.channels.map((c) => (c === "mail" ? "email" : c === "form" ? "web form" : CHANNEL_LABEL[c])).join(", ")}`
             : ""}
         </span>
         {!t.tracking ? <span>Tracking stopped</span> : null}

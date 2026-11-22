@@ -101,9 +101,9 @@ describe("ReportingCard", () => {
     const puts = stub(BARE)
     renderCard()
     await screen.findByRole("textbox", { name: /Reply contact/ })
-    // Signature, Introduction, Closing, X-ARF user agent, X-ARF organisation, Note and Subject
-    // template.
-    expect(screen.getAllByText("Optional")).toHaveLength(7)
+    // Signature, Introduction, Closing, X-ARF user agent, X-ARF organisation, your name for web
+    // forms, Note and Subject template.
+    expect(screen.getAllByText("Optional")).toHaveLength(8)
     expect(screen.getAllByText(/Leave empty to send only the facts/).length).toBeGreaterThan(0)
     expect(screen.queryByText(/Required: write this/)).toBeNull()
     expect(screen.queryByText(/start empty on purpose/)).toBeNull()

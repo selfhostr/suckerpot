@@ -7,6 +7,12 @@ drafts of the older kinds (before 0040) are merged into the recipient's digest o
 and marked ``superseded``. Ingest only ever writes drafts: the database refuses anything else
 (column grants and trigger).
 
+A recipient that takes only a web form (``form_only``: from a reply, the owner, or the shared
+directory of abuse forms, M38 section 6) gets no digest: its draft is a form report
+(``channel = 'form'``) of the current ISO week (``week``), which the owner submits by hand from
+the copy kit. The same draft moves between mail and form when the recipient changes. Its identity
+check also covers every field of the kit.
+
 A digest holds at most ``ABUSE_MAX_SUBJECTS`` sources (one for a recipient that asked for one mail
 per source), newest first; the rest waits for the next part. Its due time follows the node's
 digest hour (``report_smtp.digest_minute``): the next digest hour, or two hours after a full part
@@ -53,11 +59,13 @@ from suckerpot_reporting import (
 )
 from suckerpot_reporting import render_mail as _render_mail
 from suckerpot_reporting.evidence import MAX_SUBJECTS
+from suckerpot_reporting.forms import build_kit, guard_kit
 from suckerpot_reporting.message import RenderedMessage
 
 from ingest.egress import EgressClosed
 
 from . import candidates as cand
+from . import forms
 from .candidates import Seed
 from .config import AbuseSettings
 from .contacts import ContactResolver, Outcome
@@ -87,6 +95,11 @@ class GateSource(Protocol):
     """Gate G (M37): the CVE tags held back on a day (None when unknown: none is named)."""
 
     async def gated_tags(self, day: Any) -> frozenset[str] | None: ...
+
+
+class DraftChanged(Exception):
+    """The draft left the draft state while it was rebuilt (reviewed, sent, submitted by form):
+    nothing of the rebuild is kept."""
 
 
 @dataclass
@@ -436,6 +449,11 @@ class DraftBuilder:
         if terms is None:
             stats.reasons["self_terms_unavailable"] = 1
             return stats  # fail closed: nothing is built without the deny set
+        try:
+            async with self.factory() as session, session.begin():
+                await forms.sweep(session)
+        except Exception as exc:  # the routing must never stop the cycle
+            log.warning("abuse form directory sweep failed (%s)", type(exc).__name__)
         async with self.factory() as session:
             seeds = [
                 *await cand.attack_sources(session, self.settings, now),
@@ -586,13 +604,22 @@ class DraftBuilder:
         address = recipient.address
         if address is None:
             return  # a waiting recipient: no mailbox typed yet
+        asns = [item.outcome.asn or item.seed.asn for item in group]
+        async with self.factory() as session, session.begin():
+            if not demo:
+                # The shared directory may mark the desk form-only before any mail goes (D13).
+                await forms.route(session, recipient.id, address, asns)
+            flags = await forms.form_flags(session, recipient.id)
+        form = bool(flags is not None and flags.form_only)
+        channel = "form" if form else "mail"
+        week = forms.week_of(now) if form else None
         async with self.factory() as session:
             open_rows = (
                 await session.execute(
                     text(
                         "SELECT id, kind, status, window_start, options, content_sha256, "
-                        "guard_ok, guard_codes, id_seed, reply_token, due_at, part, created_at "
-                        "FROM abuse_reports WHERE recipient_id = :r "
+                        "guard_ok, guard_codes, id_seed, reply_token, due_at, part, created_at, "
+                        "channel, week FROM abuse_reports WHERE recipient_id = :r "
                         "AND status IN ('draft', 'reviewed') ORDER BY id"
                     ),
                     {"r": recipient.id},
@@ -602,8 +629,10 @@ class DraftBuilder:
                 (r for r in open_rows if r.kind == DIGEST and r.status == "draft"), None
             )
             pending = existing is not None and await auto_pending(session, existing.id)
-            if existing is not None and frozen(
-                existing.due_at, await hold_of(session), now, pending
+            if (
+                not form
+                and existing is not None
+                and frozen(existing.due_at, await hold_of(session), now, pending)
             ):
                 return  # its automatic send waits: it goes as it is (design M38, section 5.3)
             # Drafts of the older kinds (before 0040): merged into this digest, then superseded.
@@ -642,7 +671,7 @@ class DraftBuilder:
                 kept.append((item, prior.sent_end, prior.sent_at))
             # Newest first: a full digest leaves the oldest sources for the next part.
             kept.sort(key=lambda x: (x[0].seed.last_ts, x[0].seed.value), reverse=True)
-            cap = 1 if recipient.strict else min(s.max_subjects, MAX_SUBJECTS)
+            cap = 1 if recipient.strict and not form else min(s.max_subjects, MAX_SUBJECTS)
             if not kept:
                 # Older drafts whose sources all wait (cooldown, reviewed) are retired anyway, so
                 # no draft of an older kind outlives the upgrade to 0040.
@@ -704,9 +733,17 @@ class DraftBuilder:
                 if legacy:
                     await self._supersede(legacy)
                 return
-            due, part = await self._due(
-                session, recipient, address, existing, now, cap, pending=pending
-            )
+            form_name: str | None = None
+            if form:
+                # A form report is never due: the owner submits it from the copy kit.
+                due, part = None, existing.part if existing is not None else 1
+                form_name = await session.scalar(
+                    text("SELECT form_name FROM report_settings WHERE id = 1")
+                )
+            else:
+                due, part = await self._due(
+                    session, recipient, address, existing, now, cap, pending=pending
+                )
         evidence = fit_evidence(
             Evidence(
                 kind=DIGEST,
@@ -728,6 +765,22 @@ class DraftBuilder:
         result = check_evidence(
             evidence, report_settings, terms, gctx, reply_token=token, reference_style=style
         )
+        if form and result.ok:
+            result = result.merge(
+                kit_guard(
+                    evidence,
+                    report_settings,
+                    terms,
+                    gctx,
+                    address=address,
+                    asns=asns,
+                    form_name=form_name,
+                    form_url=flags.form_url if flags is not None else None,
+                    token=token,
+                    style=style,
+                    now=now,
+                )
+            )
         if not result.ok:
             stats.guard_failed += 1
             for code in result.codes:
@@ -737,6 +790,45 @@ class DraftBuilder:
             "addresses_masked": col.stats.addresses_masked,
             "lines_dropped": col.stats.lines_dropped,
         }
+        try:
+            await self._store(
+                recipient,
+                demo,
+                existing,
+                legacy,
+                chosen,
+                evidence,
+                digest,
+                result,
+                redaction,
+                report_seed,
+                due,
+                part,
+                channel,
+                week,
+                stats,
+            )
+        except DraftChanged:
+            stats.skipped += 1  # reviewed, sent or submitted meanwhile: the next cycle sees it
+
+    async def _store(
+        self,
+        recipient: Recipient,
+        demo: bool,
+        existing: Any,
+        legacy: list[int],
+        chosen: list[Resolved],
+        evidence: Evidence,
+        digest: str,
+        result: GuardResult,
+        redaction: dict[str, int],
+        report_seed: uuid.UUID,
+        due: datetime | None,
+        part: int,
+        channel: str,
+        week: Any,
+        stats: CycleStats,
+    ) -> None:
         async with self.factory() as session, session.begin():
             if existing is not None:
                 if (
@@ -744,13 +836,26 @@ class DraftBuilder:
                     and existing.guard_ok == result.ok
                     and list(existing.guard_codes or []) == list(result.codes)
                     and existing.due_at == due
+                    and existing.channel == channel
+                    and existing.week == week
                     and not legacy
                 ):
                     return
                 report_id: int | None = existing.id
-                await self._update(
-                    session, existing.id, evidence, digest, result.ok, result.codes, redaction, due
+                changed = await self._update(
+                    session,
+                    existing.id,
+                    evidence,
+                    digest,
+                    result.ok,
+                    result.codes,
+                    redaction,
+                    due,
+                    channel,
+                    week,
                 )
+                if not changed:
+                    raise DraftChanged  # rolls back: its sources are never touched
                 stats.updated += 1
             else:
                 report_id = await self._insert(
@@ -765,6 +870,8 @@ class DraftBuilder:
                     report_seed,
                     due,
                     part,
+                    channel,
+                    week,
                 )
                 if report_id is None:
                     stats.skipped += 1
@@ -893,6 +1000,8 @@ class DraftBuilder:
         seed: uuid.UUID,
         due: datetime | None,
         part: int,
+        channel: str = "mail",
+        week: Any = None,
     ) -> int | None:
         row = (
             await session.execute(
@@ -900,9 +1009,9 @@ class DraftBuilder:
                     """
                     INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, demo,
                         window_start, window_end, subject_count, evidence, content_sha256,
-                        guard_ok, guard_codes, redaction, options, due_at, part)
+                        guard_ok, guard_codes, redaction, options, due_at, part, channel, week)
                     VALUES (:pid, :seed, :r, :k, :d, :ws, :we, :n, CAST(:ev AS jsonb), :sha, :ok,
-                        :codes, CAST(:red AS jsonb), CAST(:opt AS jsonb), :due, :part)
+                        :codes, CAST(:red AS jsonb), CAST(:opt AS jsonb), :due, :part, :ch, :wk)
                     ON CONFLICT (recipient_id, kind) WHERE status = 'draft' DO NOTHING
                     RETURNING id
                     """
@@ -924,6 +1033,8 @@ class DraftBuilder:
                     "opt": evidence.options.model_dump_json(),
                     "due": due,
                     "part": part,
+                    "ch": channel,
+                    "wk": week,
                 },
             )
         ).first()
@@ -939,13 +1050,18 @@ class DraftBuilder:
         codes: tuple[str, ...],
         redaction: dict[str, int],
         due: datetime | None,
-    ) -> None:
-        await session.execute(
+        channel: str = "mail",
+        week: Any = None,
+    ) -> bool:
+        """Rewrite the draft. False when it is no longer a draft (the owner reviewed, sent or
+        submitted it meanwhile): the caller must then leave its sources alone."""
+        res = await session.execute(
             text(
                 """
                 UPDATE abuse_reports SET window_start = :ws, window_end = :we, subject_count = :n,
                     evidence = CAST(:ev AS jsonb), content_sha256 = :sha, guard_ok = :ok,
-                    guard_codes = :codes, redaction = CAST(:red AS jsonb), due_at = :due
+                    guard_codes = :codes, redaction = CAST(:red AS jsonb), due_at = :due,
+                    channel = :ch, week = :wk
                 WHERE id = :i AND status = 'draft'
                 """
             ),
@@ -960,8 +1076,11 @@ class DraftBuilder:
                 "codes": list(codes),
                 "red": json.dumps(redaction),
                 "due": due,
+                "ch": channel,
+                "wk": week,
             },
         )
+        return bool(getattr(res, "rowcount", 0))
 
 
 def _message(
@@ -1013,6 +1132,39 @@ def check_evidence(
         checked = guard(evidence.model_dump(mode="json"), terms, fmt="json", ctx=ctx)
         codes = tuple(sorted({*checked.codes, exc.code}))
         return GuardResult(ok=False, codes=codes, counts=dict(checked.counts))
+
+
+def kit_guard(
+    evidence: Evidence,
+    settings: ReportSettings,
+    terms: SelfTerms,
+    ctx: GuardContext,
+    *,
+    address: str | None,
+    asns: list[int | None],
+    form_name: str | None,
+    form_url: str | None,
+    token: str | None,
+    style: ReferenceStyle,
+    now: datetime | None = None,
+) -> GuardResult:
+    """The identity check of the copy kit of a form report (M38 P3): every field, the evidence
+    file and the form links (the directory's, and the one a reply gave)."""
+    entry = forms.entry_for(forms.directory(), address, asns)
+    try:
+        kit = build_kit(
+            evidence,
+            settings,
+            entry=entry,
+            form_name=form_name,
+            reply_token=token,
+            reference_style=style,
+            now=now,
+        )
+    except RenderUnavailable as exc:
+        return GuardResult(ok=False, codes=(exc.code,), counts={exc.code: 1})
+    links = [u for u in (entry.form_url if entry else None, form_url) if u]
+    return guard_kit(kit, terms, ctx=ctx, links=links)
 
 
 def utc_now() -> datetime:

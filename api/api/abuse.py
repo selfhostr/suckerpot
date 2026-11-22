@@ -18,7 +18,7 @@ import os
 import re
 import string
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
@@ -150,6 +150,8 @@ class RecipientOut(BaseModel):
     form_url: str | None = None
     undeliverable: bool = False
     xarf_strict: bool = False  # one spec-shaped mail per source (M38)
+    # Where form_only came from (M38 P3): reply | directory | manual, or cleared by the owner.
+    form_source: str | None = None
 
 
 class AsnOut(BaseModel):
@@ -177,6 +179,7 @@ class ReportItem(BaseModel):
     part: int = 1
     channel: str = "mail"
     kinds: dict[str, int] = {}
+    week: date | None = None  # a form report: the Monday of its ISO week (M38 P3)
 
 
 class ReportPage(BaseModel):
@@ -305,6 +308,7 @@ class RecipientRow(BaseModel):
     form_url: str | None = None
     undeliverable: bool = False
     xarf_strict: bool = False
+    form_source: str | None = None
 
 
 class RecipientPage(BaseModel):
@@ -329,6 +333,7 @@ class SettingsOut(BaseModel):
     xarf_user_agent: str | None
     xarf_org: str | None = None
     digest_enabled: bool = True
+    form_name: str | None = None  # "Your name" of the form kit (M38 P3)
     round_times: bool
     default_options: DefaultOptions
     default_tlp: Literal["clear", "green", "amber", "red"]
@@ -391,6 +396,7 @@ def _recipient_out(r: AbuseRecipientRow) -> RecipientOut:
         form_url=r.form_url if r.form_only else None,
         undeliverable=r.undeliverable,
         xarf_strict=r.xarf_strict,
+        form_source=r.form_source,
     )
 
 
@@ -422,6 +428,7 @@ def _item(row: AbuseReportRow, rec: AbuseRecipientRow) -> ReportItem:
         due_at=row.due_at,
         part=row.part,
         channel=row.channel,
+        week=row.week,
     )
 
 
@@ -1319,6 +1326,7 @@ async def list_recipients(
                 form_url=r.form_url if r.form_only else None,
                 undeliverable=r.undeliverable,
                 xarf_strict=r.xarf_strict,
+                form_source=r.form_source,
             )
             for r in page
         ],
@@ -1368,8 +1376,9 @@ class RecipientPatch(BaseModel):
 
     override_mailbox: str | None = None
     muted: bool | None = None
-    # The owner can only clear what replies set (false); true is refused.
-    form_only: Literal[False] | None = None
+    # M38 P3: true sends the desk to the form queue (form_source manual); false clears the flag,
+    # and the shared directory then leaves the desk alone (form_source cleared).
+    form_only: bool | None = None
     undeliverable: Literal[False] | None = None
     # M38: one spec-shaped XARF mail per source for a desk that parses XARF strictly.
     xarf_strict: bool | None = None
@@ -1397,7 +1406,9 @@ async def patch_recipient(
     if "muted" in sent and body.muted is not None:
         values["muted"] = body.muted
     if "form_only" in sent and body.form_only is False:
-        values.update(form_only=False, form_url=None)
+        values.update(form_only=False, form_url=None, form_source="cleared")
+    elif "form_only" in sent and body.form_only is True and not rec.form_only:
+        values.update(form_only=True, form_source="manual")
     if "undeliverable" in sent and body.undeliverable is False:
         values.update(undeliverable=False, hard_bounces=0)
     if "xarf_strict" in sent and body.xarf_strict is not None:
@@ -1435,6 +1446,7 @@ async def patch_recipient(
         form_url=rec.form_url if rec.form_only else None,
         undeliverable=rec.undeliverable,
         xarf_strict=rec.xarf_strict,
+        form_source=rec.form_source,
     )
 
 
@@ -1471,6 +1483,8 @@ class SettingsBody(BaseModel):
     xarf_org: Annotated[str | None, Field(max_length=100)] = None
     # M38: one mail per provider per day; omitted keeps the stored choice.
     digest_enabled: bool | None = None
+    # M38 P3: "Your name" of the form kit, empty by default; omitted keeps the stored value.
+    form_name: Annotated[str | None, Field(max_length=100)] = None
     round_times: bool = True
     default_options: DefaultOptions = DefaultOptions()
     default_tlp: Literal["clear", "green", "amber", "red"] = "green"
@@ -1478,7 +1492,7 @@ class SettingsBody(BaseModel):
     reference_style: Literal["subject", "subject_and_body", "off"] | None = None
     revision: int = Field(ge=0)
 
-    @field_validator("reply_contact", "xarf_user_agent", "xarf_org")
+    @field_validator("reply_contact", "xarf_user_agent", "xarf_org", "form_name")
     @classmethod
     def _line(cls, v: str | None) -> str | None:
         return _single_line(v)
@@ -1517,6 +1531,7 @@ def _settings_out(
         xarf_user_agent=s.xarf_user_agent,
         xarf_org=s.xarf_org,
         digest_enabled=bundle.digest_enabled,
+        form_name=bundle.form_name,
         round_times=bundle.round_times,
         default_options=DefaultOptions(**bundle.option_defaults()),
         default_tlp=bundle.tlp,  # type: ignore[arg-type]
@@ -1534,7 +1549,18 @@ async def get_settings(db: DbSession) -> SettingsOut:
     can start to block drafts later. The answer names the fields, never the matched text."""
     bundle = await load_settings(db)
     stored = {name: getattr(bundle.settings, name) for name in SETTINGS_TEXT_FIELDS}
-    return _settings_out(bundle, settings_issues(stored, await load_terms(db)))
+    terms = await load_terms(db)
+    return _settings_out(
+        bundle, settings_issues(stored, terms) | _form_name_issues(bundle.form_name, terms)
+    )
+
+
+def _form_name_issues(value: str | None, terms: Any) -> dict[str, list[str]]:
+    """The form name goes into every copy kit: guarded like the other wording (M38 P3)."""
+    if not value:
+        return {}
+    codes = sorted(set(guard(value, terms, fmt="text").codes) - {"no_self_address"})
+    return {"form_name": codes} if codes else {}
 
 
 @router.put("/abuse/settings", response_model=SettingsOut)
@@ -1545,12 +1571,13 @@ async def put_settings(
 
     A text that would block every report (an address on an owner domain, a name that gives the
     project away) is refused, because saving it would only leave every draft stuck."""
-    issues = settings_issues(
-        body.model_dump(include=set(SETTINGS_TEXT_FIELDS)), await load_terms(db)
-    )
+    terms = await load_terms(db)
+    old = await load_settings(db)
+    form_name = old.form_name if "form_name" not in body.model_fields_set else body.form_name
+    issues = settings_issues(body.model_dump(include=set(SETTINGS_TEXT_FIELDS)), terms)
+    issues |= _form_name_issues(form_name, terms)
     if issues:
         return settings_guard_failed_response(issues)
-    old = await load_settings(db)
     defaults = {
         **body.default_options.model_dump(),
         "round_times": body.round_times,
@@ -1568,6 +1595,7 @@ async def put_settings(
         "digest_enabled": (
             old.digest_enabled if body.digest_enabled is None else body.digest_enabled
         ),
+        "form_name": form_name,
         "reference_style": body.reference_style or old.reference_style,
     }
     principal = await _principal(request)
@@ -1613,6 +1641,7 @@ async def put_settings(
         "xarf_user_agent": old.settings.xarf_user_agent,
         "xarf_org": old.settings.xarf_org,
         "digest_enabled": old.digest_enabled,
+        "form_name": old.form_name,
         "reference_style": old.reference_style,
         "defaults": {**old.option_defaults(), "round_times": old.round_times, "tlp": old.tlp},
     }

@@ -44,8 +44,11 @@ UNKNOWN_USER: Final = (
 PLAIN_CODES: Final = ("550", "551", "552", "553", "554")
 HARD_AT: Final = 2
 
+# The reply is the desk speaking for itself: it outranks the shared directory and a flag the
+# owner cleared earlier (M38 P3, form_source).
 MARK_FORM = (
-    "UPDATE abuse_recipients SET form_only = true, form_url = COALESCE(form_url, :url) "
+    "UPDATE abuse_recipients SET form_only = true, form_url = COALESCE(form_url, :url), "
+    "form_source = 'reply' "
     "WHERE id = (SELECT recipient_id FROM abuse_reports WHERE id = :r)"
 )
 MARK_BOUNCE = (

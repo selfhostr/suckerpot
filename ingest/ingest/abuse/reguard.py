@@ -42,6 +42,7 @@ from suckerpot_reporting import (
 from .build import (
     check_evidence,
     default_options,
+    kit_guard,
     load_report_settings,
     options_of,
     subject_keys,
@@ -58,7 +59,8 @@ EVIDENCE_CODES = frozenset({"internal_id", "private_address", "documentation_add
 
 _COLUMNS = """
     SELECT r.id, r.id_seed, r.kind, r.demo, r.evidence, r.options, r.guard_ok, r.guard_codes,
-           r.reply_token, COALESCE(c.override_mailbox, c.mailbox) AS address
+           r.reply_token, COALESCE(c.override_mailbox, c.mailbox) AS address,
+           r.channel, c.form_url
     FROM abuse_reports r JOIN abuse_recipients c ON c.id = r.recipient_id
 """
 _ALL_DRAFTS = text(_COLUMNS + "WHERE r.status = 'draft' ORDER BY r.id LIMIT :n")
@@ -202,6 +204,26 @@ class DraftReguard:
             reply_token=row.reply_token,
             reference_style=style,
         )
+        if row.channel == "form" and result.ok:
+            # A form report: the copy kit is part of the check (M38 P3).
+            async with self.factory() as session:
+                form_name = await session.scalar(
+                    text("SELECT form_name FROM report_settings WHERE id = 1")
+                )
+            result = result.merge(
+                kit_guard(
+                    evidence,
+                    report_settings,
+                    terms,
+                    ctx,
+                    address=row.address,
+                    asns=[x.asn for x in evidence.subjects],
+                    form_name=form_name,
+                    form_url=row.form_url,
+                    token=row.reply_token,
+                    style=style,
+                )
+            )
         result = keep_evidence_codes(result, row.guard_codes)
         stats.checked += 1
         if result.ok == row.guard_ok and list(result.codes) == list(row.guard_codes or []):

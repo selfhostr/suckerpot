@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Mapping
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -516,3 +517,135 @@ async def test_the_api_writes_the_smtp_password_but_never_reads_it_back(
     ):
         assert await _run(api, bad) is None, bad
     assert await _run(api, "DELETE FROM report_smtp") == 1
+
+
+# -- M38 P3: the form-only desks queue ------------------------------------------------------
+
+FORM_REPORT = (
+    "INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, demo, window_start, "
+    "window_end, evidence, content_sha256, guard_ok, status, channel, week) VALUES "
+    "(gen_random_uuid(), gen_random_uuid(), (SELECT min(id) FROM abuse_recipients), 'digest', "
+    "false, now(), now(), '{}', 'x', true, 'draft', :channel, CAST(:week AS date)) RETURNING id"
+)
+SUBJECT = (
+    "INSERT INTO abuse_report_subjects (report_id, kind, subject_type, value, first_ts, last_ts, "
+    "sessions, events) VALUES (:r, 'attack_source', 'ip', :v, now(), now(), 1, 1)"
+)
+
+
+async def _form_report(owner: AsyncEngine, channel: str = "form") -> int:
+    async with owner.begin() as conn:
+        await conn.execute(text("DELETE FROM abuse_reports"))
+        rid = int(
+            await conn.scalar(
+                text(FORM_REPORT),
+                {"channel": channel, "week": date(2026, 11, 16) if channel == "form" else None},
+            )
+            or 0
+        )
+        for value in ("198.51.100.1", "198.51.100.2"):
+            await conn.execute(text(SUBJECT), {"r": rid, "v": value})
+        return rid
+
+
+async def _mark(api: AsyncEngine, rid: int, via: str) -> int | None:
+    """Review then send, as the API does in one transaction."""
+    return await _run(
+        api,
+        "UPDATE abuse_reports SET status = 'sent', sent_at = now(), "
+        "sent_by = 'owner', sent_via = :via WHERE id = :i AND status = 'reviewed'",
+        {"i": rid, "via": via},
+    )
+
+
+async def _review(api: AsyncEngine, rid: int) -> None:
+    assert await _run(
+        api,
+        "UPDATE abuse_reports SET status = 'reviewed', reviewed_by = 'owner', "
+        "reviewed_at = now(), reviewed_revision = revision WHERE id = :i",
+        {"i": rid},
+    )
+
+
+async def test_week_and_form_rules(owner: AsyncEngine) -> None:
+    await _form_report(owner)
+    # A week on a mail report, or a week that is not a Monday, is refused.
+    bad = FORM_REPORT.replace("RETURNING id", "")
+    assert await _run(owner, "DELETE FROM abuse_reports")
+    assert await _run(owner, bad, {"channel": "mail", "week": date(2026, 11, 16)}) is None
+    assert await _run(owner, bad, {"channel": "form", "week": date(2026, 11, 17)}) is None
+    assert await _run(owner, bad, {"channel": "form", "week": date(2026, 11, 16)}) == 1
+
+
+async def test_the_api_submits_a_form_report_and_drops_unticked_sources(
+    owner: AsyncEngine,
+    roles: tuple[AsyncEngine, AsyncEngine],
+) -> None:
+    api, ingest = roles
+    rid = await _form_report(owner)
+    # Before it is sent, the API may touch no source.
+    tick_all = "UPDATE abuse_report_subjects SET submitted_at = now() WHERE report_id = :i"
+    drop_all = "DELETE FROM abuse_report_subjects WHERE report_id = :i"
+    assert await _run(api, tick_all, {"i": rid}) is None
+    assert await _run(api, drop_all, {"i": rid}) is None
+    await _review(api, rid)
+    assert await _mark(api, rid, "form") == 1
+    tick = (
+        drop_all.replace("DELETE FROM", "UPDATE").replace("WHERE", "SET submitted_at = now() WHERE")
+        + " AND value = '198.51.100.1'"
+    )
+    assert await _run(api, tick, {"i": rid}) == 1
+    assert await _run(api, tick, {"i": rid}) is None  # once
+    other = "UPDATE abuse_report_subjects SET sessions = 9 WHERE report_id = :i"
+    assert await _run(api, other, {"i": rid}) is None
+    # The submitted source stays; the unticked one may go.
+    assert await _run(api, drop_all + " AND value = '198.51.100.1'", {"i": rid}) is None
+    assert await _run(api, drop_all + " AND submitted_at IS NULL", {"i": rid}) == 1
+    # Ingest never sets submitted_at.
+    assert await _run(ingest, "UPDATE abuse_report_subjects SET submitted_at = now()") is None
+
+
+async def test_only_a_form_report_is_sent_by_form_and_mail_sources_stay(
+    owner: AsyncEngine,
+    roles: tuple[AsyncEngine, AsyncEngine],
+) -> None:
+    api, _ingest = roles
+    rid = await _form_report(owner, channel="mail")
+    await _review(api, rid)
+    assert await _mark(api, rid, "form") is None
+    assert await _mark(api, rid, "manual") == 1
+    # A report sent by hand keeps all its sources: the API may not drop any.
+    assert (
+        await _run(api, "DELETE FROM abuse_report_subjects WHERE report_id = :i", {"i": rid})
+        is None
+    )
+
+
+async def test_the_channel_changes_on_a_draft_only(
+    owner: AsyncEngine,
+    roles: tuple[AsyncEngine, AsyncEngine],
+) -> None:
+    api, ingest = roles
+    rid = await _form_report(owner)
+    to_mail = "UPDATE abuse_reports SET channel = 'mail', week = NULL WHERE id = :i"
+    assert await _run(ingest, to_mail, {"i": rid}) == 1
+    assert await _run(api, to_mail, {"i": rid}) is None  # no grant
+    await _review(api, rid)
+    to_form = "UPDATE abuse_reports SET channel = 'form', week = '2026-11-16' WHERE id = :i"
+    assert await _run(owner, to_form, {"i": rid}) is None  # reviewed: trigger
+
+
+async def test_deleting_a_report_cascades_past_the_source_guard(
+    owner: AsyncEngine,
+) -> None:
+    rid = await _form_report(owner)
+    assert await _run(owner, "DELETE FROM abuse_reports WHERE id = :i", {"i": rid}) == 1
+
+
+async def test_form_source_values(owner: AsyncEngine) -> None:
+    upd = "UPDATE abuse_recipients SET form_source = :s"
+    for ok in ("reply", "directory", "manual", "cleared", None):
+        assert await _run(owner, upd, {"s": ok}) == 1
+    assert await _run(owner, upd, {"s": "hub"}) is None
+    assert await _run(owner, "UPDATE abuse_recipients SET form_entry = 'Bad Id'") is None
+    assert await _run(owner, "UPDATE abuse_recipients SET form_entry = 'example-net'") == 1

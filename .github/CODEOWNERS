@@ -1,1 +1,6 @@
 * @laupernoe @Theroxat
+
+# The shared directory of abuse forms (M38): every change is reviewed by a code owner, who checks
+# each form on the provider's own website. A second code owner approves a code owner's change.
+/reporting/forms/ @laupernoe @Theroxat
+/reporting/suckerpot_reporting/data/ @laupernoe @Theroxat

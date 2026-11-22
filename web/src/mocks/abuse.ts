@@ -240,6 +240,7 @@ const settings: ReportSettings = {
   xarf_user_agent: "desk-reports/1",
   xarf_org: null,
   digest_enabled: true,
+  form_name: null,
   note: "The destination is withheld; source ports are listed so you can match your logs.",
   subject_template: "Abuse report for {network}",
   round_times: true,

@@ -4,6 +4,8 @@ import { useId, useMemo, useState } from "react"
 import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
 import { BlockedDraftsNotice } from "@/components/abuse/blocked-drafts"
+import { useFormQueue } from "@/components/abuse/form-hooks"
+import { FormQueue } from "@/components/abuse/form-queue"
 import { RepliesToCheck } from "@/components/abuse/replies-list"
 import { ReportRow } from "@/components/abuse/report-row"
 import { SendQueue } from "@/components/abuse/send-queue"
@@ -183,16 +185,18 @@ export function AbusePage() {
   const { canWrite } = useAuth()
   const [param, setParam] = useUrlParam("status")
   const queueView = canWrite && param === "queue"
+  const formsView = canWrite && param === "forms"
   const repliesView = canWrite && param === "replies"
   const [recipientParam] = useUrlParam("recipient")
   const recipient =
     recipientParam && /^\d+$/.test(recipientParam) ? Number(recipientParam) : undefined
   const status: ListStatus = LIST_STATUSES.find((s) => s === param) ?? "draft"
   const queue = useSendQueue()
+  const forms = useFormQueue(canWrite)
   const st = useQuery({ queryKey: abuseKeys.status, queryFn: abuseApi.status })
   const filters = recipient === undefined ? { status } : { status, recipient }
   const list = useInfiniteQuery({
-    enabled: !queueView && !repliesView,
+    enabled: !queueView && !repliesView && !formsView,
     queryKey: abuseKeys.list(filters),
     queryFn: ({ pageParam }) => abuseApi.list(filters, pageParam),
     initialPageParam: null as string | null,
@@ -266,7 +270,7 @@ export function AbusePage() {
       ) : null}
 
       <Tabs
-        value={queueView ? "queue" : repliesView ? "replies" : status}
+        value={queueView ? "queue" : formsView ? "forms" : repliesView ? "replies" : status}
         onValueChange={(v) => setParam(v === "draft" ? null : v)}
       >
         <TabsList
@@ -280,6 +284,16 @@ export function AbusePage() {
               {queue.data ? (
                 <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">
                   {queue.data.items.length}
+                </span>
+              ) : null}
+            </TabsTrigger>
+          ) : null}
+          {canWrite ? (
+            <TabsTrigger value="forms" className="flex-none px-3">
+              To submit by form
+              {forms.data ? (
+                <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">
+                  {forms.data.items.length}
                 </span>
               ) : null}
             </TabsTrigger>
@@ -305,6 +319,8 @@ export function AbusePage() {
         <RepliesToCheck />
       ) : queueView ? (
         <SendQueue />
+      ) : formsView ? (
+        <FormQueue />
       ) : (
         <div className="space-y-4 normal-nums">
           {status === "draft" && st.data?.blocked_drafts ? (

@@ -73,6 +73,7 @@ function SettingsForm({
     outro: useId(),
     ua: useId(),
     org: useId(),
+    formName: useId(),
     note: useId(),
     subj: useId(),
     err: useId(),
@@ -250,6 +251,22 @@ function SettingsForm({
             value={s.xarf_org ?? ""}
             onChange={(e) => set("xarf_org", e.target.value === "" ? null : e.target.value)}
             {...invalid("xarf_org", ids.org)}
+          />
+        </Field>
+        <Field
+          id={ids.formName}
+          label="Your name for web forms"
+          optional
+          hint="Some abuse desks only take a web form, and many ask for a name. It is shown in the copy kit of those forms, never in a mail. Leave empty if you prefer."
+          error={issueOf("form_name")}
+        >
+          <Input
+            id={ids.formName}
+            maxLength={100}
+            autoComplete="off"
+            value={s.form_name ?? ""}
+            onChange={(e) => set("form_name", e.target.value === "" ? null : e.target.value)}
+            {...invalid("form_name", ids.formName)}
           />
         </Field>
         <Field

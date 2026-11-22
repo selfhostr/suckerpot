@@ -41,6 +41,8 @@ ADMIN_ONLY_GETS = {
     "/api/v1/abuse/imap",
     "/api/v1/abuse/imap/requests/{request_id}",
     "/api/v1/abuse/send-queue",
+    "/api/v1/abuse/forms",
+    "/api/v1/abuse/reports/{public_id}/kit",
     "/api/v1/settings/vpn",
     "/api/v1/setup/status",
     "/api/v1/network/submissions",

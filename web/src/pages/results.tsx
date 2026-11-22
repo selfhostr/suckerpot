@@ -61,7 +61,7 @@ function presetOf(since: string | null): string {
   return hit?.value ?? ""
 }
 
-const CHANNELS: readonly Channel[] = ["mail", "urlhaus", "threatfox"]
+const CHANNELS: readonly Channel[] = ["mail", "form", "urlhaus", "threatfox"]
 
 export function ResultsPage() {
   const [params, setParams] = useSearchParams()

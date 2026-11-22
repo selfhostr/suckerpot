@@ -141,7 +141,7 @@ Automatic sending is built to look like what it is: a person sending a few repor
 
 - **Fresh reports only.** A source whose last activity is more than 7 days old is never sent automatically (see [freshness per source](#one-mail-per-provider-per-day)). A report with no fresh source left is cancelled (`too_old`). You can still send it by hand.
 - **Never list, again.** Before any send, by hand or automatic, the subjects of the report are checked against the never-block list. A draft made before an entry was added is cancelled with `shared_host` and never sent.
-- **Desks that take a web form only.** When a reply from a provider that matched the report says it only accepts its web form (for example "this inbox is not monitored" or "submit your report using our portal"), the node remembers it for that recipient. Automatic sending then skips the recipient (cancel code `form_only`), and the report page says "This desk only accepts its web form", with the form link when the reply had one. Submit the report there by hand. A send you start yourself still goes out. **Clear this flag** on the report page when the desk takes mail again.
+- **Desks that take a web form only.** No mail goes to a desk that only takes its web form (cancel code `form_only`). Its reports wait in **To submit by form** instead: see [Desks that take only a web form](#desks-that-take-only-a-web-form). A send you start yourself still goes out.
 - **Dead addresses.** A hard bounce (a 5.x.x failure) from a report sent to an address is remembered too. One bounce of the "user unknown" kind (5.1.1, "550 user not found") marks the address `undeliverable`. Any other permanent failure needs two. Automatic sending then skips it (cancel code `undeliverable`) and the report page says so. Type another address for the recipient, which starts a clean record, or clear the flag. A delayed notice ("still being retried") is not a bounce and is ignored.
 - **Newest first.** The freshest evidence is scheduled and sent first. A report you send by hand goes before the automatic ones.
 - **Spacing.** At most one automatic send every 3 minutes.
@@ -149,6 +149,44 @@ Automatic sending is built to look like what it is: a person sending a few repor
 - **Deferrals.** If the mail server answers "try later" (an SMTP 4xx reply, often a limit on mails per minute or per hour), the send is marked `deferred`, every automatic send waits one hour, and the report is scheduled again by itself, at most 3 times in all.
 - **Refusals.** A refusal (5xx) is never retried by itself. Neither is a send whose outcome is unknown, because a second mail would be worse. Both show the server's reply code, for example `refused:550` or `deferred:451`.
 - **Switching off.** When you leave `auto`, the queued automatic sends are not sent: they end as `mode_changed`, or `mode_off` when you turn sending off.
+
+### Desks that take only a web form
+
+Some abuse desks ignore mail and take reports only through a form on their website. SuckerPot never submits a form by itself: forms have captchas and terms of use, and a report a person submitted is more credible. It prepares everything, and you paste it in.
+
+**Which desks.** A recipient goes to the form queue when:
+
+- a reply that matched one of its reports says it only accepts its web form (for example "this inbox is not monitored" or "submit your report using our portal"). The first `https` link of a verified reply on the provider's own domain is kept as a hint;
+- the **shared directory of abuse forms** has an entry for it that says the desk does not read mail (`accepts_mail: false` or `ignored`). The node then sends no mail there at all, not even a first one;
+- you chose it: **This desk takes only a web form** on a report page.
+
+**Clear this flag** on the report page when the desk takes mail again. The shared directory then leaves that desk alone; only a new reply from the desk can mark it again.
+
+**One report per provider and week.** The sources of a form-only desk go into one form report per ISO week (Monday 00:00 UTC), which fills during the week like a digest. It is in the queue as soon as it holds a source, so you can submit early while the evidence is fresh. Sources older than 7 days are marked. A report you have not submitted moves into the next week with its sources.
+
+**The copy kit.** Open **Abuse reports, To submit by form** and open a provider's kit. It holds, each with its own copy button:
+
+| Field | Content |
+| --- | --- |
+| Form | The form link, with its host in text next to it. A link from the shared directory says when maintainers last checked it; a link from a reply says to check the address first. When both exist and differ, both are shown with a warning |
+| Your email | Your reply contact |
+| Your name | The optional **Your name for web forms** setting (Settings, Reporting), empty by default |
+| Abuse type | The form's own option when the directory knows it, else "Login attack", "Exploit attempt", "Malware download" or "Command server" |
+| Addresses | One per line, or one block per address when the form takes one address at a time |
+| First seen, last seen | UTC, with the report's precision |
+| Description | A short text built from the same labels as the mail (your introduction is left out), within the form's limit (1,000 characters by default). Its last line is `ref <token>`, so a reply that quotes it finds the report |
+| Log excerpt | The first 20 evidence lines of each source |
+| Evidence file | `evidence.csv`, or `evidence.txt` for a form that takes text files only |
+
+Every field, the evidence file and the form links pass the identity guard, one by one and together. A blocked kit shows the reasons and has no copy button.
+
+**Open the form through your VPN.** A warning at the top of every kit says it: the provider sees the address of the browser that submits the form. Mail always leaves through the VPN; a form you submit from your own browser does not, unless you open it through your VPN or the Tor Browser. Form links open in a new tab with no referrer, so the provider never learns your dashboard address. A link is clickable only when it is `https` on the provider's own domain; anything else is shown as text.
+
+**Submitted.** Press **Submitted** once the form is sent. The report then counts as sent everywhere: the 14-day resend rule, takedown tracking, Results (channel "Form"), [the effect measure](#do-reports-make-a-difference) and the one-mail-per-day rule for that provider. It does not count against the SMTP daily cap. Each address has a check box: only the ticked ones are recorded as sent, and the others wait for the next form report. For a form that takes one address at a time, nothing is ticked at first; tick each address as you submit it.
+
+**The shared directory of abuse forms.** The file `reporting/forms/abuse-forms.yaml` lists known abuse forms. It is data only, ships with each release, and only changes through a reviewed pull request. CI refuses a form link that is not `https`, whose host is not under the provider's own domains, that is an IP address, holds a user name, a port or a fragment, or carries a query string other than `lang` (so no token or session can hide in it). Maintainers check every entry on the provider's own website, never from a link in a reply, and the kit says so when an entry was last checked more than a year ago.
+
+When a verified reply taught your node a form link, the report page offers **Suggest for the shared directory**: a short text with the provider's name, mailbox domain, ASN and the form link, to post as an issue on the public repository (template "Abuse form"). It never holds an address you reported, a ticket number, the reply text or anything about your node. Posting from your personal account links that account to reporting this provider.
 
 ### Set up SMTP
 

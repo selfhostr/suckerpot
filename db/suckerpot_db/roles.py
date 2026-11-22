@@ -263,6 +263,13 @@ BEGIN
             -- The XARF files that left, stamped in the update that marks the report sent.
             EXECUTE format('GRANT UPDATE (sent_xarf) ON abuse_reports TO %I', r);
         END IF;
+        IF to_regprocedure('public.abuse_report_subjects_form_guard()') IS NOT NULL THEN
+            -- M38 P3: a draft moves between mail and form (trigger: drafts only), and the
+            -- shared directory of abuse forms routes a recipient to the form queue.
+            EXECUTE format('GRANT UPDATE (channel, week) ON abuse_reports TO %I', r);
+            EXECUTE format(
+                'GRANT UPDATE (form_source, form_entry) ON abuse_recipients TO %I', r);
+        END IF;
         EXECUTE format('GRANT SELECT, INSERT, DELETE ON abuse_report_subjects TO %I', r);
         EXECUTE format('GRANT SELECT ON abuse_report_requests TO %I', r);
         EXECUTE format('GRANT UPDATE (done_at, outcome) ON abuse_report_requests TO %I', r);
@@ -551,6 +558,15 @@ BEGIN
             'undeliverable, hard_bounces) ON abuse_recipients TO %I', r);
         IF to_regclass('public.abuse_subject_outcomes') IS NOT NULL THEN
             EXECUTE format('GRANT UPDATE (xarf_strict) ON abuse_recipients TO %I', r);
+        END IF;
+        IF to_regprocedure('public.abuse_report_subjects_form_guard()') IS NOT NULL THEN
+            -- M38 P3: the owner switches a desk to its web form, and marks a form report
+            -- submitted: submitted_at once, and the unticked sources dropped (trigger: only on a
+            -- report the API just marked sent by form).
+            EXECUTE format(
+                'GRANT UPDATE (form_source, form_entry) ON abuse_recipients TO %I', r);
+            EXECUTE format('GRANT UPDATE (submitted_at) ON abuse_report_subjects TO %I', r);
+            EXECUTE format('GRANT DELETE ON abuse_report_subjects TO %I', r);
         END IF;
         EXECUTE format(
             'GRANT UPDATE (status, notes, options, reviewed_at, reviewed_by, reviewed_revision, '

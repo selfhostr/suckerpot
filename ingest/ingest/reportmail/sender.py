@@ -29,8 +29,9 @@ hand. The newest reports are scheduled and sent first.
 Before any send, whoever asked for it, the subjects are checked against the never list and the
 shared services (``suckerpot_db.blocklist_values``): a report that names one is cancelled
 (``shared_host``), also a draft made before the list grew. An automatic send is also cancelled
-when its recipient only takes a web form (``form_only``) or its address is dead
-(``undeliverable``).
+when its recipient only takes a web form (``form_only``, also a report of the form queue, M38
+P3) or its address is dead (``undeliverable``). A report submitted by form is marked sent by
+the API and never goes through here.
 
 Daily digests (M38, section 5). With ``report_settings.digest_enabled`` an automatic digest waits
 for its ``due_at`` and for the node's digest hour, and a recipient address gets at most one
@@ -177,6 +178,7 @@ _SCHEDULE_HEAD = """
                                     CAST(:at AS timestamptz))
                     FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id
                     WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
+                      AND r.channel = 'mail'
                       AND NOT rec.muted AND NOT rec.form_only AND NOT rec.undeliverable
                       AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
                       AND r.window_end > now() - make_interval(secs => :max_age)
@@ -594,7 +596,8 @@ class ReportSender:
         flags = (
             await session.execute(
                 text(
-                    "SELECT rec.form_only, rec.undeliverable FROM abuse_reports r "
+                    "SELECT rec.form_only OR r.channel = 'form' AS form_only, rec.undeliverable "
+                    "FROM abuse_reports r "
                     "JOIN abuse_recipients rec ON rec.id = r.recipient_id WHERE r.id = :i"
                 ),
                 {"i": req.report_id},

@@ -110,6 +110,13 @@ jobs:
           if [ "$found" -eq 0 ]; then
             echo "::notice::No Python packages found yet; nothing to check."
           fi
+      - name: Shared directory of abuse forms
+        working-directory: reporting
+        # Validates reporting/forms/abuse-forms.yaml (URL rules, bounds, schema), checks that the
+        # compiled JSON shipped in the images is up to date, and warns on entries older than a year.
+        run: >-
+          uv run python -m suckerpot_reporting.forms check
+          forms/abuse-forms.yaml suckerpot_reporting/data/abuse-forms.json
 
   web:
     runs-on: ubuntu-latest

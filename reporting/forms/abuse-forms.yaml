@@ -1,0 +1,65 @@
+# The shared directory of abuse forms (design M38, section 6.5).
+#
+# Data only: no template logic, no script, no HTML. Every change is reviewed by a code owner
+# (see .github/CODEOWNERS) and CI validates the file. After a change, compile it and commit both:
+#
+#   cd reporting && uv run python -m suckerpot_reporting.forms compile \
+#       forms/abuse-forms.yaml suckerpot_reporting/data/abuse-forms.json
+#
+# A form link that a node learned from a reply is a hint, never the proof. Before adding or
+# changing an entry, the reviewer:
+#   1. opens the provider's official website (the domain in its RDAP record or its own site,
+#      not a link from a reply), through a VPN;
+#   2. finds the abuse page there and checks that it links to the same form. That page is
+#      `source`;
+#   3. reads the form without submitting it, and records the field labels and choices;
+#   4. checks that the form host is under an official domain and that the link carries no
+#      tracking or session parameter;
+#   5. sets `verified_on` and opens a pull request. Another code owner approves when the author
+#      is a code owner.
+#
+# Fields (all bounds are enforced by the validator):
+#   id                     stable slug, for example example-hosting
+#   provider               display name, 1 to 80 characters
+#   match.mailbox_domains  exact domains of the RDAP abuse mailbox (0 to 10)
+#   match.asns             ASNs of the provider (0 to 50); at least one domain or ASN
+#   official_domains       the provider's own domains (1 to 5)
+#   form_url               https, host equal to or under an official domain, no IP literal, no
+#                          user info, no port, at most 300 characters, no query string except
+#                          one `lang` parameter
+#   accepts_mail           true, false or ignored. false and ignored send the desk to the form
+#                          queue: such a desk gets no mail at all
+#   xarf                   unknown (default), accepted or strict; set only with a public source
+#   one_ip_per_submission  true when the form takes one address at a time
+#   file_types             [csv] (default), [txt] or [csv, txt]
+#   max_chars              the form's description limit, 200 to 10000 (default 1000)
+#   fields                 0 to 20 {key, label, choices}: the form's own labels. key is one of
+#                          form, email, name, abuse_type, addresses, first_seen, last_seen,
+#                          description, log_excerpt, evidence. choices (abuse_type only) maps
+#                          login_attack, exploit, malware and c2 to the form's options
+#   source                 https page of the provider that links to the form, on an official
+#                          domain
+#   verified_on            date of the last check by a maintainer (YYYY-MM-DD)
+#
+# Example (not a real provider):
+#
+#   - id: example-hosting
+#     provider: Example Hosting
+#     match:
+#       mailbox_domains: [example.net]
+#       asns: [64500]
+#     official_domains: [example.net]
+#     form_url: https://www.example.net/abuse/report
+#     accepts_mail: false
+#     one_ip_per_submission: false
+#     file_types: [csv, txt]
+#     max_chars: 2000
+#     fields:
+#       - key: abuse_type
+#         label: Type of abuse
+#         choices: {login_attack: Brute force, exploit: Hacking attempt, malware: Malware}
+#     source: https://www.example.net/legal/abuse
+#     verified_on: 2026-11-22
+
+schema: suckerpot-abuse-forms/1
+entries: []
