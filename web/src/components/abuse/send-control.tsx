@@ -5,7 +5,7 @@ import { useAuth } from "@/app/auth"
 import { useSendMode } from "@/components/abuse/send-hooks"
 import { ConfirmDialog } from "@/components/abuse/status-dialogs"
 import { Button } from "@/components/ui/button"
-import { abuseKeys } from "@/lib/abuse"
+import { abuseKeys, withSameDayConfirm } from "@/lib/abuse"
 import {
   describeRequest,
   describeSendError,
@@ -124,7 +124,8 @@ export function SendControl({
         confirmLabel="Send now"
         describe={describeSendError}
         run={async () => {
-          await sendApi.send(reportId, revision)
+          // A provider gets one mail a day: a second one today asks first.
+          await withSameDayConfirm((confirm) => sendApi.send(reportId, revision, confirm))
           await qc.invalidateQueries({ queryKey: abuseKeys.all })
         }}
       />

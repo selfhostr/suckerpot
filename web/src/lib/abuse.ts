@@ -5,15 +5,69 @@
  */
 import { ApiError, getBlob, getJson, sendJson, type Page } from "./api"
 import { plural } from "./format"
-import type { RepliesStatus, Reply, ReportOutcome } from "./replies"
+import type { Outcome, RepliesStatus, Reply, ReportOutcome } from "./replies"
 
 // --- Vocabulary -------------------------------------------------------------------
 
 export type ReportKind = "attack_source" | "payload_host" | "c2"
+/** A report holds one kind of source, or every kind for one provider (a daily digest, M38). */
+export type ReportItemKind = ReportKind | "digest"
 export const KIND_LABEL: Record<ReportKind, string> = {
   attack_source: "Attack source",
   payload_host: "Payload host",
   c2: "C2 server",
+}
+/** The order and headings of the sections of a digest. */
+export const KINDS: readonly ReportKind[] = ["attack_source", "payload_host", "c2"]
+export const KIND_HEADING: Record<ReportKind, string> = {
+  attack_source: "Attack sources",
+  payload_host: "Payload hosts",
+  c2: "Command servers",
+}
+const KIND_NOUN: Record<ReportKind, [string, string]> = {
+  attack_source: ["attack source", "attack sources"],
+  payload_host: ["payload host", "payload hosts"],
+  c2: ["command server", "command servers"],
+}
+
+/** "Digest" for a daily digest, else the kind of its sources. */
+export function kindLabel(kind: ReportItemKind): string {
+  return kind === "digest" ? "Daily digest" : KIND_LABEL[kind]
+}
+
+/** "12 sources (9 attack sources, 3 payload hosts)", or the plain count of an older report. */
+export function describeSources(r: Pick<ReportItem, "kind" | "subject_count" | "kinds">): string {
+  const kinds = r.kinds ?? {}
+  const parts = KINDS.filter((k) => (kinds[k] ?? 0) > 0).map((k) => {
+    const [one, many] = KIND_NOUN[k]
+    return plural(kinds[k] ?? 0, one, many)
+  })
+  const total = parts.length > 0 ? KINDS.reduce((n, k) => n + (kinds[k] ?? 0), 0) : r.subject_count
+  if (r.kind !== "digest") {
+    const [one, many] = KIND_NOUN[r.kind]
+    return plural(total, one, many)
+  }
+  const head = plural(total, "source")
+  return parts.length > 0 ? `${head} (${parts.join(", ")})` : head
+}
+
+/**
+ * When a digest goes, in local time: "goes at 07:42" today, "goes tomorrow at 07:42", or "waiting
+ * for tomorrow" further out. Null when it is not waiting (no due time, or not draft or reviewed).
+ */
+export function describeDue(
+  r: Pick<ReportItem, "due_at" | "status">,
+  now: Date = new Date(),
+): string | null {
+  if (!r.due_at || (r.status !== "draft" && r.status !== "reviewed")) return null
+  const due = new Date(r.due_at)
+  if (Number.isNaN(due.getTime())) return null
+  const clock = `${String(due.getHours()).padStart(2, "0")}:${String(due.getMinutes()).padStart(2, "0")}`
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((day(due) - day(now)) / 86_400_000)
+  if (days <= 0) return due.getTime() <= now.getTime() ? "goes soon" : `goes at ${clock}`
+  if (days === 1) return `goes tomorrow at ${clock}`
+  return "waiting for a later day"
 }
 
 export type ReportStatus = "draft" | "reviewed" | "sent" | "closed" | "discarded" | "superseded"
@@ -185,6 +239,7 @@ const SETTINGS_SUBJECT: Record<string, string> = {
   note: "The note",
   subject_template: "The subject template",
   xarf_user_agent: "The X-ARF user agent",
+  xarf_org: "The X-ARF organisation",
 }
 
 /** What a reason means for a text that ends up in every report. */
@@ -257,6 +312,8 @@ export interface Recipient {
   form_url?: string | null
   /** Mail to this address bounced for good (automatic sending skips it). */
   undeliverable?: boolean
+  /** One spec-shaped X-ARF mail per source instead of a daily digest (M38). */
+  xarf_strict?: boolean
 }
 
 /** The form link is shown only when it is a plain https URL (the server checks it too). */
@@ -282,7 +339,7 @@ export interface GuardResult {
 
 export interface ReportItem {
   public_id: string
-  kind: ReportKind
+  kind: ReportItemKind
   status: ReportStatus
   demo: boolean
   recipient: Recipient
@@ -295,6 +352,13 @@ export interface ReportItem {
   guard: GuardResult
   /** Sent and closed reports only (M26). */
   outcome?: ReportOutcome | null
+  /** When a daily digest is due (M38); null when it goes after the waiting time, or by hand. */
+  due_at?: string | null
+  /** Its part number that day (a provider with more than 100 sources gets up to 3). */
+  part?: number
+  channel?: string
+  /** How many sources of each kind it holds. */
+  kinds?: Partial<Record<ReportKind, number>>
 }
 
 export interface ReportSubject {
@@ -309,6 +373,17 @@ export interface ReportSubject {
   last_ts: string
   /** The internal dashboard view of this subject. Used by the UI only, never in the text. */
   link: string
+  /** The kind of this source (a digest holds every kind). */
+  kind?: ReportKind
+  /** The name of its X-ARF JSON in the mail, such as xarf-003.json. */
+  xarf_file?: string | null
+  /** Its X-ARF report id. Administrators only. */
+  xarf_id?: string | null
+  /** The best verified reply that names this source. */
+  outcome?: Exclude<Outcome, "none" | "bounce"> | null
+  ticket_id?: string | null
+  /** Older than 7 days: only a send started by hand carries it. */
+  stale?: boolean
 }
 
 export interface HistoryEntry {
@@ -398,6 +473,10 @@ export interface ReportSettings {
   intro: string | null
   outro: string | null
   xarf_user_agent: string | null
+  /** Optional. The organisation in X-ARF reports; empty uses the domain of the reply contact. */
+  xarf_org?: string | null
+  /** One mail per provider per day (M38). Edited in the Sending card. */
+  digest_enabled?: boolean
   /** Optional. A sentence about the withheld destination and the source ports, if wanted. */
   note: string | null
   /** Optional. Empty uses the plain subject "Abuse report for {value}". */
@@ -431,7 +510,7 @@ export interface SelfTerm {
 
 export interface ReportFilters {
   status?: ListStatus
-  kind?: ReportKind
+  kind?: ReportItemKind
   recipient?: number
 }
 
@@ -477,6 +556,11 @@ export function blockedReason(status: AbuseStatus | undefined): string | null {
 /** "3 addresses in 2 networks" for the first line of a report page. */
 export function describeReport(r: ReportItem): string {
   const nets = new Set(r.asns.map((a) => a.asn)).size
+  if (r.kind === "digest") {
+    const where = nets > 0 ? ` in ${plural(nets, "network")}` : ""
+    const name = r.recipient.name
+    return `${describeSources(r)}${where}, reported to ${name}${name.endsWith(".") ? "" : "."}`
+  }
   const noun =
     r.kind === "attack_source"
       ? "address"
@@ -542,6 +626,12 @@ export function describeAbuseError(e: unknown): string {
     if (e.code === "no_mailbox") return "There is no abuse mailbox for this provider yet."
     if (e.code === "evidence_invalid") return "The stored evidence for this report is not valid."
     if (e.code === "xarf_unavailable") return "This report cannot be written as X-ARF."
+    if (e.code === "xarf_invalid")
+      return "An X-ARF part of this report did not pass the format check, so nothing is released."
+    if (e.code === "xarf_subject_required") return "Pick the source whose X-ARF file you want."
+    if (e.code === "reply_contact_not_email")
+      return "X-ARF needs the reply contact to be a mail address. Change it in the Reporting settings."
+    if (e.code === SAME_DAY) return SAME_DAY_TEXT
     if (e.code === "identity_guard_failed") return "The identity check blocked this text."
     if (e.code === "reauth_failed") return "That password is not right."
     if (e.status === 429) return "Too many requests. Wait a moment and try again."
@@ -597,8 +687,10 @@ export const abuseApi = {
   render: (id: string, format: MessageFormat) =>
     getJson<RenderedMessage>(`/abuse/reports/${id}/render`, { format }),
   waiting: () => getJson<WaitingRecipient[]>("/abuse/recipients", { waiting: "true" }),
-  setStatus: (id: string, body: { to: ReportStatus; revision: number; sent_at?: string }) =>
-    sendJson<ReportDetail>("POST", `/abuse/reports/${id}/status`, body),
+  setStatus: (
+    id: string,
+    body: { to: ReportStatus; revision: number; sent_at?: string; confirm_same_day?: boolean },
+  ) => sendJson<ReportDetail>("POST", `/abuse/reports/${id}/status`, body),
   patch: (id: string, body: { notes?: string | null; options?: Partial<ReportOptions> }) =>
     sendJson<ReportDetail>("PATCH", `/abuse/reports/${id}`, body),
   regenerate: (id: string) => sendJson("POST", `/abuse/reports/${id}/regenerate`),
@@ -607,6 +699,9 @@ export const abuseApi = {
   /** The owner clears what replies taught the node about a desk. */
   clearDesk: (recipientId: number, flag: "form_only" | "undeliverable") =>
     sendJson("PATCH", `/abuse/recipients/${recipientId}`, { [flag]: false }),
+  /** One mail per source for a desk that parses X-ARF strictly (M38). */
+  setStrict: (recipientId: number, on: boolean) =>
+    sendJson("PATCH", `/abuse/recipients/${recipientId}`, { xarf_strict: on }),
   settings: () => getJson<ReportSettings>("/abuse/settings"),
   saveSettings: (body: ReportSettings) => {
     // `field_issues` is an answer, not an input: the server refuses unknown keys.
@@ -622,11 +717,79 @@ export const abuseApi = {
   deleteTerm: (id: number) => sendJson("DELETE", `/abuse/self-terms/${id}`),
 }
 
-export type FileFormat = "txt" | "eml" | "evidence_csv" | "xarf_yaml"
+export type FileFormat = "txt" | "eml" | "evidence_csv" | "xarf_json"
 
-/** A guarded file of one report. A blocked check rejects with the 409 and its reason codes. */
-export const downloadFile = (id: string, format: FileFormat) =>
-  getBlob(`/abuse/reports/${id}/download`, { format })
+/**
+ * A guarded file of one report. A blocked check rejects with the 409 and its reason codes.
+ * `subject` picks the source of an X-ARF file when the report holds more than one.
+ */
+export const downloadFile = (id: string, format: FileFormat, subject?: string) =>
+  getBlob(`/abuse/reports/${id}/download`, { format, subject })
+
+// --- One mail per provider per day (M38) ---------------------------------------------
+
+/** The 409 code when another report already went to the same provider today (UTC). */
+export const SAME_DAY = "recipient_sent_today"
+export const SAME_DAY_TEXT = "This provider already got a report today."
+export const SAME_DAY_QUESTION = "This provider already got a report today. Send anyway?"
+
+export function isSameDay(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 && e.code === SAME_DAY
+}
+
+/**
+ * Run a send or a "mark sent". When the provider already got a report today, ask first and run it
+ * again with the confirmation. A "no" ends with an error that says why nothing happened.
+ */
+export async function withSameDayConfirm<T>(
+  run: (confirm: boolean) => Promise<T>,
+  ask: (question: string) => boolean = (q) => window.confirm(q),
+): Promise<T> {
+  try {
+    return await run(false)
+  } catch (e) {
+    if (!isSameDay(e) || !ask(SAME_DAY_QUESTION)) throw e
+    return run(true)
+  }
+}
+
+export interface DigestSettings {
+  enabled: boolean
+  /** Minutes after 00:00 UTC; null while there is no SMTP profile. */
+  minute: number | null
+}
+
+/** UTC minutes of the day to "HH:MM" in the browser's time zone (for an `<input type="time">`). */
+export function utcMinuteToLocal(minute: number, on: Date = new Date()): string {
+  const d = new Date(
+    Date.UTC(
+      on.getUTCFullYear(),
+      on.getUTCMonth(),
+      on.getUTCDate(),
+      Math.floor(minute / 60),
+      minute % 60,
+    ),
+  )
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+
+/** "HH:MM" in the browser's time zone to minutes after 00:00 UTC, or null when not a time. */
+export function localToUtcMinute(value: string, on: Date = new Date()): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h > 23 || min > 59) return null
+  const d = new Date(on.getFullYear(), on.getMonth(), on.getDate(), h, min)
+  return (d.getUTCHours() * 60 + d.getUTCMinutes()) % 1440
+}
+
+export const digestKeys = { digest: ["abuse", "digest"] as const }
+export const digestApi = {
+  get: () => getJson<DigestSettings>("/abuse/digest"),
+  save: (body: { enabled: boolean; minute?: number }) =>
+    sendJson<DigestSettings>("PUT", "/abuse/digest", body),
+}
 
 /** What a CERT export covers. */
 export type ExportScope = { report: string } | { campaign: number } | { since: string }

@@ -10,7 +10,9 @@ import type {
   BlockedDrafts,
   GuardResult,
   Recipient,
+  DigestSettings,
   ReportDetail,
+  ReportItemKind,
   ReportKind,
   ReportOptions,
   ReportSettings,
@@ -19,7 +21,7 @@ import type {
   SelfTerm,
   WaitingRecipient,
 } from "@/lib/abuse"
-import { KIND_LABEL } from "@/lib/abuse"
+import { kindLabel } from "@/lib/abuse"
 import { sampleSha } from "./samples"
 import { outcomeFor, repliesStatus } from "./replies"
 
@@ -68,8 +70,10 @@ function subject(
   hoursAgo: number,
   sessions: number,
   type: ReportSubject["subject_type"] = "ip",
+  kind: ReportKind = "attack_source",
 ): ReportSubject {
   return {
+    kind,
     subject_type: type,
     value,
     asn,
@@ -85,7 +89,9 @@ function subject(
 
 interface Seed {
   id: string
-  kind: ReportKind
+  kind: ReportItemKind
+  /** A daily digest: when it goes (hours from now). */
+  dueInH?: number
   status: ReportStatus
   recipient: number
   asns: number[]
@@ -99,6 +105,23 @@ interface Seed {
 }
 
 const SEEDS: Seed[] = [
+  {
+    id: "e5f6a7b8-9c0d-4e1f-8a2b-0c1d2e3f4a10",
+    kind: "digest",
+    dueInH: 5,
+    status: "draft",
+    recipient: 3,
+    asns: [64503],
+    subjects: [
+      subject("203.0.113.41", 64503, 2, 9),
+      subject("203.0.113.42", 64503, 200, 1),
+      subject("files.example.org", 64503, 6, 3, "domain", "payload_host"),
+      subject("c2.example.org", 64503, 7, 1, "domain", "c2"),
+    ],
+    ageH: 0.5,
+    masked: 0,
+    removed: 0,
+  },
   {
     id: "7b1f3a52-9c0e-4d2a-8f61-1a2b3c4d5e01",
     kind: "attack_source",
@@ -215,6 +238,8 @@ const settings: ReportSettings = {
   intro: "I run a small research network. The addresses below attacked a machine I monitor.",
   outro: "Please tell me what you find.",
   xarf_user_agent: "desk-reports/1",
+  xarf_org: null,
+  digest_enabled: true,
   note: "The destination is withheld; source ports are listed so you can match your logs.",
   subject_template: "Abuse report for {network}",
   round_times: true,
@@ -232,6 +257,20 @@ const settings: ReportSettings = {
 function build(s: Seed): Row {
   const recipient = must(RECIPIENTS.find((r) => r.id === s.recipient))
   const times = s.subjects.flatMap((x) => [x.first_ts, x.last_ts]).sort()
+  const files =
+    s.subjects.length === 1
+      ? ["xarf.json"]
+      : s.subjects.map((_, i) => `xarf-${String(i + 1).padStart(3, "0")}.json`)
+  const subjects = s.subjects.map((x, i) => ({
+    ...x,
+    kind: s.kind === "digest" ? x.kind : s.kind,
+    xarf_file: files[i] ?? null,
+    stale:
+      (s.status === "draft" || s.status === "reviewed") &&
+      Date.now() - Date.parse(x.last_ts) > 7 * 24 * HOUR,
+  }))
+  const kinds: Partial<Record<ReportKind, number>> = {}
+  for (const x of subjects) if (x.kind) kinds[x.kind] = (kinds[x.kind] ?? 0) + 1
   const history: ReportDetail["history"] = [
     { ts: iso((s.ageH + 1) * HOUR), actor: "ingest", from: null, to: "draft" },
   ]
@@ -250,7 +289,11 @@ function build(s: Seed): Row {
     updated_at: iso(s.ageH * HOUR),
     revision: 1,
     guard: s.guard ?? guardOk,
-    subjects: s.subjects,
+    due_at: s.dueInH === undefined ? null : new Date(Date.now() + s.dueInH * HOUR).toISOString(),
+    part: 1,
+    channel: "mail",
+    kinds,
+    subjects,
     redaction: { masked: s.masked ?? 0, removed: s.removed ?? 0 },
     options: defaultOptions(),
     notes: null,
@@ -264,6 +307,30 @@ function build(s: Seed): Row {
 }
 
 export const rows: Row[] = SEEDS.map(build)
+
+const digest: DigestSettings = { enabled: true, minute: 462 }
+
+/** A minimal XARF 4.2.0 report for one mock source (documentation values only). */
+function xarfJson(x: ReportSubject): string {
+  const login = x.kind === "attack_source"
+  return `${JSON.stringify(
+    {
+      xarf_version: "4.2.0",
+      report_id: `0f8e5b2a-3c41-4d7e-9a10-${x.value
+        .replace(/[^0-9a-f]/g, "")
+        .padEnd(12, "0")
+        .slice(0, 12)}`,
+      timestamp: x.first_ts.slice(0, 19) + "Z",
+      reporter: { org: "example.net", contact: "reports@example.net", domain: "example.net" },
+      sender: { org: "example.net", contact: "reports@example.net", domain: "example.net" },
+      source_identifier: x.value,
+      category: login ? "connection" : x.kind === "c2" ? "infrastructure" : "content",
+      type: login ? "login_attack" : x.kind === "c2" ? "botnet" : "malware",
+    },
+    null,
+    2,
+  )}\n`
+}
 
 const waiting: WaitingRecipient[] = [
   {
@@ -343,7 +410,7 @@ export function renderBody(r: Row, format: string): { subject: string; body: str
   const subjectLine =
     (r.demo ? "DEMO, DO NOT SEND: " : "") +
     (r.subjects.length === 1
-      ? `Abuse report: ${KIND_LABEL[r.kind].toLowerCase()} ${first.value} (AS${first.asn})`
+      ? `Abuse report: ${kindLabel(r.kind).toLowerCase()} ${first.value} (AS${first.asn})`
       : `Abuse report: ${r.subjects.length} addresses in your network attacked a monitored system (${t(r.window_end).slice(0, 10)})`)
   const lines = r.subjects.map(
     (x) =>
@@ -449,7 +516,12 @@ export const abuseHandlers: RequestHandler[] = [
     const items = rows
       .filter((r) => r.status !== "superseded")
       .filter((r) => !q.get("status") || r.status === q.get("status"))
-      .filter((r) => !q.get("kind") || r.kind === q.get("kind"))
+      .filter(
+        (r) =>
+          !q.get("kind") ||
+          r.kind === q.get("kind") ||
+          r.subjects.some((x) => x.kind === q.get("kind")),
+      )
       .filter((r) => !q.get("recipient") || r.recipient.id === Number(q.get("recipient")))
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       .map((r) => {
@@ -467,6 +539,10 @@ export const abuseHandlers: RequestHandler[] = [
           updated_at: d.updated_at,
           revision: d.revision,
           guard: d.guard,
+          due_at: d.due_at,
+          part: d.part,
+          channel: d.channel,
+          kinds: d.kinds,
           outcome: outcomeFor(d.public_id, d.sent_at !== null),
         }
       })
@@ -490,14 +566,21 @@ export const abuseHandlers: RequestHandler[] = [
     const m = renderBody(r, format)
     return HttpResponse.json({
       ...m,
-      // The real API answers the whole .eml in `body` and no attachments for eml.
+      // The real API answers the whole .eml in `body` and no attachments for eml, and the X-ARF
+      // JSON files (one per source) for xarf.
       attachments:
         format === "eml"
           ? []
-          : [
-              { name: "report.txt", media_type: "text/plain", content: "" },
-              { name: "evidence.csv", media_type: "text/csv", content: "" },
-            ],
+          : format === "xarf"
+            ? r.subjects.map((x) => ({
+                name: x.xarf_file ?? "xarf.json",
+                media_type: "application/json",
+                content: xarfJson(x),
+              }))
+            : [
+                { name: "report.txt", media_type: "text/plain", content: "" },
+                { name: "evidence.csv", media_type: "text/csv", content: "" },
+              ],
       revision: r.revision,
       guard: r.guard,
     })
@@ -511,7 +594,16 @@ export const abuseHandlers: RequestHandler[] = [
     const short = r.public_id.slice(0, 8)
     if (format === "evidence_csv")
       return bareFile("evidence.csv", "ip,first_seen,last_seen,sessions\n", "text/csv")
-    if (format === "xarf_yaml") return bareFile("report.yaml", "Version: 0.2\n", "application/yaml")
+    if (format === "xarf_json") {
+      const wanted = new URL(request.url).searchParams.get("subject")
+      const x = wanted ? r.subjects.find((y) => y.value === wanted) : r.subjects[0]
+      if (!x || (!wanted && r.subjects.length > 1))
+        return HttpResponse.json(
+          { detail: "Pick a source.", code: "xarf_subject_required" },
+          { status: 409 },
+        )
+      return bareFile(x.xarf_file ?? "xarf.json", xarfJson(x), "application/json")
+    }
     return bareFile(`abuse-${short}.${format}`, renderBody(r, "text").body, "text/plain")
   }),
   http.get("/api/v1/abuse/reports/:id", async ({ params }) => {
@@ -582,11 +674,25 @@ export const abuseHandlers: RequestHandler[] = [
     await delay(LATENCY_MS)
     return HttpResponse.json(waiting)
   }),
-  http.patch("/api/v1/abuse/recipients/:id", async ({ params }) => {
+  http.patch("/api/v1/abuse/recipients/:id", async ({ params, request }) => {
     await delay(LATENCY_MS)
+    const b = (await request.json()) as { xarf_strict?: boolean }
+    const rec = RECIPIENTS.find((x) => x.id === Number(params.id))
+    if (rec && typeof b.xarf_strict === "boolean") rec.xarf_strict = b.xarf_strict
     const i = waiting.findIndex((w) => w.id === Number(params.id))
     if (i >= 0) waiting.splice(i, 1)
     return HttpResponse.json({ ok: true })
+  }),
+  http.get("/api/v1/abuse/digest", async () => {
+    await delay(LATENCY_MS)
+    return HttpResponse.json(digest)
+  }),
+  http.put("/api/v1/abuse/digest", async ({ request }) => {
+    await delay(LATENCY_MS)
+    const b = (await request.json()) as { enabled: boolean; minute?: number }
+    digest.enabled = b.enabled
+    if (typeof b.minute === "number") digest.minute = b.minute
+    return HttpResponse.json(digest)
   }),
   http.get("/api/v1/abuse/settings", async () => {
     await delay(LATENCY_MS)

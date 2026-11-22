@@ -101,8 +101,9 @@ describe("ReportingCard", () => {
     const puts = stub(BARE)
     renderCard()
     await screen.findByRole("textbox", { name: /Reply contact/ })
-    // Signature, Introduction, Closing, X-ARF user agent, Note and Subject template.
-    expect(screen.getAllByText("Optional")).toHaveLength(6)
+    // Signature, Introduction, Closing, X-ARF user agent, X-ARF organisation, Note and Subject
+    // template.
+    expect(screen.getAllByText("Optional")).toHaveLength(7)
     expect(screen.getAllByText(/Leave empty to send only the facts/).length).toBeGreaterThan(0)
     expect(screen.queryByText(/Required: write this/)).toBeNull()
     expect(screen.queryByText(/start empty on purpose/)).toBeNull()
@@ -183,5 +184,27 @@ describe("ReportingCard", () => {
     ).toBeInTheDocument()
     expect(alertText()).toMatch(/Nothing was saved\. The texts marked below block every report\./)
     expect(screen.queryByText("Saved.")).toBeNull()
+  })
+
+  it("saves the optional X-ARF organisation and says what empty means", async () => {
+    const puts = stub(BARE)
+    renderCard()
+    const org = await screen.findByRole("textbox", { name: /Organisation in X-ARF reports/ })
+    expect(org).toHaveValue("")
+    expect(screen.getByText(/empty to use the domain of the reply contact/)).toBeInTheDocument()
+    await userEvent.type(org, "Example Volunteers")
+    await userEvent.click(screen.getByRole("button", { name: /^save/i }))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0]).toMatchObject({ xarf_org: "Example Volunteers" })
+  })
+
+  it("explains an X-ARF organisation the identity check refuses", async () => {
+    stub({ ...BARE, xarf_org: "Named Org", field_issues: { xarf_org: ["project_term"] } })
+    renderCard()
+    const org = await screen.findByRole("textbox", { name: /Organisation in X-ARF reports/ })
+    expect(org).toHaveAttribute("aria-invalid", "true")
+    expect(
+      screen.getByText(/The X-ARF organisation names the project, so every report/),
+    ).toBeInTheDocument()
   })
 })

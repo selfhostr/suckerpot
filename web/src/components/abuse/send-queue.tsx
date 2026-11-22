@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/empty-state"
 import { FindingCard } from "@/components/finding-card"
 import { SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
-import { abuseApi, abuseKeys, describeAbuseError } from "@/lib/abuse"
+import { abuseApi, abuseKeys, describeAbuseError, withSameDayConfirm } from "@/lib/abuse"
 import { buildMailto, describeQueue, type QueueItem } from "@/lib/abuse-send"
 import { formatNumber } from "@/lib/format"
 
@@ -90,7 +90,14 @@ export function SendQueue() {
           revision: d.revision,
         })
       }
-      await abuseApi.setStatus(current.id, { to: "sent", revision: d.revision })
+      const revision = d.revision
+      await withSameDayConfirm((confirm) =>
+        abuseApi.setStatus(current.id, {
+          to: "sent",
+          revision,
+          ...(confirm ? { confirm_same_day: true } : {}),
+        }),
+      )
       setDone((n) => n + 1)
       setCopiedNote(null)
       await qc.invalidateQueries({ queryKey: abuseKeys.all })

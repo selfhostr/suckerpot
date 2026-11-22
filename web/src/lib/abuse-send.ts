@@ -63,6 +63,8 @@ export interface SmtpConfig {
   daily_cap: number
   sent_today: number
   last_test: SmtpTest | null
+  /** The digest hour (M38), minutes after 00:00 UTC; null before the first save. */
+  digest_minute?: number | null
 }
 
 /** What the owner edits. The password is write-only: empty keeps the stored one. */
@@ -134,6 +136,10 @@ export const SEND_ERROR: Record<string, string> = {
   internal: "Something went wrong inside SuckerPot. Try again.",
   unknown_outcome:
     "The server stopped answering mid-send: the mail may or may not have left. Check your sent folder before sending again.",
+  xarf_invalid:
+    "An X-ARF part did not pass the format check, so nothing was sent. This is a bug: please report it.",
+  digest_migration:
+    "Cancelled when daily digests came in. Its sources moved into the provider's new daily digest.",
 }
 
 /** A guard failure carries its codes after a colon: `guard_failed:no_self_address`. */
@@ -181,6 +187,7 @@ export const SEND_CONFLICT: Record<string, string> = {
   identity_guard_failed: "The identity check blocked this report.",
   evidence_invalid: "The stored evidence for this report is not valid.",
   nothing_to_cancel: "There is nothing to cancel: it was already sent or cancelled.",
+  recipient_sent_today: "This provider already got a report today.",
   already_sending: "It is already being sent, so it cannot be cancelled.",
 }
 
@@ -295,11 +302,16 @@ export const sendApi = {
     }
     return { items, mode, missing }
   },
-  send: (id: string, revision?: number) =>
+  send: (id: string, revision?: number, confirmSameDay = false) =>
     sendJson<{ id: number; status: SendStatus; scheduled_at: string | null }>(
       "POST",
       `/abuse/reports/${id}/send`,
-      revision === undefined ? undefined : { revision },
+      revision === undefined && !confirmSameDay
+        ? undefined
+        : {
+            ...(revision === undefined ? {} : { revision }),
+            ...(confirmSameDay ? { confirm_same_day: true } : {}),
+          },
     ),
   cancel: (id: string) =>
     sendJson<{ cancelled: number }>("POST", `/abuse/reports/${id}/send/cancel`),
