@@ -80,8 +80,11 @@ async def age_sent(world: World, report: int, by: timedelta) -> None:
     async with world.owner.begin() as conn:
         await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
         await conn.execute(
-            text("UPDATE abuse_reports SET sent_at = sent_at - :b WHERE id = :r"),
-            {"b": by, "r": report},
+            text(
+                "UPDATE abuse_reports SET sent_at = sent_at - make_interval(secs => :b) "
+                "WHERE id = :r"
+            ),
+            {"b": by.total_seconds(), "r": report},
         )
         await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
     await _age_auto_requests(world, by)
@@ -276,3 +279,67 @@ async def test_digests_off_send_after_the_hold_as_before(world: World) -> None:
     await _age_auto_requests(world, timedelta(minutes=10))  # the 3 minute spacing
     await s.run(later(24 * 60 + 20))
     assert len(FakeSMTP.instances) == 2  # no one-a-day rule when digests are off
+
+
+async def test_a_verified_reply_is_linked_to_the_sources_it_names(world: World) -> None:
+    from ingest.replies.match import Match, by_xarf_id
+    from ingest.replies.parse import ParsedReply
+    from ingest.replies.store import link_sources
+
+    report = await world.report(
+        kind="digest", status="reviewed", extra=[("198.51.100.99", NOW - timedelta(hours=1))]
+    )
+    async with world.api.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_by = 'o', "
+                "sent_via = 'manual' WHERE id = :r"
+            ),
+            {"r": report},
+        )
+    async with world.owner.begin() as conn:
+        xid = await conn.scalar(
+            text(
+                "SELECT xarf_id FROM abuse_report_subjects WHERE report_id = :r "
+                "AND value = '198.51.100.99'"
+            ),
+            {"r": report},
+        )
+        reply_id = await conn.scalar(
+            text(
+                "INSERT INTO abuse_replies (source, received_at, report_id, match_method, "
+                "verified, classification, size_bytes) VALUES ('paste', now(), :r, 'xarf_id', "
+                "true, 'resolved', 1) RETURNING id"
+            ),
+            {"r": report},
+        )
+    async with world.factory() as session, session.begin():
+        rid, subject, seen = await by_xarf_id(session, [str(xid)])
+        assert (rid, subject, seen) == (report, ("attack_source", "ip", "198.51.100.99"), True)
+        body = "Ticket T-9: we suspended 198.51.100.23.\n\nOn Monday you wrote:\n> 198.51.100.99"
+        n = await link_sources(
+            session,
+            reply_id=int(reply_id or 0),
+            report_id=report,
+            found=Match(report, "xarf_id", subject=subject),
+            reply=ParsedReply(body=body),
+            ticket="T-9",
+        )
+    assert n == 2  # the quoted source, and the one named in the reply's own text
+    async with world.owner.connect() as conn:
+        rows = {
+            r.value: r.ticket_id
+            for r in await conn.execute(
+                text("SELECT value, ticket_id FROM abuse_subject_outcomes WHERE reply_id = :p"),
+                {"p": reply_id},
+            )
+        }
+    assert rows == {"198.51.100.23": "T-9", "198.51.100.99": None}
+    # A draft's XARF id matches nothing.
+    draft = await world.report(kind="digest")
+    async with world.owner.connect() as conn:
+        draft_id = await conn.scalar(
+            text("SELECT xarf_id FROM abuse_report_subjects WHERE report_id = :r"), {"r": draft}
+        )
+    async with world.factory() as session:
+        assert await by_xarf_id(session, [str(draft_id)]) == (None, None, True)

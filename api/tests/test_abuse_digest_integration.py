@@ -39,7 +39,8 @@ XARF_B = uuid.UUID("7a7a7a7a-0000-4000-8000-00000000000b")
 
 async def run(sql: str, **params: Any) -> Any:
     async with owner_engine() as owner, owner.begin() as conn:
-        return (await conn.execute(text(sql), params)).all() if "RETURNING" in sql else None
+        result = await conn.execute(text(sql), params)
+        return result.all() if "RETURNING" in sql else None
 
 
 async def seed_digest(*, status: str = "draft", demo: bool = True) -> int:
@@ -276,7 +277,7 @@ async def test_a_second_send_by_hand_on_the_same_day_needs_a_confirmation(
 
 
 async def test_the_xarf_org_setting_is_guarded_and_used(client: httpx.AsyncClient) -> None:
-    body = settings_body(0, **WORDING, reply_contact="reports@example.org")
+    body = settings_body(0, **(WORDING | {"reply_contact": "reports@example.org"}))
     refused = await client.put("/api/v1/abuse/settings", json=body | {"xarf_org": "Honeypot Watch"})
     assert refused.status_code == 409 and "xarf_org" in refused.json()["fields"]
     saved = await client.put("/api/v1/abuse/settings", json=body | {"xarf_org": "Example Watch"})

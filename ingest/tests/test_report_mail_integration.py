@@ -997,8 +997,8 @@ async def test_a_url_shortener_and_a_never_listed_address_are_cancelled(world: W
 async def test_an_ordinary_subject_is_still_sent(world: World) -> None:
     await world.self_address()
     await world.profile(mode="click")
-    report = await world.report(status="reviewed")
-    await _subject(world, report, "198.51.100.23", "ip")
+    report = await world.report(status="reviewed")  # its subject row names 198.51.100.23
+    await _subject(world, report, "files.example.org", "domain")
     rid = await world.ask(report)
     await world.sender().run(NOW)
     assert (await world.request(rid)).status == "sent"

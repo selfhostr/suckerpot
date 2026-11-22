@@ -130,18 +130,20 @@ STALE_SENDING_S = SMTP_DEADLINE_S + 30
 _TODAY = (
     "FROM abuse_reports r2 JOIN abuse_recipients c2 ON c2.id = r2.recipient_id "
     "WHERE r2.status IN ('sent', 'closed') AND NOT r2.demo AND r2.id <> r.id "
-    "AND r2.sent_at >= :day0 AND COALESCE(NULLIF(c2.override_mailbox, ''), c2.mailbox) "
+    "AND r2.sent_at >= CAST(:day0 AS timestamptz) "
+    "AND COALESCE(NULLIF(c2.override_mailbox, ''), c2.mailbox) "
     "= COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox)"
 )
+_HOUR_PASSED = "CAST(:minute AS integer) >= CAST(:digest_minute AS integer)"
 # True when an automatic send of report ``r`` may go now under the one-digest-a-day rule.
 RECIPIENT_FREE = (
-    "(NOT :digest OR r.kind <> 'digest' OR rec.xarf_strict "
-    "OR (r.due_at IS NOT NULL AND r.due_at <= :now AND ("
-    f"((SELECT count(*) {_TODAY}) = 0 AND :minute >= :digest_minute) "
+    "(NOT CAST(:digest AS boolean) OR r.kind <> 'digest' OR rec.xarf_strict "
+    "OR (r.due_at IS NOT NULL AND r.due_at <= CAST(:now AS timestamptz) AND ("
+    f"((SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED}) "
     f"OR (r.part > 1 AND (SELECT count(*) {_TODAY}) BETWEEN 1 AND {MAX_PARTS - 1} "
     f"AND (SELECT max(r2.sent_at) {_TODAY}) <= CAST(:now AS timestamptz) - interval '2 hours'))) "
     "OR (r.due_at IS NULL AND r.status = 'reviewed' "
-    f"AND (SELECT count(*) {_TODAY}) = 0 AND :minute >= :digest_minute))"
+    f"AND (SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED}))"
 )
 
 # True while automatic sends must wait: one started less than :spacing ago, or the server deferred

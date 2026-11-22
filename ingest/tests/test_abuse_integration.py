@@ -1113,6 +1113,8 @@ async def test_one_digest_per_recipient_across_kinds(engine: AsyncEngine, factor
     sid = await seed_attack(engine)
     await seed_payload_and_c2(engine, sid)
     await add_self_address(engine)
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM report_smtp"))
     stats = await builder(factory, DEMO).run(NOW, allow_lookups=False)
     assert stats.created == 1
     rep = (await rows(engine, "SELECT * FROM abuse_reports"))[0]
@@ -1196,6 +1198,7 @@ async def test_the_due_time_follows_the_digest_hour(engine: AsyncEngine, factory
     await add_self_address(engine)
     minute = 7 * 60 + 42
     async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM report_smtp"))
         await conn.execute(
             text(
                 "INSERT INTO report_smtp (id, host, port, security, from_address, digest_minute) "

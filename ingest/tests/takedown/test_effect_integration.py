@@ -114,8 +114,9 @@ async def add_report(
         for v in values:
             await conn.execute(
                 text(
-                    "INSERT INTO abuse_report_subjects (report_id, subject_type, value, "
-                    "first_ts, last_ts, sessions, events) VALUES (:r, 'ip', :v, :t, :t, 1, 1)"
+                    "INSERT INTO abuse_report_subjects (report_id, kind, subject_type, value, "
+                    "first_ts, last_ts, sessions, events) "
+                    "VALUES (:r, 'attack_source', 'ip', :v, :t, :t, 1, 1)"
                 ),
                 {"r": rid, "v": v, "t": sent},
             )
