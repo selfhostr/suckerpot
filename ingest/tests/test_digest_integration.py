@@ -367,9 +367,8 @@ async def test_an_xarf_id_alone_does_not_make_a_mail_relevant(world: World) -> N
         assert await is_relevant(session, view, []) is False
 
 
-async def ended_request(world: World, report: int, code: str, *, before_change: bool) -> None:
-    """An automatic request of ``report`` that ended with ``code``, before (or after) the report
-    last changed."""
+async def ended_request(world: World, report: int, code: str) -> None:
+    """An automatic request of ``report`` that ended with ``code`` an hour ago."""
     async with world.owner.begin() as conn:
         await conn.execute(
             text(
@@ -378,8 +377,7 @@ async def ended_request(world: World, report: int, code: str, *, before_change: 
             ),
             {"r": report},
         )
-        status = "failed" if code in ("xarf_invalid", "guard_failed:project_term", "refused:550",
-                                      "unknown_outcome") else "cancelled"  # fmt: skip
+        status = "failed" if code in ("refused:550", "unknown_outcome") else "cancelled"
         await conn.execute(
             text(
                 "UPDATE abuse_send_requests SET status = :s, error_code = :c, "
@@ -387,39 +385,6 @@ async def ended_request(world: World, report: int, code: str, *, before_change: 
             ),
             {"s": status, "c": code, "r": report},
         )
-        when = "now() - interval '2 hours'" if not before_change else "now()"
-        await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
-        await conn.execute(
-            text(f"UPDATE abuse_reports SET updated_at = {when} WHERE id = :r"),  # noqa: S608
-            {"r": report},
-        )
-        await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
-
-
-@pytest.mark.parametrize(
-    "code",
-    ["too_old", "shared_host", "xarf_invalid", "guard_failed:project_term", "not_ready",
-     "mode_changed"],
-)  # fmt: skip
-async def test_a_terminal_end_is_rescheduled_once_the_report_changed(
-    world: World, code: str
-) -> None:
-    await digest_profile(world)
-    report = await world.report(kind="digest", due=PAST)
-    await ended_request(world, report, code, before_change=False)
-    await world.sender().schedule(NOW)
-    assert len(await requests(world)) == 1  # nothing changed since: it stays ended
-    await ended_request(world, report, code, before_change=True)
-    async with world.owner.begin() as conn:  # keep only the newest ended request
-        await conn.execute(
-            text(
-                "DELETE FROM abuse_send_requests WHERE id <> (SELECT max(id) FROM "
-                "abuse_send_requests)"
-            )
-        )
-    await world.sender().schedule(NOW)
-    rows = await requests(world)
-    assert [r.status for r in rows] == [rows[0].status, "pending"]
 
 
 @pytest.mark.parametrize("flag", ["form_only", "undeliverable"])
@@ -434,7 +399,7 @@ async def test_a_desk_flag_end_is_rescheduled_once_the_flag_is_cleared(
             text(f"UPDATE abuse_recipients SET {flag} = true WHERE id = :r"),  # noqa: S608
             {"r": rec},
         )
-    await ended_request(world, report, flag, before_change=False)
+    await ended_request(world, report, flag)
     await world.sender().schedule(NOW)
     assert len(await requests(world)) == 1  # still flagged
     async with world.api.begin() as conn:
@@ -450,20 +415,40 @@ async def test_a_desk_flag_end_is_rescheduled_once_the_flag_is_cleared(
 async def test_a_refusal_an_unknown_outcome_or_the_owners_cancel_still_block(
     world: World, code: str | None
 ) -> None:
+    """The report changed after the request ended (it was created after it), and still."""
     await digest_profile(world)
     report = await world.report(kind="digest", due=PAST)
     if code is None:
         await world.sender().schedule(NOW)
         async with world.api.begin() as conn:
             await conn.execute(text("UPDATE abuse_send_requests SET status = 'cancelled'"))
-        async with world.owner.begin() as conn:
-            await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
-            await conn.execute(text("UPDATE abuse_reports SET updated_at = now() + interval '1 s'"))
-            await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
+        async with world.api.begin() as conn:  # the owner edits the draft afterwards
+            await conn.execute(
+                text("UPDATE abuse_reports SET notes = 'checked' WHERE id = :r"), {"r": report}
+            )
     else:
-        await ended_request(world, report, code, before_change=True)
+        await ended_request(world, report, code)
     await world.sender().schedule(NOW)
     assert len(await requests(world)) == 1
+
+
+async def test_a_mode_change_park_is_armed_again_when_auto_comes_back(world: World) -> None:
+    await digest_profile(world)
+    report = await world.report(kind="digest", due=PAST)
+    s = world.sender()
+    await s.schedule(NOW)
+    await world.profile(mode="click", hold=10, cap=20)  # the owner leaves automatic sending
+    async with world.owner.begin() as conn:
+        await conn.execute(text("UPDATE report_smtp SET digest_minute = 0"))
+    await s.run(later())
+    rows = await requests(world)
+    assert [(r.status, r.error_code) for r in rows] == [("cancelled", "mode_changed")]
+    await s.schedule(NOW)
+    assert len(await requests(world)) == 1  # still parked: the profile did not change since
+    await world.profile(mode="auto", hold=10, cap=20)
+    await s.schedule(NOW)
+    assert [r.status for r in await requests(world)] == ["cancelled", "pending"]
+    assert (await world.report_row(report)).status == "draft"
 
 
 async def test_the_hold_runs_from_the_last_rebuild(world: World) -> None:

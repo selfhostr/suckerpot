@@ -438,12 +438,15 @@ def test_trimming_keeps_a_port_bearing_activity() -> None:
     assert keep_activities((late, *early), 2) == (late, early[0])
 
 
-def test_a_digest_due_within_the_hold_is_frozen() -> None:
+def test_a_digest_is_frozen_only_while_its_automatic_send_waits() -> None:
     from datetime import timedelta
 
     from ingest.abuse.build import frozen
 
     hold = timedelta(minutes=60)
-    assert frozen(T0 + timedelta(minutes=30), hold, T0)
-    assert not frozen(T0 + timedelta(minutes=90), hold, T0)
-    assert not frozen(None, hold, T0) and not frozen(T0, None, T0)
+    soon, later = T0 + timedelta(minutes=30), T0 + timedelta(minutes=90)
+    assert frozen(soon, hold, T0, pending=True)
+    assert not frozen(later, hold, T0, pending=True)  # still collecting until due - hold
+    assert not frozen(soon, hold, T0, pending=False)  # no send waits: click mode, or it ended
+    assert not frozen(T0 - timedelta(days=1), hold, T0, pending=False)  # past due, not stuck
+    assert frozen(None, hold, T0, pending=True)  # digests off or strict: the hold from rebuild

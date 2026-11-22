@@ -240,11 +240,28 @@ async def hold_of(session: AsyncSession) -> timedelta | None:
     return None if minutes is None else timedelta(minutes=int(minutes))
 
 
-def frozen(due: datetime | None, hold: timedelta | None, now: datetime) -> bool:
-    """A digest due within the hold is no longer rebuilt: the hold runs from its last rebuild
-    (the owner can still look and cancel), and a busy recipient would otherwise push it back
-    every hour. New sources wait for the next digest."""
-    return due is not None and hold is not None and now >= due - hold
+def frozen(due: datetime | None, hold: timedelta | None, now: datetime, pending: bool) -> bool:
+    """A digest with an automatic send waiting, and due within the hold (or with no due time),
+    is no longer rebuilt: the hold runs from its last rebuild (the owner can still look and
+    cancel), and a busy recipient would otherwise push it back every hour. New sources wait for
+    the next digest. Without a waiting automatic send (assisted or manual mode, or after the
+    send ended) the draft keeps collecting sources, whatever its due time."""
+    if not pending:
+        return False
+    return due is None or hold is None or now >= due - hold
+
+
+async def auto_pending(session: AsyncSession, report_id: int) -> bool:
+    """An automatic send of the report is waiting or under way."""
+    return bool(
+        await session.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM abuse_send_requests WHERE report_id = :i "
+                "AND auto AND status IN ('pending', 'sending'))"
+            ),
+            {"i": report_id},
+        )
+    )
 
 
 def utc_day(now: datetime) -> datetime:
@@ -582,8 +599,11 @@ class DraftBuilder:
             existing = next(
                 (r for r in open_rows if r.kind == DIGEST and r.status == "draft"), None
             )
-            if existing is not None and frozen(existing.due_at, await hold_of(session), now):
-                return  # due within the hold: it goes as it is (design M38, section 5.3)
+            pending = existing is not None and await auto_pending(session, existing.id)
+            if existing is not None and frozen(
+                existing.due_at, await hold_of(session), now, pending
+            ):
+                return  # its automatic send waits: it goes as it is (design M38, section 5.3)
             # Drafts of the older kinds (before 0040): merged into this digest, then superseded.
             legacy = [r.id for r in open_rows if r.kind != DIGEST and r.status == "draft"]
             held = await self._reviewed_keys(
@@ -682,7 +702,9 @@ class DraftBuilder:
                 if legacy:
                     await self._supersede(legacy)
                 return
-            due, part = await self._due(session, recipient, address, existing, now, cap)
+            due, part = await self._due(
+                session, recipient, address, existing, now, cap, pending=pending
+            )
         evidence = fit_evidence(
             Evidence(
                 kind=DIGEST,
@@ -820,13 +842,24 @@ class DraftBuilder:
         existing: Any,
         now: datetime,
         cap: int,
+        *,
+        pending: bool = False,
     ) -> tuple[datetime | None, int]:
         """The due time and part number of the recipient's draft. None when digests are off or
-        there is no SMTP profile (the draft is then sent after the hold, as before 0040)."""
+        there is no SMTP profile (the draft is then sent after the hold, as before 0040).
+
+        A draft past its due time with no automatic send waiting missed its slot (its send was
+        cancelled, or the node is not in automatic mode): it is due at the next digest hour."""
         enabled, minute = await digest_config(session)
         if not enabled or minute is None:
             return None, existing.part if existing is not None else 1
-        if existing is not None and existing.due_at is not None:
+        missed = (
+            existing is not None
+            and existing.due_at is not None
+            and existing.due_at <= now
+            and not pending
+        )
+        if existing is not None and existing.due_at is not None and not missed:
             if existing.part == 1 and not recipient.strict:
                 return moved_due(existing.due_at, existing.created_at, minute), 1
             return existing.due_at, existing.part

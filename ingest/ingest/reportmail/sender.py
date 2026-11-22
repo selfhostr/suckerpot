@@ -138,27 +138,31 @@ _TODAY = (
 _HOUR_PASSED = "CAST(:minute AS integer) >= CAST(:digest_minute AS integer)"
 # True when an automatic send of report ``r`` may go now under the one-digest-a-day rule.
 RECIPIENT_FREE = (
-    "(NOT CAST(:digest AS boolean) OR r.kind <> 'digest' OR rec.xarf_strict "
-    "OR (r.due_at IS NOT NULL AND r.due_at <= CAST(:now AS timestamptz) "
-    # the hold runs from the last rebuild (a frozen digest is not rebuilt any more)
-    "AND r.updated_at <= CAST(:now AS timestamptz) - make_interval(mins => CAST(:hold AS integer)) "
-    "AND ("
+    # The hold runs from the last rebuild for every digest (strict and digests off included).
+    "((r.kind <> 'digest' "
+    "OR r.updated_at <= CAST(:now AS timestamptz) - make_interval(mins => CAST(:hold AS integer))) "
+    "AND (NOT CAST(:digest AS boolean) OR r.kind <> 'digest' OR rec.xarf_strict "
+    "OR (r.due_at IS NOT NULL AND r.due_at <= CAST(:now AS timestamptz) AND ("
     f"((SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED}) "
     f"OR (r.part > 1 AND (SELECT count(*) {_TODAY}) BETWEEN 1 AND {MAX_PARTS - 1} "
     f"AND (SELECT max(r2.sent_at) {_TODAY}) <= CAST(:now AS timestamptz) - interval '2 hours'))) "
     "OR (r.due_at IS NULL AND r.status = 'reviewed' "
-    f"AND (SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED}))"
+    f"AND (SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED})))"
 )
 
 # An automatic request that ended for a reason that may be gone does not block a new one (M38):
 # ``form_only`` and ``undeliverable`` once the owner cleared the flag (schedule() checks the flags),
+# ``mode_changed`` and ``mode_off`` once the profile was saved again (schedule() runs in auto only),
 # the others once the report changed after the request ended (a rebuild with new evidence, a
 # shared service left out, the identity check passing again). A refusal (5xx), an unknown outcome
 # and the owner's own cancel still block: a second mail would be worse, or the owner decided.
-TERMINAL_CODES = ("too_old", "shared_host", "xarf_invalid", "not_ready", "mode_changed", "internal")
+TERMINAL_CODES = ("too_old", "shared_host", "xarf_invalid", "not_ready", "internal")
 RESCHEDULABLE = (  # COALESCE: an owner's cancel has no error code, and NULL must block
-    "COALESCE(q.auto AND q.status IN ('cancelled', 'failed') AND ("
+    "COALESCE(q.auto AND q.status IN ('cancelled', 'failed') AND ("  # noqa: S608 - constants
     "q.error_code IN ('form_only', 'undeliverable') "
+    # parked by a mode change: armed again once the profile was saved after it (auto again)
+    "OR (q.error_code IN ('mode_changed', 'mode_off') "
+    "AND q.done_at < (SELECT p.updated_at FROM report_smtp p WHERE p.id = 1)) "
     "OR ((q.error_code IN (" + ", ".join(f"'{c}'" for c in TERMINAL_CODES) + ") "
     "OR q.error_code LIKE 'guard_failed%') AND q.done_at < r.updated_at)), false)"
 )

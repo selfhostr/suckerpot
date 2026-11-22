@@ -1276,3 +1276,187 @@ async def test_cve_tags_held_back_by_gate_g_are_not_named(
     acts = ev["subjects"][0]["activities"]
     exploit = next(a for a in acts if a["action"] == "exploit_attempt")
     assert exploit["cves"] == ["cve-2023-1389"]  # the gated one is left out
+
+
+# -- the builder and the sender together (M38 review): a cancelled digest is not stuck -----------
+
+IP_A, IP_B, IP_C = "203.0.113.50", "203.0.113.51", "203.0.113.52"
+
+
+def minute_of(value: datetime) -> int:
+    utc = value.astimezone(UTC)
+    return utc.hour * 60 + utc.minute
+
+
+async def smtp_profile(engine: AsyncEngine, *, mode: str, minute: int, hold: int = 10) -> None:
+    from suckerpot_db.secretbox import Credential
+
+    from .test_report_mail import PASSWORD
+    from .test_report_mail_integration import BOX
+
+    cipher, nonce = BOX.encrypt("report_smtp", Credential(key=PASSWORD))
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM report_smtp"))
+        await conn.execute(
+            text(
+                "INSERT INTO report_smtp (id, host, port, security, username, from_address, "
+                "password_ciphertext, password_nonce, mode, auto_hold_minutes, daily_cap, "
+                "digest_minute) VALUES (1, 'smtp.example.org', 587, 'starttls', 'reporter', "
+                "'sender@mail.example.org', :c, :n, :mode, :hold, 20, :m)"
+            ),
+            {"c": cipher, "n": nonce, "mode": mode, "hold": hold, "m": minute},
+        )
+
+
+def real_sender(factory: Factory) -> Any:
+    from ingest.reportmail.sender import ReportSender
+
+    from .test_report_mail_integration import BOX
+
+    return ReportSender(
+        factory, TermsCache(factory, {}), DEMO, box=BOX, gate=fake_gate(),
+        allow_documentation=True,  # the fixtures use documentation addresses
+    )  # fmt: skip
+
+
+@pytest.fixture
+def fake_smtp(monkeypatch: pytest.MonkeyPatch) -> Any:
+    from ingest.reportmail import outgoing
+
+    from .test_report_mail import FakeSMTP
+
+    FakeSMTP.instances = []
+    FakeSMTP.fail = {}
+    FakeSMTP.hold = None
+    monkeypatch.setattr(outgoing, "TunnelSMTP", FakeSMTP)
+    monkeypatch.setattr(outgoing, "TunnelSMTP_SSL", FakeSMTP)
+    return FakeSMTP
+
+
+def real_origins(monkeypatch: pytest.MonkeyPatch, blocked: set[str]) -> None:
+    """Documentation addresses count as real attackers here; ``blocked`` is the never list."""
+    from suckerpot_db import blocklist_values
+
+    monkeypatch.setattr(
+        "ingest.abuse.candidates.origin_of_ip",
+        lambda value, *a, **k: None if value in blocked else "real",
+    )
+    from suckerpot_reporting import GuardContext
+
+    from ingest.abuse import build as build_module
+
+    check = build_module.check_evidence
+
+    def lenient(evidence: Any, settings: Any, terms: Any, ctx: Any, **kw: Any) -> Any:
+        ctx = GuardContext(internal_ids=ctx.internal_ids, allow_documentation=True)
+        return check(evidence, settings, terms, ctx, **kw)
+
+    monkeypatch.setattr("ingest.abuse.build.check_evidence", lenient)
+    original = blocklist_values.is_excluded_host
+    for module in ("ingest.abuse.build", "ingest.reportmail.sender"):
+        monkeypatch.setattr(f"{module}.is_excluded_host", lambda h: h in blocked or original(h))
+
+
+async def requests_of(engine: AsyncEngine) -> list[Any]:
+    return await rows(
+        engine, "SELECT status, error_code, scheduled_at FROM abuse_send_requests ORDER BY id"
+    )
+
+
+def soon() -> int:
+    now = datetime.now(UTC)
+    if minute_of(now) > 1400:
+        pytest.skip("too close to midnight UTC for a same-day digest hour")
+    return minute_of(now) + 2  # the digest hour is in two minutes
+
+
+async def test_a_shared_host_cancel_is_rescheduled_once_the_source_is_dropped(
+    engine: AsyncEngine, factory: Factory, monkeypatch: pytest.MonkeyPatch, fake_smtp: Any
+) -> None:
+    blocked: set[str] = set()
+    real_origins(monkeypatch, blocked)
+    for ip in (IP_A, IP_B):
+        await seed_attack(engine, ip=ip)
+    await add_self_address(engine)
+    await smtp_profile(engine, mode="auto", minute=soon())
+    b = DraftBuilder(factory, DEMO, TermsCache(factory, {}), resolver(factory, Wire(), DEMO))
+    s = real_sender(factory)
+    now = datetime.now(UTC)
+    await b.run(now, allow_lookups=True)
+    assert await scalar(engine, "SELECT subject_count FROM abuse_reports") == 2
+    await s.run(now)  # scheduled at the digest hour (and the hold)
+    assert [r.status for r in await requests_of(engine)] == ["pending"]
+    # While its automatic send waits, inside the hold, the digest is frozen.
+    await seed_attack(engine, ip=IP_C)
+    await b.run(now, allow_lookups=True)
+    assert await scalar(engine, "SELECT subject_count FROM abuse_reports") == 2
+    # IP_B joins the never list after the draft was built: the send is cancelled.
+    blocked.add(IP_B)
+    await s.run(now + timedelta(minutes=15))
+    assert [(r.status, r.error_code) for r in await requests_of(engine)] == [
+        ("cancelled", "shared_host")
+    ]
+    assert fake_smtp.instances == []
+    # The next build drops it (and picks up IP_C): the digest changed, so it is scheduled again.
+    await b.run(now, allow_lookups=True)
+    values = {r.value for r in await rows(engine, "SELECT value FROM abuse_report_subjects")}
+    assert IP_B not in values and {IP_A, IP_C} <= values
+    await s.run(now + timedelta(minutes=15))
+    assert [r.status for r in await requests_of(engine)] == ["cancelled", "pending"]
+    await s.run(now + timedelta(minutes=40))
+    assert len(fake_smtp.instances) == 1
+    assert IP_B.encode() not in fake_smtp.instances[0].sent[2]
+    assert await scalar(engine, "SELECT status FROM abuse_reports WHERE kind = 'digest'") == "sent"
+
+
+async def test_a_too_old_end_is_rescheduled_at_the_next_digest_hour_with_fresh_sources(
+    engine: AsyncEngine, factory: Factory, monkeypatch: pytest.MonkeyPatch, fake_smtp: Any
+) -> None:
+    real_origins(monkeypatch, set())
+    await seed_attack(engine, ip=IP_A, ago_h=7 * 24 - 1)  # fresh for one more hour
+    await add_self_address(engine)
+    minute = soon()
+    await smtp_profile(engine, mode="auto", minute=minute)
+    b = DraftBuilder(factory, DEMO, TermsCache(factory, {}), resolver(factory, Wire(), DEMO))
+    s = real_sender(factory)
+    now = datetime.now(UTC)
+    await b.run(now, allow_lookups=True)
+    await s.run(now)
+    later = now + timedelta(hours=2)  # the source aged past 7 days before the digest went
+    await s.run(later)
+    assert [(r.status, r.error_code) for r in await requests_of(engine)] == [("failed", "too_old")]
+    await s.run(later)
+    assert len(await requests_of(engine)) == 1  # nothing new: it stays ended
+    # New, fresh activity: the digest is rebuilt, due at the next digest hour, scheduled again.
+    await seed_attack(engine, ip=IP_B, ago_h=1)
+    await b.run(later, allow_lookups=True)
+    due = await scalar(engine, "SELECT due_at FROM abuse_reports WHERE status = 'draft'")
+    next_hour = later.replace(hour=minute // 60, minute=minute % 60, second=0, microsecond=0)
+    if next_hour <= later:
+        next_hour += timedelta(days=1)
+    assert due == next_hour
+    await s.run(later)
+    last = (await requests_of(engine))[-1]
+    assert last.status == "pending" and last.scheduled_at == next_hour
+    assert fake_smtp.instances == []
+
+
+async def test_click_mode_keeps_collecting_past_the_due_time(
+    engine: AsyncEngine, factory: Factory, monkeypatch: pytest.MonkeyPatch, fake_smtp: Any
+) -> None:
+    real_origins(monkeypatch, set())
+    now = datetime.now(UTC)
+    await seed_attack(engine, ip=IP_A, ago_h=27)
+    await add_self_address(engine)
+    await smtp_profile(engine, mode="click", minute=minute_of(now))
+    b = DraftBuilder(factory, DEMO, TermsCache(factory, {}), resolver(factory, Wire(), DEMO))
+    await b.run(now - timedelta(days=1), allow_lookups=True)
+    first_due = await scalar(engine, "SELECT due_at FROM abuse_reports")
+    assert first_due <= now  # past due: in click mode nothing goes by itself
+    await seed_attack(engine, ip=IP_B, ago_h=2)
+    await real_sender(factory).run(now)
+    assert await requests_of(engine) == []
+    await b.run(now, allow_lookups=True)
+    values = {r.value for r in await rows(engine, "SELECT value FROM abuse_report_subjects")}
+    assert values == {IP_A, IP_B}  # still collecting
+    assert await scalar(engine, "SELECT due_at FROM abuse_reports") > now  # the next digest hour
