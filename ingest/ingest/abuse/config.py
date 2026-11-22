@@ -18,6 +18,14 @@ def _tags(raw: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(t for t in out if len(t) <= 64)) or DEFAULT_SEVERE_TAGS
 
 
+HOLDOUT_MAX_PCT = 10
+
+
+def holdout_pct(env: Mapping[str, str]) -> int:
+    """``ABUSE_EFFECT_HOLDOUT_PCT``: 0 (the default, off) to 10; anything else stops the start."""
+    return _int(env, "ABUSE_EFFECT_HOLDOUT_PCT", 0, 0, HOLDOUT_MAX_PCT)
+
+
 @dataclass(frozen=True, slots=True)
 class AbuseSettings:
     build_interval_s: int = 3600
@@ -33,6 +41,7 @@ class AbuseSettings:
     include_demo: bool = False
     ports: PortMap = field(default_factory=PortMap)
     round_times: bool = True  # owner decision: minute precision unless exact times are chosen
+    holdout_pct: int = 0  # M38 D9: share of new attack candidates held back 21 days (0 to 10)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> AbuseSettings:
@@ -52,4 +61,5 @@ class AbuseSettings:
             in TRUE_VALUES,
             ports=PortMap.from_env(e),
             round_times=e.get("ABUSE_ROUND_TIMES", "true").strip().lower() in TRUE_VALUES,
+            holdout_pct=holdout_pct(e),
         )

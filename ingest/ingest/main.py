@@ -238,7 +238,14 @@ async def run() -> None:
         ),
         # M27: off until TAKEDOWN_ENABLED. Lookups reuse the intel and reputation clients (same
         # gate, same quotas).
-        TakedownWorker(features, factory, intel=intel, reputation=reputation, asn_lookup=exit_asn),
+        TakedownWorker(
+            features,
+            factory,
+            intel=intel,
+            reputation=reputation,
+            asn_lookup=exit_asn,
+            terms=TermsCache(factory),
+        ),
         build_network_worker(features, factory),
         build_feed_worker(features, factory),
         # M37: the signed trap pack bundle for the sensors (on unless TRAP_PACKS_REMOTE=false).

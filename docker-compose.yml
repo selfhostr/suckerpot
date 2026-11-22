@@ -333,6 +333,9 @@ services:
       ABUSE_RDAP_HOURLY_QUOTA: ${ABUSE_RDAP_HOURLY_QUOTA:-200}
       ABUSE_REPORTS_INCLUDE_DEMO: ${ABUSE_REPORTS_INCLUDE_DEMO:-false}
       ABUSE_ROUND_TIMES: ${ABUSE_ROUND_TIMES:-true}
+      # Report effect (M38): share of new attack sources held back 21 days as a fair comparison
+      # group (0 to 10). Off by default: it delays some reports.
+      ABUSE_EFFECT_HOLDOUT_PCT: ${ABUSE_EFFECT_HOLDOUT_PCT:-0}
       # Replies to reports (M26): the mailbox itself is saved in Settings, never here.
       ABUSE_REPLIES_ENABLED: ${ABUSE_REPLIES_ENABLED:-false}
       ABUSE_REPLY_MAX_BYTES: ${ABUSE_REPLY_MAX_BYTES:-262144}

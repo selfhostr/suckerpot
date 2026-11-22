@@ -13,6 +13,7 @@ import type {
   OutcomesResponse,
   OutcomeTimeline,
   OutcomeTotals,
+  ReportEffectResponse,
 } from "@/lib/results"
 
 const LATENCY_MS = 160
@@ -239,7 +240,67 @@ function timeline(bucket: "week" | "month"): OutcomeTimeline {
   }
 }
 
+/** M38: the demo node is still below the minimum at 30 days, measured at 7. */
+function effect(horizon: 7 | 30): ReportEffectResponse {
+  const enough = horizon === 7
+  return {
+    since: new Date(Date.now() - 90 * 86_400_000).toISOString(),
+    until: new Date().toISOString(),
+    available: true,
+    running: true,
+    effect: enough
+      ? {
+          horizon,
+          verdict: "no_clear_difference",
+          pairs: 84,
+          needed: 30,
+          discordant: 30,
+          needed_discordant: 10,
+          seen_reported: 44 / 84,
+          seen_control: 46 / 84,
+          difference: -2 / 84,
+          lo: -0.15,
+          hi: 0.1,
+          sentence:
+            "No clear difference yet: 52 % of reported sources and 55 % of similar unreported sources were still seen a week later (84 pairs). The gap could be chance.",
+          interval: "between 15 points lower and 10 points higher for reported sources",
+        }
+      : {
+          horizon,
+          verdict: "not_enough_data",
+          pairs: 12,
+          needed: 30,
+          discordant: 5,
+          needed_discordant: 10,
+          seen_reported: null,
+          seen_control: null,
+          difference: null,
+          lo: null,
+          hi: null,
+          sentence: "Not enough data yet to tell whether reports help: 12 of 30 comparable pairs.",
+          interval: null,
+        },
+    method: {
+      pairs_made: 97,
+      tiers: { A: 41, B: 30, C: 26 },
+      waiting: 9,
+      not_observed: 3,
+      control_reported: 1,
+      network_reported: 0,
+      unmatched: 14,
+      unmatched_reasons: { no_control: 11, no_activity: 3 },
+      holdout_pct: 0,
+      held_now: 0,
+    },
+  }
+}
+
 export const resultsHandlers: RequestHandler[] = [
+  http.get("/api/v1/results/effect", async ({ request }) => {
+    await delay(LATENCY_MS)
+    const h = new URL(request.url).searchParams.get("horizon") === "30" ? 30 : 7
+    return HttpResponse.json(effect(h))
+  }),
   http.get("/api/v1/abuse/outcomes/timeline", async ({ request }) => {
     await delay(LATENCY_MS)
     const b = new URL(request.url).searchParams.get("bucket")

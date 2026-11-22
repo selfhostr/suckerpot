@@ -19,6 +19,7 @@ The network shape (written by ingest/network/cli.py) is read defensively: every 
     state, pseudonym, node, standing, counts_from, path, self_address, reveals_7d,
     hub {host, last_contact, signature_ok}, sent [{day, sources, links, files}],
     sessions_24h {sensor: n}, warnings [code], errors [code],
+    report_effect {verdict, pairs, needed, seen_reported, seen_control, lo, hi, line} | null
     network {membership {desired, last_error, auto_retry}}   (older ingest images: no auto_retry)
 
 Prints the text report (or JSON with --json) and exits 0 (OK), 1 (warning) or 2 (error).
@@ -406,6 +407,16 @@ def _auto_line(doc: dict[str, Any], info: dict[str, Any]) -> str:
     return f"{line} Last run {day}: {detail}"
 
 
+def report_effect_line(cli: Any) -> str:
+    """The report effect line (M38), written by ingest with its fixed wording. Information only:
+    it never changes the exit code. Empty when the node never sent an attack-source report."""
+    effect = _dict(_dict(cli).get("report_effect"))
+    line = effect.get("line")
+    if not isinstance(line, str) or not line.startswith("Report effect: "):
+        return ""
+    return "".join(ch for ch in line if ch.isprintable())[:200]
+
+
 def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str:
     out: list[str] = []
     version = doc.get("version") or "source build"
@@ -527,6 +538,11 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
         if code in KNOWN_TEXT:
             out.append(f"  ! {KNOWN_TEXT[code]}")
 
+    effect_line = report_effect_line(info["cli"])
+    if effect_line:
+        out.append("Reports")
+        out.append(f"  {effect_line}")
+
     out.append("Updates")
     out.append(f"  {_auto_line(doc, info)}")
     attention = needs_attention(doc, info) if info["stack"] == "participant" else []
@@ -563,6 +579,7 @@ def main(argv: list[str]) -> int:
                 "last": info["auto_state"],
             },
             "firewall": doc.get("firewall"),
+            "report_effect": _dict(info["cli"]).get("report_effect"),
             "needs_attention": [
                 {"problem": p, "fix": c} for p, c in needs_attention(doc, info)
             ]

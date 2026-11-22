@@ -774,6 +774,7 @@ The sweep runs every minute: a pass over the last three hours, then, until it ha
 | `ABUSE_RDAP_DAILY_QUOTA`, `ABUSE_RDAP_HOURLY_QUOTA` | `1000`, `200` | Hard RDAP request quotas. Each redirect and fallback counts. |
 | `ABUSE_REPORTS_INCLUDE_DEMO` | `false` | Also draft from demo data (documentation addresses). Demo drafts can never be sent. |
 | `ABUSE_ROUND_TIMES` | `true` | Round times in reports to the minute. Set `false` to allow exact times. |
+| `ABUSE_EFFECT_HOLDOUT_PCT` | `0` | Share (0 to 10 %) of new attacking addresses held back from reports for 21 days, as a random comparison group for the report effect measure. Off by default: it delays some reports. See [Do reports make a difference?](reporting.md#do-reports-make-a-difference) |
 | `ABUSE_REPORT_RETENTION_DAYS` | `730` | Days to keep reports marked sent or closed (the duplicate check needs the history). Discarded drafts are removed after 90 days. |
 
 ### Replies to reports (M26) - advanced

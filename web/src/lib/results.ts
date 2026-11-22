@@ -289,6 +289,56 @@ export interface TargetFilters {
 /** The hours of the curve: tick labels. */
 export const CURVE_HOURS = [1, 6, 24, 48, 72, 168, 336, 720] as const
 
+// --- M38: do reports make a difference? ---------------------------------------------
+
+export type EffectVerdict = "not_enough_data" | "lower" | "no_clear_difference" | "higher"
+
+/** One horizon of the effect measure. Shares and bounds are null below the minimum. */
+export interface ReportEffect {
+  horizon: 7 | 30
+  verdict: EffectVerdict
+  /** Observed pairs, and the minimum before any number is shown. */
+  pairs: number
+  needed: number
+  /** Pairs where one source was seen and the other was not, and their minimum. */
+  discordant: number
+  needed_discordant: number
+  seen_reported: number | null
+  seen_control: number | null
+  difference: number | null
+  lo: number | null
+  hi: number | null
+  /** The verdict sentence, fixed wording from the server. */
+  sentence: string
+  /** "between 9 and 37 points lower for reported sources", or null. */
+  interval: string | null
+}
+
+export interface ReportEffectMethod {
+  pairs_made: number
+  tiers: Partial<Record<"H" | "A" | "B" | "C", number>>
+  waiting: number
+  not_observed: number
+  control_reported: number
+  network_reported: number
+  unmatched: number
+  unmatched_reasons: Partial<Record<"no_control" | "no_activity" | "network_reported", number>>
+  holdout_pct: number
+  held_now: number
+}
+
+export interface ReportEffectResponse {
+  since: string
+  until: string
+  available: boolean
+  running: boolean
+  effect: ReportEffect
+  method: ReportEffectMethod
+}
+
+/** A share as a whole percentage, half up (the server rounds the same way). */
+export const wholePercent = (share: number): string => `${Math.floor(share * 100 + 0.5)} %`
+
 // --- Calls --------------------------------------------------------------------------
 
 export interface ResultFilters {
@@ -308,6 +358,7 @@ export const resultKeys = {
   providers: (f: object) => ["results", "providers", f] as const,
   targets: (f: object) => ["results", "targets", f] as const,
   target: (id: number) => ["results", "target", id] as const,
+  effect: (f: object) => ["results", "effect", f] as const,
 }
 
 export const resultsApi = {
@@ -326,6 +377,8 @@ export const resultsApi = {
       limit: 50,
     }),
   target: (id: number) => getJson<TargetDetail>(`/takedown/targets/${id}`),
+  effect: (p: { since?: string; until?: string; horizon: 7 | 30 }) =>
+    getJson<ReportEffectResponse>("/results/effect", p),
   recheck: (id: number) =>
     sendJson<{ id: number; http: boolean; listing: boolean }>(
       "POST",
