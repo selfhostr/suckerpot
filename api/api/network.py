@@ -167,7 +167,8 @@ async def _check_values(
     if show_country and code is None:
         return None, None, error(422, "Choose a country to show it.", "country_invalid")
     if name is not None:
-        terms = await load_terms(db)
+        # Never with the pseudonym as a deny term: the name would match itself.
+        terms = await load_terms(db, with_pseudonym=False)
         result = guard(name, terms, fmt="text")
         if set(result.codes) - {"no_self_address"}:
             return (

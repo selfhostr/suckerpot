@@ -74,7 +74,8 @@ class AbuseWorker(FeatureWorker):
         self.reguard: DraftReguard | None = None
         self.sender: ReportSender | None = None  # M25, set when the worker is enabled
         if self.enabled and factory is not None:
-            self.terms = TermsCache(factory, env)
+            # Abuse reports only: the pseudonym is a deny term here (M38), never for the network.
+            self.terms = TermsCache(factory, env, with_pseudonym=True)
             from ingest.reportmail.sender import ReportSender  # late: it imports this package
 
             self.sender = ReportSender(factory, self.terms, self.abuse, box=box, gate=gate)

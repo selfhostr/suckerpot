@@ -355,3 +355,31 @@ async def test_a_sent_digest_shows_the_files_that_left(
     assert [(f["name"], f["content"]) for f in r.json()["attachments"]] == [
         (f["name"], f["content"]) for f in stored
     ]
+
+
+async def test_the_pseudonym_is_a_deny_term_for_reports_only(client: httpx.AsyncClient) -> None:
+    from analytics_seed import api_engine
+    from suckerpot_db import create_session_factory
+
+    import api.abuse_core as core
+
+    name = "quiet-heron-17"
+    await run("UPDATE network_membership SET pseudonym = :n WHERE id = 1", n=name)
+    engine = api_engine()
+    try:
+        async with create_session_factory(engine)() as db:
+            core.invalidate_terms()
+            reports = await core.load_terms(db)
+            network = await core.load_terms(db, with_pseudonym=False)
+        assert reports is not None and name in reports.texts
+        assert network is not None and name not in network.texts
+        # The network routes check a new pseudonym without it: the name is accepted.
+        r = await client.patch(
+            "/api/v1/network/membership",
+            json={"pseudonym": name, "country": None, "show_country": False},
+        )
+        assert r.json().get("code") != "pseudonym_invalid", r.text  # not_member is fine here
+    finally:
+        await engine.dispose()
+        await run("UPDATE network_membership SET pseudonym = NULL WHERE id = 1")
+        core.invalidate_terms()

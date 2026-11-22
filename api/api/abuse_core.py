@@ -107,7 +107,8 @@ SETTINGS_TEXT_FIELDS: Final = (
 # Report statuses that may still be sent (their XARF ids live on the subject rows).
 OPEN_STATUSES: Final = frozenset({"draft", "reviewed"})
 
-_terms_cache: tuple[float, SelfTerms] | None = None
+# Keyed by whether the node's network pseudonym is a deny term (outgoing reports only).
+_terms_cache: dict[bool, tuple[float, SelfTerms]] = {}
 
 
 def _term_row(r: ReportSelfTermRow) -> SelfTermRow:
@@ -151,8 +152,7 @@ async def self_address_fresh(db: AsyncSession) -> bool:
 
 def invalidate_terms() -> None:
     """Forget the cached deny set (called after any write to the self terms or settings)."""
-    global _terms_cache
-    _terms_cache = None
+    _terms_cache.clear()
 
 
 def env_flag(name: str, default: bool) -> bool:
@@ -164,28 +164,37 @@ def include_demo() -> bool:
     return env_flag("ABUSE_REPORTS_INCLUDE_DEMO", False)
 
 
-async def load_terms(db: AsyncSession, *, fresh: bool = False) -> SelfTerms | None:
-    """The deny set, cached for a minute. ``None`` when the table cannot be read (fail closed)."""
-    global _terms_cache
+async def load_terms(
+    db: AsyncSession, *, fresh: bool = False, with_pseudonym: bool = True
+) -> SelfTerms | None:
+    """The deny set, cached for a minute. ``None`` when the table cannot be read (fail closed).
+
+    ``with_pseudonym``: the node's network pseudonym is a deny term for what goes to abuse desks
+    and CERTs (M38). It is never one where the pseudonym itself is checked or sent to the hub:
+    the network routes pass False, or every pseudonym would match itself."""
     now = time.monotonic()
-    if not fresh and _terms_cache is not None and now - _terms_cache[0] < TERMS_TTL_S:
-        return _terms_cache[1]
+    cached = _terms_cache.get(with_pseudonym)
+    if not fresh and cached is not None and now - cached[0] < TERMS_TTL_S:
+        return cached[1]
     try:
         rows = (await db.scalars(select(ReportSelfTermRow))).all()
         gate = await db.scalar(
             select(EnrichmentStatusRow.detail).where(EnrichmentStatusRow.name == "egress")
         )
-        # The node's public network pseudonym (M29) never goes into a report (M38).
-        pseudonyms = [
-            p
-            for row in (
-                await db.execute(
-                    select(NetworkMembershipRow.pseudonym, NetworkMembershipRow.synced_pseudonym)
-                )
-            ).all()
-            for p in row
-            if p
-        ]
+        pseudonyms: list[str] = []
+        if with_pseudonym:
+            pseudonyms = [
+                p
+                for row in (
+                    await db.execute(
+                        select(
+                            NetworkMembershipRow.pseudonym, NetworkMembershipRow.synced_pseudonym
+                        )
+                    )
+                ).all()
+                for p in row
+                if p
+            ]
     except SQLAlchemyError:
         log.warning("abuse deny set unavailable")
         return None
@@ -196,7 +205,7 @@ async def load_terms(db: AsyncSession, *, fresh: bool = False) -> SelfTerms | No
         vpn_exit=vpn if isinstance(vpn, str) else None,
         extra_texts=pseudonyms,
     )
-    _terms_cache = (now, terms)
+    _terms_cache[with_pseudonym] = (now, terms)
     return terms
 
 

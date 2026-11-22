@@ -57,7 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   keeps the X-ARF files exactly as they left. The downgrade is refused while a sent digest exists
   (use `just rollback`).
 - The identity guard decodes base64 inside JSON values (the X-ARF evidence and any other value)
-  and in JSON MIME parts before it checks them. The node's network pseudonym is a deny term.
+  and in JSON MIME parts before it checks them. The node's network pseudonym is a deny term for
+  abuse reports and exports (never for the pseudonym check of the network itself).
 - Results group a digest under each kind of source it holds; the timeline counts mails once.
 - The reply contact must contain a mail address (X-ARF names it): `reply_contact_not_email`
   blocks a draft otherwise.

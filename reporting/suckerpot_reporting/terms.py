@@ -47,8 +47,7 @@ ENV_OWNER_HOSTS: Final = ("API_ALLOWED_HOSTS",)
 ENV_URLS: Final = ("API_ALLOWED_ORIGINS", "ALERTS_DASHBOARD_URL")
 ENV_RANGES: Final = ("INDICATORS_IGNORE", "BLOCKLIST_NEVER", "AUTH_TRUSTED_PROXIES")
 ENV_VPN: Final = ("VPN_WG_ENDPOINT_IP",)
-# The node's public name in the network (M29): free text, matched as plain text (M38).
-ENV_TEXTS: Final = ("NETWORK_PSEUDONYM",)
+# Plain-text terms the caller adds (the network pseudonym for outgoing reports, M38).
 MIN_EXTRA_TEXT: Final = 4
 ENV_SENSOR_NAMES: Final = (
     "SSH_HOSTNAME",
@@ -296,8 +295,9 @@ def load_self_terms(
     sensor, or learned and confirmed) and is fresh (manual never expires; the others need
     ``last_seen`` within 72 hours of ``now``). Stale rows stay in the deny set.
 
-    ``extra_texts`` (and ``NETWORK_PSEUDONYM``) are plain-text terms such as the node's network
-    pseudonym; one shorter than ``MIN_EXTRA_TEXT`` characters is left out (it would match words).
+    ``extra_texts`` are plain-text terms, such as the node's network pseudonym for an outgoing
+    report (never for the checks of the pseudonym itself); one shorter than ``MIN_EXTRA_TEXT``
+    characters is left out (it would match words).
     """
     clock = now or datetime.now(UTC)
     addresses: set[str] = set()
@@ -370,7 +370,7 @@ def load_self_terms(
             add_name(item, "self_name")
     for item in (*FAKE_HOSTNAMES, *extra_names):
         add_name(item, "self_name")
-    for item in (*(env.get(k, "") for k in ENV_TEXTS), *extra_texts):
+    for item in extra_texts:
         text = (item or "").strip().casefold()
         if len(text) >= MIN_EXTRA_TEXT and not _in_vocabulary(text) and text not in texts:
             texts.append(text)

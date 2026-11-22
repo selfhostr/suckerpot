@@ -303,7 +303,8 @@ def test_invalid_report_blocks_the_mail() -> None:
 def deny() -> SelfTerms:
     return load_self_terms(
         [SelfTermRow(kind="address", value=SELF_ADDRESS, source="manual")],
-        {"WEB_HOSTNAME": FAKE_HOST, "NETWORK_PSEUDONYM": PSEUDONYM},
+        {"WEB_HOSTNAME": FAKE_HOST},
+        extra_texts=[PSEUDONYM],  # an outgoing report: the caller adds the pseudonym
     )
 
 
@@ -384,8 +385,15 @@ def test_digest_text_has_a_section_per_kind() -> None:
 
 
 def test_short_pseudonym_is_not_a_term() -> None:
-    terms = load_self_terms([], {"NETWORK_PSEUDONYM": "ab"}, extra_texts=["xy", "far-owl"])
+    terms = load_self_terms([], {}, extra_texts=["xy", "far-owl"])
     assert terms.texts == ("far-owl",)
+
+
+def test_the_pseudonym_is_never_read_from_the_environment() -> None:
+    """Only callers that build an outgoing report add it: the network worker checks and sends
+    the pseudonym itself, and a deny set read from the environment refused every name."""
+    terms = load_self_terms([], {"NETWORK_PSEUDONYM": PSEUDONYM})
+    assert terms.texts == ()
 
 
 def test_feedback_user_agent_is_one_clean_line() -> None:
