@@ -138,8 +138,9 @@ _TODAY = (
 _HOUR_PASSED = "CAST(:minute AS integer) >= CAST(:digest_minute AS integer)"
 # True when an automatic send of report ``r`` may go now under the one-digest-a-day rule.
 RECIPIENT_FREE = (
-    # The hold runs from the last rebuild for every digest (strict and digests off included).
-    "((r.kind <> 'digest' "
+    # The hold runs from the last rebuild for every digest with a due time (strict included);
+    # with digests off (no due time) it runs from the queueing, as before 0040.
+    "((r.kind <> 'digest' OR r.due_at IS NULL "
     "OR r.updated_at <= CAST(:now AS timestamptz) - make_interval(mins => CAST(:hold AS integer))) "
     "AND (NOT CAST(:digest AS boolean) OR r.kind <> 'digest' OR rec.xarf_strict "
     "OR (r.due_at IS NOT NULL AND r.due_at <= CAST(:now AS timestamptz) AND ("
@@ -152,6 +153,7 @@ RECIPIENT_FREE = (
 
 # An automatic request that ended for a reason that may be gone does not block a new one (M38):
 # ``form_only`` and ``undeliverable`` once the owner cleared the flag (schedule() checks the flags),
+# ``digest_enabled`` once the draft has a due time (schedule() waits for it),
 # ``mode_changed`` and ``mode_off`` once the profile was saved again (schedule() runs in auto only),
 # the others once the report changed after the request ended (a rebuild with new evidence, a
 # shared service left out, the identity check passing again). A refusal (5xx), an unknown outcome
@@ -159,7 +161,7 @@ RECIPIENT_FREE = (
 TERMINAL_CODES = ("too_old", "shared_host", "xarf_invalid", "not_ready", "internal")
 RESCHEDULABLE = (  # COALESCE: an owner's cancel has no error code, and NULL must block
     "COALESCE(q.auto AND q.status IN ('cancelled', 'failed') AND ("  # noqa: S608 - constants
-    "q.error_code IN ('form_only', 'undeliverable') "
+    "q.error_code IN ('form_only', 'undeliverable', 'digest_enabled') "
     # parked by a mode change: armed again once the profile was saved after it (auto again)
     "OR (q.error_code IN ('mode_changed', 'mode_off') "
     "AND q.done_at < (SELECT p.updated_at FROM report_smtp p WHERE p.id = 1)) "
@@ -178,6 +180,9 @@ _SCHEDULE_HEAD = """
                       AND NOT rec.muted AND NOT rec.form_only AND NOT rec.undeliverable
                       AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
                       AND r.window_end > now() - make_interval(secs => :max_age)
+                      -- digests on: a digest waits for the due time its next build gives it
+                      AND NOT (CAST(:digest AS boolean) AND r.kind = 'digest'
+                               AND r.due_at IS NULL AND r.status = 'draft')
                       -- never had a request, or only automatic sends that the server deferred,
                       -- or that ended for a reason that is gone (see RESCHEDULABLE)
                       AND NOT EXISTS (
@@ -319,6 +324,7 @@ class ReportSender:
 
     async def run(self, now: datetime) -> None:
         await self._sweep()
+        await self._park_undated()
         async with self.factory() as session:
             profile = await self.load_profile(session)
             params = await self.digest_params(session, profile, now)
@@ -350,6 +356,24 @@ class ReportSender:
             await self._handle(rid, now)
         await self.schedule(now)
 
+    async def _park_undated(self) -> None:
+        """Digests just switched on: an automatic send queued for a draft digest without a due
+        time (queued while digests were off) would wait forever for the one-a-day rule. (A
+        reviewed one cannot get a due time; the sender takes it at the digest hour instead.) It is
+        cancelled with ``digest_enabled``; the next build gives the draft its due time and the
+        send is scheduled again at the digest hour (``RESCHEDULABLE``)."""
+        async with self.factory() as session, session.begin():
+            await session.execute(
+                text(
+                    "UPDATE abuse_send_requests q SET status = 'cancelled', "
+                    "error_code = 'digest_enabled', done_at = now() "
+                    "FROM abuse_reports r WHERE r.id = q.report_id AND q.status = 'pending' "
+                    "AND q.auto AND r.kind = 'digest' AND r.due_at IS NULL "
+                    "AND r.status = 'draft' AND EXISTS (SELECT 1 FROM report_smtp) "
+                    "AND (SELECT digest_enabled FROM report_settings WHERE id = 1)"
+                )
+            )
+
     async def _sweep(self) -> None:
         """A request left in ``sending`` (ingest died around the delivery) ended in an outcome
         nobody knows. It is failed, never retried: a second mail would be worse."""
@@ -378,6 +402,7 @@ class ReportSender:
             result = await session.execute(
                 text(SCHEDULE_SQL),
                 {
+                    "digest": (await self.digest_params(session, profile, now))["digest"],
                     "at": now + timedelta(minutes=profile.auto_hold_minutes),
                     "n": MAX_SCHEDULE,
                     "deferrals": MAX_DEFERRALS,

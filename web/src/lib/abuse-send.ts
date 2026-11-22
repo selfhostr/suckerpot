@@ -138,6 +138,8 @@ export const SEND_ERROR: Record<string, string> = {
     "The server stopped answering mid-send: the mail may or may not have left. Check your sent folder before sending again.",
   xarf_invalid:
     "An X-ARF part did not pass the format check, so nothing was sent. This is a bug: please report it. It is tried again once the draft changes.",
+  digest_enabled:
+    "Cancelled when daily digests were switched on. The digest is scheduled again at the digest hour.",
   digest_migration:
     "Cancelled when daily digests came in. Its sources moved into the provider's new daily digest.",
 }

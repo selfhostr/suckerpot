@@ -1460,3 +1460,47 @@ async def test_click_mode_keeps_collecting_past_the_due_time(
     values = {r.value for r in await rows(engine, "SELECT value FROM abuse_report_subjects")}
     assert values == {IP_A, IP_B}  # still collecting
     assert await scalar(engine, "SELECT due_at FROM abuse_reports") > now  # the next digest hour
+
+
+async def test_switching_digests_on_reschedules_a_send_queued_while_they_were_off(
+    engine: AsyncEngine, factory: Factory, monkeypatch: pytest.MonkeyPatch, fake_smtp: Any
+) -> None:
+    from suckerpot_db import create_engine as role_engine
+
+    from .db_fixtures import _role_url
+
+    real_origins(monkeypatch, set())
+    await seed_attack(engine, ip=IP_A)
+    await add_self_address(engine)
+    minute = soon()
+    await smtp_profile(engine, mode="auto", minute=minute)
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE report_settings SET digest_enabled = false"))
+    b = DraftBuilder(factory, DEMO, TermsCache(factory, {}), resolver(factory, Wire(), DEMO))
+    s = real_sender(factory)
+    now = datetime.now(UTC)
+    await b.run(now, allow_lookups=True)
+    assert await scalar(engine, "SELECT due_at FROM abuse_reports") is None
+    await s.run(now)
+    assert [r.status for r in await requests_of(engine)] == ["pending"]
+    # The owner switches digests on (PUT /abuse/digest writes this, as the API role).
+    api = role_engine(_role_url("API"), pool_size=1)
+    try:
+        async with api.begin() as conn:
+            await conn.execute(text("UPDATE report_settings SET digest_enabled = true"))
+    finally:
+        await api.dispose()
+    await s.run(now)
+    assert [(r.status, r.error_code) for r in await requests_of(engine)] == [
+        ("cancelled", "digest_enabled")
+    ]
+    await s.run(now)
+    assert len(await requests_of(engine)) == 1  # no due time yet: nothing queued
+    await b.run(now, allow_lookups=True)  # not frozen: the draft gets its due time
+    due = await scalar(engine, "SELECT due_at FROM abuse_reports")
+    assert due == now.replace(hour=minute // 60, minute=minute % 60, second=0, microsecond=0)
+    await s.run(now)
+    last = (await requests_of(engine))[-1]
+    assert last.status == "pending" and last.scheduled_at >= due
+    await s.run(now + timedelta(minutes=15))
+    assert len(fake_smtp.instances) == 1

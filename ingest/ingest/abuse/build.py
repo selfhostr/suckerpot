@@ -245,10 +245,12 @@ def frozen(due: datetime | None, hold: timedelta | None, now: datetime, pending:
     is no longer rebuilt: the hold runs from its last rebuild (the owner can still look and
     cancel), and a busy recipient would otherwise push it back every hour. New sources wait for
     the next digest. Without a waiting automatic send (assisted or manual mode, or after the
-    send ended) the draft keeps collecting sources, whatever its due time."""
-    if not pending:
+    send ended) the draft keeps collecting sources, whatever its due time. A draft without a due
+    time is never frozen."""
+    if not pending or due is None:
+        # No due time (digests off, or switched on since): nothing to wait for, never stuck.
         return False
-    return due is None or hold is None or now >= due - hold
+    return hold is None or now >= due - hold
 
 
 async def auto_pending(session: AsyncSession, report_id: int) -> bool:
@@ -853,10 +855,12 @@ class DraftBuilder:
         enabled, minute = await digest_config(session)
         if not enabled or minute is None:
             return None, existing.part if existing is not None else 1
+        # One build cycle of slack: a due time of "now" (strict, a next part) is not missed yet.
+        slack = timedelta(seconds=self.settings.build_interval_s)
         missed = (
             existing is not None
             and existing.due_at is not None
-            and existing.due_at <= now
+            and existing.due_at < now - slack
             and not pending
         )
         if existing is not None and existing.due_at is not None and not missed:

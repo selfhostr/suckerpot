@@ -449,4 +449,4 @@ def test_a_digest_is_frozen_only_while_its_automatic_send_waits() -> None:
     assert not frozen(later, hold, T0, pending=True)  # still collecting until due - hold
     assert not frozen(soon, hold, T0, pending=False)  # no send waits: click mode, or it ended
     assert not frozen(T0 - timedelta(days=1), hold, T0, pending=False)  # past due, not stuck
-    assert frozen(None, hold, T0, pending=True)  # digests off or strict: the hold from rebuild
+    assert not frozen(None, hold, T0, pending=True)  # no due time: never stuck

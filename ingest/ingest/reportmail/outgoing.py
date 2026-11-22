@@ -87,6 +87,7 @@ CODES: Final = (
     "internal",
     "xarf_invalid",
     "digest_migration",
+    "digest_enabled",
 )
 
 
