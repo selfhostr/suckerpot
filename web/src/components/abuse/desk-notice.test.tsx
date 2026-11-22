@@ -134,7 +134,8 @@ describe("DeskNotice", () => {
       recipient({
         form_only: true,
         form_source: "reply",
-        form_url: "https://support.example.net:8443/abuse/form?ticket=T-4711&email=me@example.org",
+        form_url:
+          "https://support.example.net:8443/ticket/123456/form?ticket=T-4711&email=me@example.org",
         form_url_clickable: false,
       }),
     )
@@ -143,13 +144,15 @@ describe("DeskNotice", () => {
     expect(screen.getByText(/not opened as a link/)).toBeInTheDocument()
     const text = screen.getByLabelText("Suggestion").textContent
     expect(text).toContain(
-      "Form link (shortened to its address and path): https://support.example.net/abuse/form",
+      "Provider site (the form link was left out, find the form page there): https://support.example.net/",
     )
     expect(text).not.toContain("ticket")
+    expect(text).not.toContain("123456")
+    expect(text).not.toContain("/form")
     expect(text).not.toContain("T-4711")
     expect(text).not.toContain("me@example.org")
     expect(text).not.toContain("8443")
-    expect(screen.getByText(/was shortened to its address and path/)).toBeInTheDocument()
+    expect(screen.getByText(/Find the form page on the provider/)).toBeInTheDocument()
   })
 
   it("shows a link the server did not allow as text only", async () => {

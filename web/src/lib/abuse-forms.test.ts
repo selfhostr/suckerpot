@@ -105,10 +105,16 @@ describe("refsOf", () => {
 })
 
 describe("reducedFormUrl", () => {
-  it("keeps the scheme, host and path only", () => {
+  it("keeps the provider's site only", () => {
     expect(
       reducedFormUrl("https://user@support.example.net:8443/abuse?ticket=1&email=me@example.org#x"),
-    ).toBe("https://support.example.net/abuse")
+    ).toBe("https://support.example.net/")
+    expect(reducedFormUrl("https://support.example.net/ticket/123456")).toBe(
+      "https://support.example.net/",
+    )
+    expect(reducedFormUrl("https://support.example.net/r/a8F3kQ9zX2")).toBe(
+      "https://support.example.net/",
+    )
     expect(reducedFormUrl("http://support.example.net/abuse")).toBeNull()
     expect(reducedFormUrl(null)).toBeNull()
   })
@@ -119,10 +125,12 @@ describe("reducedFormUrl", () => {
         provider: "P",
         mailbox: null,
         asns: [],
-        formUrl: "https://support.example.net/abuse",
+        formUrl: "https://support.example.net/",
         shortened: true,
       }),
-    ).toContain("Form link (shortened to its address and path): https://support.example.net/abuse")
+    ).toContain(
+      "Provider site (the form link was left out, find the form page there): https://support.example.net/",
+    )
   })
 })
 

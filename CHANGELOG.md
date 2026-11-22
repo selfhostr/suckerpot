@@ -67,8 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   entries are added after a maintainer checks them on the provider's own website.
 - A desk can be sent to the form queue by hand ("This desk takes only a web form"), and a form
   link learned from a verified reply can be suggested for the shared directory with a short text
-  to post as an issue (new issue template "Abuse form"); a link with a query or a port is cut to
-  its address and path there. A link from a reply is never added to the directory or opened by
+  to post as an issue (new issue template "Abuse form"); a link outside the kit's rule is cut to
+  the provider's site (`https://<host>/`) there. A link from a reply is never added to the directory or opened by
   itself, and is a link on the report page only under the kit's rule (`form_url_clickable`).
 
 ### Changed

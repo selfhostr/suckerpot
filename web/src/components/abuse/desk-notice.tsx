@@ -49,8 +49,9 @@ function Suggest({
         </p>
         {shortened ? (
           <p className="text-xs text-fg">
-            The link from the reply was shortened to its address and path: the full link has a query
-            or a port, which can hold a ticket number or your address.
+            Only the provider&apos;s site is in the text: the link from the reply could hold a
+            ticket number, a token or your address. Find the form page on the provider&apos;s own
+            site and add its address to the issue yourself.
           </p>
         ) : null}
         <CopyField label="Suggestion" value={text} multiline />

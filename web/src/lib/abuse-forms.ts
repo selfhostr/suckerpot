@@ -218,7 +218,7 @@ export function suggestionText(input: {
   mailbox: string | null
   asns: number[]
   formUrl: string
-  /** The link was cut to its scheme, host and path (see `reducedFormUrl`). */
+  /** The link was cut to the provider's site, `https://<host>/` (see `reducedFormUrl`). */
   shortened?: boolean
 }): string {
   const domain = input.mailbox?.includes("@") ? input.mailbox.split("@").pop() : null
@@ -227,7 +227,7 @@ export function suggestionText(input: {
     `Abuse mailbox domain: ${domain ?? "unknown"}`,
     `ASN: ${input.asns.length > 0 ? input.asns.map((a) => `AS${a}`).join(", ") : "unknown"}`,
     input.shortened
-      ? `Form link (shortened to its address and path): ${input.formUrl}`
+      ? `Provider site (the form link was left out, find the form page there): ${input.formUrl}`
       : `Form link: ${input.formUrl}`,
     "Learned from a verified reply.",
   ]
@@ -235,15 +235,16 @@ export function suggestionText(input: {
 }
 
 /**
- * A reply's form link cut to its scheme, host and path: no user info, port, query or fragment, any
- * of which could carry a ticket id or the reply contact. Null when it is not an https URL.
+ * A reply's form link cut to the provider's site, `https://<host>/`: no user info, port, path,
+ * query or fragment, any of which could carry a ticket id, a token or the reply contact (a path
+ * such as /ticket/123456 or /r/<token> too). Null when it is not an https URL.
  */
 export function reducedFormUrl(url: string | null | undefined): string | null {
   if (!url?.startsWith("https://")) return null
   try {
     const u = new URL(url)
     if (u.protocol !== "https:") return null
-    return `https://${u.hostname}${u.pathname}`
+    return `https://${u.hostname}/`
   } catch {
     return null
   }
