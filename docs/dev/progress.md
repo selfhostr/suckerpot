@@ -405,3 +405,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Several security reviews per phase (firewall lifetime, socket group, Docker key pinning, re-exec under `sg`).
 - No database migration.
 
+## 2026-11-22: v0.14.0 (better abuse reports: digests, X-ARF v4, effect measure, form queue)
+
+- Pull requests #182 to #185 since v0.13.0 (design M38). The details are in `CHANGELOG.md`.
+- One daily digest per recipient instead of one mail per draft, with X-ARF v4 JSON per source (schema-validated before sending, no fallback). The identity guard now decodes base64 inside JSON.
+- The Results page measures whether reported sources stop more often than matched unreported ones (day 7 and day 30), and shows no number below 30 pairs.
+- Desks that only take a web form get a weekly copy kit and a "Submitted" button; a reviewed, data-only directory of abuse forms ships with releases (empty at first).
+- Several security review rounds per phase. Found before release: the identity guard's new pseudonym term made every node refuse its own pseudonym (caught by the participant e2e), a digest could stay frozen and block a provider forever, and the directory suggestion text could carry a ticket id from a reply link.
+- Migrations 0039 to 0041. The home node is updated first and its first digest is watched before other nodes get the release.
+
