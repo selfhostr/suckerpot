@@ -166,3 +166,22 @@ def test_holdout_setting_is_off_by_default_and_at_most_ten() -> None:
     assert AbuseSettings.from_env({"ABUSE_EFFECT_HOLDOUT_PCT": "10"}).holdout_pct == 10
     with pytest.raises(ValueError, match="ABUSE_EFFECT_HOLDOUT_PCT"):
         AbuseSettings.from_env({"ABUSE_EFFECT_HOLDOUT_PCT": "11"})
+
+
+# ---- the worker -----------------------------------------------------------------------------
+
+
+async def test_the_worker_follows_abuse_reporting_not_takedown_tracking() -> None:
+    from ingest.features import FeatureSettings
+    from ingest.takedown.effect import ReportEffectWorker
+
+    on = ReportEffectWorker(
+        FeatureSettings(abuse_enabled=True, takedown_enabled=False),
+        env={"ABUSE_EFFECT_HOLDOUT_PCT": "5", "ABUSE_MIN_LOGIN_ATTEMPTS": "20"},
+    )
+    assert on.enabled and on.holdout_pct == 5 and on.cfg.min_login_attempts == 20
+    status = (await on.status())["report_effect"]
+    assert status["enabled"] is True and status["holdout_pct"] == 5
+    off = ReportEffectWorker(FeatureSettings(abuse_enabled=False, takedown_enabled=True))
+    assert not off.enabled and off.holdout_pct == 0
+    await off.run_once()  # no database: nothing happens

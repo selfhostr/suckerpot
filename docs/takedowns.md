@@ -106,7 +106,7 @@ Each target has one state. The dashboard shows the state as an icon and a word. 
 | C2 server | `up` | Active | New malware points to it, or a listing was refreshed after the report. |
 | C2 server | `unknown` | Unknown | No passive signal yet. |
 
-"Quiet" says what one address did after its report, with nothing to compare against. Whether reported addresses stop more often than similar ones that were not reported is a separate measure, also run by this worker: see [Do reports make a difference?](reporting.md#do-reports-make-a-difference).
+"Quiet" says what one address did after its report, with nothing to compare against. Whether reported addresses stop more often than similar ones that were not reported is a separate measure, which runs with abuse reporting even when takedown tracking is off: see [Do reports make a difference?](reporting.md#do-reports-make-a-difference).
 
 ### When a URL counts as down
 

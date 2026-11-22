@@ -71,7 +71,7 @@ class EffectResponse(BaseModel):
     since: datetime
     until: datetime
     available: bool  # the tables exist (migration 0039)
-    running: bool  # the takedown worker, which runs the measure, is on
+    running: bool  # the worker that runs the measure is on (with abuse reporting)
     effect: EffectOut
     method: MethodOut
 
@@ -105,13 +105,13 @@ async def _available(db: AsyncSession) -> bool:
 
 
 async def _worker(db: AsyncSession) -> tuple[bool, int]:
-    """(takedown worker on, holdout percentage) from the worker's published status."""
+    """(measure worker on, holdout percentage) from the worker's published status."""
     row = (
-        await db.execute(text("SELECT detail FROM enrichment_status WHERE name = 'takedown'"))
+        await db.execute(text("SELECT detail FROM enrichment_status WHERE name = 'report_effect'"))
     ).first()
     detail: dict[str, Any] = row.detail if row is not None and row.detail else {}
     try:
-        pct = int(detail.get("effect_holdout_pct") or 0)
+        pct = int(detail.get("holdout_pct") or 0)
     except TypeError, ValueError:
         pct = 0
     return bool(detail.get("enabled", False)), max(0, min(10, pct))

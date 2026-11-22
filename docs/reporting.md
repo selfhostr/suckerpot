@@ -179,7 +179,7 @@ This compares two groups. It does not prove that a report made an address stop: 
 
 ### How it is measured
 
-- **Who is compared.** Each attacking address named in a sent report (by SMTP, or marked sent by hand) is paired with one address that passed the same report rules in the same days (within 3 days) but was not reported. On a node that reports everything, such addresses exist only where something stopped the report: no contact found, a muted or form-only desk, the daily cap, or a draft you discarded. Demo reports, the never list, your own addresses and private ranges never count.
+- **Who is compared.** Each attacking address named in a sent report (sent by SMTP, or marked sent by hand) is paired with one address that passed the same report rules in the same days (within 3 days) but was not reported. On a node that reports everything, such addresses exist only where something stopped the report: no contact found, a muted or form-only desk, the daily cap, or a draft you discarded. Demo reports, the never list, your own addresses and private ranges never count.
 - **Same kind of attacker.** Both addresses must match exactly, over the 7 UTC days that end on the day of the first report: the kind of activity (exploit, download, a login with commands, logins only), the number of events (1 to 9, 10 to 99, 100 to 999, 1,000 or more), and the last sighting (that day, 1 to 2 days before, 3 to 6 days before).
 - **Closest provider.** Among those, the closest provider wins: the same network (ASN) first, then the same provider size and country, then the same provider size. The size is built from the RDAP block of the address and how many addresses of its ASN your sensors saw in 30 days. A reported address with no match is counted as unmatched and never used. Each control is used once.
 - **Still seen.** An address is still seen at 7 days when any of your sensors saw a session from it in the 7 days from day 7 to day 13 after the report (scans count too). A second horizon, 30 days, uses days 30 to 36.
@@ -208,7 +208,7 @@ Without randomness, an address that was not reported was left out for a reason, 
 
 ### Where it runs
 
-The takedown tracker runs the measure (`TAKEDOWN_ENABLED=true`), at most once an hour, with a bounded amount of work per run. On its first runs it pairs the reported addresses the tracker already follows, up to 45 days back. It reads only your own sessions and reports: no lookup, no network access, and no address leaves the node. The dashboard reads counts only, never an address.
+The measure runs in `ingest` whenever abuse reporting is on (`ABUSE_REPORTS_ENABLED=true`), at most once an hour, with a bounded amount of work per run. It does not need takedown tracking. On its first runs it pairs the reports sent in the last 45 days. It reads only your own reports and sessions: no lookup, no network access, and no address leaves the node. The dashboard reads counts only, never an address.
 
 ## Related pages
 

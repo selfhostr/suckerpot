@@ -85,7 +85,9 @@ async def add_session(
         )  # fmt: skip
 
 
-async def add_report(engine: AsyncEngine, values: list[str], sent: datetime) -> None:
+async def add_report(
+    engine: AsyncEngine, values: list[str], sent: datetime, *, status: str = "sent"
+) -> int:
     async with engine.begin() as conn:
         rec = await conn.scalar(
             text(
@@ -99,9 +101,15 @@ async def add_report(engine: AsyncEngine, values: list[str], sent: datetime) -> 
                 "INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, status, "
                 "window_start, window_end, subject_count, evidence, content_sha256, guard_ok, "
                 "sent_at) VALUES (gen_random_uuid(), gen_random_uuid(), :r, 'attack_source', "
-                "'sent', :t, :t, 1, CAST(:e AS jsonb), 'x', true, :t) RETURNING id"
+                ":s, :t, :t, 1, CAST(:e AS jsonb), 'x', true, :sent) RETURNING id"
             ),
-            {"r": rec, "t": sent, "e": json.dumps({})},
+            {
+                "r": rec,
+                "t": sent,
+                "e": json.dumps({}),
+                "s": status,
+                "sent": sent if status == "sent" else None,
+            },
         )
         for v in values:
             await conn.execute(
@@ -111,17 +119,7 @@ async def add_report(engine: AsyncEngine, values: list[str], sent: datetime) -> 
                 ),
                 {"r": rid, "v": v, "t": sent},
             )
-            # What the takedown tracker's sync makes of a sent report (the units of the measure).
-            await conn.execute(
-                text(
-                    "INSERT INTO takedown_targets (kind, role, value, target_key, provider_key, "
-                    "reported_at, channels, track_until) VALUES ('ip', 'attack_source', :v, "
-                    "encode(sha256(convert_to('ip:' || :v, 'UTF8')), 'hex'), 'as64500', :t, '{mail}', :until) "
-                    "ON CONFLICT (kind, role, value) DO UPDATE SET "
-                    "reported_at = LEAST(takedown_targets.reported_at, EXCLUDED.reported_at)"
-                ),
-                {"v": v, "t": sent, "until": sent + timedelta(days=30)},
-            )
+    return int(rid or 0)
 
 
 async def scenario(engine: AsyncEngine, *, noise: bool = True) -> None:
@@ -313,3 +311,53 @@ async def test_status_line_follows_the_frozen_pairs(engine: AsyncEngine, factory
     assert doc["verdict"] == "not_enough_data" and doc["pairs"] == 1 and doc["needed"] == 30
     assert doc["seen_reported"] is None and doc["lo"] is None
     assert doc["line"] == "Report effect: not enough data yet (1 of 30 pairs)"
+
+
+async def units(factory: Factory, now: datetime) -> dict[str, datetime]:
+    async with factory() as session:
+        rows = await session.execute(
+            text(await effect.pending_sql(session)),
+            {"oldest": now - timedelta(days=45), "newest": now, "n": 500},
+        )
+        return {r.value: r.t0 for r in rows}
+
+
+async def test_units_come_from_sent_reports_without_takedown_tracking(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    """No takedown target is needed: a sent report, or a successful SMTP send request, is enough.
+    A discarded report is not. A takedown target, when the tracker made one, counts as well."""
+    now = datetime.now(UTC)
+    await add_report(engine, [R1], now - timedelta(days=5))
+    await add_report(engine, [R2], now - timedelta(days=4), status="discarded")
+    rid = await add_report(engine, [R3], now - timedelta(days=4), status="reviewed")
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO abuse_send_requests (report_id, kind, auto, requested_by) "
+                "VALUES (:r, 'send', true, 'auto')"
+            ),
+            {"r": rid},
+        )
+        # The sender's own path: pending, then sending, then sent.
+        for status in ("sending", "sent"):
+            await conn.execute(
+                text(
+                    "UPDATE abuse_send_requests SET status = :s, started_at = :t, "
+                    "done_at = CASE WHEN :s = 'sent' THEN CAST(:t AS timestamptz) END "
+                    "WHERE report_id = :r"
+                ),
+                {"s": status, "t": now - timedelta(days=3), "r": rid},
+            )
+        await conn.execute(
+            text(
+                "INSERT INTO takedown_targets (kind, role, value, target_key, provider_key, "
+                "reported_at, channels, track_until) VALUES ('ip', 'attack_source', :v, "
+                "encode(sha256(convert_to('ip:' || :v, 'UTF8')), 'hex'), 'as64500', :t, "
+                "'{mail}', :until)"
+            ),
+            {"v": R5, "t": now - timedelta(days=2), "until": now + timedelta(days=28)},
+        )
+    got = await units(factory, now)
+    assert set(got) == {R1, R3, R5}
+    assert got[R3] == now - timedelta(days=3)  # the send time of the request

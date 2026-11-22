@@ -50,6 +50,7 @@ from ingest.scanners import load_scanners
 from ingest.scripts import ScriptWorker, load_annotations
 from ingest.tagging import load_rules
 from ingest.takedown import TakedownWorker
+from ingest.takedown.effect import ReportEffectWorker
 from ingest.trappacks import build_gate_source, build_trap_worker
 from ingest.updatecheck import UpdateChecker
 
@@ -238,14 +239,9 @@ async def run() -> None:
         ),
         # M27: off until TAKEDOWN_ENABLED. Lookups reuse the intel and reputation clients (same
         # gate, same quotas).
-        TakedownWorker(
-            features,
-            factory,
-            intel=intel,
-            reputation=reputation,
-            asn_lookup=exit_asn,
-            terms=TermsCache(factory),
-        ),
+        TakedownWorker(features, factory, intel=intel, reputation=reputation, asn_lookup=exit_asn),
+        # M38: do reports make a difference? On with abuse reporting, independent of takedowns.
+        ReportEffectWorker(features, factory, terms=TermsCache(factory)),
         build_network_worker(features, factory),
         build_feed_worker(features, factory),
         # M37: the signed trap pack bundle for the sensors (on unless TRAP_PACKS_REMOTE=false).

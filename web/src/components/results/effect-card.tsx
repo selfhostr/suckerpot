@@ -101,7 +101,7 @@ function Method({ method, running }: { method: ReportEffectMethod; running: bool
           cannot see, so a difference does not show why it happened.
         </p>
         {!running ? (
-          <p>The takedown tracker (TAKEDOWN_ENABLED) runs this measure, and it is off.</p>
+          <p>Abuse reporting is off (ABUSE_REPORTS_ENABLED), so nothing is measured.</p>
         ) : null}
         <ul className="space-y-1">
           <li>

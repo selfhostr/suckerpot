@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   seen attacking 7 and 30 days later less often, with a 95 % interval (Newcombe) and one of three
   fixed verdicts. Below 30 pairs, or 10 pairs where only one was seen, it shows progress and no
   number, and the wording never claims a cause. Weeks when the sensors were down are left out.
-  Run by the takedown tracker, at most once an hour and bounded, from the node's own sessions
-  only; the dashboard reads counts, never an address, and the addresses are deleted once the
+  Runs with abuse reporting (no need for takedown tracking), at most once an hour and bounded,
+  from the node's own reports and sessions only; the dashboard reads counts, never an address, and the addresses are deleted once the
   30-day outcome is old. New `GET /api/v1/results/effect`, a `Report effect` line in
   `just status` and `report_effect` in `just status --json`. Migration `0039`.
 - Opt-in random holdout for the report effect measure: `ABUSE_EFFECT_HOLDOUT_PCT` (0 by default,

@@ -102,10 +102,11 @@ describe("EffectCard", () => {
     expect(screen.getAllByText("After a month")).toHaveLength(1)
   })
 
-  it("says how it is measured, including when the tracker is off", () => {
-    render(<EffectCard week={response(progress, { running: false })} />)
+  it("says how it is measured, including when reporting is off", () => {
+    const { container } = render(<EffectCard week={response(progress, { running: false })} />)
     expect(screen.getByText("How this is measured")).toBeInTheDocument()
-    expect(screen.getByText(/TAKEDOWN_ENABLED/)).toBeInTheDocument()
+    expect(screen.getByText(/ABUSE_REPORTS_ENABLED/)).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/TAKEDOWN_ENABLED/)
     expect(screen.getByText(/Random holdout:/)).toHaveTextContent("Random holdout: off")
   })
 })

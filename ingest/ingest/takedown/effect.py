@@ -1,8 +1,8 @@
 """The report effect worker (design M38 section 3.5). Database only: it never contacts anything.
 
-Run by the takedown worker at most once an hour; each run does a bounded amount of work, so the
-first runs backfill the reported addresses the tracker follows (up to 45 days back) and later runs
-only follow new ones.
+``ReportEffectWorker`` runs whenever abuse reporting is on (``ABUSE_REPORTS_ENABLED``), whatever
+the takedown tracker does, at most once an hour. Each run does a bounded amount of work, so the
+first runs backfill the reports sent in the last 45 days and later runs only follow new ones.
 
 1. ``fill_days``: count the distinct addresses of each finished UTC day (the observation check).
 2. ``make_pairs``: for reported attacking addresses whose index day is at least 4 days old, find
@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Final
@@ -30,10 +31,13 @@ from typing import Any, Final
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.network_names import host_of_target
+from suckerpot_db.retention import RetentionError, retention_days
 from suckerpot_reporting import SelfTerms
 
 from ingest.abuse.candidates import origin_of_ip
-from ingest.abuse.config import DEFAULT_SEVERE_TAGS
+from ingest.abuse.config import DEFAULT_SEVERE_TAGS, AbuseSettings
+from ingest.abuse.selfterms import TermsCache
+from ingest.features import FeatureSettings, FeatureWorker
 from ingest.takedown.effect_match import (
     Source,
     activity_class,
@@ -134,21 +138,52 @@ def observed(days: Mapping[date, int], index_day: date, horizon: int) -> bool:
 
 # ---- 2. pairs -------------------------------------------------------------------------------
 
-# The units: the attacking addresses the takedown tracker follows, one per address, with the time
-# of their first sent report (``reported_at`` only moves earlier). The tracker creates them from
-# every sent report, whatever its envelope, so the measure does not depend on how reports are
-# grouped into mails. Demo reports never count.
+# The units: every attacking address named in a sent report, with the time of its first send.
+# A report counts as sent when it is marked sent (by SMTP, by hand, or later as a submitted form),
+# or when one of its SMTP send requests succeeded. Takedown targets, when the tracker runs, add
+# nothing new but are read too (their ``reported_at`` is the same first send). Demo reports never
+# count. ``{kind}`` is the attack-source test: per subject once subjects carry a kind (daily
+# digests hold several kinds), else per report.
 PENDING = """
-SELECT t.value, t.reported_at AS t0 FROM takedown_targets t
-WHERE t.role = 'attack_source' AND t.kind = 'ip' AND NOT t.demo
-  AND t.reported_at >= :oldest AND t.reported_at < :newest
+WITH units AS (
+    SELECT s.value, r.sent_at AS t0
+    FROM abuse_reports r
+    JOIN abuse_report_subjects s ON s.report_id = r.id AND s.subject_type = 'ip'
+    WHERE r.status IN ('sent', 'closed') AND r.sent_at IS NOT NULL AND NOT r.demo AND {kind}
+    UNION ALL
+    SELECT s.value, q.done_at AS t0
+    FROM abuse_send_requests q
+    JOIN abuse_reports r ON r.id = q.report_id
+    JOIN abuse_report_subjects s ON s.report_id = r.id AND s.subject_type = 'ip'
+    WHERE q.kind = 'send' AND q.status = 'sent' AND q.done_at IS NOT NULL AND NOT r.demo
+      AND {kind}
+    UNION ALL
+    SELECT t.value, t.reported_at AS t0 FROM takedown_targets t
+    WHERE t.role = 'attack_source' AND t.kind = 'ip' AND NOT t.demo
+),
+firsts AS (SELECT value, min(t0) AS t0 FROM units GROUP BY value)
+SELECT f.value, f.t0 FROM firsts f
+WHERE f.t0 >= :oldest AND f.t0 < :newest
   AND NOT EXISTS (SELECT 1 FROM report_effect_pairs p
-                  WHERE p.reported_value = CAST(t.value AS inet))
+                  WHERE p.reported_value = CAST(f.value AS inet))
   AND NOT EXISTS (SELECT 1 FROM report_effect_unmatched u
-                  WHERE u.value = CAST(t.value AS inet))
-ORDER BY t.reported_at, t.id
+                  WHERE u.value = CAST(f.value AS inet))
+ORDER BY f.t0, f.value
 LIMIT :n
 """
+KIND_PER_SUBJECT = "COALESCE(s.kind, r.kind) = 'attack_source'"
+KIND_PER_REPORT = "r.kind = 'attack_source'"
+SUBJECT_KIND = """
+SELECT EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public' AND table_name = 'abuse_report_subjects'
+                 AND column_name = 'kind')
+"""
+
+
+async def pending_sql(session: AsyncSession) -> str:
+    per_subject = bool(await session.scalar(text(SUBJECT_KIND)))
+    return PENDING.format(kind=KIND_PER_SUBJECT if per_subject else KIND_PER_REPORT)
+
 
 # Per address and UTC day, then per 7-day window ending on each day from D-3 to D+3: the same
 # rules as candidates.attack_sources. Returns the addresses that passed on one of those days (or
@@ -430,7 +465,7 @@ async def make_pairs(
     async with factory() as session:
         units = (
             await session.execute(
-                text(PENDING),
+                text(await pending_sql(session)),
                 {
                     "oldest": day_start(today - timedelta(days=back)),
                     "newest": day_start(today - timedelta(days=MATCH_DAYS)),
@@ -570,3 +605,63 @@ async def run(
     out.update(await freeze(factory, now))
     out["cleared"] = await clear(factory, now)
     return out
+
+
+# ---- the worker -----------------------------------------------------------------------------
+
+
+class ReportEffectWorker(FeatureWorker):
+    """Runs the measure once an hour while abuse reporting is on. Reads only this node's own
+    reports and sessions: no lookup, no egress, and no address leaves the node."""
+
+    name = "report_effect"
+    interval_s = 3_600.0
+    start_delay_s = 300.0  # not while the stack starts: caches are cold
+
+    def __init__(
+        self,
+        settings: FeatureSettings,
+        factory: Factory | None = None,
+        *,
+        terms: TermsCache | None = None,
+        env: Mapping[str, str] | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        super().__init__(settings, enabled=settings.abuse_enabled)
+        self.factory = factory
+        self.terms = terms
+        self._clock = clock
+        self.cfg = EffectConfig()
+        self.holdout_pct = 0
+        self.counters: dict[str, int] = {}
+        if self.enabled:
+            # The same candidate rules as the abuse worker, so controls are chosen like reports.
+            e = os.environ if env is None else env
+            abuse = AbuseSettings.from_env(e)
+            self.cfg = EffectConfig(
+                severe_tags=abuse.severe_tags,
+                min_login_attempts=abuse.min_login_attempts,
+                retention_days=_retention(e),
+                include_demo=abuse.include_demo,
+            )
+            self.holdout_pct = abuse.holdout_pct
+
+    async def run_once(self) -> None:
+        if self.factory is None:
+            return
+        terms = await self.terms.get() if self.terms is not None else None
+        for key, n in (await run(self.factory, self._clock(), terms, self.cfg)).items():
+            self.counters[key] = self.counters.get(key, 0) + n
+
+    async def status(self) -> dict[str, Any]:
+        base = await super().status()
+        base[self.name].update(self.counters)
+        base[self.name]["holdout_pct"] = self.holdout_pct
+        return base
+
+
+def _retention(env: Mapping[str, str]) -> int:
+    try:
+        return retention_days(env)
+    except RetentionError:
+        return 90
