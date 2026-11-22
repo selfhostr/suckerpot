@@ -588,12 +588,10 @@ async def test_the_owner_clears_what_replies_taught_about_a_desk(
     row = next(r for r in listed if r["id"] == 1)
     assert row["form_only"] is True and row["form_url"] == "https://support.example.net/form"
     assert row["undeliverable"] is True
-    # Only false is accepted: the owner clears a flag, never sets one.
-    assert (
-        await client.patch("/api/v1/abuse/recipients/1", json={"form_only": True})
-    ).status_code == 422
     cleared = await client.patch("/api/v1/abuse/recipients/1", json={"form_only": False})
     assert cleared.json()["form_only"] is False and cleared.json()["form_url"] is None
+    # The shared directory leaves a desk the owner cleared alone (M38 P3).
+    assert cleared.json()["form_source"] == "cleared"
     assert cleared.json()["undeliverable"] is True
     cleared = await client.patch("/api/v1/abuse/recipients/1", json={"undeliverable": False})
     assert cleared.json()["undeliverable"] is False

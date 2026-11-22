@@ -1047,6 +1047,11 @@ class AbuseRecipientRow(Base):
     )
     # One spec-shaped XARF mail per source instead of a digest (M38, 0040).
     xarf_strict: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
+    # Where form_only came from (M38 P3, 0041): reply | directory | manual, or cleared when the
+    # owner turned it off (the shared directory then leaves it alone). form_entry: the id of the
+    # directory entry that routed it.
+    form_source: Mapped[str | None] = mapped_column(Text)
+    form_entry: Mapped[str | None] = mapped_column(Text)
 
 
 class AbuseReportRow(Base):
@@ -1088,7 +1093,7 @@ class AbuseReportRow(Base):
     sent_by: Mapped[str | None] = mapped_column(Text)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_by: Mapped[str | None] = mapped_column(Text)
-    sent_via: Mapped[str | None] = mapped_column(Text)  # manual | smtp (NULL before M25)
+    sent_via: Mapped[str | None] = mapped_column(Text)  # manual | smtp | form (NULL before M25)
     # 12 random hex digits, unrelated to every other id (M26); immutable.
     reply_token: Mapped[str] = mapped_column(
         Text, server_default=text("left(replace(gen_random_uuid()::text, '-', ''), 12)")
@@ -1099,6 +1104,8 @@ class AbuseReportRow(Base):
     channel: Mapped[str] = mapped_column(Text, server_default=text("'mail'"), nullable=False)
     # The XARF files that left: [{"name", "content"}], written by ingest when it is sent.
     sent_xarf: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    # M38 P3 (0041): the Monday (UTC) of the ISO week of a form report.
+    week: Mapped[date | None] = mapped_column(Date)
 
 
 class AbuseReportSubjectRow(Base):
@@ -1121,6 +1128,8 @@ class AbuseReportSubjectRow(Base):
     events: Mapped[int] = mapped_column(Integer)
     # The random id of this subject's XARF report (M38), unique, unrelated to every other id.
     xarf_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)
+    # When the owner submitted this source through the provider's web form (M38 P3, 0041).
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AbuseSubjectOutcomeRow(Base):
@@ -1191,6 +1200,7 @@ class ReportSettingsRow(Base):
     )
     xarf_user_agent: Mapped[str | None] = mapped_column(Text)
     xarf_org: Mapped[str | None] = mapped_column(Text)  # reporter.org of XARF reports (M38)
+    form_name: Mapped[str | None] = mapped_column(Text)  # "Your name" of the form kit (M38 P3)
     # One mail per recipient per day (M38); off sends each draft after the hold, as before.
     digest_enabled: Mapped[bool] = mapped_column(
         Boolean, server_default=text("true"), nullable=False

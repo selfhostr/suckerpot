@@ -22,6 +22,7 @@ import { scriptsHandlers } from "./scripts"
 import { alertsHandlers } from "./alerts"
 import { abuseHandlers } from "./abuse"
 import { abuseSendHandlers } from "./abuse-send"
+import { abuseFormHandlers } from "./abuse-forms"
 import { repliesHandlers } from "./replies"
 import { resultsHandlers } from "./results"
 import { takedownHandlers } from "./takedown"
@@ -152,6 +153,7 @@ export const handlers = [
   ...defendHandlers,
   ...samplesHandlers,
   ...abuseSendHandlers,
+  ...abuseFormHandlers,
   ...repliesHandlers,
   ...resultsHandlers,
   ...takedownHandlers,

@@ -84,10 +84,12 @@ export const GROUP_OPTIONS = [
 export type TargetKind = "url" | "ip" | "domain"
 export type TargetRole = "payload_url" | "payload_host" | "c2" | "attack_source"
 export type TargetState = "up" | "down" | "changed" | "unknown"
-export type Channel = "mail" | "urlhaus" | "threatfox"
+export type Channel = "mail" | "form" | "urlhaus" | "threatfox"
 
 export const CHANNEL_LABEL: Record<Channel, string> = {
   mail: "Mail",
+  /** Submitted by hand through the provider's web form (M38). */
+  form: "Form",
   urlhaus: "URLhaus",
   threatfox: "ThreatFox",
 }

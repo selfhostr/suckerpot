@@ -62,10 +62,10 @@ RETURNING id
 
 PENDING_REPORTS = """
 SELECT r.id AS report_id, s.kind AS report_kind, r.demo, r.sent_at, r.recipient_id,
-       s.subject_type, s.value, s.network_id,
+       r.sent_via, s.subject_type, s.value, s.network_id,
        n.asn, n.name AS net_name, n.country, rec.name AS rec_name
 FROM (
-    SELECT id, kind, demo, sent_at, recipient_id FROM abuse_reports
+    SELECT id, kind, demo, sent_at, recipient_id, sent_via FROM abuse_reports
     WHERE status IN ('sent', 'closed') AND sent_at IS NOT NULL
       AND sent_at > :since AND (NOT demo OR :demo)
       AND NOT EXISTS (SELECT 1 FROM takedown_target_links l WHERE l.report_id = abuse_reports.id)
@@ -283,7 +283,8 @@ class TargetSync:
                     value=r.value,
                     provider=provider,
                     reported_at=r.sent_at,
-                    channels=["mail"],
+                    # Submitted through the provider's web form (M38 P3), else mail.
+                    channels=["form" if r.sent_via == "form" else "mail"],
                     demo=r.demo,
                 )
                 await self._link(session, tid, report=r.report_id)

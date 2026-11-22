@@ -218,6 +218,7 @@ class SettingsBundle:
     revision: int
     reference_style: str = "subject"  # subject | subject_and_body | off (M26)
     digest_enabled: bool = True  # one mail per recipient per day (M38)
+    form_name: str | None = None  # "Your name" of the form kit (M38 P3)
 
     @property
     def round_times(self) -> bool:
@@ -261,6 +262,7 @@ async def load_settings(db: AsyncSession) -> SettingsBundle:
         row.revision,
         row.reference_style,
         row.digest_enabled,
+        row.form_name,
     )
 
 

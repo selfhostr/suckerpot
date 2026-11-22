@@ -158,7 +158,7 @@ WHERE NOT demo AND reported_at >= :frm
 
 REPORTS_BASE = """
 SELECT DISTINCT ON (l.report_id, t.provider_key, t.role)
-       t.role, t.provider_key, r.sent_at {extra}
+       t.role, t.provider_key, r.sent_at, r.sent_via {extra}
 FROM takedown_target_links l
 JOIN takedown_targets t ON t.id = l.target_id
 JOIN abuse_reports r ON r.id = l.report_id
@@ -251,7 +251,7 @@ async def _reports(session: AsyncSession, frm: datetime) -> list[RollReport]:
             RollReport(
                 r.role,
                 r.provider_key,
-                "mail",
+                "form" if r.sent_via == "form" else "mail",
                 month_of(r.sent_at),
                 r.outcome,
                 float(r.first_reply_s) if r.first_reply_s is not None else None,

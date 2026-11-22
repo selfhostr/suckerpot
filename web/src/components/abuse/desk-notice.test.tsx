@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { MemoryRouter } from "react-router"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AuthProvider } from "@/app/auth"
 import { ThemeProvider } from "@/app/theme"
@@ -51,7 +52,9 @@ function show(r: Recipient, onChanged = vi.fn()) {
     <ThemeProvider>
       <QueryClientProvider client={client}>
         <AuthProvider>
-          <DeskNotice recipient={r} onChanged={onChanged} />
+          <MemoryRouter>
+            <DeskNotice recipient={r} onChanged={onChanged} asns={[64500]} />
+          </MemoryRouter>
         </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>,
@@ -79,19 +82,111 @@ describe("DeskNotice", () => {
 
   it("says the desk only accepts its web form and links to it", async () => {
     stub()
-    show(recipient({ form_only: true, form_url: "https://support.example.net/abuse" }))
+    show(
+      recipient({
+        form_only: true,
+        form_url: "https://support.example.net/abuse",
+        form_url_clickable: true,
+      }),
+    )
     expect(await screen.findByText(/only accepts its web form/)).toBeInTheDocument()
     const link = screen.getByRole("link", { name: /Open the form/ })
     expect(link).toHaveAttribute("href", "https://support.example.net/abuse")
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    expect(link).toHaveAttribute("referrerpolicy", "no-referrer")
+    expect(link).toHaveAttribute("target", "_blank")
     expect(screen.getByText("(support.example.net)")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "To submit by form" })).toHaveAttribute(
+      "href",
+      "/defend/abuse?status=forms",
+    )
+  })
+
+  it("offers the suggestion text for a link from a verified reply, and nothing else", async () => {
+    stub()
+    show(
+      recipient({
+        form_only: true,
+        form_source: "reply",
+        form_url: "https://support.example.net/abuse",
+        form_url_clickable: true,
+      }),
+    )
+    expect(await screen.findByText("Suggest for the shared directory")).toBeInTheDocument()
+    const text = screen.getByLabelText("Suggestion").textContent
+    expect(text).toContain("Provider: Example Hosting")
+    expect(text).toContain("Abuse mailbox domain: example.net")
+    expect(text).toContain("ASN: AS64500")
+    expect(text).toContain("Form link: https://support.example.net/abuse")
+    expect(text).toContain("Learned from a verified reply.")
+    expect(text).not.toContain("abuse@")
+    expect(screen.getByText(/links that account to reporting this provider/)).toBeInTheDocument()
+    const issue = screen.getByRole("link", { name: /Open a new issue/ })
+    expect(issue).toHaveAttribute("rel", "noopener noreferrer")
+    expect(issue.getAttribute("href")).toMatch(
+      /^https:\/\/github\.com\/selfhostr\/suckerpot\/issues\/new/,
+    )
+  })
+
+  it("never puts a reply link's query in the suggestion, and shows it as text only", async () => {
+    stub()
+    show(
+      recipient({
+        form_only: true,
+        form_source: "reply",
+        form_url:
+          "https://support.example.net:8443/ticket/123456/form?ticket=T-4711&email=me@example.org",
+        form_url_clickable: false,
+      }),
+    )
+    expect(await screen.findByText("Suggest for the shared directory")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Open the form/ })).toBeNull()
+    expect(screen.getByText(/not opened as a link/)).toBeInTheDocument()
+    const text = screen.getByLabelText("Suggestion").textContent
+    expect(text).toContain(
+      "Provider site (the form link was left out, find the form page there): https://support.example.net/",
+    )
+    expect(text).not.toContain("ticket")
+    expect(text).not.toContain("123456")
+    expect(text).not.toContain("/form")
+    expect(text).not.toContain("T-4711")
+    expect(text).not.toContain("me@example.org")
+    expect(text).not.toContain("8443")
+    expect(screen.getByText(/Find the form page on the provider/)).toBeInTheDocument()
+  })
+
+  it("shows a link the server did not allow as text only", async () => {
+    stub()
+    show(
+      recipient({
+        form_only: true,
+        form_url: "https://forms.example.org/abuse",
+        form_url_clickable: false,
+      }),
+    )
+    expect(await screen.findByText(/only accepts its web form/)).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Open the form/ })).toBeNull()
+    expect(screen.getByText("https://forms.example.org/abuse")).toBeInTheDocument()
+  })
+
+  it("does not offer a suggestion for a directory desk", async () => {
+    stub()
+    show(
+      recipient({
+        form_only: true,
+        form_source: "directory",
+        form_url: "https://support.example.net/abuse",
+      }),
+    )
+    expect(await screen.findByText(/shared directory of abuse forms says so/)).toBeInTheDocument()
+    expect(screen.queryByText("Suggest for the shared directory")).toBeNull()
   })
 
   it("never links a URL that is not https", async () => {
     stub()
     show(recipient({ form_only: true, form_url: "http://support.example.net/abuse" }))
     expect(await screen.findByText(/only accepts its web form/)).toBeInTheDocument()
-    expect(screen.queryByRole("link")).toBeNull()
+    expect(screen.queryByRole("link", { name: /Open the form/ })).toBeNull()
   })
 
   it("lets the owner clear the flag", async () => {

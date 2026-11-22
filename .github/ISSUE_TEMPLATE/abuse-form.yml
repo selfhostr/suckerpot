@@ -1,0 +1,40 @@
+name: Abuse form
+description: Suggest a provider's abuse form for the shared directory.
+title: "[abuse form] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Paste the text from **Suggest for the shared directory** on a report page. A maintainer checks the form on the provider's own website before anything is added.
+
+        Never paste an address you reported, a ticket number, the text of a reply or anything about your node. Posting from your personal account links that account to reporting this provider.
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggestion
+      description: Provider, abuse mailbox domain, ASN, form link, and how you learned it.
+      placeholder: |
+        Provider: Example Hosting
+        Abuse mailbox domain: example.net
+        ASN: AS64500
+        Form link: https://www.example.net/abuse/report
+        Learned from a verified reply.
+    validations:
+      required: true
+  - type: dropdown
+    id: mail
+    attributes:
+      label: Does the desk still read mail?
+      options:
+        - "No: replies said to use the form"
+        - "Yes, but the form is faster"
+        - "I do not know"
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before you post
+      options:
+        - label: The text holds no address I reported, no ticket number, no reply text and nothing about my node.
+          required: true

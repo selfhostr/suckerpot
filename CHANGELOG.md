@@ -44,6 +44,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Replies: a new match method `xarf_id` (a reply that quotes one source's X-ARF report id), and
   outcomes per source from verified replies that name sources in their own text
   (`abuse_subject_outcomes`, shown on the report page).
+- **To submit by form** (M38 phase P3): desks that take reports only through a web form get one
+  form report per ISO week instead of mail. Abuse reports has a new tab with one card per provider
+  and week; each opens a copy kit: the form link with its host in text (opened in a new tab with
+  `noopener noreferrer` and no referrer), your email, an optional name (new setting
+  `form_name`), the abuse type, the addresses, first and last seen, a short description that ends
+  with `ref <token>`, a log excerpt and the evidence file, each with a copy button. Every field
+  passes the identity guard, alone and together; a blocked kit shows why and has no copy button.
+  A fixed warning says that a form submitted from your browser does not go through the VPN.
+  **Submitted** marks the ticked addresses sent (`sent_via = form`): they count as sent for the
+  14-day resend, takedown tracking, Results (new channel "Form"), the effect measure and the
+  one-mail-per-day rule, but not for the SMTP daily cap. Unticked addresses wait for the next
+  form report. Nothing is ever submitted automatically. New `GET /api/v1/abuse/forms`,
+  `GET /api/v1/abuse/reports/{id}/kit` and `POST /api/v1/abuse/reports/{id}/submitted`.
+- The shared directory of abuse forms, `reporting/forms/abuse-forms.yaml`: data only, compiled to
+  JSON and shipped with each release, reviewed by the code owners. Its validator (run in CI)
+  refuses a form link that is not `https`, whose host is not under the provider's own domains,
+  that is an IP address, or that carries user info, a port, a fragment or a query string other
+  than `lang`; it warns on entries checked more than a year ago. An entry with `accepts_mail:
+  false` (or `ignored`) sends that desk to the form queue before any mail goes; it matches by the
+  exact mailbox domain, or by ASN only when the mailbox is on the provider's own domains. It ships empty:
+  entries are added after a maintainer checks them on the provider's own website.
+- A desk can be sent to the form queue by hand ("This desk takes only a web form"), and a form
+  link learned from a verified reply can be suggested for the shared directory with a short text
+  to post as an issue (new issue template "Abuse form"); a link outside the kit's rule is cut to
+  the provider's site (`https://<host>/`) there. A link from a reply is never added to the directory or opened by
+  itself, and is a link on the report page only under the kit's rule (`form_url_clickable`).
 
 ### Changed
 
@@ -62,6 +88,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Results group a digest under each kind of source it holds; the timeline counts mails once.
 - The reply contact must contain a mail address (X-ARF names it): `reply_contact_not_email`
   blocks a draft otherwise.
+- Migration 0041: `abuse_reports.week` (form reports), `sent_via` accepts `form`,
+  `abuse_report_subjects.submitted_at`, `abuse_recipients.form_source` and `form_entry`,
+  `report_settings.form_name`, and the takedown and Results channels accept `form`. Recipients
+  already marked form-only by a reply get `form_source = reply`. The API may set `submitted_at`
+  once and drop unticked sources only on a report it just marked sent by form (trigger). The
+  downgrade is refused while a report submitted by form exists (use `just rollback`), and clears
+  the form-only flags the shared directory set.
+- Clearing "web form only" on a report page now keeps the shared directory from marking that
+  desk again; only a new verified form-required reply marks it again.
 
 ### Removed
 

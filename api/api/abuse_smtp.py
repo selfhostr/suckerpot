@@ -794,6 +794,8 @@ async def send_queue(
                 AbuseReportRow.status.in_(("draft", "reviewed")),
                 AbuseReportRow.demo.is_(False),
                 AbuseReportRow.guard_ok.is_(True),
+                # A form report waits in the form queue (M38 P3), not here.
+                AbuseReportRow.channel == "mail",
                 AbuseRecipientRow.muted.is_(False),
                 AbuseReportRow.id > after,
             )

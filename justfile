@@ -122,6 +122,14 @@ egress-check: _need-project
 isolation-check: _need-project
     scripts/egress-check.sh --isolation
 
+# The shared directory of abuse forms (M38): `just abuse-forms check` validates
+# reporting/forms/abuse-forms.yaml and the compiled JSON; `just abuse-forms compile` rewrites it.
+abuse-forms action: _cache
+    docker run --rm --user "$(id -u):$(id -g)" \
+      -v "$PWD:/work" -v "{{uv_cache}}:/cache" -w /work/reporting \
+      -e HOME=/tmp -e UV_CACHE_DIR=/cache -e UV_LINK_MODE=copy -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+      {{uv_image}} sh -c "uv sync -q && uv run python -m suckerpot_reporting.forms {{action}} forms/abuse-forms.yaml suckerpot_reporting/data/abuse-forms.json"
+
 # Live identity check of every abuse report and CERT export (M22). Prints reason codes and counts only.
 abuse-guard-check: _need-project
     . scripts/lib/engine.sh; dc exec -T api python -m api.abuse_selfcheck

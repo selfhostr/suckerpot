@@ -14,6 +14,7 @@ import { useAuth } from "@/app/auth"
 import { SettingsCause } from "@/components/abuse/blocked-drafts"
 import { CopyField } from "@/components/abuse/copy-field"
 import { DeskNotice } from "@/components/abuse/desk-notice"
+import { FormSwitch } from "@/components/abuse/form-switch"
 import { StrictSwitch } from "@/components/abuse/strict-switch"
 import { OutcomeBadge } from "@/components/results/badges"
 import { ExportMenu } from "@/components/abuse/export-menu"
@@ -847,8 +848,13 @@ export function AbuseDetailPage() {
             Demo data, do not send.
           </p>
         ) : null}
-        <DeskNotice recipient={r.recipient} onChanged={() => refresh(null)} />
+        <DeskNotice
+          recipient={r.recipient}
+          asns={r.asns.map((a) => a.asn)}
+          onChanged={() => refresh(null)}
+        />
         <StrictSwitch recipient={r.recipient} onChanged={() => refresh(null)} />
+        <FormSwitch recipient={r.recipient} onChanged={() => refresh(null)} />
         {notice ? (
           <p
             role="status"

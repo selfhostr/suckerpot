@@ -19,6 +19,7 @@ from suckerpot_db import create_engine, create_session_factory
 from api import authz
 from api.abuse import router as abuse_router
 from api.abuse_exports import router as abuse_exports_router
+from api.abuse_forms import router as abuse_forms_router
 from api.abuse_imap import router as abuse_imap_router
 from api.abuse_outcomes import router as abuse_outcomes_router
 from api.abuse_replies import router as abuse_replies_router
@@ -157,6 +158,7 @@ def create_app(
         abuse_router,
         abuse_exports_router,
         abuse_smtp_router,
+        abuse_forms_router,
         network_router,
         abuse_imap_router,
         abuse_outcomes_router,

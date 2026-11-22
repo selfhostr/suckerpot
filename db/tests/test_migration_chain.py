@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0040() -> None:
+def test_the_chain_is_linear_up_to_0041() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0040"}
+    assert heads == {"0041"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -115,6 +115,8 @@ def test_the_chain_is_linear_up_to_0040() -> None:
     assert revs["0039"][0] == "0038"
     # XARF v4 and daily digests (M38 P1) follow 0039 (M38 P2).
     assert revs["0040"][0] == "0039"
+    # The form-only desks queue (M38 P3) follows 0040.
+    assert revs["0041"][0] == "0040"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -458,7 +460,8 @@ def test_m26_reply_columns() -> None:
     assert "reply_domains" in _update_columns(_GRANTS_API, "abuse_recipients")
     desk = {"form_only", "form_url", "undeliverable", "hard_bounces"}
     assert desk <= _update_columns(_GRANTS_API, "abuse_recipients")
-    assert not _update_columns(_GRANTS_INGEST, "abuse_recipients") - {"name"} - desk
+    routing = {"form_source", "form_entry"}  # M38 P3: the shared directory of abuse forms
+    assert not _update_columns(_GRANTS_INGEST, "abuse_recipients") - {"name"} - desk - routing
 
 
 def test_m26_reply_excerpt_setting() -> None:
@@ -724,3 +727,34 @@ def test_m38_downgrade_refuses_while_sent_digests_exist() -> None:
     assert "just rollback" in down
     # The check runs before anything is dropped or deleted.
     assert refusal < down.index("DROP COLUMN") < down.index("DELETE FROM abuse_reports")
+
+
+def test_m38_form_queue_grants() -> None:
+    # Ingest moves a draft between mail and form and routes a recipient from the shared
+    # directory; the API marks a report submitted, sets submitted_at and drops unticked sources.
+    assert {"channel", "week"} <= _update_columns(_GRANTS_INGEST, "abuse_reports")
+    assert not {"channel", "week"} & _update_columns(_GRANTS_API, "abuse_reports")
+    assert {"form_source", "form_entry"} <= _update_columns(_GRANTS_INGEST, "abuse_recipients")
+    assert {"form_source", "form_entry"} <= _update_columns(_GRANTS_API, "abuse_recipients")
+    assert "submitted_at" in _update_columns(_GRANTS_API, "abuse_report_subjects")
+    assert "DELETE" in _grants(_GRANTS_API)["abuse_report_subjects"]
+    assert "submitted_at" not in _update_columns(_GRANTS_INGEST, "abuse_report_subjects")
+
+
+def test_m38_form_queue_migration() -> None:
+    script = (VERSIONS / "0041_form_queue.py").read_text()
+    code = script.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    for big in ("events", "sessions", "indicators", "indicator_sessions"):
+        assert not re.search(rf"\b(TABLE|ON|INTO|FROM|UPDATE)\s+{big}\b", code), big
+    assert "CONCURRENTLY" not in code
+    # The API may touch the sources of a report submitted by form only, and never a sent one's
+    # submitted source; a cascade from a deleted report is not concerned.
+    assert "channel = 'form' AND status = 'sent' AND sent_via = 'form'" in script
+    assert "pg_trigger_depth() > 1" in script
+    assert "'mail', 'form', 'urlhaus', 'threatfox'" in code
+    down = script.split("def downgrade", 1)[1]
+    assert down.index("downgrade refused") < down.index("DROP COLUMN")
+    # Directory flags are cleared before form_source goes, so no desk stays off mail for good.
+    clear = down.index("SET form_only = false WHERE form_only")
+    assert "form_source = 'directory'" in down[clear : clear + 120]
+    assert clear < down.index("DROP COLUMN IF EXISTS form_source")

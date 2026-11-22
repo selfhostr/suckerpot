@@ -240,6 +240,7 @@ const SETTINGS_SUBJECT: Record<string, string> = {
   subject_template: "The subject template",
   xarf_user_agent: "The X-ARF user agent",
   xarf_org: "The X-ARF organisation",
+  form_name: "Your name for web forms",
 }
 
 /** What a reason means for a text that ends up in every report. */
@@ -314,6 +315,13 @@ export interface Recipient {
   undeliverable?: boolean
   /** One spec-shaped X-ARF mail per source instead of a daily digest (M38). */
   xarf_strict?: boolean
+  /** Where form_only came from (M38): a reply, the shared directory, the owner; or cleared. */
+  form_source?: "reply" | "directory" | "manual" | "cleared" | null
+  /**
+   * The server's verdict on the reply's form link: https on the provider's own domain, with no
+   * port and no query string. Only then is it a link, or suggested in full for the directory.
+   */
+  form_url_clickable?: boolean
 }
 
 /** The form link is shown only when it is a plain https URL (the server checks it too). */
@@ -359,6 +367,8 @@ export interface ReportItem {
   channel?: string
   /** How many sources of each kind it holds. */
   kinds?: Partial<Record<ReportKind, number>>
+  /** A form report (M38): the Monday of its ISO week. */
+  week?: string | null
 }
 
 export interface ReportSubject {
@@ -477,6 +487,8 @@ export interface ReportSettings {
   xarf_org?: string | null
   /** One mail per provider per day (M38). Edited in the Sending card. */
   digest_enabled?: boolean
+  /** Optional. "Your name" in the copy kit of web forms (M38); empty by default. */
+  form_name?: string | null
   /** Optional. A sentence about the withheld destination and the source ports, if wanted. */
   note: string | null
   /** Optional. Empty uses the plain subject "Abuse report for {value}". */

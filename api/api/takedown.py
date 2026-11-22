@@ -51,7 +51,7 @@ ROLE_OF_KIND = {"url": "payload_url", "host": "payload_host"}
 State = Literal["up", "down", "changed", "unknown"]
 Role = Literal["attack_source", "payload_host", "payload_url", "c2"]
 Kind = Literal["url", "ip", "domain"]
-Channel = Literal["mail", "urlhaus", "threatfox"]
+Channel = Literal["mail", "form", "urlhaus", "threatfox"]  # form: M38 P3
 _LIKE = re.compile(r"([%_\\])")
 
 
