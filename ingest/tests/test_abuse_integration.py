@@ -1193,6 +1193,64 @@ async def test_open_drafts_of_older_kinds_merge_into_one_digest(
     assert new_id is not None and new_id != old_id  # a fresh id per source per mail
 
 
+async def test_a_superseded_draft_leaves_no_pending_send(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    await seed_attack(engine)
+    await add_self_address(engine)
+    b = builder(factory, DEMO)
+    await b.run(NOW, allow_lookups=False)
+
+    async def legacy_draft(conn: Any, kind: str) -> int:
+        return int(
+            await conn.scalar(
+                text(
+                    "INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, demo, "
+                    "window_start, window_end, subject_count, evidence, content_sha256, "
+                    "guard_ok) SELECT gen_random_uuid(), gen_random_uuid(), recipient_id, :k, "
+                    "demo, window_start, window_end, subject_count, evidence, 'old', true "
+                    "FROM abuse_reports WHERE kind = 'digest' RETURNING id"
+                ),
+                {"k": kind},
+            )
+        )
+
+    async def queue(conn: Any, report: int) -> None:
+        await conn.execute(
+            text(
+                "INSERT INTO abuse_send_requests (report_id, kind, auto, requested_by, "
+                "scheduled_at) VALUES (:r, 'send', true, 'auto', now())"
+            ),
+            {"r": report},
+        )
+
+    async with engine.begin() as conn:
+        # Left by a v0.14.0 build: a draft superseded while its automatic send was pending.
+        stuck = await legacy_draft(conn, "payload_host")
+        await queue(conn, stuck)
+        await conn.execute(
+            text("UPDATE abuse_reports SET status = 'superseded' WHERE id = :i"), {"i": stuck}
+        )
+        # An open draft of an older kind with its automatic send queued: the build merges it.
+        merged = await legacy_draft(conn, "attack_source")
+        await queue(conn, merged)
+        await conn.execute(text("DELETE FROM abuse_reports WHERE kind = 'digest'"))
+    await b.run(NOW, allow_lookups=False)
+    got = {
+        r.report_id: (r.status, r.error_code, r.done_at is not None)
+        for r in await rows(
+            engine, "SELECT report_id, status, error_code, done_at FROM abuse_send_requests"
+        )
+    }
+    assert got == {
+        stuck: ("cancelled", "superseded", True),
+        merged: ("cancelled", "superseded", True),
+    }
+    assert await scalar(engine, "SELECT status FROM abuse_reports WHERE id = :i", i=merged) == (
+        "superseded"
+    )
+
+
 async def test_the_due_time_follows_the_digest_hour(engine: AsyncEngine, factory: Factory) -> None:
     await seed_attack(engine)
     await add_self_address(engine)

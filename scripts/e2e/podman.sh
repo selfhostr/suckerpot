@@ -7,9 +7,10 @@
 # Runs on a machine with Docker (a GitHub runner, or a developer machine; never a live node). It
 # builds scripts/e2e/podman/Dockerfile.debian (Debian 13, Podman 5.4, systemd as PID 1), starts it
 # as a privileged container, copies this checkout into it, and inside:
-#   1. ./scripts/install.sh --participant --yes --version <newest release tag> as a normal user
-#      (it opens the Podman socket to itself, installs the host firewall and the boot unit, and
-#      starts the stack through suckerpot-stack.service), with the signed release images;
+#   1. ./scripts/install.sh --participant --yes --version <newest release tag with published images>
+#      as a normal user (it opens the Podman socket to itself, installs the host firewall and the
+#      boot unit, and starts the stack through suckerpot-stack.service), with the signed release
+#      images;
 #   2. ./scripts/status.sh and `egress-check.sh --isolation`: every check must PASS;
 #   3. a reboot of the container: the firewall, then the stack, then the checks again;
 #   4. the firewall tables removed by hand: the isolation checks must FAIL (sensors reach the
@@ -57,8 +58,28 @@ fail() {
   exit 1
 }
 
-version=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2> /dev/null || true)
-[ -n "$version" ] || fail "no release tag in this checkout (fetch with tags: fetch-depth 0)"
+# The newest release tag of this checkout whose images are published. On the release commit the
+# tag exists before the Release workflow has pushed its images: that tag is skipped for the one
+# before it. The check reads the ingest manifest anonymously (an empty Docker config, no secret).
+# The installer still verifies the signatures of the images it pulls.
+published() {
+  local cfg rc=0
+  cfg=$(mktemp -d)
+  DOCKER_CONFIG=$cfg timeout 60 docker manifest inspect "ghcr.io/selfhostr/suckerpot-ingest:$1" > /dev/null 2>&1 || rc=$?
+  rm -rf "$cfg"
+  return "$rc"
+}
+tags=$(git tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 3)
+[ -n "$tags" ] || fail "no release tag in this checkout (fetch with tags: fetch-depth 0)"
+version=
+for t in $tags; do
+  if published "$t"; then
+    version=$t
+    break
+  fi
+  echo "podman-e2e: no published images for $t (yet); trying the previous tag" >&2
+done
+[ -n "$version" ] || fail "no published images for the newest release tags: ${tags//$'\n'/ }"
 
 say "building the $distro Podman machine"
 docker build -q -t "$image" -f "scripts/e2e/podman/Dockerfile.$distro" scripts/e2e/podman > /dev/null

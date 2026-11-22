@@ -142,6 +142,8 @@ export const SEND_ERROR: Record<string, string> = {
     "Cancelled when daily digests were switched on. The digest is scheduled again at the digest hour.",
   digest_migration:
     "Cancelled when daily digests came in. Its sources moved into the provider's new daily digest.",
+  superseded:
+    "Cancelled because this draft was merged into the provider's daily digest. Its sources go with that digest.",
 }
 
 /** A guard failure carries its codes after a colon: `guard_failed:no_self_address`. */

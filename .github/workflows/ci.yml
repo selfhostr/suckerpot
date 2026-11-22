@@ -421,7 +421,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The newest release tag picks the signed images to install.
+          # The newest release tag with published images picks the signed images to install.
           fetch-depth: 0
           persist-credentials: false
       # The installer refuses less than 15 GiB free under Podman's data folder (a Docker volume

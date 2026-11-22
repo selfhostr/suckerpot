@@ -626,4 +626,4 @@ def test_the_new_cancel_codes_are_known_to_the_stack() -> None:
     from ingest.reportmail.outgoing import CODES
 
     assert {"shared_host", "form_only", "undeliverable"} <= set(CODES)
-    assert {"xarf_invalid", "digest_migration"} <= set(CODES)
+    assert {"xarf_invalid", "digest_migration", "superseded"} <= set(CODES)
