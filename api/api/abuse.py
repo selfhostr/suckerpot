@@ -56,6 +56,7 @@ from suckerpot_reporting import (
     render_csv,
     report_stem,
 )
+from suckerpot_reporting.forms import url_problem
 from suckerpot_reporting.xarf import file_names
 
 from api import audit as audit_db
@@ -152,6 +153,9 @@ class RecipientOut(BaseModel):
     xarf_strict: bool = False  # one spec-shaped mail per source (M38)
     # Where form_only came from (M38 P3): reply | directory | manual, or cleared by the owner.
     form_source: str | None = None
+    # The reply's form link may be shown as a link and suggested for the shared directory: https
+    # on the provider's own domain, no port, no query string (the kit uses the same rule).
+    form_url_clickable: bool = False
 
 
 class AsnOut(BaseModel):
@@ -309,6 +313,7 @@ class RecipientRow(BaseModel):
     undeliverable: bool = False
     xarf_strict: bool = False
     form_source: str | None = None
+    form_url_clickable: bool = False
 
 
 class RecipientPage(BaseModel):
@@ -397,7 +402,30 @@ def _recipient_out(r: AbuseRecipientRow) -> RecipientOut:
         undeliverable=r.undeliverable,
         xarf_strict=r.xarf_strict,
         form_source=r.form_source,
+        form_url_clickable=reply_link_ok(r),
     )
+
+
+def _domain_of(address: str | None) -> str | None:
+    if not address or "@" not in address:
+        return None
+    return address.rsplit("@", 1)[1].strip().lower() or None
+
+
+def own_domains(r: AbuseRecipientRow) -> list[str]:
+    """The provider's own domains: its mailbox domain and the domains it answers from."""
+    out = [d for d in (_domain_of(r.override_mailbox or r.mailbox),) if d]
+    out += [str(d).lower() for d in (r.reply_domains or []) if d]
+    return out
+
+
+def reply_link_ok(r: AbuseRecipientRow) -> bool:
+    """A form link learned from a reply is a hint. It is shown as a link, and offered for the
+    shared directory in full, only when it is https on the provider's own domain with no user
+    info, port, fragment or query string (``suckerpot_reporting.forms.url_problem``): a query
+    could carry a ticket id or the reply contact."""
+    url = r.form_url if r.form_only else None
+    return bool(url) and url_problem(url, own_domains(r), allow_lang=False) is None
 
 
 def _asns_of(evidence: dict[str, Any]) -> list[AsnOut]:
@@ -1327,6 +1355,7 @@ async def list_recipients(
                 undeliverable=r.undeliverable,
                 xarf_strict=r.xarf_strict,
                 form_source=r.form_source,
+                form_url_clickable=reply_link_ok(r),
             )
             for r in page
         ],
@@ -1447,6 +1476,7 @@ async def patch_recipient(
         undeliverable=rec.undeliverable,
         xarf_strict=rec.xarf_strict,
         form_source=rec.form_source,
+        form_url_clickable=reply_link_ok(rec),
     )
 
 

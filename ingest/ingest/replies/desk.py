@@ -44,12 +44,14 @@ UNKNOWN_USER: Final = (
 PLAIN_CODES: Final = ("550", "551", "552", "553", "554")
 HARD_AT: Final = 2
 
-# The reply is the desk speaking for itself: it outranks the shared directory and a flag the
-# owner cleared earlier (M38 P3, form_source).
+# The reply is the desk speaking for itself: it outranks the shared directory (M38 P3,
+# form_source). A flag the owner cleared is set again only by a verified reply: a forged one could
+# otherwise undo the owner's choice.
 MARK_FORM = (
     "UPDATE abuse_recipients SET form_only = true, form_url = COALESCE(form_url, :url), "
     "form_source = 'reply' "
-    "WHERE id = (SELECT recipient_id FROM abuse_reports WHERE id = :r)"
+    "WHERE id = (SELECT recipient_id FROM abuse_reports WHERE id = :r) "
+    "AND (form_source IS DISTINCT FROM 'cleared' OR CAST(:verified AS boolean))"
 )
 MARK_BOUNCE = (
     "UPDATE abuse_recipients SET hard_bounces = LEAST(hard_bounces + 1, 100), "
@@ -162,7 +164,7 @@ async def learn(
             host = host_of_url(url).lower()
             if not any(_in_domain(host, d) for d in await _own_domains(session, report_id)):
                 url = None
-        await session.execute(text(MARK_FORM), {"r": report_id, "url": url})
+        await session.execute(text(MARK_FORM), {"r": report_id, "url": url, "verified": verified})
     elif outcome == "bounce" and hard_bounce(reply):
         await session.execute(
             text(MARK_BOUNCE), {"r": report_id, "unknown": user_unknown(reply), "at": HARD_AT}

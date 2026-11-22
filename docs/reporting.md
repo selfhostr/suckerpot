@@ -157,10 +157,10 @@ Some abuse desks ignore mail and take reports only through a form on their websi
 **Which desks.** A recipient goes to the form queue when:
 
 - a reply that matched one of its reports says it only accepts its web form (for example "this inbox is not monitored" or "submit your report using our portal"). The first `https` link of a verified reply on the provider's own domain is kept as a hint;
-- the **shared directory of abuse forms** has an entry for it that says the desk does not read mail (`accepts_mail: false` or `ignored`). The node then sends no mail there at all, not even a first one;
+- the **shared directory of abuse forms** has an entry for it that says the desk does not read mail (`accepts_mail: false` or `ignored`). An entry matches a desk by its exact mailbox domain, or by ASN only when the mailbox is on one of the provider's own domains: an ASN alone never routes a desk. The node then sends no mail there at all, not even a first one;
 - you chose it: **This desk takes only a web form** on a report page.
 
-**Clear this flag** on the report page when the desk takes mail again. The shared directory then leaves that desk alone; only a new reply from the desk can mark it again.
+**Clear this flag** on the report page when the desk takes mail again. The shared directory then leaves that desk alone; only a new verified reply from the desk can mark it again.
 
 **One report per provider and week.** The sources of a form-only desk go into one form report per ISO week (Monday 00:00 UTC), which fills during the week like a digest. It is in the queue as soon as it holds a source, so you can submit early while the evidence is fresh. Sources older than 7 days are marked. A report you have not submitted moves into the next week with its sources.
 
@@ -186,7 +186,7 @@ Every field, the evidence file and the form links pass the identity guard, one b
 
 **The shared directory of abuse forms.** The file `reporting/forms/abuse-forms.yaml` lists known abuse forms. It is data only, ships with each release, and only changes through a reviewed pull request. CI refuses a form link that is not `https`, whose host is not under the provider's own domains, that is an IP address, holds a user name, a port or a fragment, or carries a query string other than `lang` (so no token or session can hide in it). Maintainers check every entry on the provider's own website, never from a link in a reply, and the kit says so when an entry was last checked more than a year ago.
 
-When a verified reply taught your node a form link, the report page offers **Suggest for the shared directory**: a short text with the provider's name, mailbox domain, ASN and the form link, to post as an issue on the public repository (template "Abuse form"). It never holds an address you reported, a ticket number, the reply text or anything about your node. Posting from your personal account links that account to reporting this provider.
+When a verified reply taught your node a form link, the report page offers **Suggest for the shared directory**: a short text with the provider's name, mailbox domain, ASN and the form link, to post as an issue on the public repository (template "Abuse form"). It never holds an address you reported, a ticket number, the reply text or anything about your node. A link with a query string or a port (which could hold a ticket number or your address) is cut to its address and path, and the page says so. The report page shows a reply's link as a link only under the same rule as the kit; otherwise as text. Posting from your personal account links that account to reporting this provider.
 
 ### Set up SMTP
 

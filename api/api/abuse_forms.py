@@ -51,7 +51,15 @@ from suckerpot_reporting.forms import (
 )
 
 from api import audit as audit_db
-from api.abuse import GuardOut, RecipientOut, _asns_of, _load, _recipient_out
+from api.abuse import (
+    GuardOut,
+    RecipientOut,
+    _asns_of,
+    _domain_of,
+    _load,
+    _recipient_out,
+    own_domains,
+)
 from api.abuse_core import (
     EvidenceInvalidError,
     SettingsBundle,
@@ -201,19 +209,6 @@ def _no_store(model: BaseModel, status: int = 200) -> Response:
     return JSONResponse(
         model.model_dump(mode="json"), status_code=status, headers={"Cache-Control": "no-store"}
     )
-
-
-def _domain_of(address: str | None) -> str | None:
-    if not address or "@" not in address:
-        return None
-    return address.rsplit("@", 1)[1].strip().lower() or None
-
-
-def own_domains(rec: AbuseRecipientRow) -> list[str]:
-    """The provider's own domains: its mailbox domain and the domains it answers from."""
-    out = [d for d in (_domain_of(rec.override_mailbox or rec.mailbox),) if d]
-    out += [str(d).lower() for d in (rec.reply_domains or []) if d]
-    return out
 
 
 def entry_of(rec: AbuseRecipientRow, asns: list[int | None]) -> FormEntry | None:

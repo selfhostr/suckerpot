@@ -242,3 +242,43 @@ async def test_the_recheck_covers_the_kit_of_a_form_report(
     assert stats.blocked == 1
     codes = await scalar(engine, "SELECT guard_codes FROM abuse_reports")
     assert "self_address" in codes
+
+
+async def test_only_a_verified_reply_marks_again_a_desk_the_owner_cleared(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    from ingest.replies.desk import learn
+    from ingest.replies.parse import ParsedReply
+
+    await seed_attack(engine)
+    await add_self_address(engine)
+    await builder(factory, DEMO).run(NOW, allow_lookups=False)
+    rid = await scalar(engine, "SELECT id FROM abuse_reports")
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE abuse_recipients SET form_source = 'cleared'"))
+    reply = ParsedReply(body="Please submit your report using our web form.")
+
+    async def mark(verified: bool) -> None:
+        async with factory() as session, session.begin():
+            await learn(
+                session,
+                reply,
+                report_id=rid,
+                verified=verified,
+                outcome="rejected",
+                rule_id="form-required",
+            )
+
+    await mark(False)
+    row = (await rows(engine, "SELECT form_only, form_source FROM abuse_recipients"))[0]
+    assert (row.form_only, row.form_source) == (False, "cleared")
+    await mark(True)
+    row = (await rows(engine, "SELECT form_only, form_source FROM abuse_recipients"))[0]
+    assert (row.form_only, row.form_source) == (True, "reply")
+    # Any other state keeps the old rule: an unverified matched reply marks the desk.
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE abuse_recipients SET form_only = false, form_source = 'directory'")
+        )
+    await mark(False)
+    assert await scalar(engine, "SELECT form_only FROM abuse_recipients") is True

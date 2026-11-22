@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   describeFormQueue,
   formLinkHref,
+  reducedFormUrl,
+  weekSpanLabel,
   keyOf,
   linkLabel,
   refsOf,
@@ -99,5 +101,38 @@ describe("refsOf", () => {
         new Set([keyOf({ kind: "attack_source", subject_type: "ip", value: "198.51.100.2" })]),
       ),
     ).toEqual([{ kind: "attack_source", subject_type: "ip", value: "198.51.100.2" }])
+  })
+})
+
+describe("reducedFormUrl", () => {
+  it("keeps the scheme, host and path only", () => {
+    expect(
+      reducedFormUrl("https://user@support.example.net:8443/abuse?ticket=1&email=me@example.org#x"),
+    ).toBe("https://support.example.net/abuse")
+    expect(reducedFormUrl("http://support.example.net/abuse")).toBeNull()
+    expect(reducedFormUrl(null)).toBeNull()
+  })
+
+  it("says it was shortened in the suggestion", () => {
+    expect(
+      suggestionText({
+        provider: "P",
+        mailbox: null,
+        asns: [],
+        formUrl: "https://support.example.net/abuse",
+        shortened: true,
+      }),
+    ).toContain("Form link (shortened to its address and path): https://support.example.net/abuse")
+  })
+})
+
+describe("weekSpanLabel", () => {
+  it("names one week, or the first and last weeks the sources span", () => {
+    expect(weekSpanLabel("2026-11-16T10:00:00Z", "2026-11-20T10:00:00Z")).toBe(
+      "Week of 16 Nov 2026",
+    )
+    expect(weekSpanLabel("2026-11-12T10:00:00Z", "2026-11-20T10:00:00Z")).toBe(
+      "Weeks of 9 Nov 2026 to 16 Nov 2026",
+    )
   })
 })

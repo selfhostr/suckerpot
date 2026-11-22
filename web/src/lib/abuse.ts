@@ -317,6 +317,11 @@ export interface Recipient {
   xarf_strict?: boolean
   /** Where form_only came from (M38): a reply, the shared directory, the owner; or cleared. */
   form_source?: "reply" | "directory" | "manual" | "cleared" | null
+  /**
+   * The server's verdict on the reply's form link: https on the provider's own domain, with no
+   * port and no query string. Only then is it a link, or suggested in full for the directory.
+   */
+  form_url_clickable?: boolean
 }
 
 /** The form link is shown only when it is a plain https URL (the server checks it too). */

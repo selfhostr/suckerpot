@@ -139,6 +139,28 @@ export function formLinkHref(link: FormLink): string | null {
   }
 }
 
+/** The Monday (UTC) of the ISO week of a time, as YYYY-MM-DD, or null. */
+export function mondayOf(iso: string): string | null {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  const d = new Date(t)
+  d.setUTCHours(0, 0, 0, 0)
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7))
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * The weeks the sources of a form report span: "Week of 16 Nov 2026", or "Weeks of 9 Nov 2026 to
+ * 16 Nov 2026" when an unsubmitted report carried older sources into the new week.
+ */
+export function weekSpanLabel(windowStart: string, windowEnd: string): string {
+  const first = mondayOf(windowStart)
+  const last = mondayOf(windowEnd)
+  if (!first || !last) return weekLabel(last ?? first)
+  if (first === last) return weekLabel(first)
+  return `Weeks of ${weekLabel(first).slice("Week of ".length)} to ${weekLabel(last).slice("Week of ".length)}`
+}
+
 /** "Week of 16 Nov 2026" from the Monday of an ISO week. */
 export function weekLabel(week: string | null | undefined): string {
   if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(week)) return "This week"
@@ -196,16 +218,35 @@ export function suggestionText(input: {
   mailbox: string | null
   asns: number[]
   formUrl: string
+  /** The link was cut to its scheme, host and path (see `reducedFormUrl`). */
+  shortened?: boolean
 }): string {
   const domain = input.mailbox?.includes("@") ? input.mailbox.split("@").pop() : null
   const lines = [
     `Provider: ${input.provider}`,
     `Abuse mailbox domain: ${domain ?? "unknown"}`,
     `ASN: ${input.asns.length > 0 ? input.asns.map((a) => `AS${a}`).join(", ") : "unknown"}`,
-    `Form link: ${input.formUrl}`,
+    input.shortened
+      ? `Form link (shortened to its address and path): ${input.formUrl}`
+      : `Form link: ${input.formUrl}`,
     "Learned from a verified reply.",
   ]
   return lines.join("\n")
+}
+
+/**
+ * A reply's form link cut to its scheme, host and path: no user info, port, query or fragment, any
+ * of which could carry a ticket id or the reply contact. Null when it is not an https URL.
+ */
+export function reducedFormUrl(url: string | null | undefined): string | null {
+  if (!url?.startsWith("https://")) return null
+  try {
+    const u = new URL(url)
+    if (u.protocol !== "https:") return null
+    return `https://${u.hostname}${u.pathname}`
+  } catch {
+    return null
+  }
 }
 
 /** Save a text file the browser holds (the kit's evidence file). */

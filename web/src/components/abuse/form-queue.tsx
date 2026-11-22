@@ -10,7 +10,7 @@ import { describeAbuseError } from "@/lib/abuse"
 import {
   describeFormItem,
   describeFormQueue,
-  weekLabel,
+  weekSpanLabel,
   type FormQueueItem,
 } from "@/lib/abuse-forms"
 
@@ -37,7 +37,7 @@ function Card({
             {item.recipient.name}
           </h2>
           <span className="block text-xs text-fg-muted">
-            {weekLabel(item.week)} · {describeFormItem(item)}
+            {weekSpanLabel(item.window_start, item.window_end)} · {describeFormItem(item)}
             {item.form_host ? (
               <>
                 {" · "}

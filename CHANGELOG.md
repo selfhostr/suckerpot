@@ -62,12 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   refuses a form link that is not `https`, whose host is not under the provider's own domains,
   that is an IP address, or that carries user info, a port, a fragment or a query string other
   than `lang`; it warns on entries checked more than a year ago. An entry with `accepts_mail:
-  false` (or `ignored`) sends that desk to the form queue before any mail goes. It ships empty:
+  false` (or `ignored`) sends that desk to the form queue before any mail goes; it matches by the
+  exact mailbox domain, or by ASN only when the mailbox is on the provider's own domains. It ships empty:
   entries are added after a maintainer checks them on the provider's own website.
 - A desk can be sent to the form queue by hand ("This desk takes only a web form"), and a form
   link learned from a verified reply can be suggested for the shared directory with a short text
-  to post as an issue (new issue template "Abuse form"). A link from a reply is never added to
-  the directory or opened by itself.
+  to post as an issue (new issue template "Abuse form"); a link with a query or a port is cut to
+  its address and path there. A link from a reply is never added to the directory or opened by
+  itself, and is a link on the report page only under the kit's rule (`form_url_clickable`).
 
 ### Changed
 
@@ -91,9 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `report_settings.form_name`, and the takedown and Results channels accept `form`. Recipients
   already marked form-only by a reply get `form_source = reply`. The API may set `submitted_at`
   once and drop unticked sources only on a report it just marked sent by form (trigger). The
-  downgrade is refused while a report submitted by form exists (use `just rollback`).
+  downgrade is refused while a report submitted by form exists (use `just rollback`), and clears
+  the form-only flags the shared directory set.
 - Clearing "web form only" on a report page now keeps the shared directory from marking that
-  desk again; a new form-required reply still does.
+  desk again; only a new verified form-required reply marks it again.
 
 ### Removed
 

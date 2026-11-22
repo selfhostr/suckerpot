@@ -286,17 +286,19 @@ class Directory:
     def match(
         self, mailbox_domain: str | None, asns: Iterable[int | None] = ()
     ) -> FormEntry | None:
-        """The entry of a recipient: its exact mailbox domain first, then the ASN of a subject
-        (the first entry in file order)."""
+        """The entry of a recipient: its exact mailbox domain first; else the ASN of a subject,
+        but only for an entry whose official domains hold the mailbox domain (an ASN alone never
+        routes a desk: a network can carry customers whose abuse desk is not the provider's)."""
         domain = (mailbox_domain or "").strip().lower()
-        if domain:
-            for e in self.entries:
-                if domain in e.mailbox_domains:
-                    return e
+        if not domain:
+            return None
+        for e in self.entries:
+            if domain in e.mailbox_domains:
+                return e
         wanted = {a for a in asns if isinstance(a, int)}
         if wanted:
             for e in self.entries:
-                if wanted.intersection(e.asns):
+                if wanted.intersection(e.asns) and in_domains(domain, e.official_domains):
                     return e
         return None
 

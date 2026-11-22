@@ -229,7 +229,7 @@ def test_nothing_is_accepted_in_part() -> None:
 # --- matching --------------------------------------------------------------------------------
 
 
-def test_match_by_mailbox_domain_first_then_asn() -> None:
+def test_match_by_mailbox_domain_first_then_asn_under_an_official_domain() -> None:
     a = entry()
     b = entry(
         id="other-net",
@@ -242,9 +242,13 @@ def test_match_by_mailbox_domain_first_then_asn() -> None:
     d = validate(doc(a, b), TODAY)
     assert d.match("other.example", [64500]).id == "other-net"  # type: ignore[union-attr]
     assert d.match("EXAMPLE.NET", []).id == "example-hosting"  # type: ignore[union-attr]
-    assert d.match("unknown.example", [64511]).id == "other-net"  # type: ignore[union-attr]
-    assert d.match("unknown.example", [64500]).id == "example-hosting"  # type: ignore[union-attr]
-    assert d.match(None, [None, 1]) is None
+    # An ASN routes only when the mailbox domain is under the entry's official domains.
+    assert d.match("support.other.example", [64511]).id == "other-net"  # type: ignore[union-attr]
+    assert d.match("mail.example.net", [64500]).id == "example-hosting"  # type: ignore[union-attr]
+    # An ASN alone never routes: a customer's own desk is not the provider's.
+    assert d.match("unknown.example", [64511]) is None
+    assert d.match("unknown.example", [64500]) is None
+    assert d.match(None, [64500]) is None
     assert d.by_id("other-net") is b_entry(d)
 
 

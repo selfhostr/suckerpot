@@ -36,7 +36,7 @@ const item = (over: Partial<FormQueueItem> = {}): FormQueueItem => ({
   week: "2026-11-16",
   subject_count: 2,
   stale_count: 1,
-  window_start: "2026-11-16T10:00:00Z",
+  window_start: "2026-11-10T10:00:00Z",
   window_end: "2026-11-20T10:00:00Z",
   updated_at: "2026-11-20T10:00:00Z",
   guard: { ok: true, codes: [] },
@@ -169,7 +169,8 @@ describe("FormQueue", () => {
     stub([item()])
     renderQueue()
     expect(await screen.findByText("Example Hosting")).toBeInTheDocument()
-    expect(screen.getByText(/Week of 16 Nov 2026/)).toBeInTheDocument()
+    // The sources span two weeks: the card names the first and the last.
+    expect(screen.getByText(/Weeks of 9 Nov 2026 to 16 Nov 2026/)).toBeInTheDocument()
     expect(screen.getByText(/2 addresses, 1 older than 7 days/)).toBeInTheDocument()
   })
 

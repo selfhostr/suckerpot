@@ -33,11 +33,13 @@ def test_mailbox_domain() -> None:
     assert forms.mailbox_domain(None) is None
 
 
-def test_entry_for_matches_by_mailbox_then_asn() -> None:
+def test_entry_for_matches_by_mailbox_then_asn_on_an_official_domain() -> None:
     d = directory()
     assert forms.entry_for(d, "abuse@example.org", []) is d.entries[0]
-    assert forms.entry_for(d, "abuse@other.example", [64496]) is d.entries[0]
-    assert forms.entry_for(d, "abuse@other.example", [64497, None]) is None
+    assert forms.entry_for(d, "abuse@noc.example.org", [64496]) is d.entries[0]
+    # An ASN alone never routes a desk.
+    assert forms.entry_for(d, "abuse@other.example", [64496]) is None
+    assert forms.entry_for(d, "abuse@noc.example.org", [64497, None]) is None
 
 
 def test_an_entry_that_takes_mail_routes_nothing() -> None:

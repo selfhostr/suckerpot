@@ -6,7 +6,7 @@ import { useAuth } from "@/app/auth"
 import { CopyField } from "@/components/abuse/copy-field"
 import { Button } from "@/components/ui/button"
 import { abuseApi, describeAbuseError, safeFormUrl, type Recipient } from "@/lib/abuse"
-import { SUGGEST_URL, suggestionText } from "@/lib/abuse-forms"
+import { reducedFormUrl, SUGGEST_URL, suggestionText } from "@/lib/abuse-forms"
 
 const FORM_SOURCE: Record<string, string> = {
   reply: "A reply from the desk said so.",
@@ -18,12 +18,23 @@ const FORM_SOURCE: Record<string, string> = {
  * The text to post as an issue for the shared directory of abuse forms (D12), for a form link
  * learned from a verified reply. Posting is by hand, from the owner's own account.
  */
-function Suggest({ recipient, asns, url }: { recipient: Recipient; asns: number[]; url: string }) {
+function Suggest({
+  recipient,
+  asns,
+  url,
+  shortened,
+}: {
+  recipient: Recipient
+  asns: number[]
+  url: string
+  shortened: boolean
+}) {
   const text = suggestionText({
     provider: recipient.name,
     mailbox: recipient.mailbox,
     asns,
     formUrl: url,
+    shortened,
   })
   return (
     <details className="group rounded-md border px-3 py-2">
@@ -36,6 +47,12 @@ function Suggest({ recipient, asns, url }: { recipient: Recipient; asns: number[
           website. Copy the text and post it as an issue. Posting from your personal account links
           that account to reporting this provider.
         </p>
+        {shortened ? (
+          <p className="text-xs text-fg">
+            The link from the reply was shortened to its address and path: the full link has a query
+            or a port, which can hold a ticket number or your address.
+          </p>
+        ) : null}
         <CopyField label="Suggestion" value={text} multiline />
         <a
           href={SUGGEST_URL}
@@ -78,7 +95,11 @@ export function DeskNotice({
   const form = recipient.form_only ?? false
   const dead = recipient.undeliverable ?? false
   if (!form && !dead) return null
-  const link = safeFormUrl(recipient.form_url)
+  // A link only when the server says so (https on the provider's own domain, no port, no query):
+  // the same rule as the copy kit. Anything else is shown as text.
+  const link = recipient.form_url_clickable ? safeFormUrl(recipient.form_url) : null
+  const plain = !link && recipient.form_url ? recipient.form_url : null
+  const suggested = link ?? reducedFormUrl(recipient.form_url)
   return (
     <div
       role="note"
@@ -108,6 +129,12 @@ export function DeskNotice({
           {link ? (
             <span className="font-mono text-xs text-fg-muted">({new URL(link).host})</span>
           ) : null}
+          {plain ? (
+            <span className="block w-full text-xs text-fg-muted">
+              Form address from the reply, not opened as a link (check it before you use it):{" "}
+              <span className="font-mono break-all">{plain}</span>
+            </span>
+          ) : null}
           {canWrite ? (
             <Button
               size="sm"
@@ -120,8 +147,8 @@ export function DeskNotice({
           ) : null}
         </p>
       ) : null}
-      {form && link && canWrite && recipient.form_source === "reply" ? (
-        <Suggest recipient={recipient} asns={asns} url={link} />
+      {form && suggested && canWrite && recipient.form_source === "reply" ? (
+        <Suggest recipient={recipient} asns={asns} url={suggested} shortened={!link} />
       ) : null}
       {dead ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">

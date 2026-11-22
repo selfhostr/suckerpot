@@ -754,3 +754,7 @@ def test_m38_form_queue_migration() -> None:
     assert "'mail', 'form', 'urlhaus', 'threatfox'" in code
     down = script.split("def downgrade", 1)[1]
     assert down.index("downgrade refused") < down.index("DROP COLUMN")
+    # Directory flags are cleared before form_source goes, so no desk stays off mail for good.
+    clear = down.index("SET form_only = false WHERE form_only")
+    assert "form_source = 'directory'" in down[clear : clear + 120]
+    assert clear < down.index("DROP COLUMN IF EXISTS form_source")

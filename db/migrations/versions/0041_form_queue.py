@@ -207,6 +207,12 @@ def downgrade() -> None:
         "CHECK (channels <@ ARRAY['mail', 'urlhaus', 'threatfox'])"
     )
     op.execute("ALTER TABLE report_settings DROP COLUMN IF EXISTS form_name")
+    # A flag the shared directory set has no source to clear it once the column is gone: the
+    # older code would keep that desk off mail for good. Mail is the default again.
+    op.execute(
+        "UPDATE abuse_recipients SET form_only = false WHERE form_only "
+        "AND form_source = 'directory'"
+    )
     op.execute("ALTER TABLE abuse_recipients DROP COLUMN IF EXISTS form_entry")
     op.execute("ALTER TABLE abuse_recipients DROP COLUMN IF EXISTS form_source")
     op.execute("DROP TRIGGER IF EXISTS abuse_report_subjects_form_guard ON abuse_report_subjects")

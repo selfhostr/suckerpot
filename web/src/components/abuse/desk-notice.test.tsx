@@ -82,7 +82,13 @@ describe("DeskNotice", () => {
 
   it("says the desk only accepts its web form and links to it", async () => {
     stub()
-    show(recipient({ form_only: true, form_url: "https://support.example.net/abuse" }))
+    show(
+      recipient({
+        form_only: true,
+        form_url: "https://support.example.net/abuse",
+        form_url_clickable: true,
+      }),
+    )
     expect(await screen.findByText(/only accepts its web form/)).toBeInTheDocument()
     const link = screen.getByRole("link", { name: /Open the form/ })
     expect(link).toHaveAttribute("href", "https://support.example.net/abuse")
@@ -103,6 +109,7 @@ describe("DeskNotice", () => {
         form_only: true,
         form_source: "reply",
         form_url: "https://support.example.net/abuse",
+        form_url_clickable: true,
       }),
     )
     expect(await screen.findByText("Suggest for the shared directory")).toBeInTheDocument()
@@ -119,6 +126,44 @@ describe("DeskNotice", () => {
     expect(issue.getAttribute("href")).toMatch(
       /^https:\/\/github\.com\/selfhostr\/suckerpot\/issues\/new/,
     )
+  })
+
+  it("never puts a reply link's query in the suggestion, and shows it as text only", async () => {
+    stub()
+    show(
+      recipient({
+        form_only: true,
+        form_source: "reply",
+        form_url: "https://support.example.net:8443/abuse/form?ticket=T-4711&email=me@example.org",
+        form_url_clickable: false,
+      }),
+    )
+    expect(await screen.findByText("Suggest for the shared directory")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Open the form/ })).toBeNull()
+    expect(screen.getByText(/not opened as a link/)).toBeInTheDocument()
+    const text = screen.getByLabelText("Suggestion").textContent
+    expect(text).toContain(
+      "Form link (shortened to its address and path): https://support.example.net/abuse/form",
+    )
+    expect(text).not.toContain("ticket")
+    expect(text).not.toContain("T-4711")
+    expect(text).not.toContain("me@example.org")
+    expect(text).not.toContain("8443")
+    expect(screen.getByText(/was shortened to its address and path/)).toBeInTheDocument()
+  })
+
+  it("shows a link the server did not allow as text only", async () => {
+    stub()
+    show(
+      recipient({
+        form_only: true,
+        form_url: "https://forms.example.org/abuse",
+        form_url_clickable: false,
+      }),
+    )
+    expect(await screen.findByText(/only accepts its web form/)).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Open the form/ })).toBeNull()
+    expect(screen.getByText("https://forms.example.org/abuse")).toBeInTheDocument()
   })
 
   it("does not offer a suggestion for a directory desk", async () => {

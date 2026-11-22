@@ -281,3 +281,23 @@ async def test_the_form_name_is_guarded_and_kept(client: httpx.AsyncClient) -> N
     body.pop("form_name")
     kept = (await client.put("/api/v1/abuse/settings", json=body)).json()
     assert kept["form_name"] == "A. Volunteer"
+
+
+async def test_the_recipient_panel_uses_the_kit_rule_for_a_reply_link(
+    client: httpx.AsyncClient,
+) -> None:
+    await set_intro(client)
+    await seed_form()
+    cases = {
+        REPLY_FORM: True,
+        "https://support.example.net/form?ticket=T-4711&email=me@example.org": False,
+        "https://support.example.net:8443/form": False,
+        "https://forms.example.org/form": False,
+    }
+    for url, clickable in cases.items():
+        await run("UPDATE abuse_recipients SET form_url = :u WHERE id = 1", u=url)
+        detail = (await client.get(f"/api/v1/abuse/reports/{FORM_ID}")).json()
+        assert detail["recipient"]["form_url_clickable"] is clickable, url
+        listed = (await client.get("/api/v1/abuse/recipients")).json()["items"]
+        row = next(r for r in listed if r["id"] == 1)
+        assert row["form_url_clickable"] is clickable, url
