@@ -19,7 +19,7 @@ These are the design documents written before the larger milestones were built. 
 | [M34](m34.md) | Public network observatory |
 | [M36](m36.md) | Useful from the first node |
 | [M37](m37.md) | Trap packs for new CVEs |
-| [M38](m38.md) | Better abuse reports: measuring their effect, X-ARF v4, one mail per provider per day, a form queue (proposal, not implemented yet) |
+| [M38](m38.md) | Better abuse reports: measuring their effect, X-ARF v4, one mail per provider per day, a form queue (approved, not implemented yet) |
 | [Podman](podman.md) | Podman as a second container engine (approved, not implemented yet) |
 | [Installer UX](installer-ux.md) | A shorter, clearer installer: fewer questions, a progress display, a plain mode (approved, not implemented yet) |
 
