@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-22
+
 ### Fixed
 
 - Abuse reports: when a build merges or retires an old draft (marked superseded), its pending automatic send is now cancelled in the same transaction with the new code `superseded`. Before, it stayed pending forever, since the sender only takes drafts and reviewed reports. Sends already left pending this way (since v0.14.0) are cancelled on the next build.
@@ -1085,7 +1087,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/selfhostr/suckerpot/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/selfhostr/suckerpot/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/selfhostr/suckerpot/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/selfhostr/suckerpot/compare/v0.12.1...v0.12.2

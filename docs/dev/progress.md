@@ -414,3 +414,10 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Several security review rounds per phase. Found before release: the identity guard's new pseudonym term made every node refuse its own pseudonym (caught by the participant e2e), a digest could stay frozen and block a provider forever, and the directory suggestion text could carry a ticket id from a reply link.
 - Migrations 0039 to 0041. The home node is updated first and its first digest is watched before other nodes get the release.
 
+## 2026-11-22: v0.14.1 (superseded drafts, Podman CI on release commits)
+
+- One pull request since v0.14.0 (#187). The details are in `CHANGELOG.md`.
+- Seen on the home node right after v0.14.0: a legacy draft merged into a digest kept a pending automatic send; the sender then failed it as `not_ready` (no mail left). Pending sends of superseded drafts are now cancelled as `superseded` in the same transaction.
+- The `podman` CI job failed on the v0.14.0 release commit because it asked for images the Release workflow had not published yet. It now uses the newest tag whose images exist.
+- No database change and no migration.
+
