@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0039() -> None:
+def test_the_chain_is_linear_up_to_0040() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0039"}
+    assert heads == {"0040"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -113,6 +113,8 @@ def test_the_chain_is_linear_up_to_0039() -> None:
     assert revs["0038"][0] == "0037"
     # The report effect measure (M38 P2) follows 0038.
     assert revs["0039"][0] == "0038"
+    # XARF v4 and daily digests (M38 P1) follow 0039 (M38 P2).
+    assert revs["0040"][0] == "0039"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -687,3 +689,26 @@ def test_report_effect_tables_are_modelled_and_least_privilege() -> None:
     assert "CREATE TRIGGER report_effect_pairs_guard BEFORE UPDATE" in src
     assert "the 7-day outcome is frozen" in src and "the 30-day outcome is frozen" in src
     assert "interval '21 days'" in src
+
+
+def test_m38_grants() -> None:
+    # Ingest moves a draft digest's due time and links replies to sources; nothing else new.
+    assert "due_at" in _update_columns(_GRANTS_INGEST, "abuse_reports")
+    assert "due_at" not in _update_columns(_GRANTS_API, "abuse_reports")
+    assert _grants(_GRANTS_INGEST)["abuse_subject_outcomes"] == {"SELECT", "INSERT"}
+    assert _grants(_GRANTS_API)["abuse_subject_outcomes"] == {"SELECT"}
+    # The owner chooses one mail per source for a recipient; ingest only reads it.
+    assert "xarf_strict" in _update_columns(_GRANTS_API, "abuse_recipients")
+    assert "xarf_strict" not in _update_columns(_GRANTS_INGEST, "abuse_recipients")
+    assert "digest_minute" in _select_columns(_GRANTS_API, "report_smtp")
+    assert "abuse_subject_outcomes" in models.Base.metadata.tables
+    for script in (_GRANTS_COLLECTOR, _GRANTS_ANALYZER):
+        assert "abuse_subject_outcomes" not in script
+
+
+def test_m38_migration_leaves_the_big_tables_alone() -> None:
+    script = (VERSIONS / "0040_xarf_digest.py").read_text()
+    code = script.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    for big in ("events", "sessions", "indicators", "indicator_sessions"):
+        assert not re.search(rf"\b(TABLE|ON|INTO|FROM|UPDATE)\s+{big}\b", code), big
+    assert "CONCURRENTLY" not in code  # migrations run in one transaction

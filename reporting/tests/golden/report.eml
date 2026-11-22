@@ -1,8 +1,7 @@
 To: abuse@example.net
 Subject: Attack from 198.51.100.23 (AS64500)
-X-ARF: YES
 MIME-Version: 1.0
-Content-Type: multipart/mixed; boundary="===============1234567890123456789=="
+Content-Type: multipart/report; report-type=feedback-report; boundary="===============1234567890123456789=="
 
 --===============1234567890123456789==
 Content-Type: text/plain; charset=us-ascii
@@ -26,28 +25,47 @@ Contact: reports@example.org
 Regards, a network volunteer
 
 --===============1234567890123456789==
-Content-Type: text/plain; charset=us-ascii; name="report.txt"
+Content-Type: message/feedback-report
 Content-Transfer-Encoding: 7bit
-Content-Disposition: attachment; filename="report.txt"
 
-Reported-From: reports@example.org
-Category: abuse
-Report-Type: login-attack
-Service: ssh
-Port: 22
-Version: 0.2
+Feedback-Type: xarf
 User-Agent: reporter/1.0
-Date: Fri, 30 Oct 2026 14:02:11 +0000
-Source-Type: ipv4
-Source: 198.51.100.23
-Attachment: text/plain
-Schema-URL: http://www.x-arf.org/schema/abuse_login-attack_0.1.2.json
-Occurrences: 415
+Version: 1
 
 --===============1234567890123456789==
-Content-Type: text/plain; charset=us-ascii; name="evidence.txt"
+Content-Type: application/json; name="xarf.json"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="xarf.json"
+
+ewogICJ4YXJmX3ZlcnNpb24iOiAiNC4yLjAiLAogICJyZXBvcnRfaWQiOiAiMGY4ZTViMmEtM2M0
+MS00ZDdlLTlhMTAtNmIyYzhkNGUxZjM3IiwKICAidGltZXN0YW1wIjogIjIwMjYtMTAtMzBUMTQ6
+MDI6MTFaIiwKICAicmVwb3J0ZXIiOiB7CiAgICAib3JnIjogImV4YW1wbGUub3JnIiwKICAgICJj
+b250YWN0IjogInJlcG9ydHNAZXhhbXBsZS5vcmciLAogICAgImRvbWFpbiI6ICJleGFtcGxlLm9y
+ZyIKICB9LAogICJzZW5kZXIiOiB7CiAgICAib3JnIjogImV4YW1wbGUub3JnIiwKICAgICJjb250
+YWN0IjogInJlcG9ydHNAZXhhbXBsZS5vcmciLAogICAgImRvbWFpbiI6ICJleGFtcGxlLm9yZyIK
+ICB9LAogICJzb3VyY2VfaWRlbnRpZmllciI6ICIxOTguNTEuMTAwLjIzIiwKICAiY2F0ZWdvcnki
+OiAiY29ubmVjdGlvbiIsCiAgInR5cGUiOiAibG9naW5fYXR0YWNrIiwKICAic291cmNlX3BvcnQi
+OiA0MTAyMiwKICAicHJvdG9jb2wiOiAidGNwIiwKICAiZmlyc3Rfc2VlbiI6ICIyMDI2LTEwLTMw
+VDE0OjAyOjExWiIsCiAgImxhc3Rfc2VlbiI6ICIyMDI2LTEwLTMwVDE1OjQwOjAyWiIsCiAgImRl
+c3RpbmF0aW9uX3BvcnQiOiAyMiwKICAiZGVzY3JpcHRpb24iOiAiNDEyIGxvZ2luIGF0dGVtcHRz
+LCAxIGNvbW1hbmQgb24gU1NILCAyMDI2LTEwLTMwIDE0OjAyIHRvIDE1OjQwIFVUQyIsCiAgImV2
+aWRlbmNlIjogWwogICAgewogICAgICAiY29udGVudF90eXBlIjogInRleHQvY3N2IiwKICAgICAg
+ImRlc2NyaXB0aW9uIjogIkxvZyBsaW5lcyAoVVRDKSIsCiAgICAgICJwYXlsb2FkIjogImMyOTFj
+bU5sTEdGemJpeHVaWFIzYjNKckxHTnZkVzUwY25rc2RHbHRaU3h3Y205MGIyTnZiQ3h6Y21OZmNH
+OXlkQ3h3YjNKMExHTnZkVzUwTEdSbGRHRnBiSE1zYzJoaE1qVTJEUW94T1RndU5URXVNVEF3TGpJ
+ekxEWTBOVEF3TEVWWVFVMVFURVV0VGtWVUxFNU1MREl3TWpZdE1UQXRNekJVTVRRNk1ESTZNVEZh
+TEhSamNDdzBNVEF5TWl3eU1pdzBNVElzSWt4dloybHVJR0YwZEdWdGNIUnpPeUIxYzJWeWN6b2dj
+bTl2ZEN4aFpHMXBiaXgxWW01MElpd05DakU1T0M0MU1TNHhNREF1TWpNc05qUTFNREFzUlZoQlRW
+Qk1SUzFPUlZRc1Rrd3NNakF5TmkweE1DMHpNRlF4TlRvek9UbzFPRm9zZEdOd0xEUXhNREl5TERJ
+eUxERXNRMjl0YldGdVpITTdJR05rSUM5MGJYQTdJSGRuWlhRZ2FIUjBjRG92THpJd015NHdMakV4
+TXk0NUwySnBibk12ZURnMk95QmphRzF2WkNBcmVDQjRPRFk3SUM0dmVEZzJMQTBLIiwKICAgICAg
+Imhhc2giOiAic2hhMjU2OmMzZjkyZTJhNmM1ZWI2NzA4NTQwNWYzNThjZmZkNTg5MmZjNjk1MzZi
+OTBjMzc5MzYxZjNiY2I1Y2NlM2FiMWQiLAogICAgICAic2l6ZSI6IDMzOQogICAgfQogIF0sCiAg
+InRhZ3MiOiBbCiAgICAic2VydmljZTpzc2giCiAgXQp9Cg==
+--===============1234567890123456789==
+Content-Type: text/csv; charset=us-ascii; name="evidence.csv"
 Content-Transfer-Encoding: 7bit
-Content-Disposition: attachment; filename="evidence.txt"
+Content-Disposition: attachment; filename="evidence.csv"
 
 source,asn,network,country,time,protocol,src_port,port,count,details,sha256
 198.51.100.23,64500,EXAMPLE-NET,NL,2026-10-30T14:02:11Z,tcp,41022,22,412,"Login attempts; users: root,admin,ubnt",

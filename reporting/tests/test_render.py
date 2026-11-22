@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import base64
 import email
 import email.policy
+import hashlib
 import json
 import os
+import uuid
 from typing import Any
 
 import pytest
-import yaml
 
 from suckerpot_reporting import (
     DEFAULT_SUBJECT,
@@ -22,10 +24,11 @@ from suckerpot_reporting import (
     new_boundary,
     render_csv,
     render_eml,
+    render_mail,
     render_misp,
     render_stix,
     render_text,
-    render_xarf,
+    schema_errors,
     stix_dumps,
 )
 from tests.conftest import (
@@ -33,6 +36,7 @@ from tests.conftest import (
     GOLDEN,
     SEED,
     SETTINGS,
+    XARF_ID,
     make_evidence,
     make_export,
     t,
@@ -71,7 +75,7 @@ def test_only_the_reply_contact_is_required() -> None:
     with pytest.raises(RenderUnavailable):
         render_text(make_evidence(), SETTINGS.model_copy(update={"reply_contact": None}))
     with pytest.raises(RenderUnavailable):
-        render_xarf(make_evidence(), SETTINGS.model_copy(update={"reply_contact": None}))
+        render_mail(make_evidence(), SETTINGS.model_copy(update={"reply_contact": None}))
     # every other field is optional
     for field in ("intro", "outro", "note", "signature", "subject_template", "xarf_user_agent"):
         assert render_text(make_evidence(), SETTINGS.model_copy(update={field: " "})).body
@@ -121,39 +125,50 @@ def test_default_subject_is_neutral_and_data_only() -> None:
     assert "suckerpot" not in lowered and "honeypot" not in lowered
 
 
-def test_xarf_with_every_optional_field_empty_is_valid() -> None:
-    msg = render_xarf(make_evidence(), BARE)
-    assert msg.xarf
-    data = yaml.safe_load(msg.attachments[0].content)
-    assert data["User-Agent"] == DEFAULT_XARF_USER_AGENT == "Mozilla/5.0"
-    assert data["Reported-From"] == "reports@example.org"
-    assert data["Source"] == "198.51.100.23"
+def test_mail_with_every_optional_field_empty_is_valid() -> None:
+    msg = render_mail(make_evidence(), BARE)
+    assert msg.layout == "report"
+    assert msg.feedback == "Feedback-Type: xarf\nUser-Agent: Mozilla/5.0\nVersion: 1\n"
+    data = json.loads(msg.attachments[0].content)
+    assert data["reporter"] == {
+        "org": "example.org",
+        "contact": "reports@example.org",
+        "domain": "example.org",
+    }
+    assert data["sender"] == data["reporter"]
+    assert data["source_identifier"] == "198.51.100.23"
     assert msg.subject == "Abuse report for 198.51.100.23"
     assert "\n\n\n" not in msg.body
     eml = render_eml(msg, boundary="===============1234567890123456789==").decode("ascii")
     parsed = email.message_from_string(eml)
-    assert parsed["Subject"] == "Abuse report for 198.51.100.23" and parsed["X-ARF"] == "YES"
+    assert parsed["Subject"] == "Abuse report for 198.51.100.23" and parsed["X-ARF"] is None
+    assert parsed.get_content_type() == "multipart/report"
+    assert parsed.get_param("report-type") == "feedback-report"
     assert [p.get_filename() for p in parsed.walk() if p.get_filename()] == [
-        "report.txt",
-        "evidence.txt",
+        "xarf.json",
+        "evidence.csv",
     ]
 
 
-def test_eml_summary_with_every_optional_field_empty() -> None:
+def test_digest_mail_with_every_optional_field_empty() -> None:
     ev = make_evidence()
     two = ev.model_copy(
         update={
             "subjects": (
                 ev.subjects[0],
-                ev.subjects[0].model_copy(update={"value": "198.51.100.24"}),
+                ev.subjects[0].model_copy(
+                    update={"value": "198.51.100.24", "xarf_id": uuid.uuid4()}
+                ),
             )
         }
     )
-    msg = render_xarf(two, BARE)
-    assert not msg.xarf
+    msg = render_mail(two, BARE)
+    assert msg.layout == "digest" and msg.feedback is None
+    assert [a.name for a in msg.attachments] == ["evidence.csv", "xarf-001.json", "xarf-002.json"]
     eml = render_eml(msg).decode("ascii")
     parsed = email.message_from_string(eml)
     assert parsed["Subject"] == "Abuse report for 198.51.100.23"
+    assert parsed.get_content_type() == "multipart/mixed"
     plain = render_eml(render_text(ev, BARE)).decode("ascii")
     assert str(email.message_from_string(plain).get_payload()).startswith("198.51.100.23")
 
@@ -194,72 +209,84 @@ def test_csv_golden_and_formula_guard() -> None:
     assert ",'=cmd" in csv_text
 
 
-def test_xarf_golden_and_round_trip() -> None:
-    msg = render_xarf(make_evidence(), SETTINGS)
-    assert msg.xarf and [a.name for a in msg.attachments] == ["report.txt", "evidence.txt"]
-    golden("report.xarf.yaml", msg.attachments[0].content)
-    data = yaml.safe_load(msg.attachments[0].content)
-    required = {
-        "Reported-From",
-        "Category",
-        "Report-Type",
-        "Service",
-        "Port",
-        "Version",
-        "User-Agent",
-        "Date",
-        "Source-Type",
-        "Source",
-        "Attachment",
-        "Schema-URL",
-        "Occurrences",
-    }
-    assert required <= data.keys()
-    assert not [k for k in data if k.startswith("Destination")]
-    assert data["Source"] == "198.51.100.23" and data["Source-Type"] == "ipv4"
-    assert data["Port"] == 22 and data["Occurrences"] == 415
-    assert data["Date"].endswith("+0000")
-    assert data["User-Agent"] == "reporter/1.0"
-    assert data["Schema-URL"].startswith("http") and data["Version"] == 0.2
+def test_xarf_golden_and_schema_valid() -> None:
+    msg = render_mail(make_evidence(), SETTINGS)
+    assert msg.layout == "report"
+    assert [a.name for a in msg.attachments] == ["xarf.json", "evidence.csv"]
+    assert [a.media_type for a in msg.attachments] == ["application/json", "text/csv"]
+    golden("xarf.json", msg.attachments[0].content)
+    data = json.loads(msg.attachments[0].content)
+    assert schema_errors(data) == []
+    assert data["xarf_version"] == "4.2.0"
+    assert data["category"] == "connection" and data["type"] == "login_attack"
+    assert data["report_id"] == str(XARF_ID)
+    assert data["source_port"] == 41022 and data["destination_port"] == 22
+    assert data["protocol"] == "tcp"
+    assert data["first_seen"] == "2026-10-30T14:02:11Z"
+    assert data["tags"] == ["service:ssh"]
+    assert "destination_ip" not in data and "evidence_source" not in data
+    assert "confidence" not in data
+    item = data["evidence"][0]
+    csv_rows = base64.b64decode(item["payload"]).decode("ascii")
+    assert csv_rows.startswith("source,asn,network,")
+    assert item["hash"] == "sha256:" + hashlib.sha256(csv_rows.encode()).hexdigest()
+    assert item["content_type"] == "text/csv" and item["size"] == len(csv_rows)
+    assert msg.feedback is not None and "User-Agent: reporter/1.0" in msg.feedback
 
 
-def test_xarf_requires_reply_contact() -> None:
+def test_mail_requires_reply_contact_as_a_mailbox() -> None:
     with pytest.raises(RenderUnavailable):
-        render_xarf(make_evidence(), ReportSettings(intro="x"))
+        render_mail(make_evidence(), ReportSettings(intro="x"))
     with pytest.raises(RenderUnavailable):
-        render_xarf(make_evidence(), SETTINGS.model_copy(update={"reply_contact": None}))
+        render_mail(make_evidence(), SETTINGS.model_copy(update={"reply_contact": None}))
+    with pytest.raises(RenderUnavailable) as exc:
+        render_mail(make_evidence(), SETTINGS.model_copy(update={"reply_contact": "call us"}))
+    assert exc.value.code == "reply_contact_not_email"
+    named = SETTINGS.model_copy(update={"reply_contact": "Desk <desk@example.org>"})
+    data = json.loads(render_mail(make_evidence(), named).attachments[0].content)
+    assert data["reporter"]["contact"] == "desk@example.org"
 
 
-def test_xarf_multi_subject_is_a_summary_with_csv() -> None:
+def test_xarf_org_setting() -> None:
+    cfg = SETTINGS.model_copy(update={"xarf_org": "Example Volunteers"})
+    data = json.loads(render_mail(make_evidence(), cfg).attachments[0].content)
+    assert data["reporter"]["org"] == "Example Volunteers"
+    assert data["reporter"]["domain"] == "example.org"
+
+
+def test_digest_names_each_file_in_the_text() -> None:
     ev = make_evidence()
-    two = ev.model_copy(
-        update={
-            "subjects": (
-                ev.subjects[0],
-                ev.subjects[0].model_copy(update={"value": "198.51.100.24"}),
-            )
-        }
-    )
-    msg = render_xarf(two, SETTINGS)
-    assert not msg.xarf and [a.name for a in msg.attachments] == ["evidence.csv"]
-    one = render_xarf(two, SETTINGS, subject="198.51.100.24")
-    assert one.xarf and yaml.safe_load(one.attachments[0].content)["Source"] == "198.51.100.24"
-    with pytest.raises(RenderUnavailable):
-        render_xarf(two, SETTINGS, subject="203.0.113.250")
+    second = ev.subjects[0].model_copy(update={"value": "198.51.100.24", "xarf_id": uuid.uuid4()})
+    msg = render_mail(ev.model_copy(update={"subjects": (ev.subjects[0], second)}), SETTINGS)
+    assert msg.layout == "digest"
+    assert "  Report file: xarf-001.json" in msg.body
+    assert "  Report file: xarf-002.json" in msg.body
+    sources = [json.loads(a.content)["source_identifier"] for a in msg.xarf_files]
+    assert sources == ["198.51.100.23", "198.51.100.24"]
     assert msg.subject.startswith("Attack from 198.51.100.23")
+
+
+def test_xarf_id_is_required() -> None:
+    ev = make_evidence()
+    bare = ev.subjects[0].model_copy(update={"xarf_id": None})
+    with pytest.raises(RenderUnavailable) as exc:
+        render_mail(ev.model_copy(update={"subjects": (bare,)}), SETTINGS)
+    assert exc.value.code == "xarf_id_missing"
 
 
 def test_eml_golden_and_headers() -> None:
     raw = render_eml(
-        render_xarf(make_evidence(), SETTINGS), boundary="===============1234567890123456789=="
+        render_mail(make_evidence(), SETTINGS), boundary="===============1234567890123456789=="
     )
     golden("report.eml", raw.decode("ascii"))
     parsed = email.message_from_bytes(raw, policy=email.policy.default)
-    assert parsed["To"] == "abuse@example.net" and parsed["X-ARF"] == "YES"
+    assert parsed["To"] == "abuse@example.net" and parsed["X-ARF"] is None
     for forbidden in ("From", "Date", "Message-ID", "User-Agent", "X-Mailer", "Reply-To"):
         assert parsed[forbidden] is None
-    parts = list(parsed.iter_attachments())
-    assert [p.get_filename() for p in parts] == ["report.txt", "evidence.txt"]
+    kinds = [p.get_content_type() for p in parsed.iter_parts()]
+    assert kinds == ["text/plain", "message/feedback-report", "application/json", "text/csv"]
+    json_part = next(p for p in parsed.iter_parts() if p.get_content_type() == "application/json")
+    assert json_part["Content-Transfer-Encoding"] == "base64"
     plain = email.message_from_bytes(render_eml(render_text(make_evidence(), SETTINGS)))
     assert plain["X-ARF"] is None and not plain.is_multipart()
     assert b"\r\n" in raw and raw.isascii()
@@ -268,7 +295,7 @@ def test_eml_golden_and_headers() -> None:
 def test_eml_boundary_is_random_and_standard() -> None:
     import re
 
-    msg = render_xarf(make_evidence(), SETTINGS)
+    msg = render_mail(make_evidence(), SETTINGS)
     a, b = new_boundary(), new_boundary()
     assert a != b and re.fullmatch(r"={15}\d{19}==", a)
     assert render_eml(msg) != render_eml(msg)

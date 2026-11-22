@@ -38,6 +38,7 @@ FAKE_HOST = "srv-web01"
 SESSION_ID = "9f3c2a71-5b0e-4d3a-8c21-77aa10bd2e55"
 
 SUBJECT_IP = "198.51.100.23"
+XARF_ID = uuid.UUID("0f8e5b2a-3c41-4d7e-9a10-6b2c8d4e1f37")
 PAYLOAD_IP = "203.0.113.9"
 
 
@@ -113,6 +114,7 @@ def make_evidence(
         events=415,
         activities=acts,
         redaction=RedactionStats(addresses_masked=2, lines_dropped=1),
+        xarf_id=XARF_ID,
     )
     return Evidence(
         kind="attack_source",

@@ -1,5 +1,6 @@
 """Settings, term learning (pure parts) and the worker's off switch."""
 
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -222,7 +223,7 @@ def _evidence() -> Evidence:
         service="ssh", action="command", text="uname -a",
     )  # fmt: skip
     sub = Subject(type="ip", value="198.51.100.4", first_ts=T0, last_ts=T0, sessions=1,
-                  events=1, activities=(act,))  # fmt: skip
+                  events=1, activities=(act,), xarf_id=uuid.uuid4())  # fmt: skip
     return Evidence(kind="attack_source", recipient="abuse@example.net", subjects=(sub,),
                     window_start=T0, window_end=T0, demo=True)  # fmt: skip
 

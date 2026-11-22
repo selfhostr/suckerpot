@@ -27,10 +27,10 @@ from suckerpot_reporting import (
     redact,
     render_csv,
     render_eml,
+    render_mail,
     render_misp,
     render_stix,
     render_text,
-    render_xarf,
 )
 from suckerpot_reporting.legacy import legacy_hit
 from tests.conftest import (
@@ -117,7 +117,7 @@ def test_redaction_removes_planted_leak(
 def _renderings(text: str) -> dict[str, tuple[Any, str]]:
     evidence = make_evidence(text=text[:200])
     msg = render_text(evidence, SETTINGS)
-    x = render_xarf(evidence, SETTINGS)
+    x = render_mail(evidence, SETTINGS)
     return {
         "text": (msg, "msg"),
         "xarf": (x, "msg"),
@@ -268,7 +268,7 @@ def test_artefact_vocabulary_never_enters_the_deny_set() -> None:
     # a real X-ARF report and CSV stay clean even when the owner typed those words
     from tests.conftest import make_evidence
 
-    msg = render_xarf(make_evidence(), SETTINGS)
+    msg = render_mail(make_evidence(), SETTINGS)
     assert guard_message(msg, terms, ctx=GuardContext(allow_documentation=True)).codes == (
         "no_self_address",
     )
@@ -306,7 +306,7 @@ def test_neutral_defaults_do_not_trip_the_legacy_guard(terms: SelfTerms, ctx: Gu
 
     bare = ReportSettings(reply_contact="reports@example.org")
     for evidence in (_ev(), _ev(demo=True)):
-        msg = render_xarf(evidence, bare)
+        msg = render_mail(evidence, bare)
         assert msg.subject.endswith("Abuse report for 198.51.100.23")
         assert not legacy_hit(msg.subject) and not legacy_hit(msg.body)
         assert "default_wording" not in guard_message(msg, terms, ctx=ctx).codes
@@ -377,7 +377,7 @@ def test_clean_evidence_renders_pass_the_guard(terms: SelfTerms, ctx: GuardConte
         evidence = make_evidence(text=line)
         msg = render_text(evidence, SETTINGS)
         assert guard_message(msg, terms, ctx=ctx).ok, line
-        assert guard(render_eml(render_xarf(evidence, SETTINGS)), terms, fmt="eml", ctx=ctx).ok
+        assert guard(render_eml(render_mail(evidence, SETTINGS)), terms, fmt="eml", ctx=ctx).ok
 
 
 def test_documentation_addresses_need_allow_flag(terms: SelfTerms) -> None:

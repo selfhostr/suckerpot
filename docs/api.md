@@ -775,20 +775,20 @@ Every render, download and export runs the identity guard before it returns. A f
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/abuse/status` | Worker on or off, gate state, RDAP quota, whether a self address is known (never the value), counts per status, and `blocked_drafts`: how many open drafts the identity check holds back, and how many carry each reason code |
-| `GET` | `/api/v1/abuse/reports` | Reports, newest change first. Filters: `status`, `kind`, `recipient`, `demo`. |
-| `GET` | `/api/v1/abuse/reports/{public_id}` | One report: subjects, guard result, redaction counters, revision, history and the send state (`send_state`, M25) |
-| `GET` | `/api/v1/abuse/reports/{public_id}/render` | `format=text`, `xarf` or `eml`, optional `subject`. Returns To, Subject, body, attachments and revision. |
-| `GET` | `/api/v1/abuse/reports/{public_id}/download` | A file: `format=txt`, `eml`, `evidence_csv` or `xarf_yaml`. Attachment, `no-store`, `nosniff`. Audited. |
-| `POST` | `/api/v1/abuse/reports/{public_id}/status` | Body `{to, revision, sent_at?}`. `409` on a stale revision or an invalid change. Audited. |
+| `GET` | `/api/v1/abuse/reports` | Reports, newest change first. Filters: `status`, `kind` (a digest matches every kind of source it holds), `recipient`, `demo`. Each item has `due_at` (when a digest goes, or null), `part`, `channel` and `kinds` (sources per kind). |
+| `GET` | `/api/v1/abuse/reports/{public_id}` | One report: subjects, guard result, redaction counters, revision, history and the send state (`send_state`, M25). Each subject has its `kind`, its X-ARF file name (`xarf_file`), `outcome` and `ticket_id` from verified replies that name it, `stale` (older than 7 days: only a send by hand carries it) and, for administrators, its X-ARF `xarf_id`. |
+| `GET` | `/api/v1/abuse/reports/{public_id}/render` | `format=text`, `xarf` or `eml`. Returns To, Subject, body, attachments and revision. With `xarf`, `attachments` are the X-ARF JSON files, one per source, exactly as the mail carries them. |
+| `GET` | `/api/v1/abuse/reports/{public_id}/download` | A file: `format=txt`, `eml`, `evidence_csv` or `xarf_json` (with `subject=<source>` when the report has several sources, else `409 xarf_subject_required`). Attachment, `no-store`, `nosniff`. Audited. |
+| `POST` | `/api/v1/abuse/reports/{public_id}/status` | Body `{to, revision, sent_at?, confirm_same_day?}`. `409` on a stale revision or an invalid change. Marking a report sent when the same provider already got one that UTC day answers `409 recipient_sent_today` unless `confirm_same_day` is true. Audited. |
 | `PATCH` | `/api/v1/abuse/reports/{public_id}` | Notes and options of an open report |
 | `POST` | `/api/v1/abuse/reports/{public_id}/regenerate` | Ask ingest to rebuild the draft. A reviewed report goes back to draft. |
-| `GET`, `PATCH` | `/api/v1/abuse/recipients`, `/{id}` | List recipients. Mute one or set an override mailbox. |
-| `GET`, `PUT` | `/api/v1/abuse/settings` | Reply contact, signature, wording, X-ARF user agent, default options. Administrators only. Every text field is checked by the guard on its own: `PUT` refuses a text that would block every report (`409`, with `fields`), and `GET` returns `field_issues`, the saved texts that block reports today, as reason codes per field (the rules grow, so an old text can start to block). The audit log records field names, never values. |
+| `GET`, `PATCH` | `/api/v1/abuse/recipients`, `/{id}` | List recipients. Mute one, set an override mailbox, or set `xarf_strict` (one spec-shaped X-ARF mail per source). |
+| `GET`, `PUT` | `/api/v1/abuse/settings` | Reply contact, signature, wording, X-ARF user agent and organisation (`xarf_org`), `digest_enabled`, default options. Administrators only. Every text field is checked by the guard on its own: `PUT` refuses a text that would block every report (`409`, with `fields`), and `GET` returns `field_issues`, the saved texts that block reports today, as reason codes per field (the rules grow, so an old text can start to block). The audit log records field names, never values. |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/api/v1/abuse/self-terms`, `/{id}` | The "never in a report" list. Administrators only. Values are masked unless `reveal=true`. Confirm a learned term with `PATCH`. |
 | `GET` | `/api/v1/abuse/exports/stix`, `/misp` | Indicators of one `report`, one `campaign` or a `since`/`until` window, with a `tlp` (default `TLP:GREEN`). Audited. |
 | `POST` | `/api/v1/abuse/exports/samples` | Up to 10 stored samples in one AES-256 zip (password `infected`) with a hash table. Administrators only, password asked again, 5 per hour. A sample that contains a self term is excluded and counted in `X-Excluded`. |
 
-Statuses: `draft`, `reviewed`, `sent`, `closed`, `discarded`, `superseded`. Kinds: `attack_source`, `payload_host`, `c2`.
+Statuses: `draft`, `reviewed`, `sent`, `closed`, `discarded`, `superseded`. Kinds: `digest` (every report built since M38), and `attack_source`, `payload_host`, `c2` for older reports.
 
 ## Sending abuse reports (M25)
 
@@ -803,8 +803,15 @@ Every route in this section is administrator only, including the `GET` routes. A
 | `POST /api/v1/abuse/smtp/test` | `current_password` |
 | `POST /api/v1/abuse/reports/{public_id}/send` | none |
 | `POST /api/v1/abuse/reports/{public_id}/send/cancel` | none |
+| `GET`, `PUT /api/v1/abuse/digest` | none |
 
 The re-authentication rules are the same as for the provider keys (see [Provider keys](#provider-keys)): a wrong password is `403` with `reauth_failed`, and five wrong passwords in a row end the session (`401`, `session_revoked`). Send and cancel do not ask for the password. The web app asks for a confirmation instead, and ingest runs the identity guard again before any mail leaves.
+
+### `GET`, `PUT /api/v1/abuse/digest`
+
+One mail per provider per day (M38). `GET` returns `{"enabled": true, "minute": 451}`: the switch, and the digest hour in minutes after 00:00 UTC (`null` while there is no SMTP profile). `PUT` takes `{"enabled": bool, "minute"?: 0..1439}`; a `minute` without an SMTP profile answers `409 smtp_not_configured`. A new profile gets a random minute between 06:00 and 09:00 UTC. `PUT /api/v1/abuse/smtp` also accepts `digest_minute`, and `GET` returns it. Audited (`abuse.digest`, names of the changed fields only).
+
+`POST /api/v1/abuse/reports/{public_id}/send` takes `{"revision"?, "confirm_same_day"?}`. When another report already went to the same provider address that UTC day, it answers `409 recipient_sent_today` unless `confirm_same_day` is true.
 
 ### `GET /api/v1/abuse/smtp`
 

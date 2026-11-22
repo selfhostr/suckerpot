@@ -4,8 +4,12 @@ The only SMTP code of the reporting feature (``reporting/`` stays free of ``smtp
 
 * The message has neutral headers: ``From``, ``To`` (the abuse mailbox only), ``Subject``,
   ``Date`` (UTC), a ``Message-ID`` on the sender's domain with a random local part, ``MIME-Version``
-  and the content headers, plus ``X-ARF: YES`` for X-ARF parts. No ``Cc``/``Bcc``, no
-  ``X-Mailer``, no ``User-Agent``.
+  and the content headers. No ``Cc``/``Bcc``, no ``X-Mailer``, no ``User-Agent``, no X-ARF header
+  (XARF v4 has none).
+* The body follows the rendered layout (M38): one source is an RFC 6522 ``multipart/report``
+  (text, ``message/feedback-report``, ``xarf.json``, ``evidence.csv``); several sources are a
+  ``multipart/mixed`` digest (text, ``evidence.csv``, ``xarf-001.json`` ...). JSON parts are
+  base64, every other part 7bit ASCII.
 * The identity guard runs on the serialized bytes (every header and every MIME part, decoded) and
   on the envelope, right before delivery. A failure, including ``no_self_address`` (nothing is
   known about the monitored system's address), sends nothing.
@@ -19,7 +23,9 @@ Errors are constant codes. The password, the message and the server's answers ar
 from __future__ import annotations
 
 import contextlib
+import email
 import email.policy
+import json
 import re
 import secrets
 import smtplib
@@ -29,9 +35,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from email.message import EmailMessage
+from email.message import EmailMessage, MIMEPart
 from email.utils import format_datetime, formataddr
-from typing import Final
+from typing import Final, cast
 
 from suckerpot_egress import TunnelSMTP, TunnelSMTP_SSL
 from suckerpot_reporting import (
@@ -42,6 +48,7 @@ from suckerpot_reporting import (
     guard,
     guard_message,
     guard_parts,
+    schema_errors,
 )
 from suckerpot_reporting.normalize import to_ascii
 
@@ -78,6 +85,8 @@ CODES: Final = (
     "undeliverable",
     "not_ready",
     "internal",
+    "xarf_invalid",
+    "digest_migration",
 )
 
 
@@ -111,6 +120,7 @@ class Profile:
     auto_hold_minutes: int
     daily_cap: int
     password: str = field(default="", repr=False)
+    digest_minute: int = 420  # the digest hour, minutes after 00:00 UTC (M38)
 
     @property
     def domain(self) -> str:
@@ -156,20 +166,65 @@ def build_message(
     mail["Subject"] = re.sub(r"[\r\n]+", " ", to_ascii(rendered.subject))
     mail["Date"] = format_datetime((now or datetime.now(UTC)).astimezone(UTC))
     mail["Message-ID"] = message_id or new_message_id(profile)
-    if rendered.xarf:
-        mail["X-ARF"] = "YES"
     mail.set_content(_wrap(rendered.body), subtype="plain", charset="us-ascii", cte="7bit")
+    parts: list[MIMEPart] = []
+    if rendered.layout == "report" and rendered.feedback is not None:
+        feedback = MIMEPart(policy=email.policy.SMTP)
+        feedback["Content-Type"] = "message/feedback-report"
+        feedback["Content-Transfer-Encoding"] = "7bit"
+        feedback.set_payload(_wrap(rendered.feedback) + "\r\n")
+        parts.append(feedback)
     for att in rendered.attachments:
-        subtype = att.media_type.partition("/")[2]
-        mail.add_attachment(
-            _wrap(att.content),
-            subtype=subtype or "plain",
-            charset="us-ascii",
-            cte="7bit",
-            filename=re.sub(r"[^A-Za-z0-9._-]", "_", att.name),
-            disposition="attachment",
-        )
+        part = MIMEPart(policy=email.policy.SMTP)
+        name = re.sub(r"[^A-Za-z0-9._-]", "_", att.name)
+        if att.media_type == "application/json":
+            # base64, as the XARF email transport asks (design M38, D16); the guard decodes it
+            part.set_content(
+                to_ascii(att.content).encode("ascii"),
+                maintype="application",
+                subtype="json",
+                filename=name,
+                disposition="attachment",
+            )
+        else:
+            part.set_content(
+                _wrap(att.content),
+                subtype=att.media_type.partition("/")[2] or "plain",
+                charset="us-ascii",
+                cte="7bit",
+                filename=name,
+                disposition="attachment",
+            )
+        parts.append(part)
+    if parts:
+        mail.make_mixed()
+        if rendered.layout == "report":
+            mail.set_type("multipart/report")
+            mail.set_param("report-type", "feedback-report")
+        for part in parts:
+            mail.attach(cast(EmailMessage, part))  # a plain part: no MIME-Version header
     return mail.as_bytes(policy=email.policy.SMTP)
+
+
+def xarf_parts_valid(raw: bytes) -> bool:
+    """Every JSON part of the serialized message, decoded, is a valid XARF 4.2.0 report and the
+    message has the parts its layout promises (M38). Validates exactly what leaves."""
+    msg = email.message_from_bytes(raw, policy=email.policy.SMTP)
+    reports = 0
+    for part in msg.walk():
+        if part.get_content_type() != "application/json":
+            continue
+        payload = part.get_payload(decode=True)
+        if not isinstance(payload, bytes):
+            return False
+        try:
+            report = json.loads(payload.decode("ascii"))
+        except UnicodeDecodeError, ValueError:
+            return False
+        if not isinstance(report, dict) or schema_errors(report):
+            return False
+        reports += 1
+    return reports > 0
 
 
 def build_test_message(profile: Profile) -> bytes:

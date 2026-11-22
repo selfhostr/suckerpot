@@ -39,7 +39,14 @@ from suckerpot_reporting import (
     SelfTerms,
 )
 
-from .build import check_evidence, default_options, load_report_settings, options_of
+from .build import (
+    check_evidence,
+    default_options,
+    load_report_settings,
+    options_of,
+    subject_keys,
+    with_subject_rows,
+)
 from .config import AbuseSettings
 from .selfterms import TermsCache
 from .session_ids import internal_session_ids
@@ -167,7 +174,9 @@ class DraftReguard:
         style: ReferenceStyle,
         stats: ReguardStats,
     ) -> None:
-        data = dict(row.evidence)
+        async with self.factory() as session:
+            keys = await subject_keys(session, row.id)
+        data = with_subject_rows(dict(row.evidence), row.kind, keys)
         data.update(
             kind=row.kind,
             demo=row.demo,

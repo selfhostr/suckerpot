@@ -61,7 +61,7 @@ RETURNING id
 """
 
 PENDING_REPORTS = """
-SELECT r.id AS report_id, r.kind AS report_kind, r.demo, r.sent_at, r.recipient_id,
+SELECT r.id AS report_id, s.kind AS report_kind, r.demo, r.sent_at, r.recipient_id,
        s.subject_type, s.value, s.network_id,
        n.asn, n.name AS net_name, n.country, rec.name AS rec_name
 FROM (

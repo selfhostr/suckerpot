@@ -36,8 +36,8 @@ async def internal_session_ids(session: AsyncSession, evidence: Evidence) -> set
             {"ips": ips, "since": since, "n": MAX_SESSION_IDS},
         )
         ids.update(r.session_id for r in found)
-    if evidence.kind == "payload_host":
-        hosts = [s.value for s in evidence.subjects]
+    hosts = [s.value for s in evidence.subjects if evidence.kind_of(s) == "payload_host"]
+    if hosts:
         found = await session.execute(
             text(
                 "SELECT x.session_id FROM indicators i "

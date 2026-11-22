@@ -59,6 +59,7 @@ def evidence(cmd: str) -> dict[str, Any]:
                     }
                 ],
                 "redaction": {"addresses_masked": 2, "lines_dropped": 1},
+                "xarf_id": str(uuid.uuid4()),
             }
         ],
         "window_start": ts,
@@ -471,7 +472,7 @@ async def test_a_draft_held_by_the_build_is_never_rendered_downloaded_or_exporte
         ],
         *[
             await client.get(f"{base}/download", params={"format": f})
-            for f in ("txt", "eml", "evidence_csv", "xarf_yaml")
+            for f in ("txt", "eml", "evidence_csv", "xarf_json")
         ],
         await client.get("/api/v1/abuse/exports/stix", params={"report": str(DEMO_ID)}),
         await client.get(

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -1044,6 +1045,8 @@ class AbuseRecipientRow(Base):
     reply_domains: Mapped[list[str]] = mapped_column(
         ARRAY(Text), server_default=text("'{}'::text[]"), nullable=False
     )
+    # One spec-shaped XARF mail per source instead of a digest (M38, 0040).
+    xarf_strict: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
 
 
 class AbuseReportRow(Base):
@@ -1055,7 +1058,7 @@ class AbuseReportRow(Base):
     public_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True)
     id_seed: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     recipient_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("abuse_recipients.id"))
-    kind: Mapped[str] = mapped_column(Text)  # attack_source | payload_host | c2
+    kind: Mapped[str] = mapped_column(Text)  # attack_source | payload_host | c2 | digest (M38)
     # draft | reviewed | sent | closed | discarded | superseded
     status: Mapped[str] = mapped_column(Text, server_default=text("'draft'"), nullable=False)
     demo: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
@@ -1090,6 +1093,10 @@ class AbuseReportRow(Base):
     reply_token: Mapped[str] = mapped_column(
         Text, server_default=text("left(replace(gen_random_uuid()::text, '-', ''), 12)")
     )
+    # M38 (0040): when a digest is due, its part number that day, mail or form.
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    part: Mapped[int] = mapped_column(SmallInteger, server_default=text("1"), nullable=False)
+    channel: Mapped[str] = mapped_column(Text, server_default=text("'mail'"), nullable=False)
 
 
 class AbuseReportSubjectRow(Base):
@@ -1100,6 +1107,7 @@ class AbuseReportSubjectRow(Base):
     report_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("abuse_reports.id", ondelete="CASCADE"), primary_key=True
     )
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)  # attack_source | payload_host | c2
     subject_type: Mapped[str] = mapped_column(Text, primary_key=True)  # ip | url | domain
     value: Mapped[str] = mapped_column(Text, primary_key=True)
     network_id: Mapped[int | None] = mapped_column(
@@ -1109,6 +1117,40 @@ class AbuseReportSubjectRow(Base):
     last_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     sessions: Mapped[int] = mapped_column(Integer)
     events: Mapped[int] = mapped_column(Integer)
+    # The random id of this subject's XARF report (M38), unique, unrelated to every other id.
+    xarf_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)
+
+
+class AbuseSubjectOutcomeRow(Base):
+    """A reply that speaks about one source of a report (M38). The outcome is the reply's own
+    classification while it is verified and still linked to that report."""
+
+    __tablename__ = "abuse_subject_outcomes"
+
+    report_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, primary_key=True)
+    reply_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("abuse_replies.id", ondelete="CASCADE"), primary_key=True
+    )
+    ticket_id: Mapped[str | None] = mapped_column(Text)
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["report_id", "kind", "subject_type", "value"],
+            [
+                "abuse_report_subjects.report_id",
+                "abuse_report_subjects.kind",
+                "abuse_report_subjects.subject_type",
+                "abuse_report_subjects.value",
+            ],
+            ondelete="CASCADE",
+        ),
+    )
 
 
 class AbuseReportRequestRow(Base):
@@ -1146,6 +1188,11 @@ class ReportSettingsRow(Base):
         Text, server_default=text("'subject'"), nullable=False
     )
     xarf_user_agent: Mapped[str | None] = mapped_column(Text)
+    xarf_org: Mapped[str | None] = mapped_column(Text)  # reporter.org of XARF reports (M38)
+    # One mail per recipient per day (M38); off sends each draft after the hold, as before.
+    digest_enabled: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("true"), nullable=False
+    )
     defaults: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     revision: Mapped[int] = mapped_column(Integer, server_default=text("1"), nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1235,6 +1282,12 @@ class ReportSmtpRow(Base):
     mode: Mapped[str] = mapped_column(Text, server_default=text("'off'"))  # off | click | auto
     auto_hold_minutes: Mapped[int] = mapped_column(Integer, server_default=text("60"))
     daily_cap: Mapped[int] = mapped_column(Integer, server_default=text("20"))
+    # The digest hour (M38): minutes after 00:00 UTC, random between 06:00 and 09:00 at install.
+    digest_minute: Mapped[int] = mapped_column(
+        SmallInteger,
+        server_default=text("(360 + floor(random() * 180))::smallint"),
+        nullable=False,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -1464,7 +1517,7 @@ class AbuseReplyRow(Base):
     report_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("abuse_reports.id", ondelete="CASCADE")
     )
-    # message_id | token | dsn | ticket | sender_domain | manual | none
+    # message_id | token | xarf_id | dsn | ticket | sender_domain | manual | none
     match_method: Mapped[str] = mapped_column(Text)
     verified: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
     # auto_ack | ticket_opened | resolved | rejected | bounce | human_reply | unknown

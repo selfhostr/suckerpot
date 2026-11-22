@@ -31,11 +31,11 @@ Both levels follow the same rule: they report, they never touch. When your node 
 
 ## Reports from your node
 
-The abuse worker in `ingest` builds the drafts. It is off until you set `ABUSE_REPORTS_ENABLED=true`. Every hour (`ABUSE_BUILD_INTERVAL_S`) it selects what deserves a report, looks up the abuse contact over RDAP through the VPN, and writes one draft per recipient and kind. You find the drafts at Defend > Abuse reports in the dashboard.
+The abuse worker in `ingest` builds the drafts. It is off until you set `ABUSE_REPORTS_ENABLED=true`. Every hour (`ABUSE_BUILD_INTERVAL_S`) it selects what deserves a report, looks up the abuse contact over RDAP through the VPN, and writes one draft per recipient: a daily digest that holds every source of every kind for that abuse address (see [One mail per provider per day](#one-mail-per-provider-per-day)). You find the drafts at Defend > Abuse reports in the dashboard.
 
 ### What your node reports
 
-A draft covers one of three kinds of subject.
+A digest holds sources of three kinds, each in its own section.
 
 **Attack sources.** An address that attacked your sensors. Only sessions from the last 7 days count (`ABUSE_LOOKBACK_DAYS`), and only once the address has been quiet for 30 minutes (`ABUSE_SETTLE_MIN`). An address is selected when at least one of these is true:
 
@@ -66,7 +66,7 @@ A target that the network merely confirmed is not dropped. The hub may never rep
 
 1. **Turn the VPN on.** RDAP lookups and mail leave only through the [anonymous egress](deployment.md#anonymous-egress-vpn). With the tunnel down, nothing leaves.
 2. **Turn the worker on.** Set `ABUSE_REPORTS_ENABLED=true` in `.env` and restart `ingest`. Reports stay locked (`no_self_address`) until the stack knows which address it protects.
-3. **Fill Settings > Reporting (admin).** Add a reply contact: an alias that is not on one of your own domains. It is the only required setting. Until it is set, rendering answers `settings_incomplete`, and a report cannot be marked reviewed. The introduction, closing text, note, signature, subject template and X-ARF user agent are optional. The project ships no wording, because shipped text lives in a public repo and could be searched. Leave them empty to send only the facts: an empty part is left out, an empty subject becomes `Abuse report for <address>` and an empty X-ARF user agent becomes `Mozilla/5.0`. If you write your own, make it yours.
+3. **Fill Settings > Reporting (admin).** Add a reply contact: an alias that is not on one of your own domains. It is the only required setting, and it must contain a mail address (the X-ARF part names it; without one the draft is blocked with `reply_contact_not_email`). Until it is set, rendering answers `settings_incomplete`, and a report cannot be marked reviewed. The introduction, closing text, note, signature, subject template, X-ARF user agent and X-ARF organisation are optional. The project ships no wording, because shipped text lives in a public repo and could be searched. Leave them empty to send only the facts: an empty part is left out, an empty subject becomes `Abuse report for <address>`, an empty X-ARF user agent becomes `Mozilla/5.0` and an empty X-ARF organisation becomes the domain of the reply contact. If you write your own, make it yours.
 4. **Confirm the self terms.** The worker learns the address and names of the monitored machine from traffic (an address is stored only when two or more distinct /24 or /48 networks used it, and counts only while seen in the last 72 hours). Learned terms start inactive. Open the "Never in a report" list in Settings > Reporting, check each one and confirm it. If your address just changed, add it by hand: manual terms are active at once.
 5. **Check it.**
 
@@ -78,9 +78,22 @@ A target that the network merely confirmed is not dropped. The hub may never rep
 
 ### The identity guard
 
-Abuse desks often forward a report to their customer, who may be the attacker. A report must not lead back to you. Every report, in every format, passes the identity guard right before it is shown, downloaded or sent. The guard blocks a report that contains your address, one of your names or domains, the VPN exit, the project name, a private address, a dashboard path or an internal id. When the stack does not know your own address yet, the guard fails closed and nothing can be sent.
+Abuse desks often forward a report to their customer, who may be the attacker. A report must not lead back to you. Every report, in every format, passes the identity guard right before it is shown, downloaded or sent. The guard blocks a report that contains your address, one of your names or domains, the VPN exit, the project name, a private address, a dashboard path or an internal id. It reads every part of the mail decoded: base64 MIME parts, every value of the X-ARF JSON, and any base64 inside those values (such as the evidence lines), so base64 cannot hide a leak from it. When the stack does not know your own address yet, the guard fails closed and nothing can be sent. Your network pseudonym, if you have one, is never allowed in a report either.
 
 A blocked report says why on its page, in one sentence per reason. The full list of checks is in [Security](SECURITY.md#the-identity-guard).
+
+### The machine-readable part (X-ARF v4)
+
+Every mail carries one machine-readable report per source, in the current X-ARF format: XARF v4 (version 4.2.0), JSON. Many abuse desks parse it automatically. Each report is checked against the official XARF 4.2.0 schema, which ships with SuckerPot, right before the mail leaves. A report that does not validate stops the send with `xarf_invalid`: that is a bug, and nothing is sent instead.
+
+- **One source:** the mail has the shape the XARF specification describes, an RFC 6522 report: the text, a `message/feedback-report` part, `xarf.json`, and `evidence.csv`.
+- **Several sources (a digest):** the text, `evidence.csv`, and one JSON file per source, `xarf-001.json`, `xarf-002.json` and so on. Each file is a complete report. The text names the file under each source. The XARF specification describes one report per mail only, so a desk whose parser takes only that shape may skip the files; its staff still have the text and the CSV. For such a desk, switch on **One mail per source (strict X-ARF)** on the recipient. Each source then goes in its own spec-shaped mail, and every mail counts against the daily cap.
+
+What a report carries is the same set of facts as the text and the CSV: the source address or host, its source port, the times, the attacked port and service, the counts, the redacted log lines (base64, with their hash), hashes and malware families, and your reply contact with its domain. The type follows what the source did: `connection/login_attack` for logins and commands, `connection/vulnerability_scan` for exploit attempts (with the CVE ids probed), `connection/sql_injection`, `content/malware` for a payload host, `infrastructure/botnet` for a command server.
+
+What a report never carries: your address (`destination_ip` is never set), `evidence_source` (it would say `honeypot`), `confidence`, host or sensor names, trap pack ids or any local tag. Tags come from three fixed lists only: services (`service:ssh`), CVE ids (`cve:cve-2023-1389`, only those named by a trap pack loaded more than 48 hours ago) and malware families (`malware:mirai`). Each report has a random `report_id`, kept on the source so a reply that quotes it is matched (see [Replies to reports](replies.md#the-x-arf-report-id)). It is unrelated to every other id.
+
+The report page has an X-ARF tab that shows each JSON file exactly as the mail carries it, with copy and download buttons. The `.eml` download holds the same parts.
 
 ### Three ways to send
 
@@ -92,7 +105,7 @@ Pick the mode in Settings > Reporting > Sending.
 | Assisted | `click` | A "Send now" button sends a ready report, after a confirmation. |
 | Automatic | `auto` | Ready reports are sent after a hold time (default 60 minutes, 10 to 1440). While a report waits, the page shows the time it will go, with a Cancel button. |
 
-**By hand.** Open Defend > Abuse reports and choose To send. It walks through the ready reports one at a time. For each report it shows the recipient, the subject and the body, with copy buttons. "Open in mail app" opens a `mailto:` link with the recipient and the subject. The full plain-text body is copied to the clipboard on every click, so a long report is one paste away. "Sent, next" marks the report as sent and opens the next one. Check the sender address in your mail app before you send, and connect that mailbox through your VPN. You can also download `report.txt` and `evidence.csv` from a report page and attach them.
+**By hand.** Open Defend > Abuse reports and choose To send. It walks through the ready reports one at a time, one item per digest. For each report it shows the recipient, the subject and the body, with copy buttons. "Open in mail app" opens a `mailto:` link with the recipient and the subject. The full plain-text body is copied to the clipboard on every click, so a long report is one paste away. "Sent, next" marks the report as sent and opens the next one. Check the sender address in your mail app before you send, and connect that mailbox through your VPN. You can also download `report.txt`, `evidence.csv` and the X-ARF files from a report page and attach them, or download the whole `.eml`.
 
 **Assisted and automatic** need an SMTP profile (see [Set up SMTP](#set-up-smtp)).
 
@@ -104,17 +117,33 @@ These rules hold in every mode:
 - Mail leaves only through the VPN. The API has no route out and never connects to a mail server. While the VPN gate is closed, a send waits and nothing is attempted.
 - "Send a test" sends a short neutral message to the sender address itself, so you can check the profile first.
 
+### One mail per provider per day
+
+A busy provider used to get several mails a day, one per kind of report, each sent about an hour after the previous one. Now all the sources that share an abuse address go into one daily digest.
+
+- **One digest per recipient.** The draft gains new sources every hour until it is due. It has a section per kind: attack sources, payload hosts, command servers.
+- **The digest hour.** A digest goes once a day at your node's digest hour. A new install picks a random minute between 06:00 and 09:00 UTC, so that nodes do not all send at the same minute. Change it in Settings > Reporting > Sending (shown in your local time). A draft started after today's digest hour waits for tomorrow's. The hold still applies: a draft never goes less than the hold time after it was queued, so you can still look and cancel.
+- **Parts.** A digest holds at most 100 sources (`ABUSE_MAX_SUBJECTS`), newest first. When one goes out full, the rest becomes part 2, sent at least 2 hours later, and part 3 after that. At most 3 parts a day; the rest waits for the next day.
+- **One automatic mail per address per day.** Whatever the parts, an abuse address gets one automatic digest a UTC day. A mail you send by hand ("Send now" or "Sent, next") counts as that recipient's digest for the day: new sources wait for the next digest hour. A second send by hand to the same provider on the same day asks you to confirm ("This provider already got a report today").
+- **Freshness, per source.** An automatic digest carries only the sources with activity in the last 7 days. The older ones stay on the draft, marked "older than 7 days", and go only with a send you start yourself; they are not counted as sent. A digest with no fresh source left is cancelled `too_old`.
+- **Reviewed digests are frozen.** New sources go into the next draft, so a recipient can have one reviewed digest and one draft.
+- **Form-only and dead recipients** get no automatic digest, as before.
+- **Strict recipients.** With "One mail per source (strict X-ARF)" on, each draft holds one source and goes as a spec-shaped mail. The one-a-day rule does not apply; the daily cap, the spacing and the hold do.
+- **Turning it off.** Settings > Reporting > Sending has the switch "One mail per provider per day" (on by default). Off, a draft is sent after the hold, as before; sources of all kinds still share one draft per recipient.
+
+When you upgrade, the open drafts of each recipient are merged into one digest on the first build, and the old drafts are marked superseded. Automatic sends that were waiting for those drafts are cancelled with `digest_migration`, so nothing leaves during the upgrade. Reviewed reports are not changed: they are sent as they are, with their X-ARF parts. Sent and closed reports keep their history.
+
 ### Automatic sending and pacing
 
 Automatic sending is built to look like what it is: a person sending a few reports a day, not a bulk mailer.
 
-- **Fresh reports only.** A report whose last activity is more than 7 days old is never sent automatically. One that ages past 7 days while it waits is cancelled (`too_old`). You can still send it by hand.
+- **Fresh reports only.** A source whose last activity is more than 7 days old is never sent automatically (see [freshness per source](#one-mail-per-provider-per-day)). A report with no fresh source left is cancelled (`too_old`). You can still send it by hand.
 - **Never list, again.** Before any send, by hand or automatic, the subjects of the report are checked against the never-block list. A draft made before an entry was added is cancelled with `shared_host` and never sent.
 - **Desks that take a web form only.** When a reply from a provider that matched the report says it only accepts its web form (for example "this inbox is not monitored" or "submit your report using our portal"), the node remembers it for that recipient. Automatic sending then skips the recipient (cancel code `form_only`), and the report page says "This desk only accepts its web form", with the form link when the reply had one. Submit the report there by hand. A send you start yourself still goes out. **Clear this flag** on the report page when the desk takes mail again.
 - **Dead addresses.** A hard bounce (a 5.x.x failure) from a report sent to an address is remembered too. One bounce of the "user unknown" kind (5.1.1, "550 user not found") marks the address `undeliverable`. Any other permanent failure needs two. Automatic sending then skips it (cancel code `undeliverable`) and the report page says so. Type another address for the recipient, which starts a clean record, or clear the flag. A delayed notice ("still being retried") is not a bounce and is ignored.
 - **Newest first.** The freshest evidence is scheduled and sent first. A report you send by hand goes before the automatic ones.
 - **Spacing.** At most one automatic send every 3 minutes.
-- **Daily cap.** Automatic sends stop for the day once `daily_cap` reports went out through SMTP that UTC day (default 20, 1 to 200). Sends with the "Send now" button count too. A report over the cap waits for the next UTC day.
+- **Daily cap.** Automatic sends stop for the day once `daily_cap` mails went out through SMTP that UTC day (default 20, 1 to 200). A digest is one mail, whatever its number of sources. Sends with the "Send now" button count too. A report over the cap waits for the next UTC day.
 - **Deferrals.** If the mail server answers "try later" (an SMTP 4xx reply, often a limit on mails per minute or per hour), the send is marked `deferred`, every automatic send waits one hour, and the report is scheduled again by itself, at most 3 times in all.
 - **Refusals.** A refusal (5xx) is never retried by itself. Neither is a send whose outcome is unknown, because a second mail would be worse. Both show the server's reply code, for example `refused:550` or `deferred:451`.
 - **Switching off.** When you leave `auto`, the queued automatic sends are not sent: they end as `mode_changed`, or `mode_off` when you turn sending off.

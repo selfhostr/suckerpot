@@ -149,7 +149,7 @@ DECLARE
                   'egress_trusted_exits', 'egress_check_requests', 'report_smtp',
                   'abuse_send_requests', 'setup_progress', 'report_imap',
                   'report_imap_state', 'report_imap_requests', 'abuse_replies',
-                  'abuse_reply_imports', 'abuse_report_outcomes',
+                  'abuse_reply_imports', 'abuse_report_outcomes', 'abuse_subject_outcomes',
                   'takedown_targets', 'takedown_checks',
                   'takedown_target_links', 'abusech_submission', 'abusech_submissions',
                   'outcome_rollup_monthly', 'network_membership',
@@ -257,6 +257,10 @@ BEGIN
             'GRANT UPDATE (status, window_start, window_end, subject_count, evidence, '
             'content_sha256, guard_ok, guard_codes, redaction, options) '
             'ON abuse_reports TO %I', r);
+        IF to_regclass('public.abuse_subject_outcomes') IS NOT NULL THEN
+            -- M38: the builder moves a draft digest's due time (never another report's: trigger).
+            EXECUTE format('GRANT UPDATE (due_at) ON abuse_reports TO %I', r);
+        END IF;
         EXECUTE format('GRANT SELECT, INSERT, DELETE ON abuse_report_subjects TO %I', r);
         EXECUTE format('GRANT SELECT ON abuse_report_requests TO %I', r);
         EXECUTE format('GRANT UPDATE (done_at, outcome) ON abuse_report_requests TO %I', r);
@@ -315,6 +319,10 @@ BEGIN
         EXECUTE format(
             'GRANT USAGE ON SEQUENCE %s TO %I',
             pg_get_serial_sequence('public.abuse_replies', 'id'), r);
+    END IF;
+    IF to_regclass('public.abuse_subject_outcomes') IS NOT NULL THEN
+        -- M38: ingest links a verified reply to the sources it names (or whose XARF id it quotes).
+        EXECUTE format('GRANT SELECT, INSERT ON abuse_subject_outcomes TO %I', r);
     END IF;
     IF to_regclass('public.takedown_targets') IS NOT NULL THEN
         -- M27: ingest syncs targets and decides their state. The abuse.ch grants stay although
@@ -456,7 +464,7 @@ DECLARE
                   'egress_trusted_exits', 'egress_check_requests', 'report_smtp',
                   'abuse_send_requests', 'setup_progress', 'report_imap',
                   'report_imap_state', 'report_imap_requests', 'abuse_replies',
-                  'abuse_reply_imports', 'abuse_report_outcomes',
+                  'abuse_reply_imports', 'abuse_report_outcomes', 'abuse_subject_outcomes',
                   'takedown_targets', 'takedown_checks',
                   'takedown_target_links', 'abusech_submission', 'abusech_submissions',
                   'outcome_rollup_monthly', 'network_membership',
@@ -539,6 +547,9 @@ BEGIN
         EXECUTE format(
             'GRANT UPDATE (override_mailbox, muted, reply_domains, form_only, form_url, '
             'undeliverable, hard_bounces) ON abuse_recipients TO %I', r);
+        IF to_regclass('public.abuse_subject_outcomes') IS NOT NULL THEN
+            EXECUTE format('GRANT UPDATE (xarf_strict) ON abuse_recipients TO %I', r);
+        END IF;
         EXECUTE format(
             'GRANT UPDATE (status, notes, options, reviewed_at, reviewed_by, reviewed_revision, '
             'sent_at, sent_by, closed_at, closed_by) ON abuse_reports TO %I', r);
@@ -560,6 +571,9 @@ BEGIN
             'GRANT SELECT (id, host, port, security, username, from_address, from_name, mode, '
             'auto_hold_minutes, daily_cap, password_set, updated_at, updated_by) '
             'ON report_smtp TO %I', r);
+        IF to_regclass('public.abuse_subject_outcomes') IS NOT NULL THEN
+            EXECUTE format('GRANT SELECT (digest_minute) ON report_smtp TO %I', r);
+        END IF;
         EXECUTE format('GRANT INSERT, UPDATE, DELETE ON report_smtp TO %I', r);
         -- A send request is a row; cancelling updates the status only (trigger: pending only).
         EXECUTE format('GRANT SELECT, INSERT ON abuse_send_requests TO %I', r);
@@ -591,6 +605,10 @@ BEGIN
             'GRANT SELECT (id, report_id, requested_by, requested_at, status, reply_id, '
             'error_code, done_at) ON abuse_reply_imports TO %I', r);
         EXECUTE format('GRANT SELECT ON abuse_report_outcomes TO %I', r);
+        IF to_regclass('public.abuse_subject_outcomes') IS NOT NULL THEN
+            -- M38: which replies speak about which source (read only).
+            EXECUTE format('GRANT SELECT ON abuse_subject_outcomes TO %I', r);
+        END IF;
         EXECUTE format(
             'GRANT INSERT (report_id, manual_outcome, manual_at, manual_by, note) '
             'ON abuse_report_outcomes TO %I', r);

@@ -126,39 +126,81 @@ class World:
 
     async def report(
         self, *, status: str = "draft", demo: bool = False, guard_ok: bool = True,
-        cmd: str = "uname -a", at: datetime = NOW,
+        cmd: str = "uname -a", at: datetime = NOW, kind: str = "attack_source",
+        recipient: int | None = None, due: datetime | None = None, part: int = 1,
+        extra: list[tuple[str, datetime]] | None = None,
     ) -> int:  # fmt: skip
+        """A report with one source (plus ``extra`` sources: value, last activity), each with a
+        subject row and its XARF id, as the builder (or migration 0040) leaves them."""
         self.n += 1
         async with self.owner.begin() as conn:
-            rec = await conn.scalar(
+            rec = recipient or await conn.scalar(
                 text(
                     "INSERT INTO abuse_recipients (mailbox, source) VALUES (:m, 'rdap') "
                     "RETURNING id"
                 ),
                 {"m": f"abuse{self.n}@example.net"},
             )
+            mailbox = await conn.scalar(
+                text("SELECT mailbox FROM abuse_recipients WHERE id = :r"), {"r": rec}
+            )
             ev = evidence(cmd)
-            ev["recipient"] = f"abuse{self.n}@example.net"
-            return int(
+            ev["kind"] = kind
+            ev["recipient"] = mailbox
+            ev["window_end"] = at.isoformat()
+            first = ev["subjects"][0]
+            first["last_ts"] = at.isoformat()
+            for value, last in extra or []:
+                more = json.loads(json.dumps(first))
+                more["value"] = value
+                more["last_ts"] = more["first_ts"] = last.isoformat()
+                more["activities"][0]["src_ip"] = value
+                more["activities"][0]["ts"] = last.isoformat()
+                ev["subjects"].append(more)
+            if kind == "digest":
+                for sub in ev["subjects"]:
+                    sub["kind"] = "attack_source"
+            starts = [datetime.fromisoformat(x["first_ts"]) for x in ev["subjects"]]
+            report = int(
                 await conn.scalar(
                     text(
                         "INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, "
                         "status, demo, window_start, window_end, subject_count, evidence, "
-                        "content_sha256, guard_ok) VALUES (gen_random_uuid(), gen_random_uuid(), "
-                        ":r, 'attack_source', :s, :d, :t, :t, 1, CAST(:e AS jsonb), 'x', :g) "
-                        "RETURNING id"
+                        "content_sha256, guard_ok, due_at, part) VALUES (gen_random_uuid(), "
+                        "gen_random_uuid(), :r, :k, :s, :d, :ws, :t, :n, CAST(:e AS jsonb), "
+                        "'x', :g, :due, :part) RETURNING id"
                     ),
                     {
                         "r": rec,
+                        "k": kind,
                         "s": status,
                         "d": demo,
+                        "ws": min([*starts, at]),
                         "t": at,
+                        "n": len(ev["subjects"]),
                         "e": json.dumps(ev),
                         "g": guard_ok,
+                        "due": due,
+                        "part": part,
                     },
                 )
                 or 0
             )
+            for sub in ev["subjects"]:
+                await conn.execute(
+                    text(
+                        "INSERT INTO abuse_report_subjects (report_id, kind, subject_type, "
+                        "value, first_ts, last_ts, sessions, events, xarf_id) VALUES "
+                        "(:r, 'attack_source', 'ip', :v, :f, :l, 1, 3, gen_random_uuid())"
+                    ),
+                    {
+                        "r": report,
+                        "v": sub["value"],
+                        "f": datetime.fromisoformat(sub["first_ts"]),
+                        "l": datetime.fromisoformat(sub["last_ts"]),
+                    },
+                )
+            return report
 
     async def ask(self, report_id: int | None, kind: str = "send", by: str = "admin") -> int:
         """A request as the API role writes it."""
@@ -905,8 +947,9 @@ async def _subject(world: World, report_id: int, value: str, kind: str = "domain
     async with world.owner.begin() as conn:
         await conn.execute(
             text(
-                "INSERT INTO abuse_report_subjects (report_id, subject_type, value, first_ts, "
-                "last_ts, sessions, events) VALUES (:r, :t, :v, now(), now(), 1, 1)"
+                "INSERT INTO abuse_report_subjects (report_id, kind, subject_type, value, "
+                "first_ts, last_ts, sessions, events) "
+                "VALUES (:r, 'attack_source', :t, :v, now(), now(), 1, 1)"
             ),
             {"r": report_id, "t": kind, "v": value},
         )

@@ -375,6 +375,12 @@ class TermsCache:
                         )
                     )
                 ).first()
+                # The node's public network pseudonym (M29) never goes into a report (M38).
+                names = (
+                    await session.execute(
+                        text("SELECT pseudonym, synced_pseudonym FROM network_membership")
+                    )
+                ).all()
         except Exception as exc:
             log.warning("self terms unavailable (%s)", type(exc).__name__)
             self._terms = None
@@ -405,6 +411,7 @@ class TermsCache:
             effective_rows(table, self.env, days),
             self.env,
             vpn_exit=egress.ip if egress is not None and egress.ip else None,
+            extra_texts=[v for r in names for v in (r.pseudonym, r.synced_pseudonym) if v],
         )
         self._terms, self._at = terms, time.monotonic()
         return terms

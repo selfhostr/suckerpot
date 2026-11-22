@@ -45,6 +45,7 @@ from .ids import (
 from .message import (
     REFERENCE_STYLES,
     Attachment,
+    Layout,
     ReferenceStyle,
     RenderedMessage,
     guard_message,
@@ -52,8 +53,8 @@ from .message import (
     new_boundary,
     render_csv,
     render_eml,
+    render_mail,
     render_text,
-    render_xarf,
     require_ok,
 )
 from .misp import render_misp
@@ -61,12 +62,14 @@ from .redact import Redacted, RedactionContext, defang, redact
 from .stix import dumps as stix_dumps
 from .stix import render_stix
 from .terms import SelfTermRow, SelfTerms, load_self_terms, mask_value
+from .xarf import XARF_VERSION, new_xarf_id, render_xarf_v4, schema_errors
 
 __all__ = [
     "ARCHIVE_PASSWORD",
     "DEFAULT_SUBJECT",
     "DEFAULT_XARF_USER_AGENT",
     "REFERENCE_STYLES",
+    "XARF_VERSION",
     "Activity",
     "Attachment",
     "BundleLimitError",
@@ -78,6 +81,7 @@ __all__ = [
     "GuardContext",
     "GuardFailed",
     "GuardResult",
+    "Layout",
     "Redacted",
     "RedactionContext",
     "RedactionStats",
@@ -111,16 +115,19 @@ __all__ = [
     "new_public_id",
     "new_reply_token",
     "new_seed",
+    "new_xarf_id",
     "redact",
     "render_csv",
     "render_eml",
+    "render_mail",
     "render_misp",
     "render_stix",
     "render_text",
-    "render_xarf",
+    "render_xarf_v4",
     "report_stem",
     "require_ok",
     "scan_binary",
+    "schema_errors",
     "stix_dumps",
     "stix_id",
 ]

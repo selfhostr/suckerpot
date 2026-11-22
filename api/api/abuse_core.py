@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -24,9 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import (
     AbuseRecipientRow,
     AbuseReportRow,
+    AbuseReportSubjectRow,
     EnrichmentStatusRow,
     IndicatorRow,
     IndicatorSessionRow,
+    NetworkMembershipRow,
     ReportSelfTermRow,
     ReportSettingsRow,
     SessionRow,
@@ -49,8 +52,8 @@ from suckerpot_reporting import (
     missing_settings,
     render_csv,
     render_eml,
+    render_mail,
     render_text,
-    render_xarf,
     require_ok,
 )
 
@@ -95,7 +98,10 @@ SETTINGS_TEXT_FIELDS: Final = (
     "note",
     "subject_template",
     "xarf_user_agent",
+    "xarf_org",
 )
+# Report statuses that may still be sent (their XARF ids live on the subject rows).
+OPEN_STATUSES: Final = frozenset({"draft", "reviewed"})
 
 _terms_cache: tuple[float, SelfTerms] | None = None
 
@@ -165,6 +171,10 @@ async def load_terms(db: AsyncSession, *, fresh: bool = False) -> SelfTerms | No
         gate = await db.scalar(
             select(EnrichmentStatusRow.detail).where(EnrichmentStatusRow.name == "egress")
         )
+        # The node's public network pseudonym (M29) never goes into a report (M38).
+        pseudonyms = [
+            p for p in (await db.scalars(select(NetworkMembershipRow.pseudonym))).all() if p
+        ]
     except SQLAlchemyError:
         log.warning("abuse deny set unavailable")
         return None
@@ -173,6 +183,7 @@ async def load_terms(db: AsyncSession, *, fresh: bool = False) -> SelfTerms | No
         [_term_row(r) for r in rows],
         dict(os.environ),
         vpn_exit=vpn if isinstance(vpn, str) else None,
+        extra_texts=pseudonyms,
     )
     _terms_cache = (now, terms)
     return terms
@@ -186,6 +197,7 @@ class SettingsBundle:
     defaults: dict[str, Any]
     revision: int
     reference_style: str = "subject"  # subject | subject_and_body | off (M26)
+    digest_enabled: bool = True  # one mail per recipient per day (M38)
 
     @property
     def round_times(self) -> bool:
@@ -223,10 +235,12 @@ async def load_settings(db: AsyncSession) -> SettingsBundle:
             note=row.note,
             subject_template=row.subject_template,
             xarf_user_agent=row.xarf_user_agent,
+            xarf_org=row.xarf_org,
         ),
         dict(row.defaults or {}),
         row.revision,
         row.reference_style,
+        row.digest_enabled,
     )
 
 
@@ -258,10 +272,63 @@ class EvidenceInvalidError(Exception):
     """The stored evidence does not fit the model (a bug upstream; nothing is rendered)."""
 
 
+SubjectKey = tuple[str, str, str]  # (kind, subject_type, value)
+
+
+async def subject_rows(db: AsyncSession, report_id: int) -> list[AbuseReportSubjectRow]:
+    return list(
+        (
+            await db.scalars(
+                select(AbuseReportSubjectRow).where(AbuseReportSubjectRow.report_id == report_id)
+            )
+        ).all()
+    )
+
+
+def _with_subject_rows(
+    data: dict[str, Any], report_kind: str, keys: Mapping[SubjectKey, uuid.UUID | None]
+) -> dict[str, Any]:
+    """The stored evidence plus each subject's kind and XARF id from its row (the row is the
+    source of truth; ingest.abuse.build.with_subject_rows does the same)."""
+    subjects = data.get("subjects")
+    if not isinstance(subjects, list):
+        return data
+    out: list[Any] = []
+    for item in subjects:
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+        sub = dict(item)
+        if report_kind != "digest":
+            sub["kind"] = report_kind
+        kind = sub.get("kind")
+        if sub.get("xarf_id") is None and kind is not None:
+            found = keys.get((str(kind), str(sub.get("type")), str(sub.get("value"))))
+            if found is not None:
+                sub["xarf_id"] = str(found)
+        out.append(sub)
+    return {**data, "subjects": out}
+
+
 def build_evidence(
-    row: AbuseReportRow, recipient: AbuseRecipientRow, bundle: SettingsBundle
+    row: AbuseReportRow,
+    recipient: AbuseRecipientRow,
+    bundle: SettingsBundle,
+    keys: Mapping[SubjectKey, uuid.UUID | None] | None = None,
 ) -> Evidence:
-    data = dict(row.evidence)
+    """The evidence as the send path would render it. ``keys`` are the subject rows' XARF ids.
+    A sent or closed report from before 0040 has none: it gets random ones for display only
+    (it is never sent again)."""
+    data = _with_subject_rows(dict(row.evidence), row.kind, keys or {})
+    if row.status not in OPEN_STATUSES:
+        subjects = data.get("subjects")
+        if isinstance(subjects, list):
+            data["subjects"] = [
+                {**s, "xarf_id": s.get("xarf_id") or str(uuid.uuid4())}
+                if isinstance(s, dict)
+                else s
+                for s in subjects
+            ]
     data.update(
         kind=row.kind,
         recipient=recipient.override_mailbox or recipient.mailbox or data.get("recipient"),
@@ -274,6 +341,14 @@ def build_evidence(
         return Evidence.model_validate(data)
     except ValidationError as exc:
         raise EvidenceInvalidError from exc
+
+
+async def load_evidence(
+    db: AsyncSession, row: AbuseReportRow, recipient: AbuseRecipientRow, bundle: SettingsBundle
+) -> Evidence:
+    rows = await subject_rows(db, row.id)
+    keys = {(r.kind, r.subject_type, r.value): r.xarf_id for r in rows}
+    return build_evidence(row, recipient, bundle, keys)
 
 
 async def guard_context(db: AsyncSession, row: AbuseReportRow, evidence: Evidence) -> GuardContext:
@@ -293,8 +368,8 @@ async def guard_context(db: AsyncSession, row: AbuseReportRow, evidence: Evidenc
             .limit(MAX_CONTEXT_SESSIONS)
         )
         ids.update(found.all())
-    if evidence.kind == "payload_host":
-        hosts = [s.value for s in evidence.subjects]
+    hosts = [s.value for s in evidence.subjects if evidence.kind_of(s) == "payload_host"]
+    if hosts:
         named = await db.scalars(
             select(IndicatorSessionRow.session_id)
             .join(IndicatorRow, IndicatorRow.id == IndicatorSessionRow.indicator_id)
@@ -345,20 +420,14 @@ def render_checked(
     """
     eml: bytes | None = None
     style: ReferenceStyle = reference_style if reference_style in REFERENCE_STYLES else "subject"  # type: ignore[assignment]
+    del subject  # every source has its own XARF file now (M38); kept for the callers
     if fmt == "text":
         msg = _text_message(evidence, settings, reply_token, style)
-    elif fmt == "xarf":
-        msg = render_xarf(
-            evidence, settings, subject=subject, reply_token=reply_token, reference_style=style
-        )
-    elif fmt == "eml":
-        try:
-            msg = render_xarf(
-                evidence, settings, subject=subject, reply_token=reply_token, reference_style=style
-            )
-        except RenderUnavailable:
-            msg = _text_message(evidence, settings, reply_token, style)
-        eml = render_eml(msg)
+    elif fmt in ("xarf", "eml"):
+        # The mail exactly as SMTP sends it: text, evidence.csv and one XARF JSON per source.
+        msg = render_mail(evidence, settings, reply_token=reply_token, reference_style=style)
+        if fmt == "eml":
+            eml = render_eml(msg)
     else:
         raise RenderUnavailable("unknown_format")
     result = guard_message(msg, terms, ctx=ctx)

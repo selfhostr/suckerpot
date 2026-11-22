@@ -87,7 +87,12 @@ class AbuseWorker(FeatureWorker):
             )
             resolver = ContactResolver(factory, self.rdap, self.bootstrap)
             self.resolver = resolver
-            self.builder = DraftBuilder(factory, self.abuse, self.terms, resolver)
+            from ingest.trappacks import build_gate_source  # late: keeps the import graph flat
+
+            # Gate G (M37): a CVE of a trap pack loaded less than 48 h ago is not named in XARF.
+            self.builder = DraftBuilder(
+                factory, self.abuse, self.terms, resolver, gate=build_gate_source(factory)
+            )
             self.reguard = DraftReguard(factory, self.abuse, self.terms)
 
     def _open(self) -> bool:

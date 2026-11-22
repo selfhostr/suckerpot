@@ -1,4 +1,4 @@
-"""Plain text, evidence CSV, X-ARF v0.2 and ``.eml`` renderers (design M22, section 8.1, 8.2).
+"""Plain text, evidence CSV, the mail with its XARF v4 parts and ``.eml`` (M22 section 8, M38).
 
 All renderers are pure and deterministic for a given evidence object. They never emit a
 destination address, a ``From``, ``Date``, ``Message-ID``, ``User-Agent`` or ``X-Mailer``
@@ -8,28 +8,25 @@ returning anything.
 
 from __future__ import annotations
 
+import base64
 import csv
 import io
-import ipaddress
 import re
 import secrets
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from email.utils import format_datetime
 from typing import Final, Literal
-from urllib.parse import urlsplit
-
-import yaml
 
 from .errors import GuardFailed, RenderUnavailable
 from .evidence import (
     DEFAULT_SUBJECT,
-    DEFAULT_XARF_USER_AGENT,
     MAX_ACTIVITIES_BODY,
     MAX_ACTIVITIES_CSV,
     Activity,
     Evidence,
+    ReportKind,
     ReportOptions,
     ReportSettings,
     Subject,
@@ -39,6 +36,8 @@ from .guard import ArtifactFormat, GuardContext, GuardResult, guard_parts
 from .normalize import to_ascii
 from .redact import defang
 from .terms import SelfTerms
+from .xarf import dumps as xarf_dumps
+from .xarf import feedback_report, file_names, xarf_reports
 
 DEMO_PREFIX: Final = "DEMO, DO NOT SEND: "
 
@@ -47,13 +46,15 @@ REFERENCE_STYLES: Final[tuple[str, ...]] = ("subject", "subject_and_body", "off"
 _TOKEN: Final = re.compile(r"^[0-9a-f]{12}$")
 SUBJECT_MAX: Final = 150
 
-# One place for the X-ARF report types. Names follow the X-ARF 0.2 abuse and malware schemas.
-XARF_TYPES: Final[dict[str, tuple[str, str]]] = {
-    "login": ("abuse", "login-attack"),
-    "exploit": ("abuse", "web-hack"),
-    "malware": ("malware", "malware-distribution"),
+# How a mail is laid out (design M38, section 4.2): ``plain`` text only (or text and CSV),
+# ``report`` the RFC 6522 shape of one XARF report, ``digest`` one JSON file per subject.
+Layout = Literal["plain", "report", "digest"]
+JSON_TYPE: Final = "application/json"
+KIND_HEADINGS: Final[dict[str, str]] = {
+    "attack_source": "Attack sources",
+    "payload_host": "Payload hosts",
+    "c2": "Command servers",
 }
-XARF_SCHEMA_URL: Final = "http://www.x-arf.org/schema/{category}_{report_type}_0.1.2.json"
 
 _MAILBOX: Final = re.compile(r"^[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+$")
 
@@ -71,7 +72,12 @@ class RenderedMessage:
     subject: str
     body: str
     attachments: tuple[Attachment, ...] = ()
-    xarf: bool = False
+    layout: Layout = "plain"
+    feedback: str | None = None  # the message/feedback-report part (layout ``report`` only)
+
+    @property
+    def xarf_files(self) -> tuple[Attachment, ...]:
+        return tuple(a for a in self.attachments if a.media_type == JSON_TYPE)
 
 
 def _require(settings: ReportSettings | None, *, xarf: bool = False) -> ReportSettings:
@@ -148,8 +154,12 @@ def _activity_lines(act: Activity, options: ReportOptions, multi_port: bool) -> 
     return lines
 
 
-def _subject_block(subject: Subject, options: ReportOptions) -> list[str]:
+def _subject_block(
+    subject: Subject, options: ReportOptions, file_name: str | None = None
+) -> list[str]:
     lines = [_heading(subject, options)]
+    if file_name:
+        lines.append(f"  Report file: {file_name}")
     span = f"{fmt_ts(subject.first_ts, options)} to {fmt_ts(subject.last_ts, options)}"
     ports = _ports(subject)
     lines.append(f"  {span}, {ports}" if ports else f"  {span}")
@@ -231,11 +241,15 @@ def render_text(
     *,
     reply_token: str | None = None,
     reference_style: ReferenceStyle = "subject",
+    file_names: Mapping[int, str] | None = None,
 ) -> RenderedMessage:
     """The plain-text report. Attachments are left to the caller (``render_csv``).
 
+    A digest has a section per kind (attack sources, payload hosts, command servers).
+    ``file_names`` maps a subject's position to its XARF file, printed under its heading.
+
     The reply token goes into the subject, and into a last ``Ref:`` line only for the style
-    ``subject_and_body``. It never goes into the CSV, the X-ARF part, STIX or MISP."""
+    ``subject_and_body``. It never goes into the CSV, the XARF parts, STIX or MISP."""
     cfg = _require(settings)
     token = _reference(reply_token, reference_style)
     opts = evidence.options
@@ -245,8 +259,18 @@ def render_text(
     opening = [t for t in (_clean_block(cfg.intro or ""), _clean_block(cfg.note or "")) if t]
     if opening:
         sections.append(opening)
-    for s in evidence.subjects:
-        block = _subject_block(s, opts)
+    names = file_names or {}
+    order = list(enumerate(evidence.subjects))
+    if evidence.kind == "digest":
+        rank = {k: i for i, k in enumerate(KIND_HEADINGS)}
+        order.sort(key=lambda item: rank[evidence.kind_of(item[1])])
+    current: ReportKind | None = None
+    for index, s in order:
+        if evidence.kind == "digest" and evidence.kind_of(s) != current:
+            current = evidence.kind_of(s)
+            count = sum(1 for x in evidence.subjects if evidence.kind_of(x) == current)
+            sections.append([f"{KIND_HEADINGS[current]} ({count})"])
+        block = _subject_block(s, opts, names.get(index))
         while block and not block[-1].strip():
             block = block[:-1]
         if block:
@@ -338,97 +362,48 @@ def render_csv(evidence: Evidence) -> Attachment:
     return Attachment("evidence.csv", "text/csv", to_ascii(out.getvalue()))
 
 
-# --- X-ARF v0.2 ----------------------------------------------------------------------------
+# --- the mail (XARF v4) ----------------------------------------------------------------
 
 
-def _xarf_type(evidence: Evidence, subject: Subject) -> tuple[str, str]:
-    if evidence.kind != "attack_source":
-        return XARF_TYPES["malware"]
-    if subject.activities and all(
-        a.action in ("failed_logins", "login_then_commands") for a in subject.activities
-    ):
-        return XARF_TYPES["login"]
-    return XARF_TYPES["exploit"]
-
-
-def _service_port(subject: Subject) -> tuple[str, int]:
-    if subject.type == "url":
-        parts = urlsplit(subject.value)
-        scheme = parts.scheme.lower() or "http"
-        return scheme, parts.port or (443 if scheme == "https" else 80)
-    if subject.activities:
-        first = min(subject.activities, key=lambda a: a.ts)
-        return first.service, first.dst_port
-    raise RenderUnavailable("xarf_no_activity")
-
-
-def _source_type(subject: Subject) -> str:
-    if subject.type == "ip":
-        return "ipv6" if ipaddress.ip_address(subject.value).version == 6 else "ipv4"
-    return "uri"
-
-
-def render_xarf(
+def render_mail(
     evidence: Evidence,
     settings: ReportSettings | None = None,
     *,
-    subject: str | None = None,
     reply_token: str | None = None,
     reference_style: ReferenceStyle = "subject",
 ) -> RenderedMessage:
-    """X-ARF v0.2 has one ``Source`` per report. The reply token reaches the human part only.
+    """The complete abuse mail: the human text, ``evidence.csv`` and one XARF v4 JSON report per
+    subject (design M38, section 4.2). One subject gives the RFC 6522 ``report`` layout
+    (``xarf.json``); several give the ``digest`` layout (``xarf-001.json`` ...), each file named in
+    the text. Every JSON is validated against the vendored schemas: ``xarf_invalid`` otherwise.
 
-    One subject (or ``subject`` given): a full X-ARF message. Several subjects: the human
-    summary with ``evidence.csv``, which is what the review screen offers by default.
-    """
-    chosen = evidence.subjects
-    if subject is not None:
-        chosen = tuple(s for s in evidence.subjects if s.value == subject)
-        if not chosen:
-            raise RenderUnavailable("xarf_unknown_subject")
-    if len(chosen) != 1:
-        msg = render_text(
-            evidence, settings, reply_token=reply_token, reference_style=reference_style
+    The reply token reaches the human part only."""
+    cfg = _require(settings)
+    reports = xarf_reports(evidence, cfg)
+    names = file_names(len(reports))
+    files = tuple(
+        Attachment(name, JSON_TYPE, xarf_dumps(report))
+        for name, report in zip(names, reports, strict=True)
+    )
+    many = len(reports) > 1
+    human = render_text(
+        evidence,
+        cfg,
+        reply_token=reply_token,
+        reference_style=reference_style,
+        file_names=dict(enumerate(names)) if many else None,
+    )
+    csv_part = render_csv(evidence)
+    if not many:
+        return RenderedMessage(
+            human.to,
+            human.subject,
+            human.body,
+            (*files, csv_part),
+            layout="report",
+            feedback=feedback_report(cfg),
         )
-        return RenderedMessage(msg.to, msg.subject, msg.body, (render_csv(evidence),), xarf=False)
-    cfg = _require(settings, xarf=True)
-    one = chosen[0]
-    single = evidence.model_copy(update={"subjects": (one,)})
-    human = render_text(single, cfg, reply_token=reply_token, reference_style=reference_style)
-    category, report_type = _xarf_type(evidence, one)
-    service, port = _service_port(one)
-    when = one.first_ts.astimezone(UTC).replace(microsecond=0)
-    if evidence.options.time_precision == "minute":
-        when = when.replace(second=0)
-    report = {
-        "Reported-From": to_ascii((cfg.reply_contact or "").strip()),
-        "Category": category,
-        "Report-Type": report_type,
-        "Service": service,
-        "Port": port,
-        "Version": 0.2,
-        "User-Agent": to_ascii((cfg.xarf_user_agent or "").strip()) or DEFAULT_XARF_USER_AGENT,
-        "Date": format_datetime(when),
-        "Source-Type": _source_type(one),
-        "Source": one.value,
-        "Attachment": "text/plain",
-        "Schema-URL": XARF_SCHEMA_URL.format(category=category, report_type=report_type),
-        "Occurrences": max(1, one.events),
-    }
-    dumped = yaml.safe_dump(
-        report, sort_keys=False, default_flow_style=False, allow_unicode=False, width=1000
-    )
-    evidence_part = render_csv(single)
-    return RenderedMessage(
-        to=human.to,
-        subject=human.subject,
-        body=human.body,
-        attachments=(
-            Attachment("report.txt", "text/plain", dumped),
-            Attachment("evidence.txt", "text/plain", evidence_part.content),
-        ),
-        xarf=True,
-    )
+    return RenderedMessage(human.to, human.subject, human.body, (csv_part, *files), layout="digest")
 
 
 # --- .eml ----------------------------------------------------------------------------------
@@ -449,38 +424,73 @@ def new_boundary() -> str:
     return f"{'=' * 15}{secrets.randbelow(sys.maxsize):019d}=="
 
 
-def render_eml(message: RenderedMessage, *, boundary: str | None = None) -> bytes:
-    """Headers ``To``, ``Subject``, ``X-ARF`` (X-ARF only), ``MIME-Version``, ``Content-Type``.
+def _b64_lines(data: bytes) -> str:
+    """Base64 in 76-character lines, as mail clients write it."""
+    text = base64.b64encode(data).decode("ascii")
+    return "\r\n".join(text[i : i + 76] for i in range(0, len(text), 76))
 
-    Parts are 7bit ASCII so the guard reads exactly what a client would send. No ``From``,
-    ``Date``, ``Message-ID``, ``User-Agent`` or ``X-Mailer``: the owner's webmail adds its own.
+
+def _safe_name(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
+def _part(att: Attachment) -> str:
+    name = _safe_name(att.name)
+    if att.media_type == JSON_TYPE:
+        # JSON parts are base64, as the XARF email transport asks (design M38, D16).
+        return (
+            f'Content-Type: {JSON_TYPE}; name="{name}"\r\n'
+            "Content-Transfer-Encoding: base64\r\n"
+            f'Content-Disposition: attachment; filename="{name}"\r\n\r\n'
+            f"{_b64_lines(to_ascii(att.content).encode('ascii'))}\r\n"
+        )
+    return (
+        f'Content-Type: {att.media_type}; charset=us-ascii; name="{name}"\r\n'
+        "Content-Transfer-Encoding: 7bit\r\n"
+        f'Content-Disposition: attachment; filename="{name}"\r\n\r\n'
+        f"{_wrap(to_ascii(att.content))}\r\n"
+    )
+
+
+def render_eml(message: RenderedMessage, *, boundary: str | None = None) -> bytes:
+    """Headers ``To``, ``Subject``, ``MIME-Version``, ``Content-Type``, then the same parts, in the
+    same order and encodings, as the SMTP path sends (``layout``): XARF v4 has no mail header.
+
+    Text parts are 7bit ASCII and JSON parts base64, so the guard reads exactly what a client
+    would send once decoded. No ``From``, ``Date``, ``Message-ID``, ``User-Agent`` or
+    ``X-Mailer``: the owner's webmail adds its own.
     """
     if not _MAILBOX.match(message.to):
         raise RenderUnavailable("eml_invalid_recipient")
     subject = re.sub(r"[\r\n]+", " ", message.subject)
-    head = [f"To: {message.to}", f"Subject: {to_ascii(subject)}"]
-    if message.xarf:
-        head.append("X-ARF: YES")
-    head.append("MIME-Version: 1.0")
+    head = [f"To: {message.to}", f"Subject: {to_ascii(subject)}", "MIME-Version: 1.0"]
     body = _wrap(to_ascii(message.body))
     if not message.attachments:
         head += ["Content-Type: text/plain; charset=us-ascii", "Content-Transfer-Encoding: 7bit"]
         return ("\r\n".join(head) + "\r\n\r\n" + body + "\r\n").encode("ascii")
     boundary = boundary or new_boundary()
-    head.append(f'Content-Type: multipart/mixed; boundary="{boundary}"')
+    if message.layout == "report":
+        head.append(
+            f'Content-Type: multipart/report; report-type=feedback-report; boundary="{boundary}"'
+        )
+    else:
+        head.append(f'Content-Type: multipart/mixed; boundary="{boundary}"')
     parts = [
-        f"--{boundary}\r\nContent-Type: text/plain; charset=us-ascii\r\n"
+        "Content-Type: text/plain; charset=us-ascii\r\n"
         f"Content-Transfer-Encoding: 7bit\r\n\r\n{body}\r\n"
     ]
-    for att in message.attachments:
-        name = re.sub(r"[^A-Za-z0-9._-]", "_", att.name)
+    if message.layout == "report" and message.feedback is not None:
         parts.append(
-            f"--{boundary}\r\nContent-Type: {att.media_type}; charset=us-ascii; "
-            f'name="{name}"\r\nContent-Transfer-Encoding: 7bit\r\n'
-            f'Content-Disposition: attachment; filename="{name}"\r\n\r\n'
-            f"{_wrap(to_ascii(att.content))}\r\n"
+            "Content-Type: message/feedback-report\r\nContent-Transfer-Encoding: 7bit\r\n\r\n"
+            f"{_wrap(to_ascii(message.feedback))}\r\n"
         )
-    raw = "\r\n".join(head) + "\r\n\r\n" + "".join(parts) + f"--{boundary}--\r\n"
+    parts += [_part(att) for att in message.attachments]
+    raw = (
+        "\r\n".join(head)
+        + "\r\n\r\n"
+        + "".join(f"--{boundary}\r\n{p}" for p in parts)
+        + f"--{boundary}--\r\n"
+    )
     return raw.encode("ascii")
 
 
@@ -490,17 +500,25 @@ def render_eml(message: RenderedMessage, *, boundary: str | None = None) -> byte
 def guard_message(
     message: RenderedMessage, terms: SelfTerms | None, *, ctx: GuardContext | None = None
 ) -> GuardResult:
-    """Guard every piece of a message: recipient, subject, body and each attachment."""
+    """Guard every piece of a message: recipient, subject, body, the feedback part and each
+    attachment (a JSON report is walked and its base64 values decoded)."""
     parts: list[tuple[str, str | bytes, ArtifactFormat]] = [
         ("to", message.to, "text"),
         ("subject", message.subject, "text"),
         ("body", message.body, "text"),
     ]
-    parts += [
-        (a.name, a.content, "csv" if a.media_type == "text/csv" else "xarf")
-        for a in message.attachments
-    ]
+    if message.feedback is not None:
+        parts.append(("feedback", message.feedback, "text"))
+    parts += [(a.name, a.content, _format_of(a)) for a in message.attachments]
     return guard_parts(parts, terms, ctx=ctx)
+
+
+def _format_of(att: Attachment) -> ArtifactFormat:
+    if att.media_type == "text/csv":
+        return "csv"
+    if att.media_type == JSON_TYPE:
+        return "json"  # walked, and every base64 value decoded (``guard.artefact_strings``)
+    return "text"
 
 
 def require_ok(result: GuardResult) -> None:

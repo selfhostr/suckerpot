@@ -31,6 +31,7 @@ from suckerpot_db.models import (
     AbuseRecipientRow,
     AbuseReportRow,
     AbuseSendRequestRow,
+    ReportSettingsRow,
     ReportSmtpRow,
 )
 from suckerpot_db.secretbox import Credential, SecretBox
@@ -40,10 +41,10 @@ from api import audit as audit_db
 from api import reauth
 from api.abuse_core import (
     SettingsBundle,
-    build_evidence,
     error,
     guard_context,
     guard_failed_response,
+    load_evidence,
     load_settings,
     load_terms,
     missing_for,
@@ -104,6 +105,7 @@ class SmtpOut(BaseModel):
     last_test: RequestState | None = None
     updated_at: datetime | None = None
     updated_by: str | None = None
+    digest_minute: int | None = None  # minutes after 00:00 UTC (M38); None before the first save
 
 
 class SmtpBody(BaseModel):
@@ -120,6 +122,9 @@ class SmtpBody(BaseModel):
     mode: SmtpMode = "off"
     auto_hold_minutes: int = Field(default=60, ge=10, le=1440)
     daily_cap: int = Field(default=20, ge=1, le=200)
+    # The digest hour (M38), minutes after 00:00 UTC. Omitted keeps the stored one (a first save
+    # gets a random minute between 06:00 and 09:00 UTC from the database).
+    digest_minute: int | None = Field(default=None, ge=0, le=1439)
     current_password: str = Field(max_length=1024, repr=False)  # re-authentication
 
 
@@ -133,6 +138,22 @@ class SendBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     revision: int | None = Field(default=None, ge=1)
+    # M38: a second mail to the same provider on the same UTC day needs this confirmation.
+    confirm_same_day: bool = False
+
+
+class DigestOut(BaseModel):
+    """One mail per provider per day (M38): the switch and the digest hour."""
+
+    enabled: bool
+    minute: int | None  # minutes after 00:00 UTC; None while there is no SMTP profile
+
+
+class DigestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    minute: int | None = Field(default=None, ge=0, le=1439)  # omitted keeps the stored one
 
 
 class Accepted(BaseModel):
@@ -238,6 +259,7 @@ _PROFILE_COLUMNS = (
     ReportSmtpRow.password_set,
     ReportSmtpRow.updated_at,
     ReportSmtpRow.updated_by,
+    ReportSmtpRow.digest_minute,
 )
 
 
@@ -255,6 +277,7 @@ class Profile:
     password_set: bool
     updated_at: datetime
     updated_by: str | None
+    digest_minute: int = 420
 
     @property
     def configured(self) -> bool:
@@ -323,6 +346,7 @@ async def _profile_out(db: AsyncSession) -> SmtpOut:
         last_test=last_test,
         updated_at=profile.updated_at,
         updated_by=profile.updated_by,
+        digest_minute=profile.digest_minute,
     )
 
 
@@ -400,6 +424,10 @@ async def put_smtp(body: SmtpBody, request: Request, db: DbSession) -> Response:
                   "auto_hold_minutes", "daily_cap")
         if old is None or getattr(old, k) != values[k]
     ]  # fmt: skip
+    if body.digest_minute is not None:
+        values["digest_minute"] = body.digest_minute
+        if old is None or old.digest_minute != body.digest_minute:
+            changed.append("digest_minute")
     if body.password:
         box = request.app.state.secret_box
         ciphertext, nonce = box.encrypt(PASSWORD_AAD, Credential(key=body.password))
@@ -517,7 +545,7 @@ async def _live(
     db: AsyncSession, row: AbuseReportRow, rec: AbuseRecipientRow, bundle: SettingsBundle, fmt: str
 ) -> Any:
     """Render and guard like a download would. Raises GuardFailed, RenderUnavailable."""
-    evidence = build_evidence(row, rec, bundle)
+    evidence = await load_evidence(db, row, rec, bundle)
     ctx = await guard_context(db, row, evidence)
     terms = await load_terms(db)
     rendered = await asyncio.to_thread(
@@ -564,6 +592,10 @@ async def send_report(
         .where(AbuseSendRequestRow.report_id == row.id, AbuseSendRequestRow.status.in_(OPEN))
     ):
         return _refuse(409, "This report is already waiting to be sent.", "already_queued")
+    if not (body is not None and body.confirm_same_day) and await sent_to_recipient_today(
+        db, row, rec
+    ):
+        return same_day_response()
     bundle = await load_settings(db)
     missing = missing_for(bundle.settings)
     if missing:
@@ -635,6 +667,96 @@ async def cancel_send(public_id: uuid.UUID, request: Request, db: DbSession) -> 
     )
     await db.commit()
     return _no_store(Cancelled(cancelled=count))
+
+
+# ---- one mail per provider per day (M38) ----------------------------------------------------
+
+
+SENT_TO_RECIPIENT_TODAY = (
+    "SELECT EXISTS (SELECT 1 FROM abuse_reports r JOIN abuse_recipients c "
+    "ON c.id = r.recipient_id WHERE r.status IN ('sent', 'closed') AND NOT r.demo "
+    "AND r.id <> :i AND r.sent_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') "
+    "AT TIME ZONE 'UTC') AND COALESCE(NULLIF(c.override_mailbox, ''), c.mailbox) = :a)"
+)
+
+
+async def sent_to_recipient_today(
+    db: AsyncSession, row: AbuseReportRow, rec: AbuseRecipientRow
+) -> bool:
+    """Another report already went to this provider's address today (UTC)."""
+    address = _mailbox(rec)
+    if not address:
+        return False
+    return bool(await db.scalar(text(SENT_TO_RECIPIENT_TODAY), {"i": row.id, "a": address}))
+
+
+def same_day_response() -> JSONResponse:
+    return JSONResponse(
+        {
+            "detail": "This provider already got a report today.",
+            "code": "recipient_sent_today",
+        },
+        status_code=409,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _digest_out(db: AsyncSession) -> DigestOut:
+    bundle = await load_settings(db)
+    profile = await load_profile(db)
+    return DigestOut(
+        enabled=bundle.digest_enabled,
+        minute=profile.digest_minute if profile is not None else None,
+    )
+
+
+@router.get("/abuse/digest", response_model=DigestOut)
+async def get_digest(db: DbSession) -> Response:
+    return _no_store(await _digest_out(db))
+
+
+@router.put("/abuse/digest", response_model=DigestOut)
+async def put_digest(body: DigestBody, request: Request, db: DbSession) -> Response:
+    """Switch daily digests and move the digest hour. The hour lives with the SMTP profile."""
+    profile = await load_profile(db)
+    if body.minute is not None and profile is None:
+        return _refuse(409, "Set up SMTP sending first.", "smtp_not_configured")
+    changed: list[str] = []
+    bundle = await load_settings(db)
+    if bundle.digest_enabled != body.enabled:
+        res = await db.execute(
+            update(ReportSettingsRow)
+            .where(ReportSettingsRow.id == 1)
+            .values(
+                digest_enabled=body.enabled,
+                revision=ReportSettingsRow.revision + 1,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        if not res.rowcount:  # type: ignore[attr-defined]
+            db.add(ReportSettingsRow(id=1, digest_enabled=body.enabled))
+        changed.append("enabled")
+    if body.minute is not None and profile is not None and profile.digest_minute != body.minute:
+        if not await _lock_profile(db):
+            return _refuse(
+                409, "A report is being sent right now. Try again in a minute.", "already_sending"
+            )
+        await db.execute(
+            update(ReportSmtpRow).where(ReportSmtpRow.id == 1).values(digest_minute=body.minute)
+        )
+        changed.append("minute")
+    if changed:
+        principal = await current_principal(request)
+        await audit_db.record(
+            db,
+            actor=_actor(principal),
+            action="abuse.digest",
+            ip=_client_ip(request),
+            details={"changed": changed, "enabled": body.enabled},
+            actor_id=audit_db.actor_id_of(principal),
+        )
+        await db.commit()
+    return _no_store(await _digest_out(db))
 
 
 # ---- the queue -----------------------------------------------------------------------------

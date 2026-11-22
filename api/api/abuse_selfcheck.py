@@ -22,8 +22,8 @@ from suckerpot_reporting import GuardFailed, RenderUnavailable
 
 from api.abuse_core import (
     EvidenceInvalidError,
-    build_evidence,
     guard_context,
+    load_evidence,
     load_settings,
     load_terms,
     release,
@@ -63,7 +63,7 @@ async def check_reports(db: AsyncSession, tally: Tally) -> None:
     ).all()
     for row, rec in rows:
         try:
-            evidence = build_evidence(row, rec, bundle)
+            evidence = await load_evidence(db, row, rec, bundle)
         except EvidenceInvalidError:
             for fmt in FORMATS:
                 tally.add(fmt, "FAIL", ("evidence_invalid",))
