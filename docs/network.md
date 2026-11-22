@@ -9,7 +9,7 @@ This page is for people who run a node, and for people who want to know what joi
 ```
 
 ```{warning}
-Joining is a choice you are always asked about, and the default answer is no. The installer asks "Join the SuckerPot network? [y/N]" and shows what would be shared first. `--yes` never joins: joining without a question needs `--join-network`. `--no-network` skips the question. An existing install that never answered is never joined by an update. In a full install you can also join or leave in the dashboard at any time. In a participant install, choosing that mode in the installer is the join.
+Joining is always your explicit choice, and the default is no. A full install joins only with `--join-network`, which shows what would be shared first; the installer asks no question about it. `--yes` never joins. An existing install that never answered is never joined by an update. In a full install you can also join or leave in the dashboard at any time. In a participant install, choosing that mode in the installer is the join.
 ```
 
 ## What joining means
@@ -30,7 +30,7 @@ The network feature is off by default (`NETWORK_ENABLED=false`). To use it, set 
 
 | Way to join | Who | Default |
 | --- | --- | --- |
-| The installer question "Join the SuckerPot network? [y/N]" (full mode), after the consent screen, or the flag `--join-network` | The person installing | No. An empty answer is a no. `--yes` alone does not join. `--no-network` skips the question |
+| The flag `--join-network` of a full install, which shows the consent screen first | The person installing | No. A full install asks no question about the network: without the flag it does not join. `--no-network` is accepted and changes nothing |
 | The participant install (`--participant`) | The person installing | The mode is the join |
 | Settings, Network: join, after being shown the five items and confirming with the password | An administrator | Not joined |
 

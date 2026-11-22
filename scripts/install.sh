@@ -51,7 +51,8 @@
 # screen and asks to join; --yes is that consent. No other question is asked.
 # --yes takes the defaults. The admin password is generated and printed once, or read from stdin
 # with --admin-password-stdin. A full install never joins the SuckerPot network without
-# --join-network. When Docker is missing, a terminal run offers to install it (get.docker.com).
+# --join-network. When Docker is missing, it shows the commands that install it from Docker's
+# package repository and, on a terminal, runs them after one "yes".
 # Plain output (no terminal, TERM=dumb, --plain) ends with a "result: ok|failed ..." line.
 # --dry-run --env-out writes the would-be .env to PATH with a placeholder admin hash and makes
 # no Docker call (used by the tests).

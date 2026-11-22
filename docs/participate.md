@@ -17,8 +17,8 @@ SuckerPot is built to be attacked. Use a dedicated machine that holds nothing el
 | Item | Needed |
 | --- | --- |
 | Machine | A Linux VM or small server, `x86_64` or `aarch64`, with 2 GiB of memory (a plan sold as "2 GB", about 1.9 GiB, is fine: add swap) and 15 GiB of free disk. A 1 GiB VPS or Raspberry Pi works with `--lite` |
-| Software | Docker Engine 24+ with the Compose plugin, `git`, `curl`, Bash 4+. Your user must run `docker` without `sudo` |
-| Or | Podman 5.4+ (rootful) with `docker-compose` 2.26+ (experimental): `sudo apt install podman docker-compose nftables` on Debian 13. The installer sets up the rest; the host firewall is required. See [Podman](install.md#podman-experimental). |
+| Software | Docker Engine 24+ with the Compose plugin, `git`, `curl`, Bash 4+. Your user must run `docker` without `sudo`. Without Docker, the installer offers to install it from Docker's own package repository |
+| Or | Podman 5.4+ (rootful) with `docker-compose` 2.26+, experimental: supported on Debian 13 and Ubuntu 26.04 (`sudo apt install podman docker-compose nftables`), experimental on Fedora and the RHEL 10 family. The installer sets up the rest; the host firewall is required. See [Podman (experimental)](install.md#podman-experimental). |
 | Router | You can forward ports to this machine (not needed on a VPS) |
 | VPN | Not needed |
 
@@ -40,7 +40,7 @@ It then creates every secret on this machine, starts the sensors, the database, 
 
 A machine sold as "2 GB" reports about 1.9 GiB and runs the default setup with the low-memory limits: add swap (the installer warns when there is less than 512 MiB). If the machine reports less than 1.75 GiB, the installer says so and takes the lite setup by itself, with a note. That is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
 
-Near the end it installs the **host firewall**, without a question. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. `sudo` asks for your password on the terminal. With `--yes` it installs the firewall by itself when `sudo` works without a password, and otherwise prints the one command to run (`./scripts/participant.sh firewall`). If you filter the containers elsewhere, pass `--no-firewall`. You can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
+Near the end it installs the **host firewall**, without a question. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. `sudo` asks for your password on the terminal. With `--yes` it installs the firewall by itself when `sudo` works without a password, and otherwise prints the one command to run (`./scripts/participant.sh firewall`). If you filter the containers elsewhere, pass `--no-firewall`. On Podman the firewall is required: the install stops without it, and `--no-firewall` only skips it with a warning. You can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
 
 After that, your only job is to open the printed ports.
 
