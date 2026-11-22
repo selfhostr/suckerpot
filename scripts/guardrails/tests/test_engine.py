@@ -424,6 +424,7 @@ DEV_RECIPES = {
     "_web",
     "_cache",
     "_py",
+    "abuse-forms",
 }
 DOCKER_CALL = re.compile(
     r"(?<![\w./-])docker\s+(?:compose|run|volume|network|inspect|image|pull|tag|info|version|ps|"
