@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-22
+
+### Upgrading
+
+- Abuse mail now goes out as one daily digest per recipient, at a digest hour picked at random per install (06:00 to 09:00 UTC, editable in Settings). On the first build after the update, open drafts are merged into one digest per recipient and pending automatic sends are cancelled (`digest_migration`), so no burst of mail follows the update. Turn digests off in Settings to keep one draft per recipient without the daily timing.
+- Every abuse mail carries X-ARF v4 JSON reports (one per source). The older X-ARF v0.2 attachment is gone.
+- Migrations 0039 to 0041. A downgrade is refused once a digest was sent or a report was submitted by form; use `just rollback` instead.
+
 ### Added
 
 - Results: **Do reports make a difference?** (M38 phase 2). Each attacking address named in a sent
@@ -1072,7 +1080,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/selfhostr/suckerpot/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/selfhostr/suckerpot/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/selfhostr/suckerpot/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/selfhostr/suckerpot/compare/v0.12.0...v0.12.1
