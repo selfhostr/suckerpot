@@ -23,4 +23,4 @@ SuckerPot ships a few pieces of third-party material. Software dependencies keep
 `reporting/suckerpot_reporting/schemas/xarf-4.2.0/` holds the JSON schemas of XARF version 4.2.0 (the core schema, the master schema and the 33 type schemas), used to validate every X-ARF report before it is sent. They are copied unchanged from the [xarf-spec](https://github.com/xarf/xarf-spec) repository, tag `v4.2.0`.
 
 - Distributed under the MIT licence. Copyright (c) 2025 XARF Project. The licence text is in `LICENSE` next to the schemas.
-- Changes: none.
+- Changes: one product name removed from the `examples` list of `bot_name` in `types/connection-infected-host.json` (an annotation only; no rule changes).
