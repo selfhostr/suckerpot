@@ -409,6 +409,9 @@ def test_docker_install_writes_the_engine_and_migrate_adds_it(
 # ------------------------------------------------------------------ no literal docker call
 
 ENGINE_LIB = "scripts/lib/engine.sh"
+# Test harnesses that drive the HOST's Docker on purpose (a CI runner), not the node's engine:
+# scripts/e2e/podman.sh starts a Podman machine as a privileged Docker container.
+HOST_DOCKER_SCRIPTS = {"scripts/e2e/podman.sh"}
 # The developer recipes of the justfile stay on Docker (design decision D8).
 DEV_RECIPES = {
     "guardrails",
@@ -495,7 +498,7 @@ def test_no_script_calls_docker_directly() -> None:
     offenders = []
     for path in sorted((ROOT / "scripts").rglob("*.sh")):
         rel = path.relative_to(ROOT).as_posix()
-        if rel == ENGINE_LIB:
+        if rel == ENGINE_LIB or rel in HOST_DOCKER_SCRIPTS:
             continue
         offenders += [f"{rel}:{hit}" for hit in literal_docker_calls(path.read_text())]
     offenders += [

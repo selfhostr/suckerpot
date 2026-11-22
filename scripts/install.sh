@@ -119,6 +119,13 @@ plain_result() {
   fi
 }
 UI_ON_EXIT=plain_result
+# A command that fails where no message was planned (set -e) names itself and its line, on the
+# screen and in install.log, instead of a bare "failed" step.
+on_err() {
+  printf 'install: unexpected failure at line %s: %s\n' "$1" "$2" >&2
+  log "unexpected failure at line $1: $2"
+}
+trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
 # say: text for the person at the terminal (stdout in plain mode, the display in rich mode, where it
 # is indented like the rest of the screen).
 say() { if [ -n "$*" ]; then echo "${UI_IND}$*" 1>&"$UI_OUT"; else echo 1>&"$UI_OUT"; fi; }
@@ -806,10 +813,13 @@ else
   fi
   if [ "$fresh" = 1 ]; then
 
-    root=$(engine_data_root 2> /dev/null || true)
+    # Only a single absolute path counts: a Podman client that cannot reach its socket prints its
+    # own version block on stdout, which once ended the install without a word.
+    root=""
+    if data_root=$(engine_data_root 2> /dev/null) && [[ $data_root == /* && $data_root != *$'\n'* ]]; then root=$data_root; fi
     # Podman before its socket is open to this user (podman_prepare): its default storage folder.
     if [ -z "$root" ] && [ "$ENGINE_ID" = podman ]; then root=/var/lib/containers; fi
-    free_kb=${SELFHOSTR_FREE_DISK_KB:-$(df -Pk "${root:-/}" 2> /dev/null | awk 'NR==2 {print $4}')}
+    free_kb=${SELFHOSTR_FREE_DISK_KB:-$(df -Pk "${root:-/}" 2> /dev/null | awk 'NR==2 {print $4}' || true)}
     [[ ${free_kb:-} =~ ^[0-9]+$ ]] || die "cannot read the free disk space"
     if [ "$free_kb" -lt $((15 * 1024 * 1024)) ]; then
       die "less than 15 GiB free under $(engine_name)'s data folder"

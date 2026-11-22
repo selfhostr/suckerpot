@@ -85,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Installer: a command that fails where no message was planned now names itself and its line
+  (screen and `install.log`) instead of a bare "failed" step. On Podman, a client that could not
+  reach its socket yet printed its version block where the disk check expected a folder, which
+  ended a fresh install at step 1 without a word; only a real folder path is used now.
 - `just rollback` across a database migration could stop with "SUCKERPOT_VOLUME_PREFIX must be
   set" before restoring the pre-update dump (images mode).
 - Podman: helper containers (cosign, the broker test) no longer pass tmpfs `uid=`/`gid=` options,

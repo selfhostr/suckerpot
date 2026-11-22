@@ -35,7 +35,10 @@ as_user() { docker exec -u node -w /home/node/suckerpot "${user_env[@]}" "$node"
 
 dump() {
   say "logs (failure)"
-  in_node 'tail -n 80 /home/node/suckerpot/install.log 2>/dev/null; journalctl --no-pager -n 80 -u suckerpot-firewall.service -u suckerpot-stack.service -u podman.socket 2>/dev/null; podman ps -a 2>/dev/null' || true
+  printf '\n-- install.log (last 80 lines)\n'
+  in_node 'tail -n 80 /home/node/suckerpot/install.log 2>/dev/null' || true
+  printf '\n-- units and containers\n'
+  in_node ' journalctl --no-pager -n 80 -u suckerpot-firewall.service -u suckerpot-stack.service -u podman.socket 2>/dev/null; podman ps -a 2>/dev/null' || true
 }
 cleanup() {
   rc=$?
@@ -70,7 +73,8 @@ for _ in $(seq 1 30); do
 done
 in_node 'podman --version; docker-compose version --short; nft --version'
 
-say "copying this checkout (release $version), hub pointed at example.com"
+head=$(git rev-parse --short HEAD)
+say "copying this checkout (scripts and compose files of HEAD $head; images of release $version), hub pointed at example.com"
 # A clone (tags included; works from a linked worktree too), then the working tree on top of it,
 # so uncommitted changes are tested as well.
 git clone -q --no-local --no-hardlinks . "$work/repo"
@@ -87,14 +91,21 @@ printf '\nNETWORK_HUB_URL=https://example.com\n' >> .env.example
 chown -R node:node /home/node/suckerpot
 sudo -u node git -c safe.directory='*' -c user.name=e2e -c user.email=e2e@example.invalid commit -qam 'e2e: hub stub' --no-verify
 grep -q example.com config/network-defaults.env"
+# The scripts under test are this checkout's, never the release tag's: the tag only names the images.
+want=$(sha256sum scripts/install.sh | cut -d" " -f1)
+have=$(in_node 'sha256sum /home/node/suckerpot/scripts/install.sh' | cut -d" " -f1)
+[ "$want" = "$have" ] || fail "the copy does not hold this checkout's install.sh"
 
 user_env=(-e SUCKERPOT_ENROL_WAIT=20)
 [ -z "${SELFHOSTR_FREE_DISK_KB:-}" ] || user_env+=(-e "SELFHOSTR_FREE_DISK_KB=$SELFHOSTR_FREE_DISK_KB")
 
 say "fresh participant install on Podman (only engine, socket closed)"
 in_node 'systemctl is-active podman.socket || true; command -v docker || echo "no docker command"'
-out=$(as_user "./scripts/install.sh --participant --yes --version $version" 2>&1) || {
+out=$(as_user "set -o pipefail; ./scripts/install.sh --participant --yes --version $version 2> >(tee /tmp/install.err >&2)" 2>&1) || {
+  printf '\n-- installer output (last 60 lines)\n'
   printf '%s\n' "$out" | tail -n 60
+  printf '\n-- installer stderr\n'
+  in_node 'cat /tmp/install.err 2>/dev/null' || true
   fail "the install did not finish"
 }
 printf '%s\n' "$out" | grep -E '^\[[0-9]+/10\]|result:|warning|Podman' || true
