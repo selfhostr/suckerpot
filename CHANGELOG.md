@@ -57,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Docs: the install, participate, VPS and getting-started pages, the README, the network and update
+  pages and the configuration reference now match the two-question installer (`--full` for a full
+  install, the Docker offer from Docker's repository, `--update-check`, `--join-network`) and
+  Podman support (experimental; Debian 13 and Ubuntu 26.04 supported, Fedora and RHEL 10
+  experimental, host firewall required, socket group root-equivalent).
 - The installer asks at most two questions: the install type (participant node or full install,
   when no `--participant` or `--full` says it), and the participant consent. Everything else takes
   its default, and each default has a flag:

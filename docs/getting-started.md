@@ -20,9 +20,9 @@ The main path is the installer. It checks the machine, creates the secrets and s
 | Requirement | Notes |
 | --- | --- |
 | A Linux host, such as a VM | Dedicated and isolated (see the warning above). Amd64 and arm64 are supported. |
-| Docker Engine 24 or newer, with Compose 2.24 or newer | `docker compose version` must work for your user. |
+| Docker Engine 24 or newer, with Compose 2.24 or newer | `docker compose version` must work for your user. Without Docker, the installer offers to install it from Docker's own package repository. Podman 5.4+ works too, experimental: see [Podman (experimental)](install.md#podman-experimental). |
 | Memory | 4 GiB for all sensors. About 2 GiB with the [low-memory mode](install.md#low-memory-hosts) and fewer sensors. |
-| Disk | 15 GiB free under Docker's data folder at least. 30 GiB or more is better. |
+| Disk | 15 GiB free under the container engine's data folder at least. 30 GiB or more is better. |
 | `git` and `curl` | Used by the installer and by the health checks. |
 | `just` | Optional, but recommended. It wraps the common commands. |
 

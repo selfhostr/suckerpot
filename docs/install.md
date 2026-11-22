@@ -1,6 +1,6 @@
 # Install SuckerPot
 
-This page shows how to install SuckerPot with one command. The installer checks the machine, asks a few questions, creates every secret on this host and starts the stack. The dashboard then walks you through the rest.
+This page shows how to install SuckerPot with one command. The installer checks the machine, asks at most two questions (the install type, and the consent of a participant install), creates every secret on this host and starts the stack. The dashboard then walks you through the rest.
 
 The manual path, with no installer, is still described in [Getting started](getting-started.md#manual-setup).
 
@@ -14,11 +14,11 @@ SuckerPot is built to be attacked. Install it on a dedicated machine that holds 
 | --- | --- | --- |
 | Operating system | Linux, on `x86_64` (amd64) or `aarch64` (arm64) | A VM or a small server is fine. See [low-memory hosts](#low-memory-hosts) for small machines. |
 | Shell tools | Bash 4 or newer, `git`, `curl`, and the usual GNU tools (`awk`, `sed`, `tr`, `base64`) | `ss` (from iproute2) is used for the port check. Without it the check is skipped. |
-| Docker Engine | 24 or newer, 28 or newer recommended | Before 28 the internal networks are not isolated from the host (the installer warns). Your user must run `docker` without `sudo`. The installer tells you how to add the group if not. |
+| Docker Engine | 24 or newer, 28 or newer recommended | Before 28 the internal networks are not isolated from the host (the installer warns). Your user must run `docker` without `sudo`. The installer tells you how to add the group if not. When Docker is missing, it offers to install it from Docker's own package repository (see [what the installer asks](#what-the-installer-asks)). |
 | Docker Compose | v2.24 or newer | The Compose plugin (`docker compose version` must work). |
-| Or: Podman (experimental) | Podman 5.4 or newer, rootful, with `docker-compose` 2.26 or newer | Debian 13, Ubuntu 26.04; Fedora and the RHEL 10 family are experimental too. See [Podman](#podman-experimental). |
+| Or: Podman (experimental) | Podman 5.4 or newer, rootful, with `docker-compose` 2.26 or newer | Supported on Debian 13 and Ubuntu 26.04; Fedora and the RHEL 10 family are experimental. The host firewall is required. See [Podman](#podman-experimental). |
 | Memory | 2 GiB minimum | Use [low-memory mode](#low-memory-hosts) below 6 GiB. A machine sold as "2 GB" reports about 1.9 GiB and is accepted: it runs the low-memory setup, so add swap. The installer accepts 1.75 GiB (1,835,008 kB) or more; below that it refuses a full install and points to `--participant --lite`. |
-| Free disk | 15 GiB minimum under Docker's data folder | The installer warns below 30 GiB. Logs and captured payloads need room. |
+| Free disk | 15 GiB minimum under the container engine's data folder | The installer warns below 30 GiB. Logs and captured payloads need room. |
 | Outbound access | Yes, for the install | The host pulls images from the registry and checks their signatures. This traffic uses the host's own address. See [Anonymous egress](#what-leaves-this-machine). |
 | Router | Forwarding for the sensor ports you chose | See [Ports to forward](#ports-to-forward). |
 
@@ -27,7 +27,10 @@ The memory figures are sizing targets. Check the real use on your host with `doc
 ## Podman (experimental)
 
 SuckerPot also runs on rootful Podman, with the same commands for the install, updates, status and
-the participant tools. Podman support is experimental.
+the participant tools. Podman support is experimental: Debian 13 and Ubuntu 26.04 are the supported
+systems, Fedora and the RHEL 10 family are experimental, and Podman 4 hosts (Debian 12, Ubuntu
+24.04) are refused. The host firewall is required, and the socket group the installer creates is
+root-equivalent (see below).
 
 - On a machine with Podman only, `./scripts/install.sh` uses it without a question.
 - With both commands (Fedora's `docker-compose` package brings the `docker` command along): while
@@ -74,8 +77,8 @@ Design and test results: [docs/dev/design/podman.md](dev/design/podman.md).
 
 | Mode | What runs | Use it when |
 | --- | --- | --- |
-| `full` (default) | Everything: sensors, database, ingest, API and dashboard, and the VPN service (optional; idle until you add a WireGuard file) | You want the dashboard, reports and blocklists |
-| `participant` (`--participant`) | Sensors, database, ingest and the network node. No dashboard, no admin account, no VPN needed | You only want to help the network. See [Join the network](participate.md) |
+| `full` (`--full`; the default with `--yes`) | Everything: sensors, database, ingest, API and dashboard, and the VPN service (optional; idle until you add a WireGuard file) | You want the dashboard, reports and blocklists |
+| `participant` (`--participant`; the default answer on a terminal) | Sensors, database, ingest and the network node. No dashboard, no admin account, no VPN needed | You only want to help the network. See [Join the network](participate.md) |
 
 Participant mode has its own flags: `--pseudonym`, `--no-pseudonym`, `--country`, `--show-country`, `--verifier`, `--no-auto-update`, `--feeds`, `--lite`, `--no-firewall` and `--repair`. Without `--participant` or `--full`, the installer asks which one on a terminal (see [what the installer asks](#what-the-installer-asks)). It refuses the dashboard flags (`--dashboard-*`, `--public-host`, `--admin-*`, `--allow-lan`). Choosing it is your consent to join the network.
 
@@ -105,7 +108,7 @@ The second line switches to the newest release tag, so these commands always ins
 If you clone without a tag, or you want to build from source, run:
 
 ```bash
-./scripts/install.sh --source
+./scripts/install.sh --full --source
 ```
 
 The installer does not use `curl | bash`. Read the script first, then run it from the checkout.

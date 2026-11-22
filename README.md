@@ -38,7 +38,7 @@ git switch --detach "$(git describe --tags --abbrev=0)"
 ./scripts/install.sh --full
 ```
 
-Needs Docker with the compose plugin. The installer creates the secrets, starts the stack and prints the dashboard address; the six recommended sensors are on by default (`--sensors all` turns on all twelve). Back up with `just backup`. Before you expose anything, follow the [go-live checklist](https://suckerpot.selfhostr.io/docs/deployment/).
+Needs Docker with the compose plugin (the installer offers to install it from Docker's package repository), or Podman 5.4+ (experimental, see the [install guide](docs/install.md#podman-experimental)). The installer asks at most two questions, creates the secrets, starts the stack and prints the dashboard address; the six recommended sensors are on by default (`--sensors all` turns on all twelve). Back up with `just backup`. Before you expose anything, follow the [go-live checklist](https://suckerpot.selfhostr.io/docs/deployment/).
 
 The optional SuckerPot network is an experimental preview, off unless you ask for it: very few nodes exist, its shared feed may be empty, and a participant gets nothing back yet ([details](docs/network.md)). Only want to try it? `./scripts/install.sh --participant` installs sensors without a dashboard (see [Join the network](https://suckerpot.selfhostr.io/docs/participate/)); a 1 GiB VPS works with `--lite` ([VPS guide](https://suckerpot.selfhostr.io/docs/vps/)).
 

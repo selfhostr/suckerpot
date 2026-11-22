@@ -322,7 +322,7 @@ The update job (`./scripts/participant.sh auto-update on`) runs from the crontab
 
 The update check tells you when a newer release exists. It never installs anything.
 
-It is **off by default**. The installer asks the question, with `no` as the default. To change it later:
+It is **off by default**. A full install turns it on with `--update-check` (the installer asks no question about it). To change it later:
 
 ```bash
 just set UPDATE_CHECK_ENABLED=true

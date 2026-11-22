@@ -22,7 +22,7 @@ Any provider works. Choose one that allows Linux with a public IPv4 address and 
 | --- | --- |
 | Machine | 1 GiB of memory, 1 vCPU, 15 GiB of free disk, `x86_64` or `aarch64` |
 | System | Debian 12+ or Ubuntu 22.04+, 64 bit |
-| Software | Docker Engine 24+ with the Compose plugin, `git`, `curl`, Bash 4+ |
+| Software | Docker Engine 24+ with the Compose plugin, `git`, `curl`, Bash 4+. Without Docker, the installer offers to install it from Docker's own package repository. Podman works too, experimental (Debian 13 or Ubuntu 26.04): see [Podman (experimental)](install.md#podman-experimental) |
 | Swap | 1 GiB of swap or more (see below) |
 | Access | Root or a sudo user, and SSH with a key |
 
@@ -221,7 +221,7 @@ In the SuckerPot folder you cloned for the script above (if you moved your SSH b
 ./scripts/install.sh --participant --lite
 ```
 
-The installer finds your admin SSH port from what `sshd` listens on (22222 with the script's default) and records it as `ADMIN_SSH_PORT`, so the host firewall protects it. You can check it with `grep ADMIN_SSH_PORT .env`. It never edits your `sshd` configuration. Say yes to the host firewall when it asks. More about the installer: [Join the network](participate.md).
+The installer finds your admin SSH port from what `sshd` listens on (22222 with the script's default) and records it as `ADMIN_SSH_PORT`, so the host firewall protects it. You can check it with `grep ADMIN_SSH_PORT .env`. It never edits your `sshd` configuration. It also installs the host firewall (`sudo` asks for your password). More about the installer: [Join the network](participate.md).
 
 ## Open the ports in the provider panel
 
