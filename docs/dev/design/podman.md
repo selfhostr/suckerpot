@@ -453,6 +453,18 @@ Acceptance:
 - A deliberate break (for example removing `--disable-dns` from `sp-ingress`) makes it fail.
 - Its run time stays under 45 minutes.
 
+As built (first step): the `podman` job of `.github/workflows/ci.yml` runs `scripts/e2e/podman.sh`.
+Instead of replacing Docker on the runner (Ubuntu 24.04 has Podman 4.9, and no Podman 5.4 package to
+install from), it runs a Debian 13 machine with rootful Podman 5.4.2 and systemd as PID 1 as a
+privileged container on the runner's Docker, the way the Phase 2 and 3 tests ran. The container has
+its own network namespace, nftables and units, so the real installer, firewall, boot unit and
+reboot run as on a VPS. It covers: a fresh `install.sh --participant --yes` with the newest release
+images (signatures checked), `status.sh`, `egress-check --isolation` (all PASS), a reboot (firewall,
+then stack, then the checks again), and a negative check (the firewall tables deleted: the firewall,
+sensor-to-sensor and internet checks must FAIL; reloaded: PASS). The hub is pointed at
+`example.com`. Still to add: `test-backup-restore.sh`, `test-broker.sh` and the participant e2e
+with its test hub on Podman, a Fedora variant, and the release smoke job.
+
 ### Phase 5: docs and website
 
 - `docs/install.md`: requirements table with a "Container engine" row (Docker Engine 24+ or Podman 5.4+ rootful), a Podman subsection (packages, `podman.socket`, nftables driver, socket access), troubleshooting rows.

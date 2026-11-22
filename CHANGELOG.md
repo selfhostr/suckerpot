@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- CI: a `podman` job (informational while Podman support is experimental). On every pull request
+  it runs `scripts/e2e/podman.sh`: a Debian 13 machine with rootful Podman 5.4 in a privileged
+  container, a real `./scripts/install.sh --participant --yes` with the release images, the status,
+  `egress-check --isolation` (all must pass), a reboot, and a negative check (without the firewall
+  tables the isolation checks must fail). The real hub is never contacted.
 - Installer on Podman (experimental): `./scripts/install.sh` installs on rootful Podman. On a
   machine with Podman only it uses it without a question. With both engines, Docker is used while
   it runs; when Docker is off and Podman is packaged, a terminal install asks (Podman by default)
@@ -80,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Installer: a command that fails where no message was planned now names itself and its line
+  (screen and `install.log`) instead of a bare "failed" step. On Podman, a client that could not
+  reach its socket yet printed its version block where the disk check expected a folder, which
+  ended a fresh install at step 1 without a word; only a real folder path is used now.
 - `just rollback` across a database migration could stop with "SUCKERPOT_VOLUME_PREFIX must be
   set" before restoring the pre-update dump (images mode).
 - Podman: helper containers (cosign, the broker test) no longer pass tmpfs `uid=`/`gid=` options,
