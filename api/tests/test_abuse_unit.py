@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 from suckerpot_reporting import (
     Evidence,
@@ -137,3 +138,73 @@ def test_clean_settings_and_an_unknown_self_address_raise_nothing() -> None:
 def test_settings_cannot_be_judged_without_the_deny_set() -> None:
     issues = abuse_core.settings_issues({"reply_contact": "reports@example.org"}, None)
     assert issues == {"reply_contact": ["self_terms_unavailable"]}
+
+
+# --- M38 review fixes: viewer ids, stored files, reports sent before X-ARF v4 -------------------
+
+XID = "7a7a7a7a-0000-4000-8000-00000000000a"
+
+
+def _with_id(ev: Evidence) -> Evidence:
+    import uuid
+
+    sub = ev.subjects[0].model_copy(update={"xarf_id": uuid.UUID(XID)})
+    return ev.model_copy(update={"subjects": (sub,)})
+
+
+class _FakeRow:
+    def __init__(self, status: str, sent_xarf: object = None) -> None:
+        self.status = status
+        self.sent_xarf = sent_xarf
+
+
+def _Row(status: str, sent_xarf: object = None) -> Any:
+    return _FakeRow(status, sent_xarf)
+
+
+def _render(ev: Evidence, inputs: abuse_core.MailInputs, fmt: str = "xarf") -> abuse_core.Rendered:
+    return abuse_core.render_checked(
+        ev, FULL, load_self_terms([], {}), GuardContext(allow_documentation=True), fmt,
+        inputs=inputs,
+    )  # fmt: skip
+
+
+def test_a_viewer_never_sees_a_real_xarf_report_id() -> None:
+    ev = _with_id(evidence("uname -a"))
+    admin_ev, _ = abuse_core.mail_inputs(_Row("draft"), ev, admin=True)
+    viewer_ev, _ = abuse_core.mail_inputs(_Row("draft"), ev, admin=False)
+    assert str(admin_ev.subjects[0].xarf_id) == XID
+    assert str(viewer_ev.subjects[0].xarf_id) != XID
+    stored = [{"name": "xarf.json", "content": json.dumps({"report_id": XID, "a": 1})}]
+    _, inputs = abuse_core.mail_inputs(_Row("sent", stored), ev, admin=False)
+    assert inputs.sent_files is not None and XID not in inputs.sent_files[0].content
+    _, mine = abuse_core.mail_inputs(_Row("sent", stored), ev, admin=True)
+    assert mine.sent_files is not None and XID in mine.sent_files[0].content
+
+
+def test_a_sent_report_shows_the_xarf_files_that_left() -> None:
+    ev = _with_id(evidence("uname -a"))
+    content = json.dumps({"report_id": XID, "sent": "as it left"}) + "\n"
+    _, inputs = abuse_core.mail_inputs(
+        _Row("sent", [{"name": "xarf.json", "content": content}]), ev, admin=True
+    )
+    files = _render(ev, inputs).message.xarf_files
+    assert [f.content for f in files] == [content]
+    eml = _render(ev, inputs, "eml").eml
+    assert eml is not None and b"multipart/report" in eml
+
+
+def test_a_report_sent_before_xarf_v4_shows_no_made_up_json() -> None:
+    import pytest
+    from suckerpot_reporting import RenderUnavailable
+
+    ev = evidence("uname -a")  # no XARF id: sent before 0040
+    _, inputs = abuse_core.mail_inputs(_Row("sent"), ev, admin=True)
+    assert inputs.legacy
+    with pytest.raises(RenderUnavailable) as exc:
+        _render(ev, inputs)
+    assert exc.value.code == "not_sent_with_xarf_v4"
+    eml = _render(ev, inputs, "eml").eml
+    assert eml is not None and b"application/json" not in eml
+    _, open_inputs = abuse_core.mail_inputs(_Row("draft"), ev, admin=True)
+    assert not open_inputs.legacy  # an open report renders (or fails) as usual

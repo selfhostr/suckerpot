@@ -1097,6 +1097,8 @@ class AbuseReportRow(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     part: Mapped[int] = mapped_column(SmallInteger, server_default=text("1"), nullable=False)
     channel: Mapped[str] = mapped_column(Text, server_default=text("'mail'"), nullable=False)
+    # The XARF files that left: [{"name", "content"}], written by ingest when it is sent.
+    sent_xarf: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
 
 class AbuseReportSubjectRow(Base):

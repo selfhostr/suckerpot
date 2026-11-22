@@ -314,14 +314,14 @@ async def test_a_verified_reply_is_linked_to_the_sources_it_names(world: World) 
             {"r": report},
         )
     async with world.factory() as session, session.begin():
-        rid, subject, seen = await by_xarf_id(session, [str(xid)])
-        assert (rid, subject, seen) == (report, ("attack_source", "ip", "198.51.100.99"), True)
+        rid, subjects, seen = await by_xarf_id(session, [str(xid)])
+        assert (rid, subjects, seen) == (report, (("attack_source", "ip", "198.51.100.99"),), True)
         body = "Ticket T-9: we suspended 198.51.100.23.\n\nOn Monday you wrote:\n> 198.51.100.99"
         n = await link_sources(
             session,
             reply_id=int(reply_id or 0),
             report_id=report,
-            found=Match(report, "xarf_id", subject=subject),
+            found=Match(report, "xarf_id", subjects=subjects),
             reply=ParsedReply(body=body),
             ticket="T-9",
         )
@@ -342,4 +342,164 @@ async def test_a_verified_reply_is_linked_to_the_sources_it_names(world: World) 
             text("SELECT xarf_id FROM abuse_report_subjects WHERE report_id = :r"), {"r": draft}
         )
     async with world.factory() as session:
-        assert await by_xarf_id(session, [str(draft_id)]) == (None, None, True)
+        assert await by_xarf_id(session, [str(draft_id)]) == (None, (), True)
+
+
+async def test_an_xarf_id_alone_does_not_make_a_mail_relevant(world: World) -> None:
+    from ingest.replies.parse import HeaderView
+    from ingest.replies.store import is_relevant
+
+    report = await world.report(kind="digest", status="reviewed")
+    async with world.owner.connect() as conn:
+        xid = await conn.scalar(
+            text("SELECT xarf_id FROM abuse_report_subjects WHERE report_id = :r"), {"r": report}
+        )
+    view = HeaderView(
+        from_address="someone@unrelated.example.com",
+        from_domain="unrelated.example.com",
+        from_local="someone",
+        subject=f"About {xid}",
+        reference_ids=(),
+        content_type="text/plain",
+        looks_like_dsn=False,
+    )
+    async with world.factory() as session:
+        assert await is_relevant(session, view, []) is False
+
+
+async def ended_request(world: World, report: int, code: str, *, before_change: bool) -> None:
+    """An automatic request of ``report`` that ended with ``code``, before (or after) the report
+    last changed."""
+    async with world.owner.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO abuse_send_requests (report_id, kind, auto, requested_by, "
+                "scheduled_at) VALUES (:r, 'send', true, 'auto', now())"
+            ),
+            {"r": report},
+        )
+        status = "failed" if code in ("xarf_invalid", "guard_failed:project_term", "refused:550",
+                                      "unknown_outcome") else "cancelled"  # fmt: skip
+        await conn.execute(
+            text(
+                "UPDATE abuse_send_requests SET status = :s, error_code = :c, "
+                "done_at = now() - interval '1 hour' WHERE report_id = :r AND status = 'pending'"
+            ),
+            {"s": status, "c": code, "r": report},
+        )
+        when = "now() - interval '2 hours'" if not before_change else "now()"
+        await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
+        await conn.execute(
+            text(f"UPDATE abuse_reports SET updated_at = {when} WHERE id = :r"),  # noqa: S608
+            {"r": report},
+        )
+        await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["too_old", "shared_host", "xarf_invalid", "guard_failed:project_term", "not_ready",
+     "mode_changed"],
+)  # fmt: skip
+async def test_a_terminal_end_is_rescheduled_once_the_report_changed(
+    world: World, code: str
+) -> None:
+    await digest_profile(world)
+    report = await world.report(kind="digest", due=PAST)
+    await ended_request(world, report, code, before_change=False)
+    await world.sender().schedule(NOW)
+    assert len(await requests(world)) == 1  # nothing changed since: it stays ended
+    await ended_request(world, report, code, before_change=True)
+    async with world.owner.begin() as conn:  # keep only the newest ended request
+        await conn.execute(
+            text(
+                "DELETE FROM abuse_send_requests WHERE id <> (SELECT max(id) FROM "
+                "abuse_send_requests)"
+            )
+        )
+    await world.sender().schedule(NOW)
+    rows = await requests(world)
+    assert [r.status for r in rows] == [rows[0].status, "pending"]
+
+
+@pytest.mark.parametrize("flag", ["form_only", "undeliverable"])
+async def test_a_desk_flag_end_is_rescheduled_once_the_flag_is_cleared(
+    world: World, flag: str
+) -> None:
+    await digest_profile(world)
+    report = await world.report(kind="digest", due=PAST)
+    rec = await recipient_of(world, report)
+    async with world.owner.begin() as conn:
+        await conn.execute(
+            text(f"UPDATE abuse_recipients SET {flag} = true WHERE id = :r"),  # noqa: S608
+            {"r": rec},
+        )
+    await ended_request(world, report, flag, before_change=False)
+    await world.sender().schedule(NOW)
+    assert len(await requests(world)) == 1  # still flagged
+    async with world.api.begin() as conn:
+        await conn.execute(
+            text(f"UPDATE abuse_recipients SET {flag} = false WHERE id = :r"),  # noqa: S608
+            {"r": rec},
+        )
+    await world.sender().schedule(NOW)
+    assert [r.status for r in await requests(world)][-1] == "pending"
+
+
+@pytest.mark.parametrize("code", ["refused:550", "unknown_outcome", None])
+async def test_a_refusal_an_unknown_outcome_or_the_owners_cancel_still_block(
+    world: World, code: str | None
+) -> None:
+    await digest_profile(world)
+    report = await world.report(kind="digest", due=PAST)
+    if code is None:
+        await world.sender().schedule(NOW)
+        async with world.api.begin() as conn:
+            await conn.execute(text("UPDATE abuse_send_requests SET status = 'cancelled'"))
+        async with world.owner.begin() as conn:
+            await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
+            await conn.execute(text("UPDATE abuse_reports SET updated_at = now() + interval '1 s'"))
+            await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
+    else:
+        await ended_request(world, report, code, before_change=True)
+    await world.sender().schedule(NOW)
+    assert len(await requests(world)) == 1
+
+
+async def test_the_hold_runs_from_the_last_rebuild(world: World) -> None:
+    await digest_profile(world, hold=30)
+    report = await world.report(kind="digest", due=NOW - timedelta(hours=2))
+    s = world.sender()
+    await s.run(NOW)
+    async with world.owner.begin() as conn:  # the request was queued long ago
+        await conn.execute(text("ALTER TABLE abuse_send_requests DISABLE TRIGGER USER"))
+        await conn.execute(
+            text("UPDATE abuse_send_requests SET scheduled_at = now() - interval '1 hour'")
+        )
+        await conn.execute(text("ALTER TABLE abuse_send_requests ENABLE TRIGGER USER"))
+    await s.run(datetime.now(UTC) + timedelta(minutes=5))
+    assert FakeSMTP.instances == []  # rebuilt (created) less than the hold ago
+    await s.run(datetime.now(UTC) + timedelta(minutes=31))
+    assert (await world.report_row(report)).status == "sent"
+
+
+async def test_the_xarf_files_that_left_are_stored(world: World) -> None:
+    await digest_profile(world)
+    report = await world.report(
+        kind="digest", due=PAST, at=NOW - timedelta(hours=2),
+        extra=[("198.51.100.98", NOW - timedelta(hours=1))],
+    )  # fmt: skip
+    s = world.sender()
+    await s.run(NOW)
+    await s.run(later())
+    (conn,) = FakeSMTP.instances
+    assert conn.sent is not None
+    mail = email.message_from_bytes(conn.sent[2], policy=email.policy.SMTP)
+    sent = {
+        p.get_filename(): p.get_payload(decode=True).decode()  # type: ignore[union-attr]
+        for p in mail.walk()
+        if p.get_content_type() == "application/json"
+    }
+    stored = (await world.report_row(report)).sent_xarf
+    assert {f["name"]: f["content"] for f in stored} == sent
+    assert sorted(k or "" for k in sent) == ["xarf-001.json", "xarf-002.json"]

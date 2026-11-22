@@ -53,7 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `digest_enabled`, `report_smtp.digest_minute`, `abuse_recipients.xarf_strict`. On upgrade the open
   drafts of each recipient are merged into one digest on the first build and marked superseded;
   pending automatic sends of drafts are cancelled with `digest_migration`, so nothing leaves during
-  the upgrade. Reviewed reports go as they are, with their X-ARF parts.
+  the upgrade. Reviewed reports go as they are, with their X-ARF parts. `abuse_reports.sent_xarf`
+  keeps the X-ARF files exactly as they left. The downgrade is refused while a sent digest exists
+  (use `just rollback`).
 - The identity guard decodes base64 inside JSON values (the X-ARF evidence and any other value)
   and in JSON MIME parts before it checks them. The node's network pseudonym is a deny term.
 - Results group a digest under each kind of source it holds; the timeline counts mails once.

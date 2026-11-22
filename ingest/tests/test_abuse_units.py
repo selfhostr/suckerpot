@@ -399,3 +399,51 @@ def test_the_check_covers_the_xarf_and_the_eml_the_send_path_builds() -> None:
 def _text_of(ev: Evidence, settings: ReportSettings) -> str:
     msg = render_text(ev, settings)
     return msg.subject + msg.body
+
+
+# -- M38 review fixes ---------------------------------------------------------------------------
+
+
+def _act(**kw: Any) -> Activity:
+    base: dict[str, Any] = {
+        "ts": T0, "src_ip": "198.51.100.4", "src_port": 40000, "dst_port": 22,
+        "protocol": "tcp", "service": "ssh", "action": "command", "text": "id",
+    }  # fmt: skip
+    base.update(kw)
+    return Activity.model_validate(base)
+
+
+def test_only_a_login_attack_needs_a_source_port() -> None:
+    from ingest.abuse.build import needs_source_port
+
+    assert needs_source_port([_act(src_port=0)])
+    assert needs_source_port([])
+    assert not needs_source_port([_act(src_port=0, action="exploit_attempt", service="http")])
+    assert not needs_source_port([_act(src_port=0, cves=("cve-2023-1389",))])
+    assert not needs_source_port([_act(src_port=0, sqli=True)])
+
+
+def test_trimming_keeps_a_port_bearing_activity() -> None:
+    from datetime import timedelta
+
+    from ingest.abuse.build import keep_activities
+
+    late = _act(ts=T0 + timedelta(minutes=5), src_port=40000)
+    early = tuple(_act(ts=T0 + timedelta(seconds=i), src_port=0) for i in range(3))
+    kept = keep_activities((*early, late), 1)
+    assert kept == (late,)
+    two = keep_activities((*early, late), 2)
+    assert late in two and len(two) == 2 and list(two) == sorted(two, key=lambda a: a.ts)
+    assert keep_activities(early, 2) == early[:2]  # nothing to keep: plain trim
+    assert keep_activities((late, *early), 2) == (late, early[0])
+
+
+def test_a_digest_due_within_the_hold_is_frozen() -> None:
+    from datetime import timedelta
+
+    from ingest.abuse.build import frozen
+
+    hold = timedelta(minutes=60)
+    assert frozen(T0 + timedelta(minutes=30), hold, T0)
+    assert not frozen(T0 + timedelta(minutes=90), hold, T0)
+    assert not frozen(None, hold, T0) and not frozen(T0, None, T0)

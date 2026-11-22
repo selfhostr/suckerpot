@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.shared_mail import is_shared_domain
 
-from .parse import BODY_FOR_RULES, ParsedReply
+from .parse import BODY_FOR_RULES, ParsedReply, strip_quoted
 
 # A token comes right after "ref", "ref:", "ref#" or "(ref". Bounded text, no nested repeats.
 TOKEN: Final = re.compile(r"(?<![a-z0-9])ref[ :#]{0,3}([0-9a-f]{12})(?![0-9a-z])")
@@ -46,7 +46,7 @@ class Match:
     report_id: int | None
     method: str = "none"
     via_message_id: bool = False
-    subject: SubjectKey | None = None  # the one source an ``xarf_id`` match names
+    subjects: tuple[SubjectKey, ...] = ()  # the sources an ``xarf_id`` match names
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +108,8 @@ def find_tokens(*texts: str) -> list[str]:
 
 
 def find_xarf_ids(*texts: str) -> list[str]:
-    """XARF report ids named in the texts, in order, at most five."""
+    """XARF report ids named in the texts, in order, at most five. Callers pass the subject and
+    the unquoted body only."""
     found: list[str] = []
     for value in texts:
         for xid in XARF_ID.findall(value[:BODY_FOR_RULES].lower()):
@@ -119,11 +120,12 @@ def find_xarf_ids(*texts: str) -> list[str]:
 
 async def by_xarf_id(
     session: AsyncSession, ids: list[str]
-) -> tuple[int | None, SubjectKey | None, bool]:
-    """``(report id, the source, an id was found at all)``. Only a sent or closed report counts,
-    like a reply token."""
+) -> tuple[int | None, tuple[SubjectKey, ...], bool]:
+    """``(report id, its sources whose id was quoted, an id was found at all)``. Only a sent or
+    closed report counts, like a reply token. Ids of several reports: the first report wins and
+    only its sources are linked."""
     if not ids:
-        return None, None, False
+        return None, (), False
     rows = (
         await session.execute(
             text(
@@ -134,10 +136,12 @@ async def by_xarf_id(
             {"ids": ids},
         )
     ).all()
-    for row in rows:
-        if row.status in ("sent", "closed"):
-            return int(row.report_id), (row.kind, row.subject_type, row.value), True
-    return None, None, bool(rows)
+    sent = [r for r in rows if r.status in ("sent", "closed")]
+    if not sent:
+        return None, (), bool(rows)
+    first = int(sent[0].report_id)
+    keys = tuple((r.kind, r.subject_type, r.value) for r in sent if int(r.report_id) == first)
+    return first, keys, True
 
 
 async def recent_reports(session: AsyncSession, days: int) -> list[RecentReport]:
@@ -223,9 +227,11 @@ async def find_match(
         return Match(rid, "token")
     if seen:
         return NO_MATCH  # the token names a report that was never sent: nothing to link
-    rid, subject, seen = await by_xarf_id(session, find_xarf_ids(reply.subject, reply.body))
+    # Only what the sender wrote: a quoted copy of our own mail names every id we sent.
+    ids = find_xarf_ids(reply.subject, strip_quoted(reply.body))
+    rid, subjects, seen = await by_xarf_id(session, ids)
     if rid is not None:
-        return Match(rid, "xarf_id", subject=subject)
+        return Match(rid, "xarf_id", subjects=subjects)
     if seen:
         return NO_MATCH  # the id names a source of a report that was never sent
     if reply.dsn_message_id:

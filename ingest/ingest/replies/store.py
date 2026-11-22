@@ -25,7 +25,6 @@ from .match import (
     by_token,
     find_match,
     find_tokens,
-    find_xarf_ids,
     from_known_recipient,
     is_verified,
     report_trust,
@@ -81,9 +80,9 @@ async def link_sources(
     reply: ParsedReply,
     ticket: str | None,
 ) -> int:
-    """Which sources of the report this verified reply speaks about: the source whose XARF id it
-    quotes, and every source it names in its own text (never the quoted original). A ticket
-    number goes to a source only when the reply names exactly that one."""
+    """Which sources of the report this verified reply speaks about: every source whose XARF id
+    it quotes and every source it names, both in its own text (never the quoted original). A
+    ticket number goes to a source only when the reply names exactly that one."""
     rows = (
         await session.execute(
             text(
@@ -95,8 +94,8 @@ async def link_sources(
     names = named_values(strip_quoted(reply.body))
     named = {(r.kind, r.subject_type, r.value) for r in rows if r.value.lower() in names}
     linked = set(named)
-    if found.subject is not None and found.report_id == report_id:
-        linked.add(found.subject)
+    if found.report_id == report_id:
+        linked.update(found.subjects)
     one = next(iter(named)) if len(named) == 1 else None
     for kind, stype, value in sorted(linked):
         await session.execute(
@@ -129,9 +128,9 @@ async def is_relevant(session: AsyncSession, view: HeaderView, recent: list[Rece
     if await by_message_id(session, view.reference_ids) is not None:
         return True
     rid, seen = await by_token(session, find_tokens(view.subject))
-    if rid is not None or seen:
-        return True
-    return bool(find_xarf_ids(view.subject))  # a desk that quotes a source's XARF report id
+    # An XARF report id alone in a subject is not enough: anyone can write a UUID. A desk that
+    # quotes one is a party we wrote to, which ``_known`` already lets in.
+    return rid is not None or seen
 
 
 def _known(view: HeaderView, recent: list[RecentReport]) -> bool:

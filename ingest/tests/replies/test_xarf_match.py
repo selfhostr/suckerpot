@@ -36,3 +36,10 @@ def test_named_values_reads_own_text_only() -> None:
 def test_named_values_stops_at_the_limit() -> None:
     text = " ".join(f"198.51.100.{i % 250}x{i}.example.org" for i in range(300))
     assert len(named_values(text)) == MAX_NAMES
+
+
+def test_a_quoted_xarf_id_is_not_read() -> None:
+    body = f"Thanks, we look into it.\n\nOn Monday you wrote:\n> report id {XID}\n"
+    assert find_xarf_ids("Re: abuse report", strip_quoted(body)) == []
+    own = f"Case closed for {XID}.\n\n> {XID.replace('601', '602')}\n"
+    assert find_xarf_ids("", strip_quoted(own)) == [XID]

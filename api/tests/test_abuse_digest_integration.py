@@ -14,7 +14,7 @@ import httpx
 import pytest
 from analytics_seed import owner_engine
 from sqlalchemy import text
-from suckerpot_reporting import schema_errors
+from suckerpot_reporting import GuardContext, schema_errors
 from test_abuse_integration import (
     DEMO_ID,
     NOW,
@@ -287,3 +287,71 @@ async def test_the_xarf_org_setting_is_guarded_and_used(client: httpx.AsyncClien
     report = json.loads(r.json()["attachments"][0]["content"])
     assert report["reporter"]["org"] == "Example Watch"
     assert report["reporter"]["domain"] == "example.org"
+
+
+async def test_one_value_with_two_kinds_needs_the_kind_to_download(
+    client: httpx.AsyncClient,
+) -> None:
+    await set_intro(client)
+    report = await seed_digest()
+    ev = evidence("uname -a")
+    first = ev["subjects"][0] | {"kind": "attack_source", "xarf_id": str(XARF_A)}
+    twin = json.loads(json.dumps(first)) | {"kind": "payload_host", "xarf_id": str(XARF_B)}
+    ev["kind"] = "digest"
+    ev["subjects"] = [first, twin]
+    await run(
+        "UPDATE abuse_reports SET evidence = CAST(:e AS jsonb) WHERE id = :r",
+        e=json.dumps(ev),
+        r=report,
+    )
+    await run(
+        "UPDATE abuse_report_subjects SET subject_type = 'ip', value = '198.51.100.23' "
+        "WHERE report_id = :r AND kind = 'payload_host'",
+        r=report,
+    )
+    url = f"/api/v1/abuse/reports/{DIGEST_ID}/download"
+    both = await client.get(url, params={"format": "xarf_json", "subject": "198.51.100.23"})
+    assert both.status_code == 409 and both.json()["code"] == "xarf_kind_required"
+    one = await client.get(
+        url,
+        params={"format": "xarf_json", "subject": "198.51.100.23", "subject_kind": "payload_host"},
+    )
+    assert (
+        one.status_code == 200 and 'filename="xarf-002.json"' in one.headers["content-disposition"]
+    )
+    assert json.loads(one.content)["type"] == "malware"
+
+
+async def test_a_sent_digest_shows_the_files_that_left(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import api.abuse_core as core
+
+    real = core.guard_context
+
+    async def lenient(db: Any, row: Any, ev: Any) -> GuardContext:
+        ctx = await real(db, row, ev)  # the fixtures use documentation addresses
+        return GuardContext(internal_ids=ctx.internal_ids, allow_documentation=True)
+
+    monkeypatch.setattr("api.abuse.guard_context", lenient)
+    await set_intro(client)
+    report = await seed_digest(status="draft", demo=False)
+    stored = [
+        {"name": "xarf-001.json", "content": json.dumps({"report_id": str(XARF_A)}) + "\n"},
+        {"name": "xarf-002.json", "content": json.dumps({"report_id": str(XARF_B)}) + "\n"},
+    ]
+    async with owner_engine() as owner, owner.begin() as conn:
+        await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
+        await conn.execute(
+            text(
+                "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_via = 'smtp', "
+                "sent_xarf = CAST(:x AS jsonb) WHERE id = :r"
+            ),
+            {"x": json.dumps(stored), "r": report},
+        )
+        await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
+    r = await client.get(f"/api/v1/abuse/reports/{DIGEST_ID}/render", params={"format": "xarf"})
+    assert r.status_code == 200, r.text
+    assert [(f["name"], f["content"]) for f in r.json()["attachments"]] == [
+        (f["name"], f["content"]) for f in stored
+    ]

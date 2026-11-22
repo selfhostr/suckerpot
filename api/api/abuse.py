@@ -73,6 +73,7 @@ from api.abuse_core import (
     load_evidence,
     load_settings,
     load_terms,
+    mail_inputs,
     missing_for,
     release,
     render_checked,
@@ -854,6 +855,7 @@ async def render_report(
     try:
         evidence = await load_evidence(db, row, rec, bundle)
         ctx = await guard_context(db, row, evidence)
+        evidence, inputs = mail_inputs(row, evidence, admin=admin)
         terms = await load_terms(db)
         rendered = await asyncio.to_thread(
             render_checked,
@@ -864,6 +866,7 @@ async def render_report(
             format,
             subject,
             **reply_args(row, bundle, admin=admin),
+            inputs=inputs,
         )
         release(rendered.guard)
     except GuardFailed as exc:
@@ -872,6 +875,8 @@ async def render_report(
     except RenderUnavailable as exc:
         if exc.code == "settings_incomplete":
             return settings_incomplete_response(missing_for(bundle.settings))
+        if exc.code == "not_sent_with_xarf_v4":
+            return error(409, "This report was not sent with X-ARF v4.", exc.code)
         return error(409, "This format is not available for this report.", exc.code)
     except EvidenceInvalidError:
         return error(409, "The stored evidence is not valid.", "evidence_invalid")
@@ -904,6 +909,7 @@ async def download_report(
     db: DbSession,
     format: DownloadFormat = "txt",
     subject: Annotated[str | None, Query(max_length=1024)] = None,
+    subject_kind: KindName | None = None,
 ) -> Response:
     loaded = await _load(db, public_id)
     if loaded is None:
@@ -921,6 +927,7 @@ async def download_report(
     try:
         evidence = await load_evidence(db, row, rec, bundle)
         ctx = await guard_context(db, row, evidence)
+        evidence, inputs = mail_inputs(row, evidence, admin=admin)
         terms = await load_terms(db)
         fmt = {"txt": "text", "eml": "eml", "evidence_csv": "text", "xarf_json": "xarf"}[format]
         rendered = await asyncio.to_thread(
@@ -932,9 +939,10 @@ async def download_report(
             fmt,
             subject,
             **reply_args(row, bundle, admin=admin),
+            inputs=inputs,
         )
         release(rendered.guard)
-        name, media, data = _file_of(format, stem, rendered, evidence, subject)
+        name, media, data = _file_of(format, stem, rendered, evidence, subject, subject_kind)
         # The guard looks at the exact bytes about to be sent, once more.
         kind = {"eml": "eml", "xarf_json": "json"}.get(format, "text")
         final = await asyncio.to_thread(guard, data, terms, fmt=kind, ctx=ctx)  # type: ignore[arg-type]
@@ -945,6 +953,8 @@ async def download_report(
     except RenderUnavailable as exc:
         if exc.code == "settings_incomplete":
             return settings_incomplete_response(missing_for(bundle.settings))
+        if exc.code == "not_sent_with_xarf_v4":
+            return error(409, "This report was not sent with X-ARF v4.", exc.code)
         return error(409, "This file is not available for this report.", exc.code)
     except EvidenceInvalidError:
         return error(409, "The stored evidence is not valid.", "evidence_invalid")
@@ -976,6 +986,7 @@ def _file_of(
     rendered: Any,
     evidence: Evidence,
     subject: str | None = None,
+    subject_kind: str | None = None,
 ) -> tuple[str, str, bytes]:
     msg = rendered.message
     if format == "txt":
@@ -987,10 +998,17 @@ def _file_of(
         return att.name, "text/csv; charset=us-ascii", att.content.encode("ascii")
     files = msg.xarf_files
     if subject is not None:
-        index = next((i for i, x in enumerate(evidence.subjects) if x.value == subject), None)
-        if index is None or index >= len(files):
+        # One value can be two sources of a digest (an attacker that also served a file).
+        hits = [
+            i
+            for i, x in enumerate(evidence.subjects)
+            if x.value == subject and (subject_kind is None or evidence.kind_of(x) == subject_kind)
+        ]
+        if len(hits) > 1:
+            raise RenderUnavailable("xarf_kind_required")
+        if not hits or hits[0] >= len(files):
             raise RenderUnavailable("xarf_unknown_subject")
-        chosen = files[index]
+        chosen = files[hits[0]]
     elif len(files) == 1:
         chosen = files[0]
     else:

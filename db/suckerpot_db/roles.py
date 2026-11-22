@@ -260,6 +260,8 @@ BEGIN
         IF to_regclass('public.abuse_subject_outcomes') IS NOT NULL THEN
             -- M38: the builder moves a draft digest's due time (never another report's: trigger).
             EXECUTE format('GRANT UPDATE (due_at) ON abuse_reports TO %I', r);
+            -- The XARF files that left, stamped in the update that marks the report sent.
+            EXECUTE format('GRANT UPDATE (sent_xarf) ON abuse_reports TO %I', r);
         END IF;
         EXECUTE format('GRANT SELECT, INSERT, DELETE ON abuse_report_subjects TO %I', r);
         EXECUTE format('GRANT SELECT ON abuse_report_requests TO %I', r);
@@ -644,7 +646,7 @@ BEGIN
             'GRANT SELECT (id, desired, state, pseudonym, country, show_country, node_id, '
             'fingerprint, pubkey, enrolled_day, eligible_from_day, standing, next_submit_at, '
             'last_submit_day, last_pull_at, last_summary_at, leave_requested_at, '
-            'last_error_code, requested_by, requested_at, updated_at) '
+            'last_error_code, requested_by, requested_at, updated_at, synced_pseudonym) '
             'ON network_membership TO %I', r);
         EXECUTE format(
             'GRANT UPDATE (desired, pseudonym, country, show_country, requested_by, '

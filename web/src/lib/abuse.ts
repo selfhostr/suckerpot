@@ -629,6 +629,9 @@ export function describeAbuseError(e: unknown): string {
     if (e.code === "xarf_invalid")
       return "An X-ARF part of this report did not pass the format check, so nothing is released."
     if (e.code === "xarf_subject_required") return "Pick the source whose X-ARF file you want."
+    if (e.code === "xarf_kind_required") return "Pick the kind of the source as well."
+    if (e.code === "not_sent_with_xarf_v4")
+      return "This report was sent before X-ARF v4, so no X-ARF file left with it."
     if (e.code === "reply_contact_not_email")
       return "X-ARF needs the reply contact to be a mail address. Change it in the Reporting settings."
     if (e.code === SAME_DAY) return SAME_DAY_TEXT
@@ -723,8 +726,12 @@ export type FileFormat = "txt" | "eml" | "evidence_csv" | "xarf_json"
  * A guarded file of one report. A blocked check rejects with the 409 and its reason codes.
  * `subject` picks the source of an X-ARF file when the report holds more than one.
  */
-export const downloadFile = (id: string, format: FileFormat, subject?: string) =>
-  getBlob(`/abuse/reports/${id}/download`, { format, subject })
+export const downloadFile = (
+  id: string,
+  format: FileFormat,
+  subject?: string,
+  subjectKind?: string,
+) => getBlob(`/abuse/reports/${id}/download`, { format, subject, subject_kind: subjectKind })
 
 // --- One mail per provider per day (M38) ---------------------------------------------
 

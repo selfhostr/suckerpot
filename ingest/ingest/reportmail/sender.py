@@ -46,6 +46,7 @@ send (``xarf_invalid`` otherwise, never a fallback).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -107,14 +108,14 @@ PASSWORD_AAD = "report_smtp"  # noqa: S105 - a label, not a secret; bound to the
 
 
 MARK_SENT = (
-    "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_by = :by, sent_via = 'smtp' "
-    "WHERE id = :i AND status IN ('draft', 'reviewed')"
+    "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_by = :by, sent_via = 'smtp', "
+    "sent_xarf = CAST(:x AS jsonb) WHERE id = :i AND status IN ('draft', 'reviewed')"
 )
 # An automatic send of a draft is stamped as reviewed by 'auto' (the trigger allows nothing else).
 MARK_AUTO = (
     "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_by = :by, sent_via = 'smtp', "
-    "reviewed_at = now(), reviewed_by = 'auto', reviewed_revision = revision "
-    "WHERE id = :i AND status IN ('draft', 'reviewed')"
+    "reviewed_at = now(), reviewed_by = 'auto', reviewed_revision = revision, "
+    "sent_xarf = CAST(:x AS jsonb) WHERE id = :i AND status IN ('draft', 'reviewed')"
 )
 
 
@@ -138,13 +139,55 @@ _HOUR_PASSED = "CAST(:minute AS integer) >= CAST(:digest_minute AS integer)"
 # True when an automatic send of report ``r`` may go now under the one-digest-a-day rule.
 RECIPIENT_FREE = (
     "(NOT CAST(:digest AS boolean) OR r.kind <> 'digest' OR rec.xarf_strict "
-    "OR (r.due_at IS NOT NULL AND r.due_at <= CAST(:now AS timestamptz) AND ("
+    "OR (r.due_at IS NOT NULL AND r.due_at <= CAST(:now AS timestamptz) "
+    # the hold runs from the last rebuild (a frozen digest is not rebuilt any more)
+    "AND r.updated_at <= CAST(:now AS timestamptz) - make_interval(mins => CAST(:hold AS integer)) "
+    "AND ("
     f"((SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED}) "
     f"OR (r.part > 1 AND (SELECT count(*) {_TODAY}) BETWEEN 1 AND {MAX_PARTS - 1} "
     f"AND (SELECT max(r2.sent_at) {_TODAY}) <= CAST(:now AS timestamptz) - interval '2 hours'))) "
     "OR (r.due_at IS NULL AND r.status = 'reviewed' "
     f"AND (SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED}))"
 )
+
+# An automatic request that ended for a reason that may be gone does not block a new one (M38):
+# ``form_only`` and ``undeliverable`` once the owner cleared the flag (schedule() checks the flags),
+# the others once the report changed after the request ended (a rebuild with new evidence, a
+# shared service left out, the identity check passing again). A refusal (5xx), an unknown outcome
+# and the owner's own cancel still block: a second mail would be worse, or the owner decided.
+TERMINAL_CODES = ("too_old", "shared_host", "xarf_invalid", "not_ready", "mode_changed", "internal")
+RESCHEDULABLE = (  # COALESCE: an owner's cancel has no error code, and NULL must block
+    "COALESCE(q.auto AND q.status IN ('cancelled', 'failed') AND ("
+    "q.error_code IN ('form_only', 'undeliverable') "
+    "OR ((q.error_code IN (" + ", ".join(f"'{c}'" for c in TERMINAL_CODES) + ") "
+    "OR q.error_code LIKE 'guard_failed%') AND q.done_at < r.updated_at)), false)"
+)
+
+_SCHEDULE_HEAD = """
+                    INSERT INTO abuse_send_requests (report_id, kind, auto, requested_by,
+                                                     scheduled_at)
+                    SELECT r.id, 'send', true, 'auto',
+                           GREATEST(COALESCE(r.due_at, CAST(:at AS timestamptz)),
+                                    CAST(:at AS timestamptz))
+                    FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id
+                    WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
+                      AND NOT rec.muted AND NOT rec.form_only AND NOT rec.undeliverable
+                      AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
+                      AND r.window_end > now() - make_interval(secs => :max_age)
+                      -- never had a request, or only automatic sends that the server deferred,
+                      -- or that ended for a reason that is gone (see RESCHEDULABLE)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM abuse_send_requests q WHERE q.report_id = r.id
+                            AND NOT (q.auto AND q.status = 'failed'
+                                     AND q.error_code LIKE 'deferred%')
+                            AND NOT ("""
+_SCHEDULE_TAIL = """))
+                      AND (SELECT count(*) FROM abuse_send_requests q
+                           WHERE q.report_id = r.id AND q.auto
+                             AND q.error_code LIKE 'deferred%') < :deferrals
+                    ORDER BY r.window_end DESC, r.id LIMIT :n
+                    """
+SCHEDULE_SQL = _SCHEDULE_HEAD + RESCHEDULABLE + _SCHEDULE_TAIL
 
 # True while automatic sends must wait: one started less than :spacing ago, or the server deferred
 # one less than :pause ago. Database time on both sides, like ``started_at`` and ``done_at``.
@@ -171,6 +214,8 @@ class Prepared:
     message_id: str | None = None
     # Sources left out of an automatic digest (older than AUTO_MAX_AGE): (kind, type, value)
     stale: tuple[tuple[str, str, str], ...] = ()
+    # The XARF files exactly as they left: [{"name", "content"}], stored on the report.
+    xarf: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +307,7 @@ class ReportSender:
         return {
             "digest": enabled is not False and profile is not None,
             "digest_minute": profile.digest_minute if profile is not None else 0,
+            "hold": profile.auto_hold_minutes if profile is not None else 0,
             "minute": utc.hour * 60 + utc.minute,
             "day0": utc_day(now),
             "now": now,
@@ -317,35 +363,16 @@ class ReportSender:
         """Auto mode: a pending request, ``auto_hold_minutes`` ahead (and not before a digest's
         ``due_at``), for each ready report that never had one, or whose automatic sends were only
         deferred (at most ``MAX_DEFERRALS``), and whose evidence is younger than ``AUTO_MAX_AGE``,
-        newest first. Cancelled and other failed requests are not rescheduled (the owner decided
-        or can press Send). The one-digest-a-day rule is checked when the request is picked."""
+        newest first. An owner's cancel, a refusal and an unknown outcome are not rescheduled; a
+        request that ended for a reason that may be gone is, once that reason is gone
+        (``RESCHEDULABLE``). The one-digest-a-day rule and the hold from the last rebuild are
+        checked when the request is picked."""
         async with self.factory() as session, session.begin():
             profile = await self.load_profile(session)
             if profile is None or profile.mode != "auto":
                 return 0
             result = await session.execute(
-                text(
-                    """
-                    INSERT INTO abuse_send_requests (report_id, kind, auto, requested_by,
-                                                     scheduled_at)
-                    SELECT r.id, 'send', true, 'auto',
-                           GREATEST(COALESCE(r.due_at, CAST(:at AS timestamptz)),
-                                    CAST(:at AS timestamptz))
-                    FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id
-                    WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
-                      AND NOT rec.muted AND NOT rec.form_only AND NOT rec.undeliverable
-                      AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
-                      AND r.window_end > now() - make_interval(secs => :max_age)
-                      -- never had a request, or only automatic sends the server deferred
-                      AND NOT EXISTS (
-                          SELECT 1 FROM abuse_send_requests q WHERE q.report_id = r.id
-                            AND NOT (q.auto AND q.status = 'failed'
-                                     AND q.error_code LIKE 'deferred%'))
-                      AND (SELECT count(*) FROM abuse_send_requests q
-                           WHERE q.report_id = r.id) < :deferrals
-                    ORDER BY r.window_end DESC, r.id LIMIT :n
-                    """
-                ),
+                text(SCHEDULE_SQL),
                 {
                     "at": now + timedelta(minutes=profile.auto_hold_minutes),
                     "n": MAX_SCHEDULE,
@@ -495,7 +522,11 @@ class ReportSender:
         """The mail is gone. A failure to mark the report must not stop the request ending as
         sent; if even the commit fails the request stays ``sending`` and is never sent again."""
         if prepared.report is not None:
-            stamp: dict[str, Any] = {"i": prepared.report["id"], "by": req.requested_by[:120]}
+            stamp: dict[str, Any] = {
+                "i": prepared.report["id"],
+                "by": req.requested_by[:120],
+                "x": json.dumps(list(prepared.xarf)),
+            }
             auto_review = req.auto and prepared.report["status"] == "draft"
             try:
                 async with session.begin_nested():
@@ -601,7 +632,8 @@ class ReportSender:
         if not await asyncio.to_thread(xarf_parts_valid, raw):
             raise SendFailure("xarf_invalid")
         check_message(raw, profile, rendered.to, terms, ctx=ctx, rendered=rendered)
-        return Prepared(raw, rendered.to, report, message_id, stale)
+        files = tuple({"name": a.name, "content": a.content} for a in rendered.xarf_files)
+        return Prepared(raw, rendered.to, report, message_id, stale, files)
 
     async def _deliver(self, profile: Profile, raw: bytes, rcpt: str) -> None:
         try:

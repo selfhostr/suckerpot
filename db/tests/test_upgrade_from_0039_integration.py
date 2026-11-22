@@ -258,7 +258,17 @@ async def test_v013_upgrades_to_head_and_rolls_back(owner: AsyncEngine) -> None:
         await api.dispose()
         await ingest.dispose()
 
-    # Back to 0038: digests go (they cannot be expressed there), everything else stays.
+    # A sent digest refuses the downgrade (just rollback restores the dump instead).
+    async with owner.begin() as conn:
+        sent_digest = await _report(conn, rid, "digest", "sent", 8, upgraded=True)
+    refused = subprocess.run(  # noqa: S603, ASYNC221 - a one-off CLI run in a test
+        [sys.executable, "-m", "alembic", "downgrade", PRODUCTION],
+        cwd=DB_DIR, env=ENV, capture_output=True, text=True, timeout=180,
+    )  # fmt: skip
+    assert refused.returncode != 0 and "downgrade refused" in refused.stderr
+    async with owner.begin() as conn:
+        await conn.execute(text("DELETE FROM abuse_reports WHERE id = :i"), {"i": sent_digest})
+    # Back to 0039: the unsent digests go, everything else stays.
     async with owner.begin() as conn:
         await conn.execute(text("DELETE FROM abuse_replies WHERE match_method = 'xarf_id'"))
     _alembic("downgrade", PRODUCTION)

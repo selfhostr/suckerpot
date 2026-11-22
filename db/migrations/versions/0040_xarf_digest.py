@@ -10,7 +10,8 @@ Revises: 0039
   of open (draft and reviewed) reports get one now, so a reviewed report goes out with its XARF
   parts as it is.
 * ``abuse_reports.kind`` accepts ``digest``; ``due_at`` (when a digest is due), ``part`` (its part
-  number that day) and ``channel`` (``mail``, or ``form`` for M38 P3).
+  number that day), ``channel`` (``mail``, or ``form`` for M38 P3) and ``sent_xarf`` (the XARF
+  files exactly as they left, written when the report is marked sent).
 * ``ux_abuse_reports_open`` (one open report per recipient and kind) becomes two indexes: one
   ``draft`` and one ``reviewed`` per recipient and kind. The builder makes only ``digest`` drafts,
   so a recipient has one digest draft and at most one reviewed digest. The open drafts of the
@@ -102,6 +103,13 @@ def upgrade() -> None:
         "ALTER TABLE abuse_reports ADD COLUMN part smallint NOT NULL DEFAULT 1 "
         "CONSTRAINT ck_abuse_reports_part CHECK (part BETWEEN 1 AND 100)"
     )
+    # The XARF JSON files exactly as they left, written by ingest in the update that marks the
+    # report sent, so the X-ARF tab and the .eml of a sent report show what was sent.
+    op.execute(
+        "ALTER TABLE abuse_reports ADD COLUMN sent_xarf jsonb "
+        "CONSTRAINT ck_abuse_reports_sent_xarf CHECK (sent_xarf IS NULL OR "
+        "(jsonb_typeof(sent_xarf) = 'array' AND octet_length(sent_xarf::text) <= 4194304))"
+    )
     op.execute(
         "ALTER TABLE abuse_reports ADD COLUMN channel text NOT NULL DEFAULT 'mail' "
         "CONSTRAINT ck_abuse_reports_channel CHECK (channel IN ('mail', 'form'))"
@@ -166,6 +174,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # A sent digest cannot be expressed before 0040. Deleting it would cascade into its replies,
+    # send requests and takedown links, and the older code would then report its sources again.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM abuse_reports
+                       WHERE kind = 'digest' AND status IN ('sent', 'closed')) THEN
+                RAISE EXCEPTION 'downgrade refused: sent digests exist (abuse_reports.kind = '
+                    'digest). Deleting them would lose their replies and takedowns and lead to '
+                    'reports being sent again. Use just rollback, which restores the database '
+                    'dump taken before the update.';
+            END IF;
+        END
+        $$
+        """
+    )
     op.execute("ALTER TABLE abuse_recipients DROP COLUMN IF EXISTS xarf_strict")
     op.execute("ALTER TABLE report_smtp DROP COLUMN IF EXISTS digest_minute")
     op.execute("ALTER TABLE report_settings DROP COLUMN IF EXISTS digest_enabled")
@@ -177,8 +202,8 @@ def downgrade() -> None:
         "ALTER TABLE abuse_replies ADD CONSTRAINT abuse_replies_match_method_check "
         f"CHECK (match_method IN ({OLD_METHODS}))"
     )
-    # Digests cannot be expressed before 0040: they go, with their subjects (cascade). ``just
-    # rollback`` restores the dump taken before the update instead.
+    # Only unsent digests are left here (drafts, reviewed, discarded, superseded): they go, with
+    # their subjects and pending requests (cascade). Nothing they named was sent.
     op.execute("DELETE FROM abuse_reports WHERE kind = 'digest'")
     op.execute("DROP INDEX IF EXISTS ux_abuse_reports_reviewed")
     op.execute("DROP INDEX IF EXISTS ux_abuse_reports_draft")
@@ -187,6 +212,7 @@ def downgrade() -> None:
         "WHERE status IN ('draft', 'reviewed')"
     )
     op.execute("ALTER TABLE abuse_reports DROP COLUMN IF EXISTS channel")
+    op.execute("ALTER TABLE abuse_reports DROP COLUMN IF EXISTS sent_xarf")
     op.execute("ALTER TABLE abuse_reports DROP COLUMN IF EXISTS part")
     op.execute("ALTER TABLE abuse_reports DROP COLUMN IF EXISTS due_at")
     op.execute("ALTER TABLE abuse_reports DROP CONSTRAINT IF EXISTS ck_abuse_reports_kind")

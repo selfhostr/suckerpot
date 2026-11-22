@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db.blocklist_values import is_excluded_host
 from suckerpot_reporting import (
     REFERENCE_STYLES,
+    Activity,
     Evidence,
     GuardContext,
     GuardResult,
@@ -125,6 +126,28 @@ def evidence_bytes(evidence: Evidence) -> int:
     return len(evidence.model_dump_json().encode())
 
 
+def has_port(act: Activity) -> bool:
+    return 1 <= act.src_port <= 65535
+
+
+def needs_source_port(acts: list[Activity] | tuple[Activity, ...]) -> bool:
+    """Only the XARF ``login_attack`` type requires a source port (for an address source); a
+    source with an exploit, a CVE or an SQL injection pattern is a scan or an injection report."""
+    return not any(a.sqli or a.cves or a.action == "exploit_attempt" for a in acts)
+
+
+def keep_activities(acts: tuple[Activity, ...], n: int) -> tuple[Activity, ...]:
+    """The first ``n`` activities, with a port-bearing one among them whenever the source has
+    one, so trimming never makes its XARF report fail the schema."""
+    kept = acts[:n]
+    if n <= 0 or any(has_port(a) for a in kept):
+        return kept
+    first = next((a for a in acts if has_port(a)), None)
+    if first is None:
+        return kept
+    return tuple(sorted((first, *kept[: n - 1]), key=lambda a: a.ts))
+
+
 def fit_evidence(evidence: Evidence) -> Evidence:
     """Trim until the stored document is under the table's size cap: activities first (each
     source keeps at least one line, its XARF report needs a source port), then the last sources,
@@ -133,7 +156,8 @@ def fit_evidence(evidence: Evidence) -> Evidence:
         subjects = evidence.subjects
         if per_subject is not None:
             subjects = tuple(
-                s.model_copy(update={"activities": s.activities[:per_subject]}) for s in subjects
+                s.model_copy(update={"activities": keep_activities(s.activities, per_subject)})
+                for s in subjects
             )
         trimmed = evidence.model_copy(update={"subjects": subjects})
         while evidence_bytes(trimmed) > MAX_EVIDENCE_BYTES and len(trimmed.subjects) > 1:
@@ -208,6 +232,19 @@ async def digest_config(session: AsyncSession) -> tuple[bool, int | None]:
     enabled = await session.scalar(text("SELECT digest_enabled FROM report_settings WHERE id = 1"))
     minute = await session.scalar(text("SELECT digest_minute FROM report_smtp WHERE id = 1"))
     return enabled is not False, None if minute is None else int(minute)
+
+
+async def hold_of(session: AsyncSession) -> timedelta | None:
+    """The hold of automatic sends (None without an SMTP profile)."""
+    minutes = await session.scalar(text("SELECT auto_hold_minutes FROM report_smtp WHERE id = 1"))
+    return None if minutes is None else timedelta(minutes=int(minutes))
+
+
+def frozen(due: datetime | None, hold: timedelta | None, now: datetime) -> bool:
+    """A digest due within the hold is no longer rebuilt: the hold runs from its last rebuild
+    (the owner can still look and cancel), and a busy recipient would otherwise push it back
+    every hour. New sources wait for the next digest."""
+    return due is not None and hold is not None and now >= due - hold
 
 
 def utc_day(now: datetime) -> datetime:
@@ -545,11 +582,15 @@ class DraftBuilder:
             existing = next(
                 (r for r in open_rows if r.kind == DIGEST and r.status == "draft"), None
             )
+            if existing is not None and frozen(existing.due_at, await hold_of(session), now):
+                return  # due within the hold: it goes as it is (design M38, section 5.3)
             # Drafts of the older kinds (before 0040): merged into this digest, then superseded.
             legacy = [r.id for r in open_rows if r.kind != DIGEST and r.status == "draft"]
             held = await self._reviewed_keys(
                 session, [r.id for r in open_rows if r.status == "reviewed"]
             )
+            # The draft limit does not hold back the merge of older drafts: the digest replaces
+            # them (only on the first cycles after the upgrade to 0040).
             if existing is None and not legacy:
                 count = (
                     await session.execute(
@@ -581,6 +622,8 @@ class DraftBuilder:
             kept.sort(key=lambda x: (x[0].seed.last_ts, x[0].seed.value), reverse=True)
             cap = 1 if recipient.strict else min(s.max_subjects, MAX_SUBJECTS)
             if not kept:
+                # Older drafts whose sources all wait (cooldown, reviewed) are retired anyway, so
+                # no draft of an older kind outlives the upgrade to 0040.
                 if legacy:
                     await self._supersede(legacy)
                 return
@@ -602,9 +645,13 @@ class DraftBuilder:
                 col.stats = RedactionStats()
                 if seed.kind == "attack_source":
                     acts = await source_activities(session, seed, start, now, ctx, col, s, gated)
-                    if not any(1 <= a.src_port <= 65535 for a in acts):
+                    if needs_source_port(acts) and not any(has_port(a) for a in acts):
+                        # An XARF login_attack from an address needs a source port: without one
+                        # the source waits for a later cycle (counted, never silent).
                         col.stats = before
-                        continue  # its XARF report needs a source port: not this cycle
+                        stats.skipped += 1
+                        stats.reasons["no_source_port"] = stats.reasons.get("no_source_port", 0) + 1
+                        continue
                 elif seed.kind == "payload_host":
                     acts = await payload_activities(session, seed, start, now, ctx, col, s)
                 else:

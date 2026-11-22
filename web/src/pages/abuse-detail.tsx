@@ -148,10 +148,10 @@ function MessageCard({ r }: { r: ReportDetail }) {
   const apiError = q.error instanceof ApiError ? q.error : null
   const missing = missingSettingsOf(q.error)
 
-  async function save(f: FileFormat, fallback: string, subject?: string) {
+  async function save(f: FileFormat, fallback: string, subject?: string, kind?: string) {
     setFileError(null)
     try {
-      const { blob, filename } = await downloadFile(r.public_id, f, subject)
+      const { blob, filename } = await downloadFile(r.public_id, f, subject, kind)
       saveBlob(blob, filename ?? fallback)
     } catch (e) {
       const why = guardReasonsOf(e)
@@ -257,10 +257,10 @@ function XarfFiles({
 }: {
   r: ReportDetail
   files: { name: string; content: string }[]
-  onSave: (f: FileFormat, fallback: string, subject?: string) => Promise<void>
+  onSave: (f: FileFormat, fallback: string, subject?: string, kind?: string) => Promise<void>
   error: string | null
 }) {
-  const sourceOf = (name: string) => r.subjects.find((s) => s.xarf_file === name)?.value
+  const sourceOf = (name: string) => r.subjects.find((s) => s.xarf_file === name)
   return (
     <div className="space-y-4">
       <p className="text-sm text-fg-muted">
@@ -269,7 +269,8 @@ function XarfFiles({
           : `${plural(files.length, "machine-readable report")}, one per source, attached to the mail.`}
       </p>
       {files.map((f) => {
-        const source = sourceOf(f.name)
+        const found = sourceOf(f.name)
+        const source = found?.value
         return (
           <div key={f.name} className="space-y-2">
             <CopyField
@@ -281,7 +282,12 @@ function XarfFiles({
               variant="outline"
               size="xs"
               onClick={() =>
-                void onSave("xarf_json", f.name, files.length > 1 ? source : undefined)
+                void onSave(
+                  "xarf_json",
+                  f.name,
+                  files.length > 1 ? source : undefined,
+                  files.length > 1 ? found?.kind : undefined,
+                )
               }
             >
               Download {f.name}

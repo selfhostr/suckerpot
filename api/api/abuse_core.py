@@ -7,6 +7,7 @@ only: never the matched text, never in an answer, a log line or an audit row.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -36,6 +37,7 @@ from suckerpot_db.models import (
 )
 from suckerpot_reporting import (
     REFERENCE_STYLES,
+    Attachment,
     Evidence,
     GuardContext,
     GuardResult,
@@ -56,6 +58,8 @@ from suckerpot_reporting import (
     render_text,
     require_ok,
 )
+from suckerpot_reporting.message import JSON_TYPE
+from suckerpot_reporting.xarf import dumps as xarf_dumps
 
 log = logging.getLogger("api.abuse")
 
@@ -173,7 +177,14 @@ async def load_terms(db: AsyncSession, *, fresh: bool = False) -> SelfTerms | No
         )
         # The node's public network pseudonym (M29) never goes into a report (M38).
         pseudonyms = [
-            p for p in (await db.scalars(select(NetworkMembershipRow.pseudonym))).all() if p
+            p
+            for row in (
+                await db.execute(
+                    select(NetworkMembershipRow.pseudonym, NetworkMembershipRow.synced_pseudonym)
+                )
+            ).all()
+            for p in row
+            if p
         ]
     except SQLAlchemyError:
         log.warning("abuse deny set unavailable")
@@ -317,18 +328,20 @@ def build_evidence(
     keys: Mapping[SubjectKey, uuid.UUID | None] | None = None,
 ) -> Evidence:
     """The evidence as the send path would render it. ``keys`` are the subject rows' XARF ids.
-    A sent or closed report from before 0040 has none: it gets random ones for display only
-    (it is never sent again)."""
+    For a sent or closed report only the sources that left are kept (the subject rows: an
+    automatic digest leaves its old sources out). A report sent before 0040 has no XARF ids and
+    is shown as "not sent with X-ARF v4" (``mail_inputs``), never with made-up ids."""
     data = _with_subject_rows(dict(row.evidence), row.kind, keys or {})
-    if row.status not in OPEN_STATUSES:
-        subjects = data.get("subjects")
-        if isinstance(subjects, list):
-            data["subjects"] = [
-                {**s, "xarf_id": s.get("xarf_id") or str(uuid.uuid4())}
-                if isinstance(s, dict)
-                else s
-                for s in subjects
-            ]
+    subjects = data.get("subjects")
+    if row.status not in OPEN_STATUSES and keys and isinstance(subjects, list):
+        kept = [
+            s
+            for s in subjects
+            if not isinstance(s, dict)
+            or (str(s.get("kind")), str(s.get("type")), str(s.get("value"))) in keys
+        ]
+        if kept:
+            data["subjects"] = kept
     data.update(
         kind=row.kind,
         recipient=recipient.override_mailbox or recipient.mailbox or data.get("recipient"),
@@ -349,6 +362,66 @@ async def load_evidence(
     rows = await subject_rows(db, row.id)
     keys = {(r.kind, r.subject_type, r.value): r.xarf_id for r in rows}
     return build_evidence(row, recipient, bundle, keys)
+
+
+@dataclass(frozen=True)
+class MailInputs:
+    """What a render of the mail needs besides the evidence (M38)."""
+
+    sent_files: tuple[Attachment, ...] | None = None  # the XARF JSON that left (sent reports)
+    legacy: bool = False  # sent before 0040: no XARF v4 left with it
+
+
+def _hide_id(content: str) -> str:
+    """A stored XARF report with its ``report_id`` replaced by a random one (viewers)."""
+    try:
+        report = json.loads(content)
+    except ValueError:
+        return content
+    if isinstance(report, dict) and "report_id" in report:
+        report["report_id"] = str(uuid.uuid4())
+    return xarf_dumps(report)
+
+
+def mail_inputs(
+    row: AbuseReportRow, evidence: Evidence, *, admin: bool
+) -> tuple[Evidence, MailInputs]:
+    """The evidence and inputs of a mail render. For a sent report, the XARF files that left
+    (``abuse_reports.sent_xarf``) replace freshly rendered ones; a report sent before 0040 has
+    none. A viewer never sees a real XARF ``report_id``: a reply quoting one is matched to its
+    report, so it is a proof like the reply token (``reply_args``)."""
+    sent: tuple[Attachment, ...] | None = None
+    stored = row.sent_xarf if isinstance(row.sent_xarf, list) else None
+    if stored:
+        sent = tuple(
+            Attachment(str(f.get("name")), JSON_TYPE, str(f.get("content")))
+            for f in stored
+            if isinstance(f, dict)
+        )
+    legacy = (
+        row.status not in OPEN_STATUSES
+        and sent is None
+        and any(s.xarf_id is None for s in evidence.subjects)
+    )
+    if not admin:
+        evidence = evidence.model_copy(
+            update={
+                "subjects": tuple(
+                    s.model_copy(update={"xarf_id": uuid.uuid4()}) if s.xarf_id else s
+                    for s in evidence.subjects
+                )
+            }
+        )
+        if sent is not None:
+            sent = tuple(Attachment(a.name, a.media_type, _hide_id(a.content)) for a in sent)
+    return evidence, MailInputs(sent, legacy)
+
+
+def _with_sent_files(msg: RenderedMessage, files: tuple[Attachment, ...]) -> RenderedMessage:
+    """The rendered mail with the XARF files that actually left."""
+    others = tuple(a for a in msg.attachments if a.media_type != JSON_TYPE)
+    attachments = (*files, *others) if msg.layout == "report" else (*others, *files)
+    return replace(msg, attachments=attachments)
 
 
 async def guard_context(db: AsyncSession, row: AbuseReportRow, evidence: Evidence) -> GuardContext:
@@ -413,6 +486,7 @@ def render_checked(
     *,
     reply_token: str | None = None,
     reference_style: str = "subject",
+    inputs: MailInputs | None = None,
 ) -> Rendered:
     """Render one format and run the guard on everything produced. Pure, so it runs in a thread.
 
@@ -424,8 +498,17 @@ def render_checked(
     if fmt == "text":
         msg = _text_message(evidence, settings, reply_token, style)
     elif fmt in ("xarf", "eml"):
-        # The mail exactly as SMTP sends it: text, evidence.csv and one XARF JSON per source.
-        msg = render_mail(evidence, settings, reply_token=reply_token, reference_style=style)
+        extra = inputs or MailInputs()
+        if extra.legacy:
+            # Sent before 0040: no XARF v4 left with it, and none is made up now.
+            if fmt == "xarf":
+                raise RenderUnavailable("not_sent_with_xarf_v4")
+            msg = _text_message(evidence, settings, reply_token, style)
+        else:
+            # The mail exactly as SMTP sends it: text, evidence.csv and one XARF JSON per source.
+            msg = render_mail(evidence, settings, reply_token=reply_token, reference_style=style)
+            if extra.sent_files:
+                msg = _with_sent_files(msg, extra.sent_files)
         if fmt == "eml":
             eml = render_eml(msg)
     else:

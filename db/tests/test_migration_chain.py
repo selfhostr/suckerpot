@@ -693,8 +693,10 @@ def test_report_effect_tables_are_modelled_and_least_privilege() -> None:
 
 def test_m38_grants() -> None:
     # Ingest moves a draft digest's due time and links replies to sources; nothing else new.
-    assert "due_at" in _update_columns(_GRANTS_INGEST, "abuse_reports")
-    assert "due_at" not in _update_columns(_GRANTS_API, "abuse_reports")
+    assert {"due_at", "sent_xarf"} <= _update_columns(_GRANTS_INGEST, "abuse_reports")
+    assert not {"due_at", "sent_xarf"} & _update_columns(_GRANTS_API, "abuse_reports")
+    # The API guard also knows the pseudonym the hub has (M29, M38 L6).
+    assert "synced_pseudonym" in _select_columns(_GRANTS_API, "network_membership")
     assert _grants(_GRANTS_INGEST)["abuse_subject_outcomes"] == {"SELECT", "INSERT"}
     assert _grants(_GRANTS_API)["abuse_subject_outcomes"] == {"SELECT"}
     # The owner chooses one mail per source for a recipient; ingest only reads it.
@@ -712,3 +714,13 @@ def test_m38_migration_leaves_the_big_tables_alone() -> None:
     for big in ("events", "sessions", "indicators", "indicator_sessions"):
         assert not re.search(rf"\b(TABLE|ON|INTO|FROM|UPDATE)\s+{big}\b", code), big
     assert "CONCURRENTLY" not in code  # migrations run in one transaction
+
+
+def test_m38_downgrade_refuses_while_sent_digests_exist() -> None:
+    script = (VERSIONS / "0040_xarf_digest.py").read_text()
+    down = script.split("def downgrade", 1)[1]
+    refusal = down.index("downgrade refused: sent digests exist")
+    assert "kind = 'digest' AND status IN ('sent', 'closed')" in down
+    assert "just rollback" in down
+    # The check runs before anything is dropped or deleted.
+    assert refusal < down.index("DROP COLUMN") < down.index("DELETE FROM abuse_reports")

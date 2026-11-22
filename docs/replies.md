@@ -130,7 +130,7 @@ The reference is random: it reveals nothing about you or the monitored system. I
 
 ### The X-ARF report id
 
-Each source in a mail has its own X-ARF report with a random `report_id` (see [The machine-readable part](reporting.md#the-machine-readable-part-x-arf-v4)). Desks whose systems parse X-ARF often quote it in their answer. Such a reply matches the report and the one source it names. The same trust rules as for the reply reference apply: it is verified only when authentication passed and the sender is a trusted sender. A report id of a draft or a discarded report matches nothing.
+Each source in a mail has its own X-ARF report with a random `report_id` (see [The machine-readable part](reporting.md#the-machine-readable-part-x-arf-v4)). Desks whose systems parse X-ARF often quote it in their answer. Such a reply matches the report and every source whose id it quotes (at most five ids are read). Only the reply's own text and subject are read, never the quoted original: a quoted copy of your mail would name every id. An id alone does not make a mail relevant; it must come from a party you wrote to, or carry a reference or Message-ID. The same trust rules as for the reply reference apply: it is verified only when authentication passed and the sender is a trusted sender. A report id of a draft or a discarded report matches nothing.
 
 ### Message-ID
 
