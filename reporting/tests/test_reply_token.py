@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import uuid
 
 import pytest
-import yaml
 
 from suckerpot_reporting import (
     GuardContext,
@@ -20,10 +20,10 @@ from suckerpot_reporting import (
     new_reply_token,
     render_csv,
     render_eml,
+    render_mail,
     render_misp,
     render_stix,
     render_text,
-    render_xarf,
     report_stem,
     stix_dumps,
 )
@@ -115,14 +115,16 @@ def test_defaults_keep_todays_output() -> None:
 
 def test_the_token_stays_out_of_every_export_and_name() -> None:
     evidence = make_evidence()
-    single = render_xarf(evidence, SETTINGS, reply_token=TOKEN, reference_style="subject_and_body")
-    assert single.xarf
+    single = render_mail(evidence, SETTINGS, reply_token=TOKEN, reference_style="subject_and_body")
+    assert single.layout == "report"
     assert TOKEN in single.subject and TOKEN in single.body  # the human part only
-    for att in single.attachments:  # the X-ARF YAML part and the evidence CSV
+    for att in single.attachments:  # the XARF JSON part and the evidence CSV
         assert TOKEN not in att.content, att.name
         assert TOKEN not in att.name
-    parsed = yaml.safe_load(single.attachments[0].content)
-    assert TOKEN not in json.dumps(parsed, default=str)
+    parsed = json.loads(single.attachments[0].content)
+    payload = base64.b64decode(parsed["evidence"][0]["payload"]).decode()
+    assert TOKEN not in json.dumps(parsed) and TOKEN not in payload
+    assert TOKEN not in (single.feedback or "")
     assert TOKEN not in render_csv(evidence).content
     data = make_export()
     assert TOKEN not in stix_dumps(render_stix(data))
@@ -131,7 +133,7 @@ def test_the_token_stays_out_of_every_export_and_name() -> None:
 
 
 def test_the_multi_subject_summary_also_carries_it_in_the_subject_only() -> None:
-    msg = render_xarf(make_evidence(), SETTINGS, reply_token=TOKEN)
+    msg = render_mail(make_evidence(), SETTINGS, reply_token=TOKEN)
     assert TOKEN in msg.subject
     for att in msg.attachments:
         assert TOKEN not in att.content

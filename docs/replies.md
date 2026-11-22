@@ -108,9 +108,10 @@ Each reply is matched to one report by the first rule that fits. The rules run i
 | --- | --- | --- |
 | 1 | `message_id` | The `In-Reply-To` or `References` header quotes the Message-ID of a report that SuckerPot sent through SMTP. |
 | 2 | `token` | A 12-character reference, after `ref` (for example `ref 3f9a1c7b2e4d`), in the subject or the first 8 KiB of the body. |
-| 3 | `dsn` | A delivery failure notice whose original mail has a Message-ID or a reference from rule 1 or 2. |
-| 4 | `ticket` | A ticket number that an earlier reply from the same domain already linked to a report. |
-| 5 | `sender_domain` | The sender's exact domain belongs to the recipient of exactly one report sent in the last 120 days. |
+| 3 | `xarf_id` | The X-ARF `report_id` of one source of a sent report (a random UUID), in the subject or the first 8 KiB of the body. It matches the report and that one source. |
+| 4 | `dsn` | A delivery failure notice whose original mail has a Message-ID or a reference from rule 1 or 2. |
+| 5 | `ticket` | A ticket number that an earlier reply from the same domain already linked to a report. |
+| 6 | `sender_domain` | The sender's exact domain belongs to the recipient of exactly one report sent in the last 120 days. |
 | — | `none` | No match. The mail is kept only if it is a delivery failure or comes from a party you wrote to. Otherwise it is not stored at all. |
 
 ### The reply reference
@@ -126,6 +127,10 @@ The reference goes into the subject of the report, by default in the form `(ref 
 | `off` | No reference. Only the Message-ID of SMTP sends can match. |
 
 The reference is random: it reveals nothing about you or the monitored system. It is public, though, because the format is in this project's code. If that bothers you, move the `{ref}` placeholder in the subject template or choose `off`.
+
+### The X-ARF report id
+
+Each source in a mail has its own X-ARF report with a random `report_id` (see [The machine-readable part](reporting.md#the-machine-readable-part-x-arf-v4)). Desks whose systems parse X-ARF often quote it in their answer. Such a reply matches the report and every source whose id it quotes (at most five ids are read). Only the reply's own text and subject are read, never the quoted original: a quoted copy of your mail would name every id. An id alone does not make a mail relevant; it must come from a party you wrote to, or carry a reference or Message-ID. The same trust rules as for the reply reference apply: it is verified only when authentication passed and the sender is a trusted sender. A report id of a draft or a discarded report matches nothing.
 
 ### Message-ID
 
@@ -188,6 +193,17 @@ A delayed notice from a mail system ("Delayed Mail (still being retried)", deliv
 
 Rules only read what the sender wrote. Anything under a "-----Original message-----" line, after "On ... wrote:" or behind a `>` is the quoted original, often your own report, and is ignored, so a quoted "suspended" never counts as an answer.
 
+### Outcomes per source
+
+A digest is one report with one reference and one Message-ID, so every match method works as for any report, and a reply gives an outcome to the whole report. It is shown on every source of it.
+
+A verified reply can also give an outcome to some sources only:
+
+- the source whose X-ARF report id it quotes (`xarf_id` match);
+- every source it names by its exact address or host name in its own text, case-insensitive. Only the first 100 names are read, and never the quoted original under the reply.
+
+The report page then shows that outcome on those sources. The outcome is the reply's own class, so a reply you link elsewhere or reclassify updates it. A ticket number goes to a source only when the reply names exactly that one source. Unverified replies never set an outcome per source. A bounce is about the whole mail: it counts toward `undeliverable` once per mail, never once per source.
+
 ### What a reply teaches about the desk
 
 Two kinds of reply change how the node treats the recipient, not only the one report. Both need a reply or bounce that was **matched** to a report, by any method (Message-ID, reference, delivery notice or sender domain). It does not have to be verified, and a reply that matched nothing never counts. This is safe because the effect is small: it only stops automatic sends to that desk, it is shown on the report page, a send you start yourself still goes out, and you can clear it.
@@ -207,7 +223,7 @@ If the automatic result is wrong, or the provider answered by phone, set the out
 
 Incoming mail is treated as hostile. The rules below apply to every mail.
 
-- **Relevance first.** SuckerPot reads the headers first. A mail is fetched in full only when its headers show a reference or Message-ID of one of your reports, a ticket number, a delivery failure, or a sender from a party you wrote to. Other mail is counted as "ignored". Nothing is stored and its flags are not changed.
+- **Relevance first.** SuckerPot reads the headers first. A mail is fetched in full only when its headers show a reference, an X-ARF report id or a Message-ID of one of your reports, a ticket number, a delivery failure, or a sender from a party you wrote to. Other mail is counted as "ignored". Nothing is stored and its flags are not changed.
 - **Size.** A header block over 64 KiB is skipped. A mail over 256 KiB is cut at 256 KiB and marked as truncated (`ABUSE_REPLY_MAX_BYTES`).
 - **Bounded parsing.** At most 50 parts, nested at most 5 levels deep. Each text part is capped at 128 KiB.
 - **Attachments** are never opened or decoded. SuckerPot stores only how many there were, their types and their size.

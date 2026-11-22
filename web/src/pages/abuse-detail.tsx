@@ -14,6 +14,8 @@ import { useAuth } from "@/app/auth"
 import { SettingsCause } from "@/components/abuse/blocked-drafts"
 import { CopyField } from "@/components/abuse/copy-field"
 import { DeskNotice } from "@/components/abuse/desk-notice"
+import { StrictSwitch } from "@/components/abuse/strict-switch"
+import { OutcomeBadge } from "@/components/results/badges"
 import { ExportMenu } from "@/components/abuse/export-menu"
 import { OutcomeCard } from "@/components/abuse/outcome-card"
 import { StatusStepper } from "@/components/abuse/status-stepper"
@@ -46,7 +48,9 @@ import {
   guardReasonsOf,
   missingSettingsOf,
   isStale,
-  KIND_LABEL,
+  KIND_HEADING,
+  KINDS,
+  kindLabel,
   nextActions,
   reviewBlocker,
   STATUS_LABEL,
@@ -55,6 +59,8 @@ import {
   type ReportDetail,
   type ReportOptions,
   type ReportStatus,
+  type ReportSubject,
+  withSameDayConfirm,
 } from "@/lib/abuse"
 import { MetaLine } from "@/components/meta-line"
 import { formatAbsolute, formatNumber, plural } from "@/lib/format"
@@ -142,10 +148,10 @@ function MessageCard({ r }: { r: ReportDetail }) {
   const apiError = q.error instanceof ApiError ? q.error : null
   const missing = missingSettingsOf(q.error)
 
-  async function save(f: FileFormat, fallback: string) {
+  async function save(f: FileFormat, fallback: string, subject?: string, kind?: string) {
     setFileError(null)
     try {
-      const { blob, filename } = await downloadFile(r.public_id, f)
+      const { blob, filename } = await downloadFile(r.public_id, f, subject, kind)
       saveBlob(blob, filename ?? fallback)
     } catch (e) {
       const why = guardReasonsOf(e)
@@ -199,6 +205,8 @@ function MessageCard({ r }: { r: ReportDetail }) {
             </Link>
           ) : null}
         </div>
+      ) : m && format === "xarf" ? (
+        <XarfFiles r={r} files={m.attachments} onSave={save} error={fileError} />
       ) : m ? (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
@@ -227,15 +235,6 @@ function MessageCard({ r }: { r: ReportDetail }) {
                 abuse-{short}.eml
               </Button>
             ) : null}
-            {format === "xarf" ? (
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={() => void save("xarf_yaml", "report.yaml")}
-              >
-                report.yaml
-              </Button>
-            ) : null}
           </div>
           <p role="status" className="text-xs text-fg-muted empty:hidden">
             {fileError}
@@ -246,19 +245,127 @@ function MessageCard({ r }: { r: ReportDetail }) {
   )
 }
 
+/**
+ * The X-ARF tab: one JSON report per source, exactly what the mail carries, read only, each with
+ * a copy and a download button.
+ */
+function XarfFiles({
+  r,
+  files,
+  onSave,
+  error,
+}: {
+  r: ReportDetail
+  files: { name: string; content: string }[]
+  onSave: (f: FileFormat, fallback: string, subject?: string, kind?: string) => Promise<void>
+  error: string | null
+}) {
+  const sourceOf = (name: string) => r.subjects.find((s) => s.xarf_file === name)
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-fg-muted">
+        {files.length === 1
+          ? "One machine-readable report, attached to the mail as xarf.json."
+          : `${plural(files.length, "machine-readable report")}, one per source, attached to the mail.`}
+      </p>
+      {files.map((f) => {
+        const found = sourceOf(f.name)
+        const source = found?.value
+        return (
+          <div key={f.name} className="space-y-2">
+            <CopyField
+              label={source ? `${f.name} (${source})` : f.name}
+              value={f.content}
+              multiline
+            />
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() =>
+                void onSave(
+                  "xarf_json",
+                  f.name,
+                  files.length > 1 ? source : undefined,
+                  files.length > 1 ? found?.kind : undefined,
+                )
+              }
+            >
+              Download {f.name}
+            </Button>
+          </div>
+        )
+      })}
+      <p role="status" className="text-xs text-fg-muted empty:hidden">
+        {error}
+      </p>
+    </div>
+  )
+}
+
 /* --- Subjects ------------------------------------------------------------------------------ */
 
+/** The marks of one source: its outcome, its X-ARF file, and whether it is too old to go alone. */
+function SubjectMarks({ s }: { s: ReportSubject }) {
+  if (!s.outcome && !s.stale && !s.xarf_file) return null
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+      {s.outcome ? <OutcomeBadge outcome={s.outcome} className="-ml-1" /> : null}
+      {s.stale ? (
+        <span title="Only a send started by hand carries it.">older than 7 days</span>
+      ) : null}
+      {s.xarf_file ? <span className="font-mono">{s.xarf_file}</span> : null}
+    </span>
+  )
+}
+
+/** Sources by kind, in the order of the mail (attack sources, payload hosts, command servers). */
+function groupSubjects(r: ReportDetail): { kind: string | null; items: ReportSubject[] }[] {
+  if (r.kind !== "digest") return [{ kind: null, items: r.subjects }]
+  return KINDS.map((k) => ({
+    kind: `${KIND_HEADING[k]} (${r.subjects.filter((s) => s.kind === k).length})`,
+    items: r.subjects.filter((s) => s.kind === k),
+  })).filter((g) => g.items.length > 0)
+}
+
 function SubjectsCard({ r }: { r: ReportDetail }) {
+  const groups = groupSubjects(r)
   return (
     <FindingCard
       eyebrow="In this report"
-      finding={`${r.kind === "attack_source" ? plural(r.subjects.length, "address", "addresses") : plural(r.subjects.length, "host")} in this report.`}
+      finding={`${
+        r.kind === "digest"
+          ? plural(r.subjects.length, "source")
+          : r.kind === "attack_source"
+            ? plural(r.subjects.length, "address", "addresses")
+            : plural(r.subjects.length, "host")
+      } in this report.`}
       detail="These links open the dashboard and exist only here: they are never part of the message."
       className="normal-nums"
       bodyClassName="px-0 sm:px-0 pb-0 sm:pb-0"
     >
+      {groups.map((g) => (
+        <SubjectGroup key={g.kind ?? "all"} r={r} heading={g.kind} subjects={g.items} />
+      ))}
+    </FindingCard>
+  )
+}
+
+function SubjectGroup({
+  r,
+  heading,
+  subjects,
+}: {
+  r: ReportDetail
+  heading: string | null
+  subjects: ReportSubject[]
+}) {
+  return (
+    <section aria-label={heading ?? "Addresses and hosts in this report"}>
+      {heading ? (
+        <h3 className="border-t px-4 pt-3 pb-1 text-sm font-medium text-fg sm:px-5">{heading}</h3>
+      ) : null}
       <ul aria-label="Addresses and hosts in this report" className="divide-y border-t sm:hidden">
-        {r.subjects.map((s) => (
+        {subjects.map((s) => (
           <li key={`${s.subject_type}:${s.value}`} className="px-4 py-3">
             {s.subject_type === "ip" ? (
               <IPChip ip={s.value} href={s.link} />
@@ -283,6 +390,9 @@ function SubjectsCard({ r }: { r: ReportDetail }) {
                 last <RelativeTime iso={s.last_ts} />
               </span>
             </MetaLine>
+            <div className="mt-1.5">
+              <SubjectMarks s={s} />
+            </div>
           </li>
         ))}
       </ul>
@@ -292,7 +402,7 @@ function SubjectsCard({ r }: { r: ReportDetail }) {
           <thead className="text-xs text-fg-muted">
             <tr className="border-b">
               <th scope="col" className="px-4 py-2 font-medium sm:px-5">
-                {r.kind === "attack_source" ? "Address" : "Host"}
+                {r.kind === "attack_source" ? "Address" : r.kind === "digest" ? "Source" : "Host"}
               </th>
               <th scope="col" className="px-2 py-2 font-medium">
                 Network
@@ -306,7 +416,7 @@ function SubjectsCard({ r }: { r: ReportDetail }) {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {r.subjects.map((s) => (
+            {subjects.map((s) => (
               <tr key={`${s.subject_type}:${s.value}`}>
                 <td className="px-4 py-2 sm:px-5">
                   {s.subject_type === "ip" ? (
@@ -319,6 +429,9 @@ function SubjectsCard({ r }: { r: ReportDetail }) {
                       {s.value}
                     </Link>
                   )}
+                  <div className="mt-1">
+                    <SubjectMarks s={s} />
+                  </div>
                 </td>
                 <td className="px-2 py-2 text-fg-muted">
                   {s.asn ? (
@@ -340,7 +453,7 @@ function SubjectsCard({ r }: { r: ReportDetail }) {
           </tbody>
         </table>
       </div>
-    </FindingCard>
+    </section>
   )
 }
 
@@ -508,11 +621,15 @@ function Actions({
 
   async function step(to: ReportStatus, sentAt?: string) {
     try {
-      const d = await abuseApi.setStatus(r.public_id, {
-        to,
-        revision: r.revision,
-        ...(sentAt ? { sent_at: sentAt } : {}),
-      })
+      const run = (confirm: boolean) =>
+        abuseApi.setStatus(r.public_id, {
+          to,
+          revision: r.revision,
+          ...(sentAt ? { sent_at: sentAt } : {}),
+          ...(confirm ? { confirm_same_day: true } : {}),
+        })
+      // A provider gets one mail a day: a second "sent" today asks first.
+      const d = to === "sent" ? await withSameDayConfirm(run) : await run(false)
       setError(null)
       onChanged(d)
     } catch (e) {
@@ -731,6 +848,7 @@ export function AbuseDetailPage() {
           </p>
         ) : null}
         <DeskNotice recipient={r.recipient} onChanged={() => refresh(null)} />
+        <StrictSwitch recipient={r.recipient} onChanged={() => refresh(null)} />
         {notice ? (
           <p
             role="status"
@@ -740,7 +858,8 @@ export function AbuseDetailPage() {
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-fg-muted">
-          <span className="font-medium text-fg">{KIND_LABEL[r.kind]}</span>
+          <span className="font-medium text-fg">{kindLabel(r.kind)}</span>
+          {r.part && r.part > 1 ? <span>part {r.part}</span> : null}
           <span className="font-mono">{r.recipient.mailbox ?? "no mailbox yet"}</span>
           {r.recipient.shared_mailbox ? (
             <span>Replies from this contact are trusted by exact address only.</span>

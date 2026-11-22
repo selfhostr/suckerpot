@@ -362,7 +362,13 @@ BY_OUTCOME = "WITH " + BASE + "SELECT eff, count(*) AS n FROM base GROUP BY eff"
 
 # A report counts once per group: one row per (report, key).
 GROUPS: dict[str, str] = {
-    "kind": "SELECT b.id AS report_id, b.kind AS key, b.kind AS label FROM base b",
+    # A digest (M38) counts once under each kind of source it holds; older reports by kind.
+    "kind": (
+        "SELECT b.id AS report_id, b.kind AS key, b.kind AS label FROM base b "
+        "WHERE b.kind <> 'digest' UNION "
+        "SELECT DISTINCT b.id AS report_id, s.kind AS key, s.kind AS label FROM base b "
+        "JOIN abuse_report_subjects s ON s.report_id = b.id WHERE b.kind = 'digest'"
+    ),
     "recipient": (
         "SELECT b.id AS report_id, rec.id::text AS key, "
         "COALESCE(rec.name, rec.mailbox, 'Unknown') AS label "
@@ -482,11 +488,22 @@ def _label(group: str, key: str, label: str | None) -> str:
 TIMELINE = (
     "WITH "
     + BASE
+    + ", kinds AS ("
+    + GROUPS["kind"]
+    + """)
+SELECT date_trunc(:bucket, b.sent_at AT TIME ZONE 'UTC') AS start, k.key AS kind,
+       count(*) AS sent
+FROM base b JOIN kinds k ON k.report_id = b.id GROUP BY 1, 2 ORDER BY 1
+"""
+)
+TIMELINE_TOTALS = (
+    "WITH "
+    + BASE
     + f"""
-SELECT date_trunc(:bucket, b.sent_at AT TIME ZONE 'UTC') AS start, b.kind, count(*) AS sent,
+SELECT date_trunc(:bucket, b.sent_at AT TIME ZONE 'UTC') AS start, count(*) AS sent,
        count(*) FILTER (WHERE b.{ANSWERED}) AS answered,
        count(*) FILTER (WHERE b.eff = 'resolved') AS resolved
-FROM base b GROUP BY 1, 2 ORDER BY 1
+FROM base b GROUP BY 1 ORDER BY 1
 """  # noqa: S608 - fixed fragments, no user input
 )
 
@@ -515,8 +532,9 @@ async def outcomes_timeline(
     since: Since = None,
     until: Since = None,
 ) -> Response:
-    """Reports sent per kind in each bucket, with how many of those were answered and resolved
-    (counted in the bucket the report was sent in). Empty buckets are listed with zeros."""
+    """Reports sent per kind in each bucket (a digest under each kind of source it holds), the
+    number of mails, and how many of those were answered and resolved (counted in the bucket the
+    report was sent in). Empty buckets are listed with zeros."""
     end = until.astimezone(UTC) if until else datetime.now(UTC)
     default_days = 182 if bucket == "week" else MAX_RANGE_DAYS
     start = since.astimezone(UTC) if since else end - timedelta(days=default_days)
@@ -524,23 +542,29 @@ async def outcomes_timeline(
         return error(422, "The period must be between 1 and 730 days.", "bad_range")
     params: dict[str, Any] = {"since": start, "until": end, "bucket": bucket}
     found: dict[datetime, dict[str, Any]] = {}
+
+    def empty() -> dict[str, Any]:
+        return {"sent": dict.fromkeys(KINDS, 0), "total": 0, "answered": 0, "resolved": 0}
+
     for row in await db.execute(text(TIMELINE), params):
-        slot = found.setdefault(
-            row.start.replace(tzinfo=UTC),
-            {"sent": dict.fromkeys(KINDS, 0), "answered": 0, "resolved": 0},
-        )
-        slot["sent"][row.kind] = int(row.sent)
-        slot["answered"] += int(row.answered)
-        slot["resolved"] += int(row.resolved)
+        slot = found.setdefault(row.start.replace(tzinfo=UTC), empty())
+        if row.kind in slot["sent"]:
+            slot["sent"][row.kind] = int(row.sent)
+    # Totals per report: a digest with several kinds of sources is still one mail.
+    for row in await db.execute(text(TIMELINE_TOTALS), params):
+        slot = found.setdefault(row.start.replace(tzinfo=UTC), empty())
+        slot["total"] = int(row.sent)
+        slot["answered"] = int(row.answered)
+        slot["resolved"] = int(row.resolved)
     points: list[Point] = []
     cursor = _bucket_start(start, bucket)
     while cursor <= end and len(points) < 400:
-        slot = found.get(cursor, {"sent": dict.fromkeys(KINDS, 0), "answered": 0, "resolved": 0})
+        slot = found.get(cursor, empty())
         points.append(
             Point(
                 start=cursor,
                 sent=slot["sent"],
-                sent_total=sum(slot["sent"].values()),
+                sent_total=slot["total"],
                 answered=slot["answered"],
                 resolved=slot["resolved"],
             )

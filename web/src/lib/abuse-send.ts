@@ -63,6 +63,8 @@ export interface SmtpConfig {
   daily_cap: number
   sent_today: number
   last_test: SmtpTest | null
+  /** The digest hour (M38), minutes after 00:00 UTC; null before the first save. */
+  digest_minute?: number | null
 }
 
 /** What the owner edits. The password is write-only: empty keeps the stored one. */
@@ -123,17 +125,23 @@ export const SEND_ERROR: Record<string, string> = {
   mode_off: "Sending was switched off before this went out.",
   mode_changed: "The sending mode changed before this went out.",
   too_old:
-    "The activity is more than 7 days old: automatic sending skips it, because the provider can no longer check it. You can still send it by hand.",
+    "The activity is more than 7 days old: automatic sending skips it, because the provider can no longer check it. You can still send it by hand. It is scheduled again once the draft gets new activity.",
   shared_host:
-    "The report names a shared service (a video site, a URL shortener, a file host) or an address on the never list. It is not sent: the service is not the attacker.",
+    "The report names a shared service (a video site, a URL shortener, a file host) or an address on the never list. It is not sent: the service is not the attacker. It is scheduled again once the next build leaves that entry out.",
   form_only:
-    "This desk only accepts its web form, so automatic sending skips it. Open the report to find the link and submit it by hand.",
+    "This desk only accepts its web form, so automatic sending skips it. Open the report to find the link and submit it by hand. Once you clear the flag, the draft is scheduled again.",
   undeliverable:
-    "Mail to this address bounced for good, so automatic sending skips it. Type another address, or clear the flag if the address works again.",
+    "Mail to this address bounced for good, so automatic sending skips it. Type another address, or clear the flag if the address works again. The draft is then scheduled again.",
   not_ready: "The report was no longer ready to send.",
   internal: "Something went wrong inside SuckerPot. Try again.",
   unknown_outcome:
     "The server stopped answering mid-send: the mail may or may not have left. Check your sent folder before sending again.",
+  xarf_invalid:
+    "An X-ARF part did not pass the format check, so nothing was sent. This is a bug: please report it. It is tried again once the draft changes.",
+  digest_enabled:
+    "Cancelled when daily digests were switched on. The digest is scheduled again at the digest hour.",
+  digest_migration:
+    "Cancelled when daily digests came in. Its sources moved into the provider's new daily digest.",
 }
 
 /** A guard failure carries its codes after a colon: `guard_failed:no_self_address`. */
@@ -181,6 +189,7 @@ export const SEND_CONFLICT: Record<string, string> = {
   identity_guard_failed: "The identity check blocked this report.",
   evidence_invalid: "The stored evidence for this report is not valid.",
   nothing_to_cancel: "There is nothing to cancel: it was already sent or cancelled.",
+  recipient_sent_today: "This provider already got a report today.",
   already_sending: "It is already being sent, so it cannot be cancelled.",
 }
 
@@ -295,11 +304,16 @@ export const sendApi = {
     }
     return { items, mode, missing }
   },
-  send: (id: string, revision?: number) =>
+  send: (id: string, revision?: number, confirmSameDay = false) =>
     sendJson<{ id: number; status: SendStatus; scheduled_at: string | null }>(
       "POST",
       `/abuse/reports/${id}/send`,
-      revision === undefined ? undefined : { revision },
+      revision === undefined && !confirmSameDay
+        ? undefined
+        : {
+            ...(revision === undefined ? {} : { revision }),
+            ...(confirmSameDay ? { confirm_same_day: true } : {}),
+          },
     ),
   cancel: (id: string) =>
     sendJson<{ cancelled: number }>("POST", `/abuse/reports/${id}/send/cancel`),

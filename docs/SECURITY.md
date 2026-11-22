@@ -344,6 +344,8 @@ The owner reports hostile networks and shares indicators as an anonymous whistle
 
 Every artefact (text, X-ARF, `.eml`, STIX, MISP, each bundle member) goes through the guard immediately before it is returned, on every render, download and export. A failure returns `409` with reason codes and returns nothing else. The matched value is never in the response, the log or the audit trail.
 
+The guard reads what is sent, decoded. In a `.eml` or an SMTP message, every MIME part is decoded (base64 and quoted-printable). In an X-ARF JSON report, every value is read, and every value that is valid base64 (such as `evidence[].payload`, the log lines) is decoded and read too, two levels deep, so base64 cannot hide a leak. The node's network pseudonym is a deny term for abuse reports and CERT exports only (the stored pseudonym and the one the hub holds); it is not one where the pseudonym itself is checked or sent to the hub, where it would match itself. An X-ARF report never sets `destination_ip`, `evidence_source` or `confidence`, carries no host or sensor name, trap pack id or local tag (tags come from allow-lists of services, CVE ids and malware families only), and is validated against the vendored XARF 4.2.0 schema before every send (`xarf_invalid` stops the send).
+
 | Code | Meaning |
 | --- | --- |
 | `self_address` | The monitored system's address (in any encoding) was found |
@@ -374,7 +376,7 @@ No event stores a destination address, and the stack must not ask an outside ser
 
 ### The owner writes all the wording
 
-The package ships no introduction, closing text, note or signature. Any text shipped here would sit in a public repo, and a recipient could search for it and land on the project. These texts are optional: when the owner leaves one empty it is omitted from every rendering, and the report carries only the facts. Two fallbacks are built from data only and are as generic as possible: the subject `Abuse report for <address>` and the X-ARF user agent `Mozilla/5.0` (the X-ARF 0.2 specification defines no generic agent string, so the most widespread product token is used). The reply contact is the only required setting; while it is empty, rendering answers `settings_incomplete`. The guard still refuses (`default_wording`) text that matches wording published earlier, including text the owner typed.
+The package ships no introduction, closing text, note or signature. Any text shipped here would sit in a public repo, and a recipient could search for it and land on the project. These texts are optional: when the owner leaves one empty it is omitted from every rendering, and the report carries only the facts. Two fallbacks are built from data only and are as generic as possible: the subject `Abuse report for <address>` and the X-ARF user agent `Mozilla/5.0` (the X-ARF specification defines no generic agent string, so the most widespread product token is used). The X-ARF `reporter.org` is the owner's `xarf_org`, else the domain of the reply contact: never a shipped name. The reply contact is the only required setting; while it is empty, rendering answers `settings_incomplete`. The guard still refuses (`default_wording`) text that matches wording published earlier, including text the owner typed.
 
 ### Other limits
 

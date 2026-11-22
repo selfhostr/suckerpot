@@ -1,5 +1,6 @@
 """Settings, term learning (pure parts) and the worker's off switch."""
 
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -222,7 +223,7 @@ def _evidence() -> Evidence:
         service="ssh", action="command", text="uname -a",
     )  # fmt: skip
     sub = Subject(type="ip", value="198.51.100.4", first_ts=T0, last_ts=T0, sessions=1,
-                  events=1, activities=(act,))  # fmt: skip
+                  events=1, activities=(act,), xarf_id=uuid.uuid4())  # fmt: skip
     return Evidence(kind="attack_source", recipient="abuse@example.net", subjects=(sub,),
                     window_start=T0, window_end=T0, demo=True)  # fmt: skip
 
@@ -398,3 +399,54 @@ def test_the_check_covers_the_xarf_and_the_eml_the_send_path_builds() -> None:
 def _text_of(ev: Evidence, settings: ReportSettings) -> str:
     msg = render_text(ev, settings)
     return msg.subject + msg.body
+
+
+# -- M38 review fixes ---------------------------------------------------------------------------
+
+
+def _act(**kw: Any) -> Activity:
+    base: dict[str, Any] = {
+        "ts": T0, "src_ip": "198.51.100.4", "src_port": 40000, "dst_port": 22,
+        "protocol": "tcp", "service": "ssh", "action": "command", "text": "id",
+    }  # fmt: skip
+    base.update(kw)
+    return Activity.model_validate(base)
+
+
+def test_only_a_login_attack_needs_a_source_port() -> None:
+    from ingest.abuse.build import needs_source_port
+
+    assert needs_source_port([_act(src_port=0)])
+    assert needs_source_port([])
+    assert not needs_source_port([_act(src_port=0, action="exploit_attempt", service="http")])
+    assert not needs_source_port([_act(src_port=0, cves=("cve-2023-1389",))])
+    assert not needs_source_port([_act(src_port=0, sqli=True)])
+
+
+def test_trimming_keeps_a_port_bearing_activity() -> None:
+    from datetime import timedelta
+
+    from ingest.abuse.build import keep_activities
+
+    late = _act(ts=T0 + timedelta(minutes=5), src_port=40000)
+    early = tuple(_act(ts=T0 + timedelta(seconds=i), src_port=0) for i in range(3))
+    kept = keep_activities((*early, late), 1)
+    assert kept == (late,)
+    two = keep_activities((*early, late), 2)
+    assert late in two and len(two) == 2 and list(two) == sorted(two, key=lambda a: a.ts)
+    assert keep_activities(early, 2) == early[:2]  # nothing to keep: plain trim
+    assert keep_activities((late, *early), 2) == (late, early[0])
+
+
+def test_a_digest_is_frozen_only_while_its_automatic_send_waits() -> None:
+    from datetime import timedelta
+
+    from ingest.abuse.build import frozen
+
+    hold = timedelta(minutes=60)
+    soon, later = T0 + timedelta(minutes=30), T0 + timedelta(minutes=90)
+    assert frozen(soon, hold, T0, pending=True)
+    assert not frozen(later, hold, T0, pending=True)  # still collecting until due - hold
+    assert not frozen(soon, hold, T0, pending=False)  # no send waits: click mode, or it ended
+    assert not frozen(T0 - timedelta(days=1), hold, T0, pending=False)  # past due, not stuck
+    assert not frozen(None, hold, T0, pending=True)  # no due time: never stuck

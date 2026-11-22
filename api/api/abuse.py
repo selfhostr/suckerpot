@@ -32,10 +32,12 @@ from suckerpot_db.models import (
     AbuseLookupRow,
     AbuseNetworkRow,
     AbuseRecipientRow,
+    AbuseReplyRow,
     AbuseReportRequestRow,
     AbuseReportRow,
     AbuseReportSubjectRow,
     AbuseSendRequestRow,
+    AbuseSubjectOutcomeRow,
     AuditLogRow,
     EnrichmentQuotaRow,
     EnrichmentStatusRow,
@@ -54,6 +56,7 @@ from suckerpot_reporting import (
     render_csv,
     report_stem,
 )
+from suckerpot_reporting.xarf import file_names
 
 from api import audit as audit_db
 from api.abuse_core import (
@@ -61,15 +64,16 @@ from api.abuse_core import (
     SETTINGS_TEXT_FIELDS,
     EvidenceInvalidError,
     SettingsBundle,
-    build_evidence,
     effective_options,
     error,
     guard_context,
     guard_failed_response,
     held_evidence_codes,
     invalidate_terms,
+    load_evidence,
     load_settings,
     load_terms,
+    mail_inputs,
     missing_for,
     release,
     render_checked,
@@ -82,7 +86,7 @@ from api.abuse_core import (
 from api.abuse_outcomes import OutcomeOut, outcomes_for
 from api.abuse_replies import ReplyOut, replies_enabled, replies_of_report
 from api.abuse_replies import counts as reply_counts
-from api.abuse_smtp import SendState, send_state
+from api.abuse_smtp import SendState, same_day_response, send_state, sent_to_recipient_today
 from api.auth import Principal, current_principal
 from api.authz import require_admin
 from api.cursor import InvalidCursorError, decode_cursor, encode_cursor
@@ -115,9 +119,13 @@ PublicId = uuid.UUID
 Limit = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
 Cursor = Annotated[str | None, Query(max_length=512)]
 StatusName = Literal["draft", "reviewed", "sent", "closed", "discarded", "superseded"]
-KindName = Literal["attack_source", "payload_host", "c2"]
+KindName = Literal["attack_source", "payload_host", "c2", "digest"]
+SUBJECT_KINDS = ("attack_source", "payload_host", "c2")
 ReportFormat = Literal["text", "xarf", "eml"]
-DownloadFormat = Literal["txt", "eml", "evidence_csv", "xarf_yaml"]
+DownloadFormat = Literal["txt", "eml", "evidence_csv", "xarf_json"]
+# Per-source outcomes, highest first (ingest.replies.outcome.PRECEDENCE).
+OUTCOME_ORDER = ("resolved", "rejected", "ticket_opened", "human_reply", "auto_ack", "unknown")
+FRESH_DAYS = 7  # an automatic digest carries only sources active in the last 7 days
 
 _CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
@@ -141,6 +149,7 @@ class RecipientOut(BaseModel):
     form_only: bool = False
     form_url: str | None = None
     undeliverable: bool = False
+    xarf_strict: bool = False  # one spec-shaped mail per source (M38)
 
 
 class AsnOut(BaseModel):
@@ -162,6 +171,12 @@ class ReportItem(BaseModel):
     revision: int
     guard: GuardOut
     outcome: OutcomeOut | None = None  # sent and closed reports only (M26)
+    # M38: when a digest is due (None: after the hold, or not automatic), its part that day,
+    # the channel, and how many sources of each kind it holds.
+    due_at: datetime | None = None
+    part: int = 1
+    channel: str = "mail"
+    kinds: dict[str, int] = {}
 
 
 class ReportPage(BaseModel):
@@ -182,6 +197,12 @@ class SubjectOut(BaseModel):
     link: str
     # confirmed | reported | taken_down when the SuckerPot network handles it (M29), else null
     network_state: str | None = None
+    kind: str = "attack_source"  # M38: a digest groups sources of every kind
+    xarf_file: str | None = None  # the name of its XARF JSON in the mail
+    xarf_id: str | None = None  # its XARF report id (administrators only)
+    outcome: str | None = None  # the best verified reply that names this source
+    ticket_id: str | None = None
+    stale: bool = False  # older than 7 days: only a send started by hand carries it
 
 
 class RedactionOut(BaseModel):
@@ -283,6 +304,7 @@ class RecipientRow(BaseModel):
     form_only: bool = False
     form_url: str | None = None
     undeliverable: bool = False
+    xarf_strict: bool = False
 
 
 class RecipientPage(BaseModel):
@@ -305,6 +327,8 @@ class SettingsOut(BaseModel):
     note: str | None
     subject_template: str | None
     xarf_user_agent: str | None
+    xarf_org: str | None = None
+    digest_enabled: bool = True
     round_times: bool
     default_options: DefaultOptions
     default_tlp: Literal["clear", "green", "amber", "red"]
@@ -366,6 +390,7 @@ def _recipient_out(r: AbuseRecipientRow) -> RecipientOut:
         form_only=r.form_only,
         form_url=r.form_url if r.form_only else None,
         undeliverable=r.undeliverable,
+        xarf_strict=r.xarf_strict,
     )
 
 
@@ -394,7 +419,57 @@ def _item(row: AbuseReportRow, rec: AbuseRecipientRow) -> ReportItem:
         updated_at=row.updated_at,
         revision=row.revision,
         guard=GuardOut(ok=row.guard_ok, codes=list(row.guard_codes)),
+        due_at=row.due_at,
+        part=row.part,
+        channel=row.channel,
     )
+
+
+async def _kinds(db: AsyncSession, ids: list[int]) -> dict[int, dict[str, int]]:
+    """Sources of each kind per report (one query for a page)."""
+    if not ids:
+        return {}
+    out: dict[int, dict[str, int]] = {}
+    for rid, kind, n in await db.execute(
+        select(AbuseReportSubjectRow.report_id, AbuseReportSubjectRow.kind, func.count())
+        .where(AbuseReportSubjectRow.report_id.in_(ids))
+        .group_by(AbuseReportSubjectRow.report_id, AbuseReportSubjectRow.kind)
+    ):
+        out.setdefault(rid, {})[kind] = int(n)
+    return out
+
+
+async def _source_outcomes(
+    db: AsyncSession, report_id: int
+) -> dict[tuple[str, str, str], tuple[str, str | None]]:
+    """The best outcome per source from verified replies still linked to this report (M38)."""
+    rows = await db.execute(
+        select(
+            AbuseSubjectOutcomeRow.kind,
+            AbuseSubjectOutcomeRow.subject_type,
+            AbuseSubjectOutcomeRow.value,
+            AbuseReplyRow.classification,
+            AbuseSubjectOutcomeRow.ticket_id,
+        )
+        .join(AbuseReplyRow, AbuseReplyRow.id == AbuseSubjectOutcomeRow.reply_id)
+        .where(
+            AbuseSubjectOutcomeRow.report_id == report_id,
+            AbuseReplyRow.report_id == report_id,
+            AbuseReplyRow.verified.is_(True),
+            AbuseReplyRow.classification != "bounce",
+        )
+    )
+    best: dict[tuple[str, str, str], tuple[str, str | None]] = {}
+    for kind, stype, value, outcome, ticket in rows:
+        key = (kind, stype, value)
+        rank = OUTCOME_ORDER.index(outcome) if outcome in OUTCOME_ORDER else len(OUTCOME_ORDER)
+        old = best.get(key)
+        old_rank = OUTCOME_ORDER.index(old[0]) if old and old[0] in OUTCOME_ORDER else 99
+        if old is None or rank < old_rank:
+            best[key] = (outcome, ticket or (old[1] if old else None))
+        elif ticket and not old[1]:
+            best[key] = (old[0], ticket)
+    return best
 
 
 async def _load(
@@ -496,10 +571,11 @@ async def _detail(
 ) -> ReportDetail:
     item = _item(row, rec)
     outcomes = await outcomes_for(db, [(row.id, row.status, row.sent_at)])
-    item = item.model_copy(update={"outcome": outcomes.get(row.id)})
+    kinds = await _kinds(db, [row.id])
+    item = item.model_copy(update={"outcome": outcomes.get(row.id), "kinds": kinds.get(row.id, {})})
     evidence: Evidence | None
     try:
-        evidence = build_evidence(row, rec, bundle)
+        evidence = await load_evidence(db, row, rec, bundle)
     except EvidenceInvalidError:
         evidence = None
     if evidence is not None:
@@ -515,11 +591,25 @@ async def _detail(
                 isouter=True,
             )
             .where(AbuseReportSubjectRow.report_id == row.id)
-            .order_by(AbuseReportSubjectRow.first_ts, AbuseReportSubjectRow.value)
+            .order_by(
+                AbuseReportSubjectRow.kind,
+                AbuseReportSubjectRow.first_ts,
+                AbuseReportSubjectRow.value,
+            )
             .limit(MAX_LIMIT)
         )
     ).all()
     net_states = await network_states(db, [s.value for s, _n in subs])
+    files: dict[tuple[str, str, str], str] = {}
+    if evidence is not None:
+        names = file_names(len(evidence.subjects))
+        files = {
+            (evidence.kind_of(x), x.type, x.value): names[i]
+            for i, x in enumerate(evidence.subjects)
+        }
+    per_source = await _source_outcomes(db, row.id)
+    fresh_after = datetime.now(UTC) - timedelta(days=FRESH_DAYS)
+    open_report = row.status in ("draft", "reviewed")
     subjects = [
         SubjectOut(
             subject_type=s.subject_type,
@@ -533,6 +623,12 @@ async def _detail(
             last_ts=s.last_ts,
             link=_subject_link(s.subject_type, s.value),
             network_state=net_states.get(s.value),
+            kind=s.kind,
+            xarf_file=files.get((s.kind, s.subject_type, s.value)),
+            xarf_id=str(s.xarf_id) if admin and s.xarf_id is not None else None,
+            outcome=per_source.get((s.kind, s.subject_type, s.value), (None, None))[0],
+            ticket_id=per_source.get((s.kind, s.subject_type, s.value), (None, None))[1],
+            stale=open_report and s.last_ts <= fresh_after,
         )
         for s, n in subs
     ]
@@ -681,7 +777,16 @@ async def list_reports(
     else:
         stmt = stmt.where(AbuseReportRow.status != "superseded")
     if kind is not None:
-        stmt = stmt.where(AbuseReportRow.kind == kind)
+        # A digest counts under every kind of source it holds.
+        has_kind = (
+            select(AbuseReportSubjectRow.report_id)
+            .where(
+                AbuseReportSubjectRow.report_id == AbuseReportRow.id,
+                AbuseReportSubjectRow.kind == kind,
+            )
+            .exists()
+        )
+        stmt = stmt.where((AbuseReportRow.kind == kind) | has_kind)
     if recipient is not None:
         stmt = stmt.where(AbuseReportRow.recipient_id == recipient)
     if demo is not None:
@@ -701,8 +806,14 @@ async def list_reports(
     rows = (await db.execute(stmt)).all()
     page, more = rows[:limit], len(rows) > limit
     outcomes = await outcomes_for(db, [(r.id, r.status, r.sent_at) for r, _ in page])
+    kinds = await _kinds(db, [r.id for r, _ in page])
     return ReportPage(
-        items=[_item(r, rec).model_copy(update={"outcome": outcomes.get(r.id)}) for r, rec in page],
+        items=[
+            _item(r, rec).model_copy(
+                update={"outcome": outcomes.get(r.id), "kinds": kinds.get(r.id, {})}
+            )
+            for r, rec in page
+        ],
         next_cursor=(
             encode_cursor([page[-1][0].updated_at.isoformat(), page[-1][0].id]) if more else None
         ),
@@ -742,8 +853,9 @@ async def render_report(
         log.warning("abuse render held report=%s reasons=%s", row.id, ",".join(held))
         return guard_failed_response(held)
     try:
-        evidence = build_evidence(row, rec, bundle)
+        evidence = await load_evidence(db, row, rec, bundle)
         ctx = await guard_context(db, row, evidence)
+        evidence, inputs = mail_inputs(row, evidence, admin=admin)
         terms = await load_terms(db)
         rendered = await asyncio.to_thread(
             render_checked,
@@ -754,6 +866,7 @@ async def render_report(
             format,
             subject,
             **reply_args(row, bundle, admin=admin),
+            inputs=inputs,
         )
         release(rendered.guard)
     except GuardFailed as exc:
@@ -762,12 +875,17 @@ async def render_report(
     except RenderUnavailable as exc:
         if exc.code == "settings_incomplete":
             return settings_incomplete_response(missing_for(bundle.settings))
+        if exc.code == "not_sent_with_xarf_v4":
+            return error(409, "This report was not sent with X-ARF v4.", exc.code)
         return error(409, "This format is not available for this report.", exc.code)
     except EvidenceInvalidError:
         return error(409, "The stored evidence is not valid.", "evidence_invalid")
     msg = rendered.message
     body = rendered.eml.decode("ascii") if rendered.eml is not None else msg.body
     attachments = () if rendered.eml is not None else msg.attachments
+    if format == "xarf":
+        # The X-ARF tab: one JSON per source, exactly the bytes the mail carries.
+        attachments = msg.xarf_files
     return _no_store(
         RenderOut(
             to=msg.to,
@@ -791,6 +909,7 @@ async def download_report(
     db: DbSession,
     format: DownloadFormat = "txt",
     subject: Annotated[str | None, Query(max_length=1024)] = None,
+    subject_kind: KindName | None = None,
 ) -> Response:
     loaded = await _load(db, public_id)
     if loaded is None:
@@ -798,7 +917,7 @@ async def download_report(
     row, rec = loaded
     admin = (p := await _principal(request)) is not None and p.is_admin
     bundle = await load_settings(db)
-    missing = missing_for(bundle.settings, xarf=format == "xarf_yaml")
+    missing = missing_for(bundle.settings, xarf=format == "xarf_json")
     if missing:
         return settings_incomplete_response(missing)
     if held := held_evidence_codes(row):
@@ -806,10 +925,11 @@ async def download_report(
         return guard_failed_response(held)
     stem = report_stem(row.public_id)
     try:
-        evidence = build_evidence(row, rec, bundle)
+        evidence = await load_evidence(db, row, rec, bundle)
         ctx = await guard_context(db, row, evidence)
+        evidence, inputs = mail_inputs(row, evidence, admin=admin)
         terms = await load_terms(db)
-        fmt = {"txt": "text", "eml": "eml", "evidence_csv": "text", "xarf_yaml": "xarf"}[format]
+        fmt = {"txt": "text", "eml": "eml", "evidence_csv": "text", "xarf_json": "xarf"}[format]
         rendered = await asyncio.to_thread(
             render_checked,
             evidence,
@@ -819,13 +939,13 @@ async def download_report(
             fmt,
             subject,
             **reply_args(row, bundle, admin=admin),
+            inputs=inputs,
         )
         release(rendered.guard)
-        name, media, data = _file_of(format, stem, rendered, evidence)
+        name, media, data = _file_of(format, stem, rendered, evidence, subject, subject_kind)
         # The guard looks at the exact bytes about to be sent, once more.
-        final = await asyncio.to_thread(
-            guard, data, terms, fmt="eml" if format == "eml" else "text", ctx=ctx
-        )
+        kind = {"eml": "eml", "xarf_json": "json"}.get(format, "text")
+        final = await asyncio.to_thread(guard, data, terms, fmt=kind, ctx=ctx)  # type: ignore[arg-type]
         release(final)
     except GuardFailed as exc:
         log.warning("abuse download blocked report=%s reasons=%s", row.id, ",".join(exc.codes))
@@ -833,6 +953,8 @@ async def download_report(
     except RenderUnavailable as exc:
         if exc.code == "settings_incomplete":
             return settings_incomplete_response(missing_for(bundle.settings))
+        if exc.code == "not_sent_with_xarf_v4":
+            return error(409, "This report was not sent with X-ARF v4.", exc.code)
         return error(409, "This file is not available for this report.", exc.code)
     except EvidenceInvalidError:
         return error(409, "The stored evidence is not valid.", "evidence_invalid")
@@ -863,6 +985,8 @@ def _file_of(
     stem: str,
     rendered: Any,
     evidence: Evidence,
+    subject: str | None = None,
+    subject_kind: str | None = None,
 ) -> tuple[str, str, bytes]:
     msg = rendered.message
     if format == "txt":
@@ -872,10 +996,24 @@ def _file_of(
     if format == "evidence_csv":
         att = render_csv(evidence)
         return att.name, "text/csv; charset=us-ascii", att.content.encode("ascii")
-    report = next((a for a in msg.attachments if a.name == "report.txt"), None)
-    if report is None or not msg.xarf:
-        raise RenderUnavailable("xarf_unavailable")
-    return report.name, "text/plain; charset=us-ascii", report.content.encode("ascii")
+    files = msg.xarf_files
+    if subject is not None:
+        # One value can be two sources of a digest (an attacker that also served a file).
+        hits = [
+            i
+            for i, x in enumerate(evidence.subjects)
+            if x.value == subject and (subject_kind is None or evidence.kind_of(x) == subject_kind)
+        ]
+        if len(hits) > 1:
+            raise RenderUnavailable("xarf_kind_required")
+        if not hits or hits[0] >= len(files):
+            raise RenderUnavailable("xarf_unknown_subject")
+        chosen = files[hits[0]]
+    elif len(files) == 1:
+        chosen = files[0]
+    else:
+        raise RenderUnavailable("xarf_subject_required")
+    return chosen.name, "application/json", chosen.content.encode("ascii")
 
 
 # ---- workflow ------------------------------------------------------------------------------
@@ -887,6 +1025,8 @@ class StatusBody(BaseModel):
     to: Literal["draft", "reviewed", "sent", "closed", "discarded"]
     revision: int = Field(ge=1)
     sent_at: AwareDatetime | None = None
+    # M38: a second mail to the same provider on the same UTC day needs this confirmation.
+    confirm_same_day: bool = False
 
 
 @router.post("/abuse/reports/{public_id}/status", response_model=ReportDetail)
@@ -922,6 +1062,8 @@ async def set_status(
         when = body.sent_at or now
         if when > now + timedelta(minutes=5):
             return error(422, "The sent time cannot be in the future.", "sent_in_future")
+        if not body.confirm_same_day and await sent_to_recipient_today(db, row, rec):
+            return same_day_response()
         values |= {"sent_at": when.astimezone(UTC), "sent_by": actor, "sent_via": "manual"}
     elif body.to == "closed":
         values |= {"closed_at": now, "closed_by": actor}
@@ -993,7 +1135,7 @@ async def _review_blocker(
     if not (rec.override_mailbox or rec.mailbox):
         return error(409, "There is no abuse mailbox for this provider yet.", "no_mailbox")
     try:
-        evidence = build_evidence(row, rec, bundle)
+        evidence = await load_evidence(db, row, rec, bundle)
     except EvidenceInvalidError:
         return error(409, "The stored evidence is not valid.", "evidence_invalid")
     result = await _live_guard(db, row, evidence, bundle)
@@ -1176,6 +1318,7 @@ async def list_recipients(
                 form_only=r.form_only,
                 form_url=r.form_url if r.form_only else None,
                 undeliverable=r.undeliverable,
+                xarf_strict=r.xarf_strict,
             )
             for r in page
         ],
@@ -1228,6 +1371,8 @@ class RecipientPatch(BaseModel):
     # The owner can only clear what replies set (false); true is refused.
     form_only: Literal[False] | None = None
     undeliverable: Literal[False] | None = None
+    # M38: one spec-shaped XARF mail per source for a desk that parses XARF strictly.
+    xarf_strict: bool | None = None
 
     @field_validator("override_mailbox")
     @classmethod
@@ -1255,6 +1400,8 @@ async def patch_recipient(
         values.update(form_only=False, form_url=None)
     if "undeliverable" in sent and body.undeliverable is False:
         values.update(undeliverable=False, hard_bounces=0)
+    if "xarf_strict" in sent and body.xarf_strict is not None:
+        values["xarf_strict"] = body.xarf_strict
     if "override_mailbox" in sent:
         # Another address starts with a clean record.
         values.update(undeliverable=False, hard_bounces=0)
@@ -1287,6 +1434,7 @@ async def patch_recipient(
         form_only=rec.form_only,
         form_url=rec.form_url if rec.form_only else None,
         undeliverable=rec.undeliverable,
+        xarf_strict=rec.xarf_strict,
     )
 
 
@@ -1319,6 +1467,10 @@ class SettingsBody(BaseModel):
     note: Annotated[str | None, Field(max_length=1000)] = None
     subject_template: Annotated[str | None, Field(max_length=200)] = None
     xarf_user_agent: Annotated[str | None, Field(max_length=64)] = None
+    # M38: reporter.org of the XARF reports (empty: the domain of the reply contact).
+    xarf_org: Annotated[str | None, Field(max_length=100)] = None
+    # M38: one mail per provider per day; omitted keeps the stored choice.
+    digest_enabled: bool | None = None
     round_times: bool = True
     default_options: DefaultOptions = DefaultOptions()
     default_tlp: Literal["clear", "green", "amber", "red"] = "green"
@@ -1326,7 +1478,7 @@ class SettingsBody(BaseModel):
     reference_style: Literal["subject", "subject_and_body", "off"] | None = None
     revision: int = Field(ge=0)
 
-    @field_validator("reply_contact", "xarf_user_agent")
+    @field_validator("reply_contact", "xarf_user_agent", "xarf_org")
     @classmethod
     def _line(cls, v: str | None) -> str | None:
         return _single_line(v)
@@ -1363,6 +1515,8 @@ def _settings_out(
         note=s.note,
         subject_template=s.subject_template,
         xarf_user_agent=s.xarf_user_agent,
+        xarf_org=s.xarf_org,
+        digest_enabled=bundle.digest_enabled,
         round_times=bundle.round_times,
         default_options=DefaultOptions(**bundle.option_defaults()),
         default_tlp=bundle.tlp,  # type: ignore[arg-type]
@@ -1410,6 +1564,10 @@ async def put_settings(
         "note": body.note,
         "subject_template": body.subject_template,
         "xarf_user_agent": body.xarf_user_agent,
+        "xarf_org": body.xarf_org,
+        "digest_enabled": (
+            old.digest_enabled if body.digest_enabled is None else body.digest_enabled
+        ),
         "reference_style": body.reference_style or old.reference_style,
     }
     principal = await _principal(request)
@@ -1453,6 +1611,8 @@ async def put_settings(
         "note": old.settings.note,
         "subject_template": old.settings.subject_template,
         "xarf_user_agent": old.settings.xarf_user_agent,
+        "xarf_org": old.settings.xarf_org,
+        "digest_enabled": old.digest_enabled,
         "reference_style": old.reference_style,
         "defaults": {**old.option_defaults(), "round_times": old.round_times, "tlp": old.tlp},
     }

@@ -347,10 +347,17 @@ class TermsCache:
     """``SelfTerms`` rebuilt at most once a minute. ``None`` when the table cannot be read."""
 
     def __init__(
-        self, factory: async_sessionmaker[AsyncSession], env: Mapping[str, str] | None = None
+        self,
+        factory: async_sessionmaker[AsyncSession],
+        env: Mapping[str, str] | None = None,
+        *,
+        with_pseudonym: bool = False,
     ) -> None:
         self.factory = factory
         self.env = dict(os.environ if env is None else env)
+        # The network pseudonym is a deny term for abuse reports only (M38). The network worker,
+        # which checks and sends the pseudonym itself, keeps the default.
+        self.with_pseudonym = with_pseudonym
         self._terms: SelfTerms | None = None
         self._at = 0.0
 
@@ -375,6 +382,16 @@ class TermsCache:
                         )
                     )
                 ).first()
+                # The node's public network pseudonym (M29) never goes into a report (M38).
+                names = (
+                    (
+                        await session.execute(
+                            text("SELECT pseudonym, synced_pseudonym FROM network_membership")
+                        )
+                    ).all()
+                    if self.with_pseudonym
+                    else []
+                )
         except Exception as exc:
             log.warning("self terms unavailable (%s)", type(exc).__name__)
             self._terms = None
@@ -405,6 +422,7 @@ class TermsCache:
             effective_rows(table, self.env, days),
             self.env,
             vpn_exit=egress.ip if egress is not None and egress.ip else None,
+            extra_texts=[v for r in names for v in (r.pseudonym, r.synced_pseudonym) if v],
         )
         self._terms, self._at = terms, time.monotonic()
         return terms

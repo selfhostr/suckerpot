@@ -12,6 +12,7 @@ import { Link } from "react-router"
 import { ReportingCard } from "@/components/abuse/reporting-card"
 import { ReportingNav } from "@/components/abuse/reporting-nav"
 import { ImapCard } from "@/components/abuse/imap-card"
+import { DigestCard } from "@/components/abuse/digest-card"
 import { SendingCard } from "@/components/abuse/sending-card"
 import { ChannelsCard } from "@/components/alerts/channels-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -483,6 +484,9 @@ export function SettingsPage() {
             <ReportingCard />
             <section id="reporting-sending" className="scroll-mt-16">
               <SendingCard />
+            </section>
+            <section id="reporting-digest" className="scroll-mt-16">
+              <DigestCard />
             </section>
             <section id="reporting-replies" className="scroll-mt-16">
               <ImapCard />

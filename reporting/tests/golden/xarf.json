@@ -1,0 +1,36 @@
+{
+  "xarf_version": "4.2.0",
+  "report_id": "0f8e5b2a-3c41-4d7e-9a10-6b2c8d4e1f37",
+  "timestamp": "2026-10-30T14:02:11Z",
+  "reporter": {
+    "org": "example.org",
+    "contact": "reports@example.org",
+    "domain": "example.org"
+  },
+  "sender": {
+    "org": "example.org",
+    "contact": "reports@example.org",
+    "domain": "example.org"
+  },
+  "source_identifier": "198.51.100.23",
+  "category": "connection",
+  "type": "login_attack",
+  "source_port": 41022,
+  "protocol": "tcp",
+  "first_seen": "2026-10-30T14:02:11Z",
+  "last_seen": "2026-10-30T15:40:02Z",
+  "destination_port": 22,
+  "description": "412 login attempts, 1 command on SSH, 2026-10-30 14:02 to 15:40 UTC",
+  "evidence": [
+    {
+      "content_type": "text/csv",
+      "description": "Log lines (UTC)",
+      "payload": "c291cmNlLGFzbixuZXR3b3JrLGNvdW50cnksdGltZSxwcm90b2NvbCxzcmNfcG9ydCxwb3J0LGNvdW50LGRldGFpbHMsc2hhMjU2DQoxOTguNTEuMTAwLjIzLDY0NTAwLEVYQU1QTEUtTkVULE5MLDIwMjYtMTAtMzBUMTQ6MDI6MTFaLHRjcCw0MTAyMiwyMiw0MTIsIkxvZ2luIGF0dGVtcHRzOyB1c2Vyczogcm9vdCxhZG1pbix1Ym50IiwNCjE5OC41MS4xMDAuMjMsNjQ1MDAsRVhBTVBMRS1ORVQsTkwsMjAyNi0xMC0zMFQxNTozOTo1OFosdGNwLDQxMDIyLDIyLDEsQ29tbWFuZHM7IGNkIC90bXA7IHdnZXQgaHR0cDovLzIwMy4wLjExMy45L2JpbnMveDg2OyBjaG1vZCAreCB4ODY7IC4veDg2LA0K",
+      "hash": "sha256:c3f92e2a6c5eb67085405f358cffd5892fc69536b90c379361f3bcb5cce3ab1d",
+      "size": 339
+    }
+  ],
+  "tags": [
+    "service:ssh"
+  ]
+}

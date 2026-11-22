@@ -1,9 +1,9 @@
 """Which report does a reply belong to, and can we vouch for it (design M26, section 7).
 
-First hit wins: our own Message-ID, the reply token, a delivery status notification that
-returns one of those, a ticket id we have seen from the same sender, and last the sender's
-domain (only when exactly one recent report went to that domain). The answer to "may this reply
-change an outcome" is separate: ``is_verified``.
+First hit wins: our own Message-ID, the reply token, the XARF ``report_id`` of one source (M38),
+a delivery status notification that returns one of those, a ticket id we have seen from the same
+sender, and last the sender's domain (only when exactly one recent report went to that domain).
+The answer to "may this reply change an outcome" is separate: ``is_verified``.
 """
 
 from __future__ import annotations
@@ -17,13 +17,28 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.shared_mail import is_shared_domain
 
-from .parse import BODY_FOR_RULES, ParsedReply
+from .parse import BODY_FOR_RULES, ParsedReply, strip_quoted
 
 # A token comes right after "ref", "ref:", "ref#" or "(ref". Bounded text, no nested repeats.
 TOKEN: Final = re.compile(r"(?<![a-z0-9])ref[ :#]{0,3}([0-9a-f]{12})(?![0-9a-z])")
+# The XARF report id of one source (a UUID v4), as a desk quotes it.
+XARF_ID: Final = re.compile(
+    r"(?<![0-9a-f])([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?![0-9a-f])"
+)
 MAX_TOKENS: Final = 5
 MAX_RECENT: Final = 5000
-METHODS: Final = ("message_id", "token", "dsn", "ticket", "sender_domain", "manual", "none")
+METHODS: Final = (
+    "message_id",
+    "token",
+    "xarf_id",
+    "dsn",
+    "ticket",
+    "sender_domain",
+    "manual",
+    "none",
+)
+
+SubjectKey = tuple[str, str, str]  # (kind, subject_type, value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +46,7 @@ class Match:
     report_id: int | None
     method: str = "none"
     via_message_id: bool = False
+    subjects: tuple[SubjectKey, ...] = ()  # the sources an ``xarf_id`` match names
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +105,43 @@ def find_tokens(*texts: str) -> list[str]:
             if token not in found:
                 found.append(token)
     return found[:MAX_TOKENS]
+
+
+def find_xarf_ids(*texts: str) -> list[str]:
+    """XARF report ids named in the texts, in order, at most five. Callers pass the subject and
+    the unquoted body only."""
+    found: list[str] = []
+    for value in texts:
+        for xid in XARF_ID.findall(value[:BODY_FOR_RULES].lower()):
+            if xid not in found:
+                found.append(xid)
+    return found[:MAX_TOKENS]
+
+
+async def by_xarf_id(
+    session: AsyncSession, ids: list[str]
+) -> tuple[int | None, tuple[SubjectKey, ...], bool]:
+    """``(report id, its sources whose id was quoted, an id was found at all)``. Only a sent or
+    closed report counts, like a reply token. Ids of several reports: the first report wins and
+    only its sources are linked."""
+    if not ids:
+        return None, (), False
+    rows = (
+        await session.execute(
+            text(
+                "SELECT s.report_id, s.kind, s.subject_type, s.value, r.status "
+                "FROM abuse_report_subjects s JOIN abuse_reports r ON r.id = s.report_id "
+                "WHERE s.xarf_id = ANY(CAST(:ids AS uuid[])) ORDER BY s.report_id"
+            ),
+            {"ids": ids},
+        )
+    ).all()
+    sent = [r for r in rows if r.status in ("sent", "closed")]
+    if not sent:
+        return None, (), bool(rows)
+    first = int(sent[0].report_id)
+    keys = tuple((r.kind, r.subject_type, r.value) for r in sent if int(r.report_id) == first)
+    return first, keys, True
 
 
 async def recent_reports(session: AsyncSession, days: int) -> list[RecentReport]:
@@ -174,6 +227,13 @@ async def find_match(
         return Match(rid, "token")
     if seen:
         return NO_MATCH  # the token names a report that was never sent: nothing to link
+    # Only what the sender wrote: a quoted copy of our own mail names every id we sent.
+    ids = find_xarf_ids(reply.subject, strip_quoted(reply.body))
+    rid, subjects, seen = await by_xarf_id(session, ids)
+    if rid is not None:
+        return Match(rid, "xarf_id", subjects=subjects)
+    if seen:
+        return NO_MATCH  # the id names a source of a report that was never sent
     if reply.dsn_message_id:
         rid = await by_message_id(session, (reply.dsn_message_id,))
         if rid is not None:

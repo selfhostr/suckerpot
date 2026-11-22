@@ -73,8 +73,9 @@ XARF = RenderedMessage(
     to="abuse@example.net",
     subject="Attack from 198.51.100.23",
     body="Hello",
-    attachments=(Attachment("report.txt", "text/plain", "Category: abuse\n"),),
-    xarf=True,
+    attachments=(Attachment("xarf.json", "application/json", '{"xarf_version": "4.2.0"}\n'), CSV),
+    layout="report",
+    feedback="Feedback-Type: xarf\nUser-Agent: Mozilla/5.0\nVersion: 1\n",
 )
 
 
@@ -192,8 +193,22 @@ def test_headers_are_neutral() -> None:
     ]
 
 
-def test_an_x_arf_message_carries_its_marker_only_then() -> None:
-    assert parse(build_message(PROFILE, XARF, now=NOW))["X-ARF"] == "YES"
+def test_an_xarf_report_has_the_rfc6522_shape_and_no_header() -> None:
+    msg = parse(build_message(PROFILE, XARF, now=NOW))
+    assert "X-ARF" not in msg and "X-XARF" not in msg
+    assert msg.get_content_type() == "multipart/report"
+    assert msg.get_param("report-type") == "feedback-report"
+    parts = list(msg.iter_parts())
+    assert [p.get_content_type() for p in parts] == [
+        "text/plain",
+        "message/feedback-report",
+        "application/json",
+        "text/csv",
+    ]
+    assert parts[2]["Content-Transfer-Encoding"] == "base64"
+    assert parts[2].get_filename() == "xarf.json"
+    assert parts[2].get_payload(decode=True) == b'{"xarf_version": "4.2.0"}\n'
+    assert "MIME-Version" not in parts[2]
     assert "X-ARF" not in parse(build_message(PROFILE, MESSAGE, now=NOW))
 
 
@@ -611,3 +626,4 @@ def test_the_new_cancel_codes_are_known_to_the_stack() -> None:
     from ingest.reportmail.outgoing import CODES
 
     assert {"shared_host", "form_only", "undeliverable"} <= set(CODES)
+    assert {"xarf_invalid", "digest_migration"} <= set(CODES)

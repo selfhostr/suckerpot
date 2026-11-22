@@ -31,14 +31,25 @@ shared services (``suckerpot_db.blocklist_values``): a report that names one is 
 (``shared_host``), also a draft made before the list grew. An automatic send is also cancelled
 when its recipient only takes a web form (``form_only``) or its address is dead
 (``undeliverable``).
+
+Daily digests (M38, section 5). With ``report_settings.digest_enabled`` an automatic digest waits
+for its ``due_at`` and for the node's digest hour, and a recipient address gets at most one
+automatic mail per UTC day, plus the next parts of a full digest (at most three a day, two hours
+apart). A mail sent or marked sent by hand counts as the recipient's digest for the day. A
+recipient that asked for one mail per source (``xarf_strict``) is limited by the cap and pacing
+only. Freshness is per source: an automatic digest carries only the sources active in the last
+``AUTO_MAX_AGE``; the older ones stay out of the mail and are taken off the sent report's subjects.
+Every XARF part of the serialized message is validated against the vendored schema before the
+send (``xarf_invalid`` otherwise, never a fallback).
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -57,7 +68,16 @@ from suckerpot_reporting import (
     ReportSettings,
 )
 
-from ingest.abuse.build import default_options, options_of, render_mail
+from ingest.abuse.build import (
+    SETTINGS_SQL,
+    default_options,
+    options_of,
+    render_mail,
+    report_settings_of,
+    subject_keys,
+    utc_day,
+    with_subject_rows,
+)
 from ingest.abuse.config import AbuseSettings
 from ingest.abuse.selfterms import TermsCache
 from ingest.abuse.session_ids import internal_session_ids
@@ -71,6 +91,7 @@ from ingest.reportmail.outgoing import (
     check_message,
     deliver,
     new_message_id,
+    xarf_parts_valid,
 )
 
 log = logging.getLogger(__name__)
@@ -81,19 +102,20 @@ AUTO_SPACING = timedelta(minutes=3)
 AUTO_PAUSE = timedelta(hours=1)
 MAX_DEFERRALS = 3
 AUTO_MAX_AGE = timedelta(days=7)
+MAX_PARTS = 3
 TEST_EGRESS_WAIT = timedelta(minutes=2)
 PASSWORD_AAD = "report_smtp"  # noqa: S105 - a label, not a secret; bound to the ciphertext, see api.abuse_smtp
 
 
 MARK_SENT = (
-    "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_by = :by, sent_via = 'smtp' "
-    "WHERE id = :i AND status IN ('draft', 'reviewed')"
+    "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_by = :by, sent_via = 'smtp', "
+    "sent_xarf = CAST(:x AS jsonb) WHERE id = :i AND status IN ('draft', 'reviewed')"
 )
 # An automatic send of a draft is stamped as reviewed by 'auto' (the trigger allows nothing else).
 MARK_AUTO = (
     "UPDATE abuse_reports SET status = 'sent', sent_at = now(), sent_by = :by, sent_via = 'smtp', "
-    "reviewed_at = now(), reviewed_by = 'auto', reviewed_revision = revision "
-    "WHERE id = :i AND status IN ('draft', 'reviewed')"
+    "reviewed_at = now(), reviewed_by = 'auto', reviewed_revision = revision, "
+    "sent_xarf = CAST(:x AS jsonb) WHERE id = :i AND status IN ('draft', 'reviewed')"
 )
 
 
@@ -103,6 +125,78 @@ SENT_TODAY = (
     "AND s.done_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')"
 )
 STALE_SENDING_S = SMTP_DEADLINE_S + 30
+
+# Mails that went to the report's recipient address since 00:00 UTC (another report, sent by SMTP
+# or marked sent by hand). Aliases: ``r`` the report, ``rec`` its recipient.
+_TODAY = (
+    "FROM abuse_reports r2 JOIN abuse_recipients c2 ON c2.id = r2.recipient_id "
+    "WHERE r2.status IN ('sent', 'closed') AND NOT r2.demo AND r2.id <> r.id "
+    "AND r2.sent_at >= CAST(:day0 AS timestamptz) "
+    "AND COALESCE(NULLIF(c2.override_mailbox, ''), c2.mailbox) "
+    "= COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox)"
+)
+_HOUR_PASSED = "CAST(:minute AS integer) >= CAST(:digest_minute AS integer)"
+# True when an automatic send of report ``r`` may go now under the one-digest-a-day rule.
+RECIPIENT_FREE = (
+    # The hold runs from the last rebuild for every digest with a due time (strict included);
+    # with digests off (no due time) it runs from the queueing, as before 0040.
+    "((r.kind <> 'digest' OR r.due_at IS NULL "
+    "OR r.updated_at <= CAST(:now AS timestamptz) - make_interval(mins => CAST(:hold AS integer))) "
+    "AND (NOT CAST(:digest AS boolean) OR r.kind <> 'digest' OR rec.xarf_strict "
+    "OR (r.due_at IS NOT NULL AND r.due_at <= CAST(:now AS timestamptz) AND ("
+    f"((SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED}) "
+    f"OR (r.part > 1 AND (SELECT count(*) {_TODAY}) BETWEEN 1 AND {MAX_PARTS - 1} "
+    f"AND (SELECT max(r2.sent_at) {_TODAY}) <= CAST(:now AS timestamptz) - interval '2 hours'))) "
+    "OR (r.due_at IS NULL AND r.status = 'reviewed' "
+    f"AND (SELECT count(*) {_TODAY}) = 0 AND {_HOUR_PASSED})))"
+)
+
+# An automatic request that ended for a reason that may be gone does not block a new one (M38):
+# ``form_only`` and ``undeliverable`` once the owner cleared the flag (schedule() checks the flags),
+# ``digest_enabled`` once the draft has a due time (schedule() waits for it),
+# ``mode_changed`` and ``mode_off`` once the profile was saved again (schedule() runs in auto only),
+# the others once the report changed after the request ended (a rebuild with new evidence, a
+# shared service left out, the identity check passing again). A refusal (5xx), an unknown outcome
+# and the owner's own cancel still block: a second mail would be worse, or the owner decided.
+TERMINAL_CODES = ("too_old", "shared_host", "xarf_invalid", "not_ready", "internal")
+RESCHEDULABLE = (  # COALESCE: an owner's cancel has no error code, and NULL must block
+    "COALESCE(q.auto AND q.status IN ('cancelled', 'failed') AND ("  # noqa: S608 - constants
+    "q.error_code IN ('form_only', 'undeliverable', 'digest_enabled') "
+    # parked by a mode change: armed again once the profile was saved after it (auto again)
+    "OR (q.error_code IN ('mode_changed', 'mode_off') "
+    "AND q.done_at < (SELECT p.updated_at FROM report_smtp p WHERE p.id = 1)) "
+    "OR ((q.error_code IN (" + ", ".join(f"'{c}'" for c in TERMINAL_CODES) + ") "
+    "OR q.error_code LIKE 'guard_failed%') AND q.done_at < r.updated_at)), false)"
+)
+
+_SCHEDULE_HEAD = """
+                    INSERT INTO abuse_send_requests (report_id, kind, auto, requested_by,
+                                                     scheduled_at)
+                    SELECT r.id, 'send', true, 'auto',
+                           GREATEST(COALESCE(r.due_at, CAST(:at AS timestamptz)),
+                                    CAST(:at AS timestamptz))
+                    FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id
+                    WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
+                      AND NOT rec.muted AND NOT rec.form_only AND NOT rec.undeliverable
+                      AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
+                      AND r.window_end > now() - make_interval(secs => :max_age)
+                      -- digests on: a digest waits for the due time its next build gives it
+                      AND NOT (CAST(:digest AS boolean) AND r.kind = 'digest'
+                               AND r.due_at IS NULL AND r.status = 'draft')
+                      -- never had a request, or only automatic sends that the server deferred,
+                      -- or that ended for a reason that is gone (see RESCHEDULABLE)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM abuse_send_requests q WHERE q.report_id = r.id
+                            AND NOT (q.auto AND q.status = 'failed'
+                                     AND q.error_code LIKE 'deferred%')
+                            AND NOT ("""
+_SCHEDULE_TAIL = """))
+                      AND (SELECT count(*) FROM abuse_send_requests q
+                           WHERE q.report_id = r.id AND q.auto
+                             AND q.error_code LIKE 'deferred%') < :deferrals
+                    ORDER BY r.window_end DESC, r.id LIMIT :n
+                    """
+SCHEDULE_SQL = _SCHEDULE_HEAD + RESCHEDULABLE + _SCHEDULE_TAIL
 
 # True while automatic sends must wait: one started less than :spacing ago, or the server deferred
 # one less than :pause ago. Database time on both sides, like ``started_at`` and ``done_at``.
@@ -127,6 +221,10 @@ class Prepared:
     rcpt: str
     report: dict[str, Any] | None
     message_id: str | None = None
+    # Sources left out of an automatic digest (older than AUTO_MAX_AGE): (kind, type, value)
+    stale: tuple[tuple[str, str, str], ...] = ()
+    # The XARF files exactly as they left: [{"name", "content"}], stored on the report.
+    xarf: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,8 +270,8 @@ class ReportSender:
             await session.execute(
                 text(
                     "SELECT host, port, security, username, from_address, from_name, mode, "
-                    "auto_hold_minutes, daily_cap, password_ciphertext, password_nonce "
-                    "FROM report_smtp WHERE id = 1"
+                    "auto_hold_minutes, daily_cap, password_ciphertext, password_nonce, "
+                    "digest_minute FROM report_smtp WHERE id = 1"
                 )
             )
         ).first()
@@ -202,28 +300,50 @@ class ReportSender:
             auto_hold_minutes=row.auto_hold_minutes,
             daily_cap=row.daily_cap,
             password=password,
+            digest_minute=row.digest_minute,
         )
 
     # -- one cycle -----------------------------------------------------------------------
 
+    async def digest_params(
+        self, session: AsyncSession, profile: Profile | None, now: datetime
+    ) -> dict[str, Any]:
+        """The parameters of ``RECIPIENT_FREE`` for this moment."""
+        enabled = await session.scalar(
+            text("SELECT digest_enabled FROM report_settings WHERE id = 1")
+        )
+        utc = now.astimezone(UTC)
+        return {
+            "digest": enabled is not False and profile is not None,
+            "digest_minute": profile.digest_minute if profile is not None else 0,
+            "hold": profile.auto_hold_minutes if profile is not None else 0,
+            "minute": utc.hour * 60 + utc.minute,
+            "day0": utc_day(now),
+            "now": now,
+        }
+
     async def run(self, now: datetime) -> None:
         await self._sweep()
+        await self._park_undated()
         async with self.factory() as session:
             profile = await self.load_profile(session)
+            params = await self.digest_params(session, profile, now)
             ids = (
                 (
                     await session.execute(
                         text(
                             "SELECT q.id FROM abuse_send_requests q "  # noqa: S608
                             "LEFT JOIN abuse_reports r ON r.id = q.report_id "
+                            "LEFT JOIN abuse_recipients rec ON rec.id = r.recipient_id "
                             "WHERE q.status = 'pending' "
                             "AND (q.scheduled_at IS NULL OR q.scheduled_at <= :now) "
                             "AND (NOT q.auto OR (" + SENT_TODAY + ") < :cap) "
+                            "AND (NOT q.auto OR q.report_id IS NULL OR " + RECIPIENT_FREE + ") "
                             # manual first, then the freshest evidence
                             "ORDER BY q.auto, r.window_end DESC NULLS LAST, q.id LIMIT :n"
                         ),
                         {
-                            "now": now,
+                            **params,
                             "cap": profile.daily_cap if profile is not None else 0,
                             "n": MAX_PER_CYCLE,
                         },
@@ -235,6 +355,24 @@ class ReportSender:
         for rid in ids:
             await self._handle(rid, now)
         await self.schedule(now)
+
+    async def _park_undated(self) -> None:
+        """Digests just switched on: an automatic send queued for a draft digest without a due
+        time (queued while digests were off) would wait forever for the one-a-day rule. (A
+        reviewed one cannot get a due time; the sender takes it at the digest hour instead.) It is
+        cancelled with ``digest_enabled``; the next build gives the draft its due time and the
+        send is scheduled again at the digest hour (``RESCHEDULABLE``)."""
+        async with self.factory() as session, session.begin():
+            await session.execute(
+                text(
+                    "UPDATE abuse_send_requests q SET status = 'cancelled', "
+                    "error_code = 'digest_enabled', done_at = now() "
+                    "FROM abuse_reports r WHERE r.id = q.report_id AND q.status = 'pending' "
+                    "AND q.auto AND r.kind = 'digest' AND r.due_at IS NULL "
+                    "AND r.status = 'draft' AND EXISTS (SELECT 1 FROM report_smtp) "
+                    "AND (SELECT digest_enabled FROM report_settings WHERE id = 1)"
+                )
+            )
 
     async def _sweep(self) -> None:
         """A request left in ``sending`` (ingest died around the delivery) ended in an outcome
@@ -250,36 +388,21 @@ class ReportSender:
             )
 
     async def schedule(self, now: datetime) -> int:
-        """Auto mode: a pending request, ``auto_hold_minutes`` ahead, for each ready report that
-        never had one, or whose automatic sends were only deferred (at most ``MAX_DEFERRALS``),
-        and whose evidence is younger than ``AUTO_MAX_AGE``, newest first. Cancelled and other
-        failed requests are not rescheduled (the owner decided or can press Send)."""
+        """Auto mode: a pending request, ``auto_hold_minutes`` ahead (and not before a digest's
+        ``due_at``), for each ready report that never had one, or whose automatic sends were only
+        deferred (at most ``MAX_DEFERRALS``), and whose evidence is younger than ``AUTO_MAX_AGE``,
+        newest first. An owner's cancel, a refusal and an unknown outcome are not rescheduled; a
+        request that ended for a reason that may be gone is, once that reason is gone
+        (``RESCHEDULABLE``). The one-digest-a-day rule and the hold from the last rebuild are
+        checked when the request is picked."""
         async with self.factory() as session, session.begin():
             profile = await self.load_profile(session)
             if profile is None or profile.mode != "auto":
                 return 0
             result = await session.execute(
-                text(
-                    """
-                    INSERT INTO abuse_send_requests (report_id, kind, auto, requested_by,
-                                                     scheduled_at)
-                    SELECT r.id, 'send', true, 'auto', :at
-                    FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id
-                    WHERE r.status IN ('draft', 'reviewed') AND NOT r.demo AND r.guard_ok
-                      AND NOT rec.muted AND NOT rec.form_only AND NOT rec.undeliverable
-                      AND COALESCE(NULLIF(rec.override_mailbox, ''), rec.mailbox) IS NOT NULL
-                      AND r.window_end > now() - make_interval(secs => :max_age)
-                      -- never had a request, or only automatic sends the server deferred
-                      AND NOT EXISTS (
-                          SELECT 1 FROM abuse_send_requests q WHERE q.report_id = r.id
-                            AND NOT (q.auto AND q.status = 'failed'
-                                     AND q.error_code LIKE 'deferred%'))
-                      AND (SELECT count(*) FROM abuse_send_requests q
-                           WHERE q.report_id = r.id) < :deferrals
-                    ORDER BY r.window_end DESC, r.id LIMIT :n
-                    """
-                ),
+                text(SCHEDULE_SQL),
                 {
+                    "digest": (await self.digest_params(session, profile, now))["digest"],
                     "at": now + timedelta(minutes=profile.auto_hold_minutes),
                     "n": MAX_SCHEDULE,
                     "deferrals": MAX_DEFERRALS,
@@ -374,6 +497,12 @@ class ReportSender:
                 )
             ):
                 return  # paced: it stays pending for a later cycle
+            if (
+                req.auto
+                and req.kind == "send"
+                and not await self._recipient_free(session, req, profile, now)
+            ):
+                return  # the recipient had its digest today: it waits for the next one
             if not gate_open(self.gate):
                 # Nothing is attempted: no socket, no tunnel. A send waits for the VPN.
                 if req.kind == "test" and now - req.requested_at > TEST_EGRESS_WAIT:
@@ -422,11 +551,24 @@ class ReportSender:
         """The mail is gone. A failure to mark the report must not stop the request ending as
         sent; if even the commit fails the request stays ``sending`` and is never sent again."""
         if prepared.report is not None:
-            stamp: dict[str, Any] = {"i": prepared.report["id"], "by": req.requested_by[:120]}
+            stamp: dict[str, Any] = {
+                "i": prepared.report["id"],
+                "by": req.requested_by[:120],
+                "x": json.dumps(list(prepared.xarf)),
+            }
             auto_review = req.auto and prepared.report["status"] == "draft"
             try:
                 async with session.begin_nested():
                     await session.execute(text(MARK_AUTO if auto_review else MARK_SENT), stamp)
+                    # Older sources stayed out of the automatic digest: they were not sent.
+                    for kind, stype, value in prepared.stale:
+                        await session.execute(
+                            text(
+                                "DELETE FROM abuse_report_subjects WHERE report_id = :i "
+                                "AND kind = :k AND subject_type = :t AND value = :v"
+                            ),
+                            {"i": stamp["i"], "k": kind, "t": stype, "v": value},
+                        )
             except DBAPIError:
                 log.warning("abuse report %s was sent but could not be marked", stamp["i"])
         await self._finish(session, req.id, "sent")
@@ -464,6 +606,20 @@ class ReportSender:
             return "undeliverable"
         return None
 
+    async def _recipient_free(
+        self, session: AsyncSession, req: Request, profile: Profile, now: datetime
+    ) -> bool:
+        params = await self.digest_params(session, profile, now)
+        return bool(
+            await session.scalar(
+                text(
+                    "SELECT " + RECIPIENT_FREE + " FROM abuse_reports r "  # noqa: S608
+                    "JOIN abuse_recipients rec ON rec.id = r.recipient_id WHERE r.id = :i"
+                ),
+                {**params, "i": req.report_id},
+            )
+        )
+
     @staticmethod
     async def _too_old(session: AsyncSession, req: Request) -> bool:
         """The report's last activity is older than ``AUTO_MAX_AGE`` (database time)."""
@@ -499,11 +655,14 @@ class ReportSender:
         report = await self._load_report(session, req.report_id)
         if report is None:
             raise SendFailure("not_ready")
-        rendered, ctx = await self._render(session, report)
+        rendered, ctx, stale = await self._render(session, report, fresh_only=req.auto, now=now)
         message_id = req.message_id or new_message_id(profile)  # kept when a request is retried
         raw = build_message(profile, rendered, now=now, message_id=message_id)
+        if not await asyncio.to_thread(xarf_parts_valid, raw):
+            raise SendFailure("xarf_invalid")
         check_message(raw, profile, rendered.to, terms, ctx=ctx, rendered=rendered)
-        return Prepared(raw, rendered.to, report, message_id)
+        files = tuple({"name": a.name, "content": a.content} for a in rendered.xarf_files)
+        return Prepared(raw, rendered.to, report, message_id, stale, files)
 
     async def _deliver(self, profile: Profile, raw: bytes, rcpt: str) -> None:
         try:
@@ -549,34 +708,25 @@ class ReportSender:
         return report
 
     async def _render(
-        self, session: AsyncSession, report: dict[str, Any]
-    ) -> tuple[RenderedMessage, GuardContext]:
-        settings_row = (
-            await session.execute(
-                text(
-                    "SELECT reply_contact, signature, intro, outro, note, subject_template, "
-                    "xarf_user_agent, defaults, reference_style FROM report_settings WHERE id = 1"
-                )
-            )
-        ).first()
+        self,
+        session: AsyncSession,
+        report: dict[str, Any],
+        *,
+        fresh_only: bool = False,
+        now: datetime | None = None,
+    ) -> tuple[RenderedMessage, GuardContext, tuple[tuple[str, str, str], ...]]:
+        settings_row = (await session.execute(text(SETTINGS_SQL))).first()
         settings = ReportSettings()
         style: ReferenceStyle = "subject"
         defaults: dict[str, Any] = {}
         if settings_row is not None:
-            settings = ReportSettings(
-                reply_contact=settings_row.reply_contact,
-                signature=settings_row.signature,
-                intro=settings_row.intro,
-                outro=settings_row.outro,
-                note=settings_row.note,
-                subject_template=settings_row.subject_template,
-                xarf_user_agent=settings_row.xarf_user_agent,
-            )
+            settings = report_settings_of(settings_row)
             defaults = dict(settings_row.defaults or {})
             if settings_row.reference_style in ("subject", "subject_and_body", "off"):
                 style = settings_row.reference_style
         options = options_of(report["options"], default_options(self.abuse, defaults))
-        data = dict(report["evidence"])
+        keys = await subject_keys(session, report["id"])
+        data = with_subject_rows(dict(report["evidence"]), report["kind"], keys)
         data.update(
             kind=report["kind"],
             recipient=report["recipient"],
@@ -587,16 +737,45 @@ class ReportSender:
         )
         try:
             evidence = Evidence.model_validate(data)
+        except ValueError:
+            raise SendFailure("not_ready") from None
+        stale: tuple[tuple[str, str, str], ...] = ()
+        if fresh_only:
+            # Per source: an automatic mail carries only sources active in the last 7 days.
+            cutoff = (now or datetime.now(UTC)) - AUTO_MAX_AGE
+            fresh = tuple(x for x in evidence.subjects if x.last_ts > cutoff)
+            if not fresh:
+                raise SendFailure("too_old")
+            stale = tuple(
+                (evidence.kind_of(x), x.type, x.value)
+                for x in evidence.subjects
+                if x.last_ts <= cutoff
+            )
+            if stale:
+                evidence = evidence.model_copy(
+                    update={
+                        "subjects": fresh,
+                        "window_start": min(x.first_ts for x in fresh),
+                        "window_end": max(x.last_ts for x in fresh),
+                    }
+                )
+        try:
             rendered = await asyncio.to_thread(
                 render_mail, evidence, settings, report["reply_token"], style
             )
         except RenderUnavailable as exc:
+            if exc.code == "xarf_invalid":
+                raise SendFailure("xarf_invalid") from None
             raise SendFailure("guard_failed", reasons=(exc.code,)) from None
         except ValueError:
             raise SendFailure("not_ready") from None
         # The seed never leaves: a token built from it (or the seed itself) is caught (M26). The
         # sessions behind the subjects are the superset the re-check of the drafts uses.
         ids = {report["id_seed"].hex} | await internal_session_ids(session, evidence)
-        return rendered, GuardContext(
-            internal_ids=frozenset(ids), allow_documentation=self._allow_documentation
+        return (
+            rendered,
+            GuardContext(
+                internal_ids=frozenset(ids), allow_documentation=self._allow_documentation
+            ),
+            stale,
         )

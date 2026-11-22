@@ -2,6 +2,7 @@ const SECTIONS = [
   { id: "reporting-message", label: "Message" },
   { id: "reporting-never", label: "Never in a report" },
   { id: "reporting-sending", label: "Sending" },
+  { id: "reporting-digest", label: "Daily digest" },
   { id: "reporting-replies", label: "Replies" },
 ] as const
 

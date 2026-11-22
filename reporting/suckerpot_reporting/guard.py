@@ -7,6 +7,8 @@ log, an audit row or an HTTP response without leaking the value that caused it.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import email
 import email.errors
 import email.header
@@ -155,6 +157,55 @@ def _walk_json(node: object) -> Iterator[str]:
             yield from _walk_json(item)
 
 
+# Base64 hidden in a JSON value (an XARF ``evidence[].payload``, or anything else) is decoded and
+# scanned too, so it cannot carry a leak past the guard (design M38, section 4.6).
+_B64: Final = re.compile(r"^[A-Za-z0-9+/\s]+={0,2}$")
+B64_MIN: Final = 8
+B64_DEPTH: Final = 2
+B64_MAX_BYTES: Final = 2_000_000
+
+
+def _b64_decoded(value: str) -> bytes | None:
+    """The bytes of a base64 string (standard or URL-safe alphabet), or None."""
+    compact = "".join(value.split())
+    if len(compact) < B64_MIN or len(compact) > B64_MAX_BYTES:
+        return None
+    candidates = [compact]
+    if "-" in compact or "_" in compact:
+        candidates.append(compact.replace("-", "+").replace("_", "/"))
+    for text in candidates:
+        padded = text + "=" * (-len(text) % 4)
+        if not _B64.fullmatch(padded):
+            continue
+        try:
+            return base64.b64decode(padded, validate=True)
+        except binascii.Error, ValueError:
+            continue
+    return None
+
+
+def _json_views(node: object, depth: int = 0) -> Iterator[str]:
+    """Every string of a JSON document, plus the decoded text of each base64 value (and of base64
+    or JSON inside that, ``B64_DEPTH`` levels deep)."""
+    for text in _walk_json(node):
+        yield text
+        if depth >= B64_DEPTH:
+            continue
+        data = _b64_decoded(text)
+        if data is None:
+            continue
+        for decoded in _decode(data):
+            yield decoded
+            stripped = decoded.strip()
+            if stripped[:1] in ("{", "["):
+                try:
+                    yield from _json_views(json.loads(stripped), depth + 1)
+                except ValueError:
+                    pass
+            else:
+                yield from _json_views(stripped, depth + 1)
+
+
 def _mime_strings(raw: bytes) -> Iterator[str]:
     msg = email.message_from_bytes(raw, policy=email.policy.compat32)
     for part in msg.walk():
@@ -171,15 +222,22 @@ def _mime_strings(raw: bytes) -> Iterator[str]:
         if isinstance(payload, bytes):
             charset = part.get_content_charset() or "utf-8"
             try:
-                yield payload.decode(charset, errors="replace")
+                text = payload.decode(charset, errors="replace")
             except LookupError:
-                yield payload.decode("utf-8", errors="replace")
+                text = payload.decode("utf-8", errors="replace")
+            yield text
+            if part.get_content_type() == "application/json":
+                try:
+                    yield from _json_views(json.loads(text))
+                except ValueError:
+                    pass
 
 
 def artefact_strings(
     artifact: str | bytes | Mapping[str, Any] | Sequence[Any], fmt: str
 ) -> Iterator[str]:
-    """Every string view of an artefact: raw, JSON-unescaped, MIME-decoded."""
+    """Every string view of an artefact: raw, JSON-unescaped (with base64 values decoded),
+    MIME-decoded (a JSON part walked the same way)."""
     if isinstance(artifact, str | bytes):
         raw = artifact.encode("utf-8") if isinstance(artifact, str) else artifact
         yield from _decode(raw)
@@ -188,12 +246,12 @@ def artefact_strings(
                 parsed = json.loads(raw.decode("utf-8", errors="replace"))
             except ValueError:
                 return
-            yield from _walk_json(parsed)
+            yield from _json_views(parsed)
         elif fmt == "eml":
             yield from _mime_strings(raw)
     else:
         yield json.dumps(artifact, ensure_ascii=False, default=str)
-        yield from _walk_json(artifact)
+        yield from _json_views(artifact)
 
 
 def guard(

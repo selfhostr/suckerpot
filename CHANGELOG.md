@@ -23,6 +23,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Opt-in random holdout for the report effect measure: `ABUSE_EFFECT_HOLDOUT_PCT` (0 by default,
   at most 10) holds that share of new attacking addresses back from reports for 21 days, as a fair
   comparison group. It delays reports and never sends one that would not have been sent.
+- Abuse reports carry X-ARF v4 (XARF 4.2.0, JSON): one machine-readable report per source on
+  every mail, next to the text and `evidence.csv`. One source gives the RFC 6522 shape
+  (`multipart/report` with `message/feedback-report` and `xarf.json`); several sources give one
+  `xarf-001.json` ... per source in a `multipart/mixed` digest, each named in the text. Every JSON
+  is validated against the vendored XARF 4.2.0 schema before the send (`xarf_invalid` stops it).
+  Tags come from allow-lists only (services, CVE ids past gate G, malware families);
+  `destination_ip`, `evidence_source` and `confidence` are never set. New optional setting
+  `xarf_org` (`reporter.org`, else the reply contact's domain). The report page has an X-ARF tab
+  with one JSON per source (copy, download as `xarf_json`). Design M38, phase P1.
+- One mail per provider per day: every source of every kind that shares an abuse address goes
+  into one daily digest, due at the node's digest hour (random between 06:00 and 09:00 UTC per
+  install, editable in Settings > Reporting > Sending, `GET`/`PUT /api/v1/abuse/digest`). At most
+  100 sources per digest, the rest in parts 2 hours apart, at most 3 parts a day. An automatic
+  digest carries only sources active in the last 7 days. A mail sent or marked sent by hand counts
+  as the recipient's digest for the day; a second one the same day needs a confirmation
+  (`409 recipient_sent_today`). Pacing, the daily cap (now counting mails), the hold, deferrals,
+  `shared_host`, `form_only` and `undeliverable` still apply. A recipient can be switched to one
+  spec-shaped mail per source (`xarf_strict`). Digests can be turned off (`digest_enabled`).
+- Replies: a new match method `xarf_id` (a reply that quotes one source's X-ARF report id), and
+  outcomes per source from verified replies that name sources in their own text
+  (`abuse_subject_outcomes`, shown on the report page).
+
+### Changed
+
+- Migration 0040: subject kinds and X-ARF ids (`abuse_report_subjects.kind`, `xarf_id`), the
+  `digest` report kind with `due_at`, `part` and `channel`, one draft and one reviewed report per
+  recipient, `abuse_replies.match_method` accepts `xarf_id`, `report_settings.xarf_org` and
+  `digest_enabled`, `report_smtp.digest_minute`, `abuse_recipients.xarf_strict`. On upgrade the open
+  drafts of each recipient are merged into one digest on the first build and marked superseded;
+  pending automatic sends of drafts are cancelled with `digest_migration`, so nothing leaves during
+  the upgrade. Reviewed reports go as they are, with their X-ARF parts. `abuse_reports.sent_xarf`
+  keeps the X-ARF files exactly as they left. The downgrade is refused while a sent digest exists
+  (use `just rollback`).
+- The identity guard decodes base64 inside JSON values (the X-ARF evidence and any other value)
+  and in JSON MIME parts before it checks them. The node's network pseudonym is a deny term for
+  abuse reports and exports (never for the pseudonym check of the network itself).
+- Results group a digest under each kind of source it holds; the timeline counts mails once.
+- The reply contact must contain a mail address (X-ARF names it): `reply_contact_not_email`
+  blocks a draft otherwise.
+
+### Removed
+
+- X-ARF v0.2 (YAML `report.txt`, the `X-ARF: YES` header) on the node, and the `xarf_yaml`
+  download. The hub keeps its own X-ARF until phase P4.
 
 ## [0.13.0] - 2026-11-22
 

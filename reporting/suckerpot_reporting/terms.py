@@ -47,6 +47,8 @@ ENV_OWNER_HOSTS: Final = ("API_ALLOWED_HOSTS",)
 ENV_URLS: Final = ("API_ALLOWED_ORIGINS", "ALERTS_DASHBOARD_URL")
 ENV_RANGES: Final = ("INDICATORS_IGNORE", "BLOCKLIST_NEVER", "AUTH_TRUSTED_PROXIES")
 ENV_VPN: Final = ("VPN_WG_ENDPOINT_IP",)
+# Plain-text terms the caller adds (the network pseudonym for outgoing reports, M38).
+MIN_EXTRA_TEXT: Final = 4
 ENV_SENSOR_NAMES: Final = (
     "SSH_HOSTNAME",
     "RDP_HOSTNAME",
@@ -135,6 +137,31 @@ ARTEFACT_VOCABULARY: Final[tuple[str, ...]] = (
     "indicator",
     "bundle",
     "tlp",
+    # XARF v4 parts and field names (M38)
+    "xarf.json",
+    "xarf_version",
+    "multipart/report",
+    "feedback-report",
+    "feedback-type",
+    "application/json",
+    "source_identifier",
+    "source_port",
+    "destination_port",
+    "report_id",
+    "content_type",
+    "first_seen",
+    "last_seen",
+    "login_attack",
+    "vulnerability_scan",
+    "vulnerabilities_probed",
+    "web_vuln_scan",
+    "sql_injection",
+    "compromise_evidence",
+    "infrastructure",
+    "connection",
+    "malware",
+    "botnet",
+    "reporter",
 )
 
 FRESHNESS: Final = timedelta(hours=72)
@@ -259,6 +286,7 @@ def load_self_terms(
     *,
     vpn_exit: str | None = None,
     extra_names: Iterable[str] = (),
+    extra_texts: Iterable[str] = (),
     now: datetime | None = None,
 ) -> SelfTerms:
     """Merge table rows, environment values and the built-in names into one ``SelfTerms``.
@@ -266,6 +294,10 @@ def load_self_terms(
     ``has_self_address`` (the fail-closed precondition) needs an address row that acts (manual,
     sensor, or learned and confirmed) and is fresh (manual never expires; the others need
     ``last_seen`` within 72 hours of ``now``). Stale rows stay in the deny set.
+
+    ``extra_texts`` are plain-text terms, such as the node's network pseudonym for an outgoing
+    report (never for the checks of the pseudonym itself); one shorter than ``MIN_EXTRA_TEXT``
+    characters is left out (it would match words).
     """
     clock = now or datetime.now(UTC)
     addresses: set[str] = set()
@@ -338,6 +370,10 @@ def load_self_terms(
             add_name(item, "self_name")
     for item in (*FAKE_HOSTNAMES, *extra_names):
         add_name(item, "self_name")
+    for item in extra_texts:
+        text = (item or "").strip().casefold()
+        if len(text) >= MIN_EXTRA_TEXT and not _in_vocabulary(text) and text not in texts:
+            texts.append(text)
     if vpn_exit:
         add_range(vpn_exit, vpn_term=True)
 

@@ -74,7 +74,8 @@ class AbuseWorker(FeatureWorker):
         self.reguard: DraftReguard | None = None
         self.sender: ReportSender | None = None  # M25, set when the worker is enabled
         if self.enabled and factory is not None:
-            self.terms = TermsCache(factory, env)
+            # Abuse reports only: the pseudonym is a deny term here (M38), never for the network.
+            self.terms = TermsCache(factory, env, with_pseudonym=True)
             from ingest.reportmail.sender import ReportSender  # late: it imports this package
 
             self.sender = ReportSender(factory, self.terms, self.abuse, box=box, gate=gate)
@@ -87,7 +88,12 @@ class AbuseWorker(FeatureWorker):
             )
             resolver = ContactResolver(factory, self.rdap, self.bootstrap)
             self.resolver = resolver
-            self.builder = DraftBuilder(factory, self.abuse, self.terms, resolver)
+            from ingest.trappacks import build_gate_source  # late: keeps the import graph flat
+
+            # Gate G (M37): a CVE of a trap pack loaded less than 48 h ago is not named in XARF.
+            self.builder = DraftBuilder(
+                factory, self.abuse, self.terms, resolver, gate=build_gate_source(factory)
+            )
             self.reguard = DraftReguard(factory, self.abuse, self.terms)
 
     def _open(self) -> bool:

@@ -8,8 +8,10 @@ matches nothing is stored only if it is such a notification or comes from a know
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Final
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +29,7 @@ from .match import (
     is_verified,
     report_trust,
 )
-from .parse import HeaderView, ParsedReply
+from .parse import HeaderView, ParsedReply, strip_quoted
 from .rules import ReplyRules
 
 DELAYED_RULE = "delayed-dsn"
@@ -43,6 +45,71 @@ VALUES (:source, :uidvalidity, :uid, :mid, :received, :sent, :from_address, :fro
 ON CONFLICT DO NOTHING
 RETURNING id
 """
+
+
+# An address or host name as a desk writes it in its own text (M38, per-source outcomes).
+NAME: Final = re.compile(r"[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]+|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+MAX_NAMES: Final = 100
+
+
+def named_values(text_: str) -> set[str]:
+    """The first ``MAX_NAMES`` addresses and host names of a text, lower-case, trailing dots off."""
+    out: list[str] = []
+    for m in NAME.finditer(text_):
+        value = m.group(0).strip(".:").lower()
+        if value and value not in out:
+            out.append(value)
+        if len(out) >= MAX_NAMES:
+            break
+    return set(out)
+
+
+INSERT_SOURCE = """
+INSERT INTO abuse_subject_outcomes (report_id, kind, subject_type, value, reply_id, ticket_id)
+VALUES (:r, :k, :t, :v, :reply, :ticket)
+ON CONFLICT DO NOTHING
+"""
+
+
+async def link_sources(
+    session: AsyncSession,
+    *,
+    reply_id: int,
+    report_id: int,
+    found: Match,
+    reply: ParsedReply,
+    ticket: str | None,
+) -> int:
+    """Which sources of the report this verified reply speaks about: every source whose XARF id
+    it quotes and every source it names, both in its own text (never the quoted original). A
+    ticket number goes to a source only when the reply names exactly that one."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT kind, subject_type, value FROM abuse_report_subjects WHERE report_id = :r"
+            ),
+            {"r": report_id},
+        )
+    ).all()
+    names = named_values(strip_quoted(reply.body))
+    named = {(r.kind, r.subject_type, r.value) for r in rows if r.value.lower() in names}
+    linked = set(named)
+    if found.report_id == report_id:
+        linked.update(found.subjects)
+    one = next(iter(named)) if len(named) == 1 else None
+    for kind, stype, value in sorted(linked):
+        await session.execute(
+            text(INSERT_SOURCE),
+            {
+                "r": report_id,
+                "k": kind,
+                "t": stype,
+                "v": value,
+                "reply": reply_id,
+                "ticket": ticket if (kind, stype, value) == one else None,
+            },
+        )
+    return len(linked)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +128,8 @@ async def is_relevant(session: AsyncSession, view: HeaderView, recent: list[Rece
     if await by_message_id(session, view.reference_ids) is not None:
         return True
     rid, seen = await by_token(session, find_tokens(view.subject))
+    # An XARF report id alone in a subject is not enough: anyone can write a UUID. A desk that
+    # quotes one is a party we wrote to, which ``_known`` already lets in.
     return rid is not None or seen
 
 
@@ -157,4 +226,14 @@ async def store_reply(
         outcome=verdict.outcome,
         rule_id=verdict.rule_id,
     )
+    # Per-source outcomes (M38): verified replies only; a bounce is about the whole mail.
+    if verified and found.report_id is not None and verdict.outcome != "bounce":
+        await link_sources(
+            session,
+            reply_id=int(row.id),
+            report_id=found.report_id,
+            found=found,
+            reply=reply,
+            ticket=verdict.ticket_id,
+        )
     return Stored("stored", int(row.id), found.report_id, found.report_id is not None)

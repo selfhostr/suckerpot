@@ -769,7 +769,7 @@ The sweep runs every minute: a pass over the last three hours, then, until it ha
 | `ABUSE_LOOKBACK_DAYS` | `7` | Days of evidence in a report |
 | `ABUSE_SETTLE_MIN` | `30` | Minutes a source must be quiet before it is drafted |
 | `ABUSE_RESEND_DAYS` | `14` | Days before the same source can be reported again to the same recipient |
-| `ABUSE_MAX_SUBJECTS` | `100` | Subjects per report (maximum 100) |
+| `ABUSE_MAX_SUBJECTS` | `100` | Sources per daily digest (maximum 100); the rest goes into the next part, at least 2 hours later, at most 3 parts a day |
 | `ABUSE_MAX_OPEN_DRAFTS` | `200` | Drafts open at once |
 | `ABUSE_RDAP_DAILY_QUOTA`, `ABUSE_RDAP_HOURLY_QUOTA` | `1000`, `200` | Hard RDAP request quotas. Each redirect and fallback counts. |
 | `ABUSE_REPORTS_INCLUDE_DEMO` | `false` | Also draft from demo data (documentation addresses). Demo drafts can never be sent. |

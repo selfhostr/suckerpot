@@ -7,10 +7,12 @@ only: never the matched text, never in an answer, a log line or an audit row.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import time
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -24,15 +26,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_db.models import (
     AbuseRecipientRow,
     AbuseReportRow,
+    AbuseReportSubjectRow,
     EnrichmentStatusRow,
     IndicatorRow,
     IndicatorSessionRow,
+    NetworkMembershipRow,
     ReportSelfTermRow,
     ReportSettingsRow,
     SessionRow,
 )
 from suckerpot_reporting import (
     REFERENCE_STYLES,
+    Attachment,
     Evidence,
     GuardContext,
     GuardResult,
@@ -49,10 +54,12 @@ from suckerpot_reporting import (
     missing_settings,
     render_csv,
     render_eml,
+    render_mail,
     render_text,
-    render_xarf,
     require_ok,
 )
+from suckerpot_reporting.message import JSON_TYPE
+from suckerpot_reporting.xarf import dumps as xarf_dumps
 
 log = logging.getLogger("api.abuse")
 
@@ -95,9 +102,13 @@ SETTINGS_TEXT_FIELDS: Final = (
     "note",
     "subject_template",
     "xarf_user_agent",
+    "xarf_org",
 )
+# Report statuses that may still be sent (their XARF ids live on the subject rows).
+OPEN_STATUSES: Final = frozenset({"draft", "reviewed"})
 
-_terms_cache: tuple[float, SelfTerms] | None = None
+# Keyed by whether the node's network pseudonym is a deny term (outgoing reports only).
+_terms_cache: dict[bool, tuple[float, SelfTerms]] = {}
 
 
 def _term_row(r: ReportSelfTermRow) -> SelfTermRow:
@@ -141,8 +152,7 @@ async def self_address_fresh(db: AsyncSession) -> bool:
 
 def invalidate_terms() -> None:
     """Forget the cached deny set (called after any write to the self terms or settings)."""
-    global _terms_cache
-    _terms_cache = None
+    _terms_cache.clear()
 
 
 def env_flag(name: str, default: bool) -> bool:
@@ -154,17 +164,37 @@ def include_demo() -> bool:
     return env_flag("ABUSE_REPORTS_INCLUDE_DEMO", False)
 
 
-async def load_terms(db: AsyncSession, *, fresh: bool = False) -> SelfTerms | None:
-    """The deny set, cached for a minute. ``None`` when the table cannot be read (fail closed)."""
-    global _terms_cache
+async def load_terms(
+    db: AsyncSession, *, fresh: bool = False, with_pseudonym: bool = True
+) -> SelfTerms | None:
+    """The deny set, cached for a minute. ``None`` when the table cannot be read (fail closed).
+
+    ``with_pseudonym``: the node's network pseudonym is a deny term for what goes to abuse desks
+    and CERTs (M38). It is never one where the pseudonym itself is checked or sent to the hub:
+    the network routes pass False, or every pseudonym would match itself."""
     now = time.monotonic()
-    if not fresh and _terms_cache is not None and now - _terms_cache[0] < TERMS_TTL_S:
-        return _terms_cache[1]
+    cached = _terms_cache.get(with_pseudonym)
+    if not fresh and cached is not None and now - cached[0] < TERMS_TTL_S:
+        return cached[1]
     try:
         rows = (await db.scalars(select(ReportSelfTermRow))).all()
         gate = await db.scalar(
             select(EnrichmentStatusRow.detail).where(EnrichmentStatusRow.name == "egress")
         )
+        pseudonyms: list[str] = []
+        if with_pseudonym:
+            pseudonyms = [
+                p
+                for row in (
+                    await db.execute(
+                        select(
+                            NetworkMembershipRow.pseudonym, NetworkMembershipRow.synced_pseudonym
+                        )
+                    )
+                ).all()
+                for p in row
+                if p
+            ]
     except SQLAlchemyError:
         log.warning("abuse deny set unavailable")
         return None
@@ -173,8 +203,9 @@ async def load_terms(db: AsyncSession, *, fresh: bool = False) -> SelfTerms | No
         [_term_row(r) for r in rows],
         dict(os.environ),
         vpn_exit=vpn if isinstance(vpn, str) else None,
+        extra_texts=pseudonyms,
     )
-    _terms_cache = (now, terms)
+    _terms_cache[with_pseudonym] = (now, terms)
     return terms
 
 
@@ -186,6 +217,7 @@ class SettingsBundle:
     defaults: dict[str, Any]
     revision: int
     reference_style: str = "subject"  # subject | subject_and_body | off (M26)
+    digest_enabled: bool = True  # one mail per recipient per day (M38)
 
     @property
     def round_times(self) -> bool:
@@ -223,10 +255,12 @@ async def load_settings(db: AsyncSession) -> SettingsBundle:
             note=row.note,
             subject_template=row.subject_template,
             xarf_user_agent=row.xarf_user_agent,
+            xarf_org=row.xarf_org,
         ),
         dict(row.defaults or {}),
         row.revision,
         row.reference_style,
+        row.digest_enabled,
     )
 
 
@@ -258,10 +292,65 @@ class EvidenceInvalidError(Exception):
     """The stored evidence does not fit the model (a bug upstream; nothing is rendered)."""
 
 
+SubjectKey = tuple[str, str, str]  # (kind, subject_type, value)
+
+
+async def subject_rows(db: AsyncSession, report_id: int) -> list[AbuseReportSubjectRow]:
+    return list(
+        (
+            await db.scalars(
+                select(AbuseReportSubjectRow).where(AbuseReportSubjectRow.report_id == report_id)
+            )
+        ).all()
+    )
+
+
+def _with_subject_rows(
+    data: dict[str, Any], report_kind: str, keys: Mapping[SubjectKey, uuid.UUID | None]
+) -> dict[str, Any]:
+    """The stored evidence plus each subject's kind and XARF id from its row (the row is the
+    source of truth; ingest.abuse.build.with_subject_rows does the same)."""
+    subjects = data.get("subjects")
+    if not isinstance(subjects, list):
+        return data
+    out: list[Any] = []
+    for item in subjects:
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+        sub = dict(item)
+        if report_kind != "digest":
+            sub["kind"] = report_kind
+        kind = sub.get("kind")
+        if sub.get("xarf_id") is None and kind is not None:
+            found = keys.get((str(kind), str(sub.get("type")), str(sub.get("value"))))
+            if found is not None:
+                sub["xarf_id"] = str(found)
+        out.append(sub)
+    return {**data, "subjects": out}
+
+
 def build_evidence(
-    row: AbuseReportRow, recipient: AbuseRecipientRow, bundle: SettingsBundle
+    row: AbuseReportRow,
+    recipient: AbuseRecipientRow,
+    bundle: SettingsBundle,
+    keys: Mapping[SubjectKey, uuid.UUID | None] | None = None,
 ) -> Evidence:
-    data = dict(row.evidence)
+    """The evidence as the send path would render it. ``keys`` are the subject rows' XARF ids.
+    For a sent or closed report only the sources that left are kept (the subject rows: an
+    automatic digest leaves its old sources out). A report sent before 0040 has no XARF ids and
+    is shown as "not sent with X-ARF v4" (``mail_inputs``), never with made-up ids."""
+    data = _with_subject_rows(dict(row.evidence), row.kind, keys or {})
+    subjects = data.get("subjects")
+    if row.status not in OPEN_STATUSES and keys and isinstance(subjects, list):
+        kept = [
+            s
+            for s in subjects
+            if not isinstance(s, dict)
+            or (str(s.get("kind")), str(s.get("type")), str(s.get("value"))) in keys
+        ]
+        if kept:
+            data["subjects"] = kept
     data.update(
         kind=row.kind,
         recipient=recipient.override_mailbox or recipient.mailbox or data.get("recipient"),
@@ -274,6 +363,74 @@ def build_evidence(
         return Evidence.model_validate(data)
     except ValidationError as exc:
         raise EvidenceInvalidError from exc
+
+
+async def load_evidence(
+    db: AsyncSession, row: AbuseReportRow, recipient: AbuseRecipientRow, bundle: SettingsBundle
+) -> Evidence:
+    rows = await subject_rows(db, row.id)
+    keys = {(r.kind, r.subject_type, r.value): r.xarf_id for r in rows}
+    return build_evidence(row, recipient, bundle, keys)
+
+
+@dataclass(frozen=True)
+class MailInputs:
+    """What a render of the mail needs besides the evidence (M38)."""
+
+    sent_files: tuple[Attachment, ...] | None = None  # the XARF JSON that left (sent reports)
+    legacy: bool = False  # sent before 0040: no XARF v4 left with it
+
+
+def _hide_id(content: str) -> str:
+    """A stored XARF report with its ``report_id`` replaced by a random one (viewers)."""
+    try:
+        report = json.loads(content)
+    except ValueError:
+        return content
+    if isinstance(report, dict) and "report_id" in report:
+        report["report_id"] = str(uuid.uuid4())
+    return xarf_dumps(report)
+
+
+def mail_inputs(
+    row: AbuseReportRow, evidence: Evidence, *, admin: bool
+) -> tuple[Evidence, MailInputs]:
+    """The evidence and inputs of a mail render. For a sent report, the XARF files that left
+    (``abuse_reports.sent_xarf``) replace freshly rendered ones; a report sent before 0040 has
+    none. A viewer never sees a real XARF ``report_id``: a reply quoting one is matched to its
+    report, so it is a proof like the reply token (``reply_args``)."""
+    sent: tuple[Attachment, ...] | None = None
+    stored = row.sent_xarf if isinstance(row.sent_xarf, list) else None
+    if stored:
+        sent = tuple(
+            Attachment(str(f.get("name")), JSON_TYPE, str(f.get("content")))
+            for f in stored
+            if isinstance(f, dict)
+        )
+    legacy = (
+        row.status not in OPEN_STATUSES
+        and sent is None
+        and any(s.xarf_id is None for s in evidence.subjects)
+    )
+    if not admin:
+        evidence = evidence.model_copy(
+            update={
+                "subjects": tuple(
+                    s.model_copy(update={"xarf_id": uuid.uuid4()}) if s.xarf_id else s
+                    for s in evidence.subjects
+                )
+            }
+        )
+        if sent is not None:
+            sent = tuple(Attachment(a.name, a.media_type, _hide_id(a.content)) for a in sent)
+    return evidence, MailInputs(sent, legacy)
+
+
+def _with_sent_files(msg: RenderedMessage, files: tuple[Attachment, ...]) -> RenderedMessage:
+    """The rendered mail with the XARF files that actually left."""
+    others = tuple(a for a in msg.attachments if a.media_type != JSON_TYPE)
+    attachments = (*files, *others) if msg.layout == "report" else (*others, *files)
+    return replace(msg, attachments=attachments)
 
 
 async def guard_context(db: AsyncSession, row: AbuseReportRow, evidence: Evidence) -> GuardContext:
@@ -293,8 +450,8 @@ async def guard_context(db: AsyncSession, row: AbuseReportRow, evidence: Evidenc
             .limit(MAX_CONTEXT_SESSIONS)
         )
         ids.update(found.all())
-    if evidence.kind == "payload_host":
-        hosts = [s.value for s in evidence.subjects]
+    hosts = [s.value for s in evidence.subjects if evidence.kind_of(s) == "payload_host"]
+    if hosts:
         named = await db.scalars(
             select(IndicatorSessionRow.session_id)
             .join(IndicatorRow, IndicatorRow.id == IndicatorSessionRow.indicator_id)
@@ -338,6 +495,7 @@ def render_checked(
     *,
     reply_token: str | None = None,
     reference_style: str = "subject",
+    inputs: MailInputs | None = None,
 ) -> Rendered:
     """Render one format and run the guard on everything produced. Pure, so it runs in a thread.
 
@@ -345,20 +503,23 @@ def render_checked(
     """
     eml: bytes | None = None
     style: ReferenceStyle = reference_style if reference_style in REFERENCE_STYLES else "subject"  # type: ignore[assignment]
+    del subject  # every source has its own XARF file now (M38); kept for the callers
     if fmt == "text":
         msg = _text_message(evidence, settings, reply_token, style)
-    elif fmt == "xarf":
-        msg = render_xarf(
-            evidence, settings, subject=subject, reply_token=reply_token, reference_style=style
-        )
-    elif fmt == "eml":
-        try:
-            msg = render_xarf(
-                evidence, settings, subject=subject, reply_token=reply_token, reference_style=style
-            )
-        except RenderUnavailable:
+    elif fmt in ("xarf", "eml"):
+        extra = inputs or MailInputs()
+        if extra.legacy:
+            # Sent before 0040: no XARF v4 left with it, and none is made up now.
+            if fmt == "xarf":
+                raise RenderUnavailable("not_sent_with_xarf_v4")
             msg = _text_message(evidence, settings, reply_token, style)
-        eml = render_eml(msg)
+        else:
+            # The mail exactly as SMTP sends it: text, evidence.csv and one XARF JSON per source.
+            msg = render_mail(evidence, settings, reply_token=reply_token, reference_style=style)
+            if extra.sent_files:
+                msg = _with_sent_files(msg, extra.sent_files)
+        if fmt == "eml":
+            eml = render_eml(msg)
     else:
         raise RenderUnavailable("unknown_format")
     result = guard_message(msg, terms, ctx=ctx)

@@ -25,7 +25,9 @@ from suckerpot_reporting import (
     redact,
 )
 from suckerpot_reporting.evidence import (
+    CVE_TAG,
     MAX_ACTIVITIES_CSV,
+    MAX_CVES,
     MAX_TEXT_LEN,
     MAX_UA_LEN,
     MAX_USERNAME_LEN,
@@ -86,6 +88,21 @@ def _is_severe(tags: list[str], severe: tuple[str, ...]) -> bool:
     return any(t in severe or t.startswith("cve-") for t in tags)
 
 
+def _cves(tags: list[str], gated: frozenset[str] | None) -> tuple[str, ...]:
+    """CVE tags of an event for its XARF report (M38): the CVE spelling only, and none that gate
+    G holds back (a trap pack first loaded less than 48 h ago). ``None`` means the gate state is
+    unknown: no CVE at all (fail closed)."""
+    if gated is None:
+        return ()
+    found = [t for t in tags if CVE_TAG.fullmatch(t) and t not in gated]
+    return tuple(dict.fromkeys(found))[:MAX_CVES]
+
+
+def _sqli(data: dict[str, Any]) -> bool:
+    flags = data.get("flags")
+    return isinstance(flags, list) and "sqli" in flags
+
+
 async def source_activities(
     session: AsyncSession,
     seed: Seed,
@@ -94,6 +111,7 @@ async def source_activities(
     ctx: RedactionContext,
     col: Collector,
     settings: AbuseSettings,
+    gated: frozenset[str] | None = frozenset(),
 ) -> list[Activity]:
     rows = (
         await session.execute(
@@ -169,7 +187,9 @@ async def source_activities(
             body = _line(url, ctx, col, MAX_TEXT_LEN)
             if body is not None:
                 acts.append(Activity(ts=r.ts, text=body, action="download", **common))
-        elif r.type == "http_request" and _is_severe(list(r.tags or []), settings.severe_tags):
+        elif r.type == "http_request" and (
+            _is_severe(list(r.tags or []), settings.severe_tags) or _sqli(data)
+        ):
             method = data.get("method") if isinstance(data.get("method"), str) else "GET"
             path = str(data.get("path") or "/")
             query = str(data.get("query") or "")
@@ -180,7 +200,15 @@ async def source_activities(
                 continue
             ua = _line(data.get("user_agent"), ctx, col, MAX_UA_LEN)
             acts.append(
-                Activity(ts=r.ts, text=line, user_agent=ua, action="exploit_attempt", **common)
+                Activity(
+                    ts=r.ts,
+                    text=line,
+                    user_agent=ua,
+                    action="exploit_attempt",
+                    cves=_cves(list(r.tags or []), gated),
+                    sqli=_sqli(data),
+                    **common,
+                )
             )
     for entry in logins.values():
         acts.append(

@@ -61,6 +61,7 @@ export const REPLY_CLASS_LABEL: Record<ReplyClass, string> = {
 /** How a reply was tied to its report; the API sends a short code. */
 export const MATCH_LABEL: Record<string, string> = {
   token: "Reply token",
+  xarf_id: "X-ARF report id",
   in_reply_to: "Reply header",
   references: "Thread header",
   sender: "Sender and subject",

@@ -96,6 +96,8 @@ function stub(
     status?: Partial<AbuseStatus>
     statusAnswer?: Response
     settings?: Record<string, unknown>
+    /** Answer the first "sent" with 409 recipient_sent_today. */
+    sameDay?: boolean
   } = {},
 ) {
   const calls: Call[] = []
@@ -125,6 +127,22 @@ function stub(
         )
       if (url.includes("/abuse/reports?"))
         return Promise.resolve(json(200, { items: [r], next_cursor: null }))
+      if (url.includes("/render") && url.includes("format=xarf")) {
+        return Promise.resolve(
+          json(200, {
+            to: "abuse@example.net",
+            subject: "Abuse report",
+            body: "Hello",
+            attachments: r.subjects.map((x) => ({
+              name: x.xarf_file ?? "xarf.json",
+              media_type: "application/json",
+              content: `{"source_identifier": "${x.value}"}\n`,
+            })),
+            revision: r.revision,
+            guard: r.guard,
+          }),
+        )
+      }
       if (url.includes("/render")) {
         if (!r.guard.ok)
           return Promise.resolve(
@@ -142,13 +160,23 @@ function stub(
         )
       }
       if (url.endsWith("/status") && method === "POST") {
-        const b = body as { revision: number }
+        const b = body as { revision: number; to: string; confirm_same_day?: boolean }
         if (b.revision !== r.revision)
           return Promise.resolve(json(409, { detail: "changed", code: "revision_mismatch" }))
+        if (opts.sameDay && b.to === "sent" && !b.confirm_same_day)
+          return Promise.resolve(
+            json(409, {
+              detail: "This provider already got a report today.",
+              code: "recipient_sent_today",
+            }),
+          )
+        if (b.to === "sent") return Promise.resolve(json(200, { ...r, status: "sent" }))
         return Promise.resolve(json(200, { ...r, status: "reviewed" }))
       }
       if (url.endsWith(`/abuse/reports/${ID}`)) return Promise.resolve(json(200, r))
       if (url.includes("/abuse/recipients")) return Promise.resolve(json(200, []))
+      if (url.includes("/abuse/smtp"))
+        return Promise.resolve(json(200, { configured: false, mode: "off" }))
       if (url.endsWith("/abuse/settings"))
         return Promise.resolve(json(200, { default_tlp: "green", ...opts.settings }))
       return Promise.resolve(json(404, { detail: "nope" }))
@@ -380,5 +408,152 @@ describe("AbuseDetailPage", () => {
       await screen.findByText(/Use a neutral reply address and neutral wording/),
     ).toBeInTheDocument()
     expect(screen.queryByText(/This reply address/)).toBeNull()
+  })
+})
+
+const DIGEST = report({
+  kind: "digest",
+  subject_count: 3,
+  kinds: { attack_source: 2, payload_host: 1 },
+  due_at: new Date(Date.now() + 2 * 3_600_000).toISOString(),
+  part: 2,
+  subjects: [
+    {
+      subject_type: "ip",
+      value: "198.51.100.23",
+      asn: 64500,
+      network: "EXAMPLE-NET",
+      handle: null,
+      sessions: 4,
+      events: 120,
+      first_ts: "2026-10-30T10:00:00Z",
+      last_ts: "2026-10-30T12:00:00Z",
+      link: "/attacks?src_ip=198.51.100.23",
+      kind: "attack_source",
+      xarf_file: "xarf-001.json",
+      outcome: "resolved",
+    },
+    {
+      subject_type: "ip",
+      value: "198.51.100.24",
+      asn: 64500,
+      network: "EXAMPLE-NET",
+      handle: null,
+      sessions: 1,
+      events: 2,
+      first_ts: "2026-10-20T10:00:00Z",
+      last_ts: "2026-10-20T12:00:00Z",
+      link: "/attacks?src_ip=198.51.100.24",
+      kind: "attack_source",
+      xarf_file: "xarf-002.json",
+      stale: true,
+    },
+    {
+      subject_type: "domain",
+      value: "files.example.org",
+      asn: null,
+      network: null,
+      handle: null,
+      sessions: 1,
+      events: 1,
+      first_ts: "2026-10-30T10:00:00Z",
+      last_ts: "2026-10-30T11:00:00Z",
+      link: "/malware?q=files.example.org",
+      kind: "payload_host",
+      xarf_file: "xarf-003.json",
+    },
+  ],
+})
+
+describe("daily digests", () => {
+  it("shows one row per digest with its sources by kind, due time and part", async () => {
+    stub({ report: DIGEST })
+    renderAt("/defend/abuse")
+    expect(
+      await screen.findByText("3 sources (2 attack sources, 1 payload host)"),
+    ).toBeInTheDocument()
+    expect(screen.getByText("Daily digest")).toBeInTheDocument()
+    expect(screen.getByText("part 2")).toBeInTheDocument()
+    expect(screen.getByText(/^goes (tomorrow )?at \d\d:\d\d$/)).toBeInTheDocument()
+  })
+
+  it("groups the sources by kind with their outcome, age and X-ARF file", async () => {
+    stub({ report: DIGEST })
+    renderAt(`/defend/abuse/${ID}`)
+    const attack = await screen.findByRole("region", { name: "Attack sources (2)" })
+    expect(within(attack).getAllByText("Resolved").length).toBeGreaterThan(0)
+    expect(within(attack).getAllByText("older than 7 days").length).toBeGreaterThan(0)
+    expect(within(attack).getAllByText("xarf-002.json").length).toBeGreaterThan(0)
+    const payload = screen.getByRole("region", { name: "Payload hosts (1)" })
+    expect(within(payload).getAllByText("files.example.org").length).toBeGreaterThan(0)
+    expect(screen.queryByRole("region", { name: /Command servers/ })).toBeNull()
+  })
+
+  it("lists one X-ARF JSON per source in the X-ARF tab", async () => {
+    stub({ report: DIGEST })
+    renderAt(`/defend/abuse/${ID}`)
+    await screen.findByLabelText("Body")
+    await userEvent.click(screen.getByRole("radio", { name: "X-ARF" }))
+    expect(await screen.findByLabelText("xarf-001.json (198.51.100.23)")).toHaveTextContent(
+      '{"source_identifier": "198.51.100.23"}',
+    )
+    expect(screen.getByLabelText("xarf-003.json (files.example.org)")).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: /^Download xarf-00\d\.json$/ })).toHaveLength(3)
+  })
+
+  it("asks before a second mail to the same provider today, then confirms", async () => {
+    const calls = stub({ report: report({ status: "reviewed" }), sameDay: true })
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(true)
+    renderAt(`/defend/abuse/${ID}`)
+    await userEvent.click(await screen.findByRole("button", { name: "Mark sent" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.click(within(dialog).getByRole("button", { name: "Mark as sent" }))
+    await waitFor(() =>
+      expect(calls.filter((c) => c.url.endsWith("/status")).map((c) => c.body)).toEqual([
+        expect.objectContaining({ to: "sent", revision: 3 }),
+        expect.objectContaining({ to: "sent", revision: 3, confirm_same_day: true }),
+      ]),
+    )
+    expect(ask).toHaveBeenCalledWith("This provider already got a report today. Send anyway?")
+    ask.mockRestore()
+  })
+
+  it("keeps the report unsent when the owner declines", async () => {
+    const calls = stub({ report: report({ status: "reviewed" }), sameDay: true })
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(false)
+    renderAt(`/defend/abuse/${ID}`)
+    await userEvent.click(await screen.findByRole("button", { name: "Mark sent" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.click(within(dialog).getByRole("button", { name: "Mark as sent" }))
+    expect(
+      await within(dialog).findByText("This provider already got a report today."),
+    ).toBeInTheDocument()
+    expect(calls.filter((c) => c.url.endsWith("/status"))).toHaveLength(1)
+    ask.mockRestore()
+  })
+
+  it("switches one mail per source for the provider", async () => {
+    const calls = stub()
+    renderAt(`/defend/abuse/${ID}`)
+    const toggle = await screen.findByRole("switch", {
+      name: /One mail per source \(strict X-ARF\)/,
+    })
+    expect(toggle).not.toBeChecked()
+    expect(screen.getByText(/Every mail counts against the daily cap/)).toBeInTheDocument()
+    await userEvent.click(toggle)
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: "PATCH",
+        url: "/api/v1/abuse/recipients/1",
+        body: { xarf_strict: true },
+      }),
+    )
+  })
+
+  it("offers no strict switch to a viewer", async () => {
+    stub({ me: VIEWER })
+    renderAt(`/defend/abuse/${ID}`)
+    await screen.findByLabelText("Body")
+    expect(screen.queryByRole("switch", { name: /strict X-ARF/ })).toBeNull()
   })
 })

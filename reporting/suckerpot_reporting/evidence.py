@@ -16,6 +16,9 @@ from typing import Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ReportKind = Literal["attack_source", "payload_host", "c2"]
+# A daily digest (M38) holds the subjects of every kind for one recipient; each subject then
+# carries its own kind.
+EvidenceKind = Literal["attack_source", "payload_host", "c2", "digest"]
 ActionName = Literal[
     "failed_logins",
     "login_then_commands",
@@ -32,8 +35,11 @@ MAX_UA_LEN = 120
 MAX_SUBJECTS = 100
 MAX_ACTIVITIES_BODY = 10
 MAX_ACTIVITIES_CSV = 200
+MAX_CVES = 20
 
 _HEX = re.compile(r"^[0-9a-f]+$")
+# A CVE as an event tag (``cve-2021-44228``): the only CVE spelling evidence may carry.
+CVE_TAG = re.compile(r"^cve-\d{4}-\d{4,7}$")
 
 
 def _utc(value: datetime) -> datetime:
@@ -90,6 +96,10 @@ class Activity(_Frozen):
     usernames: tuple[str, ...] = ()
     text: str | None = None
     user_agent: str | None = None
+    # M38: CVE tags of the request (allow-listed spelling only) and whether the web sensor saw
+    # an SQL injection pattern. They pick the X-ARF type; neither is printed as is.
+    cves: tuple[str, ...] = ()
+    sqli: bool = False
 
     @field_validator("ts")
     @classmethod
@@ -122,9 +132,20 @@ class Activity(_Frozen):
             raise ValueError("user agent too long")
         return v
 
+    @field_validator("cves")
+    @classmethod
+    def _cves(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        if len(v) > MAX_CVES or any(not CVE_TAG.fullmatch(c) for c in v):
+            raise ValueError("too many or malformed CVE tags")
+        return v
+
 
 class Subject(_Frozen):
     type: Literal["ip", "url", "domain"]
+    # M38: the kind of this subject in a digest (None: the report's own kind) and the random id
+    # of its X-ARF report, stored on the subject row and unrelated to every other id.
+    kind: ReportKind | None = None
+    xarf_id: uuid.UUID | None = None
     value: str = Field(min_length=1, max_length=1024)
     asn: int | None = Field(default=None, ge=0)
     network: str | None = Field(default=None, max_length=200)
@@ -166,7 +187,7 @@ class ReportOptions(_Frozen):
 
 
 class Evidence(_Frozen):
-    kind: ReportKind
+    kind: EvidenceKind
     recipient: str = Field(min_length=3, max_length=254)
     subjects: tuple[Subject, ...] = Field(min_length=1, max_length=MAX_SUBJECTS)
     window_start: datetime
@@ -183,7 +204,17 @@ class Evidence(_Frozen):
     def _window(self) -> Evidence:
         if self.window_end < self.window_start:
             raise ValueError("window ends before it starts")
+        if self.kind == "digest" and any(s.kind is None for s in self.subjects):
+            raise ValueError("a digest subject needs a kind")
         return self
+
+    def kind_of(self, subject: Subject) -> ReportKind:
+        """The kind of one subject: its own in a digest, else the report's."""
+        if subject.kind is not None:
+            return subject.kind
+        if self.kind == "digest":
+            raise ValueError("a digest subject needs a kind")
+        return self.kind
 
 
 class ReportSettings(_Frozen):
@@ -204,11 +235,13 @@ class ReportSettings(_Frozen):
     note: str | None = Field(default=None, max_length=1000)
     subject_template: str | None = Field(default=None, max_length=200)
     xarf_user_agent: str | None = Field(default=None, max_length=64)
+    # M38: ``reporter.org`` of the X-ARF reports; empty means the domain of the reply contact.
+    xarf_org: str | None = Field(default=None, max_length=100)
 
 
 # One fixed, very common English phrase built from data only: no project or product wording.
 DEFAULT_SUBJECT: Final = "Abuse report for {value}"
-# The X-ARF 0.2 specification does not define a generic agent string, so the fallback is the
+# The X-ARF specification does not define a generic agent string, so the fallback is the
 # ubiquitous browser product token. Millions of clients send it; it says nothing about the sender.
 DEFAULT_XARF_USER_AGENT: Final = "Mozilla/5.0"
 
@@ -283,7 +316,7 @@ def export_from_evidence(
     for s in evidence.subjects:
         items.append(
             ExportItem(
-                role=evidence.kind,
+                role=evidence.kind_of(s),
                 type=s.type,
                 value=s.value,
                 first_seen=s.first_ts,

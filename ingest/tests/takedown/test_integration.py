@@ -98,11 +98,11 @@ async def seed_report(
         for stype, value in subjects:
             await conn.execute(
                 text(
-                    "INSERT INTO abuse_report_subjects (report_id, subject_type, value, "
+                    "INSERT INTO abuse_report_subjects (report_id, kind, subject_type, value, "
                     "network_id, first_ts, last_ts, sessions, events) VALUES "
-                    "(:r, :t, :v, :n, :ts, :ts, 1, 1)"
+                    "(:r, :k, :t, :v, :n, :ts, :ts, 1, 1)"
                 ),
-                {"r": rid, "t": stype, "v": value, "n": net, "ts": NOW},
+                {"r": rid, "k": kind, "t": stype, "v": value, "n": net, "ts": NOW},
             )
     return rid
 

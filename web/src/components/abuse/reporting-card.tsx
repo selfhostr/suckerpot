@@ -72,6 +72,7 @@ function SettingsForm({
     intro: useId(),
     outro: useId(),
     ua: useId(),
+    org: useId(),
     note: useId(),
     subj: useId(),
     err: useId(),
@@ -222,7 +223,7 @@ function SettingsForm({
           id={ids.ua}
           label="X-ARF user agent"
           optional
-          hint="Sent in X-ARF reports. Leave empty to use a generic value (Mozilla/5.0)."
+          hint="Sent with X-ARF reports. Leave empty to use a generic value (Mozilla/5.0)."
           error={issueOf("xarf_user_agent")}
         >
           <Input
@@ -233,6 +234,22 @@ function SettingsForm({
             className="font-mono"
             onChange={(e) => set("xarf_user_agent", blank(e.target.value))}
             {...invalid("xarf_user_agent", ids.ua)}
+          />
+        </Field>
+        <Field
+          id={ids.org}
+          label="Organisation in X-ARF reports"
+          optional
+          hint="Leave empty to use the domain of the reply contact. No name is shipped with the software."
+          error={issueOf("xarf_org")}
+        >
+          <Input
+            id={ids.org}
+            maxLength={100}
+            autoComplete="off"
+            value={s.xarf_org ?? ""}
+            onChange={(e) => set("xarf_org", e.target.value === "" ? null : e.target.value)}
+            {...invalid("xarf_org", ids.org)}
           />
         </Field>
         <Field
