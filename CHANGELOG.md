@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Abuse reports: when a build merges or retires an old draft (marked superseded), its pending automatic send is now cancelled in the same transaction with the new code `superseded`. Before, it stayed pending forever, since the sender only takes drafts and reviewed reports. Sends already left pending this way (since v0.14.0) are cancelled on the next build.
+- CI: the `podman` job installs the newest release tag whose images are published. On a release commit, the tag exists before the Release workflow pushes its images, so the job now checks the ingest image manifest anonymously and falls back to the previous tag.
+
 ## [0.14.0] - 2026-11-22
 
 ### Upgrading

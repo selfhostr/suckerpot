@@ -135,6 +135,27 @@ class Resolved:
     outcome: Outcome
 
 
+# A superseded report is never sent: the sender only takes drafts and reviewed reports. Its pending
+# automatic sends are cancelled (``superseded``), or they would stay pending forever.
+CANCEL_SUPERSEDED_SQL: Final = (
+    "UPDATE abuse_send_requests q SET status = 'cancelled', error_code = 'superseded', "
+    "done_at = now() FROM abuse_reports r WHERE r.id = q.report_id AND q.status = 'pending' "
+    "AND q.auto AND r.status = 'superseded'"
+)
+
+
+async def supersede(session: AsyncSession, ids: list[int]) -> None:
+    """Mark the drafts ``ids`` superseded and cancel their pending automatic sends."""
+    await session.execute(
+        text(
+            "UPDATE abuse_reports SET status = 'superseded' "
+            "WHERE id = ANY(:ids) AND status = 'draft'"
+        ),
+        {"ids": ids},
+    )
+    await session.execute(text(CANCEL_SUPERSEDED_SQL + " AND r.id = ANY(:ids)"), {"ids": ids})
+
+
 def evidence_bytes(evidence: Evidence) -> int:
     return len(evidence.model_dump_json().encode())
 
@@ -449,6 +470,10 @@ class DraftBuilder:
         if terms is None:
             stats.reasons["self_terms_unavailable"] = 1
             return stats  # fail closed: nothing is built without the deny set
+        # Sends left pending by drafts superseded before this fix (v0.14.0): cancelled once, then
+        # a no-op (supersede() cancels them in the same transaction).
+        async with self.factory() as session, session.begin():
+            await session.execute(text(CANCEL_SUPERSEDED_SQL))
         try:
             async with self.factory() as session, session.begin():
                 await forms.sweep(session)
@@ -878,13 +903,7 @@ class DraftBuilder:
                     return
                 stats.created += 1
             if legacy:
-                await session.execute(
-                    text(
-                        "UPDATE abuse_reports SET status = 'superseded' "
-                        "WHERE id = ANY(:ids) AND status = 'draft'"
-                    ),
-                    {"ids": legacy},
-                )
+                await supersede(session, legacy)
             await session.execute(
                 text("DELETE FROM abuse_report_subjects WHERE report_id = :i"), {"i": report_id}
             )
@@ -935,13 +954,7 @@ class DraftBuilder:
 
     async def _supersede(self, ids: list[int]) -> None:
         async with self.factory() as session, session.begin():
-            await session.execute(
-                text(
-                    "UPDATE abuse_reports SET status = 'superseded' "
-                    "WHERE id = ANY(:ids) AND status = 'draft'"
-                ),
-                {"ids": ids},
-            )
+            await supersede(session, ids)
 
     async def _due(
         self,

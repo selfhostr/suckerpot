@@ -133,7 +133,7 @@ A busy provider used to get several mails a day, one per kind of report, each se
 - **Switching it back on.** An automatic send queued while digests were off is cancelled with `digest_enabled`; the next build gives the draft its digest hour and the send is scheduled again then.
 - **Turning it off.** Settings > Reporting > Sending has the switch "One mail per provider per day" (on by default). Off, a draft is sent after the hold, as before; sources of all kinds still share one draft per recipient.
 
-When you upgrade, the open drafts of each recipient are merged into one digest on the first build, and the old drafts are marked superseded. Automatic sends that were waiting for those drafts are cancelled with `digest_migration`, so nothing leaves during the upgrade. Reviewed reports are not changed: they are sent as they are, with their X-ARF parts. Sent and closed reports keep their history.
+When you upgrade, the open drafts of each recipient are merged into one digest on the first build, and the old drafts are marked superseded. Automatic sends that were waiting for those drafts are cancelled with `digest_migration`, so nothing leaves during the upgrade. An automatic send queued for a draft that a later build merges or retires is cancelled with `superseded`. Reviewed reports are not changed: they are sent as they are, with their X-ARF parts. Sent and closed reports keep their history.
 
 ### Automatic sending and pacing
 
