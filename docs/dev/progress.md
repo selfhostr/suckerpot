@@ -396,3 +396,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Lesson: four parallel test runs on the 4-CPU host that also runs the home node and the hub pushed the load to ~20 and made the node's database cycles time out. Heavy test runs now go one at a time.
 - Migrations 0038 (node) and h0013 (hub). The hub needs `hub-migrate` and the new API for the network changes.
 
+## 2026-11-22: v0.13.0 (two-question installer, Podman experimental)
+
+- Pull requests #176 to #180 since v0.12.2. The details are in `CHANGELOG.md`.
+- The installer asks at most two questions (install type, participant consent). A missing Docker is offered from Docker's own package repository with a pinned key, never piped to a shell and never unattended. Scripted runs (`--yes`, `--full`, `--participant`) behave as before.
+- Podman 5.4+ (rootful) is supported as experimental: own isolated networks, required host firewall, stack bound to the firewall, boot unit, update, rollback, status and participant tools. Requested by a participant who runs VPSs on RHEL/Fedora. Every PR now runs a real Podman participant install in CI (`podman` job, informational for now).
+- Found by the new Podman CI job before release: on a fresh Podman host the installer read a version banner as the data folder and stopped silently at step 1. Fixed, and any unplanned failure now names the command and line.
+- Several security reviews per phase (firewall lifetime, socket group, Docker key pinning, re-exec under `sg`).
+- No database migration.
+

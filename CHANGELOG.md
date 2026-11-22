@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-22
+
 ### Added
 
 - CI: a `podman` job (informational while Podman support is experimental). On every pull request
@@ -974,7 +976,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/selfhostr/suckerpot/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/selfhostr/suckerpot/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/selfhostr/suckerpot/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/selfhostr/suckerpot/compare/v0.11.13...v0.12.0
