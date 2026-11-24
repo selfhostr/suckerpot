@@ -10,7 +10,7 @@ import email
 import email.policy
 import json
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -75,40 +75,64 @@ async def requests(world: World) -> list[Any]:
         )
 
 
-async def age_sent(world: World, report: int, by: timedelta) -> None:
-    """As if ``by`` had passed since the report was sent (and its request, for the spacing)."""
+async def midday(world: World) -> datetime:
+    """12:00 UTC of the database's current day, as the sender's clock.
+
+    The one-digest-a-day rule compares ``sent_at`` (database time) with 00:00 UTC of the ``now``
+    given to the sender. The wall clock plus a few hours can fall on the next UTC day (200
+    minutes after 21:00 is tomorrow), so the tests of that rule run at a fixed time of day:
+    every simulated time stays within the day of the sends. Use ``built_at`` before the first
+    run (the hold runs from database time) and ``sent_at`` for the two-hour gap."""
+    async with world.owner.connect() as conn:
+        day = await conn.scalar(text("SELECT CAST(now() AT TIME ZONE 'UTC' AS date)"))
+    return datetime.combine(day, time(12), tzinfo=UTC)
+
+
+async def _untouched(world: World, sql: str, params: dict[str, Any]) -> None:
+    """``sql`` on abuse_reports without its triggers (they would set ``updated_at`` to now)."""
     async with world.owner.begin() as conn:
         await conn.execute(text("ALTER TABLE abuse_reports DISABLE TRIGGER USER"))
-        await conn.execute(
-            text(
-                "UPDATE abuse_reports SET sent_at = sent_at - make_interval(secs => :b) "
-                "WHERE id = :r"
-            ),
-            {"b": by.total_seconds(), "r": report},
-        )
+        await conn.execute(text(sql), params)
         await conn.execute(text("ALTER TABLE abuse_reports ENABLE TRIGGER USER"))
-    await _age_auto_requests(world, by)
+
+
+async def built_at(world: World, at: datetime) -> None:
+    """As if every report was last rebuilt at ``at`` (the hold runs from there)."""
+    await _untouched(world, "UPDATE abuse_reports SET updated_at = :t", {"t": at})
+
+
+async def sent_at(world: World, report: int, at: datetime) -> None:
+    """As if ``report`` left at ``at`` (the two hours to the next part run from there)."""
+    await _untouched(
+        world, "UPDATE abuse_reports SET sent_at = :t WHERE id = :r", {"t": at, "r": report}
+    )
 
 
 def later(minutes: int = 11) -> datetime:
+    """The wall clock ahead: only where the UTC day does not matter (else see ``midday``)."""
     return datetime.now(UTC) + timedelta(minutes=minutes)
 
 
 async def test_one_automatic_digest_per_recipient_per_day(world: World) -> None:
     await digest_profile(world)
-    first = await world.report(kind="digest", due=PAST)
+    noon = await midday(world)
+    first = await world.report(kind="digest", due=noon - timedelta(hours=1))
     rec = await recipient_of(world, first)
-    second = await world.report(kind="digest", status="reviewed", recipient=rec, due=PAST)
+    second = await world.report(
+        kind="digest", status="reviewed", recipient=rec, due=noon - timedelta(hours=1)
+    )
+    await built_at(world, noon - timedelta(hours=1))
     s = world.sender()
-    await s.run(NOW)
+    await s.run(noon)
     assert len(await requests(world)) == 2
-    await s.run(later())
+    await s.run(noon + timedelta(minutes=11))
     assert len(FakeSMTP.instances) == 1
     sent = [r for r in (first, second) if (await world.report_row(r)).status == "sent"]
     assert len(sent) == 1
     await _age_auto_requests(world, timedelta(minutes=10))  # past the 3 minute spacing
-    await s.run(later(30))
-    await s.run(later(200))
+    await s.run(noon + timedelta(minutes=30))
+    await s.run(noon + timedelta(minutes=200))
+    await s.run(noon + timedelta(hours=11, minutes=59))  # still the same UTC day
     assert len(FakeSMTP.instances) == 1  # the other one waits for tomorrow
     waiting = (await requests(world))[0 if sent[0] == second else 1]
     assert waiting.status == "pending"
@@ -116,34 +140,36 @@ async def test_one_automatic_digest_per_recipient_per_day(world: World) -> None:
 
 async def test_the_next_part_goes_two_hours_after_the_first(world: World) -> None:
     await digest_profile(world)
-    first = await world.report(kind="digest", status="reviewed", due=PAST)
+    noon = await midday(world)
+    first = await world.report(kind="digest", status="reviewed", due=noon - timedelta(hours=1))
     rec = await recipient_of(world, first)
+    await built_at(world, noon - timedelta(hours=1))
     s = world.sender()
-    await s.run(NOW)
-    await s.run(later())
+    await s.run(noon)
+    await s.run(noon + timedelta(minutes=11))
     assert (await world.report_row(first)).status == "sent"
-    part2 = await world.report(kind="digest", recipient=rec, due=PAST, part=2)
-    await s.run(later())  # scheduled
-    await age_sent(world, first, timedelta(minutes=30))
-    await s.run(later(30))
+    await sent_at(world, first, noon + timedelta(minutes=11))
+    part2 = await world.report(kind="digest", recipient=rec, due=noon - timedelta(hours=1), part=2)
+    await built_at(world, noon - timedelta(hours=1))
+    await s.run(noon + timedelta(minutes=15))  # scheduled
+    await _age_auto_requests(world, timedelta(minutes=10))  # past the 3 minute spacing
+    await s.run(noon + timedelta(hours=2))
     assert len(FakeSMTP.instances) == 1  # less than two hours after part 1
-    await age_sent(world, first, timedelta(hours=3))
-    await s.run(later(30))
+    await s.run(noon + timedelta(hours=2, minutes=15))
     assert len(FakeSMTP.instances) == 2
     assert (await world.report_row(part2)).status == "sent"
 
 
 async def test_a_digest_waits_for_its_due_time_and_the_digest_hour(world: World) -> None:
-    now = datetime.now(UTC)
-    if minute_of(now) > 1300:
-        pytest.skip("too close to midnight UTC for a same-day digest hour")
-    await digest_profile(world, minute=minute_of(now) + 120)
-    report = await world.report(kind="digest", due=PAST)
+    noon = await midday(world)
+    await digest_profile(world, minute=minute_of(noon) + 120)
+    report = await world.report(kind="digest", due=noon - timedelta(hours=1))
+    await built_at(world, noon - timedelta(hours=1))
     s = world.sender()
-    await s.run(now)
-    await s.run(later())
+    await s.run(noon)
+    await s.run(noon + timedelta(minutes=11))
     assert FakeSMTP.instances == []  # the digest hour of today is still ahead
-    await s.run(now + timedelta(minutes=125))
+    await s.run(noon + timedelta(minutes=125))
     assert (await world.report_row(report)).status == "sent"
 
 
@@ -158,6 +184,7 @@ async def test_the_request_is_scheduled_at_the_due_time(world: World) -> None:
 
 async def test_a_mail_marked_sent_by_hand_counts_for_the_day(world: World) -> None:
     await digest_profile(world)
+    noon = await midday(world)
     manual = await world.report(kind="digest", status="reviewed")
     rec = await recipient_of(world, manual)
     async with world.api.begin() as conn:
@@ -168,15 +195,17 @@ async def test_a_mail_marked_sent_by_hand_counts_for_the_day(world: World) -> No
             ),
             {"r": manual},
         )
-    auto = await world.report(kind="digest", recipient=rec, due=PAST)
+    await sent_at(world, manual, noon - timedelta(hours=2))
+    auto = await world.report(kind="digest", recipient=rec, due=noon - timedelta(hours=1))
+    await built_at(world, noon - timedelta(hours=1))  # past the hold: only the rule holds it
     s = world.sender()
-    await s.run(NOW)
-    await s.run(later())
+    await s.run(noon)
+    await s.run(noon + timedelta(minutes=11))
     assert FakeSMTP.instances == []
     assert (await world.report_row(auto)).status == "draft"
     # The owner may still send it by hand (the API asks for a confirmation first).
     await world.ask(auto)
-    await s.run(later())
+    await s.run(noon + timedelta(minutes=12))
     assert (await world.report_row(auto)).status == "sent"
 
 
