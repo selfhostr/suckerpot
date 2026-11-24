@@ -92,14 +92,61 @@ def test_at_most_three_candidates_are_tried_and_none_is_older_than_the_installed
     assert bad == ["v0.8.5", "v0.8.4", "v0.8.3"]
 
 
-def test_a_young_newest_release_stops_the_run_without_marking_it_bad(sandbox: Sandbox) -> None:
+def _young(sandbox: Sandbox, *tags: str) -> None:
+    """verify-release.sh --auto answers 4 (too young) for TAGS and 0 for the others."""
+    stub = sandbox.root / "scripts" / "verify-release.sh"
+    checks = "".join(f'[ "$2" = {t} ] && exit 4\n' for t in tags)
+    stub.write_text(stub.read_text().replace('exit "${SHIM_RELEASE_RC:-0}"', checks + "exit 0"))
+
+
+def test_a_young_newest_release_falls_back_to_an_older_eligible_one(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    sandbox.git_set("tags", "v0.8.0\nv0.9.0\nv0.9.1\nv0.9.2\n")
+    _young(sandbox, "v0.9.2", "v0.9.1")
+    assert run_auto(sandbox).returncode == 0
+    tried = [c for c in sandbox.calls() if c.startswith("verify-release")]
+    assert tried == [f"verify-release --auto v0.9.{n}" for n in (2, 1, 0)]
+    assert "update --yes --auto v0.9.0 lock_held=1" in sandbox.calls()
+    res = result(sandbox)
+    assert res["last_result"] == "updated"
+    assert res["to"] == "v0.9.0" and res["waiting"] == "v0.9.2"
+    assert not (sandbox.root / ".suckerpot-state" / "bad-versions").exists()
+
+
+def test_young_releases_do_not_use_up_the_three_tries(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    tags = [f"v0.8.{n}" for n in range(8)]
+    sandbox.git_set("tags", "\n".join(tags) + "\n")
+    # A burst: the six newest are all too young; v0.8.1 has waited long enough.
+    _young(sandbox, *tags[2:])
+    assert run_auto(sandbox).returncode == 0
+    assert "update --yes --auto v0.8.1 lock_held=1" in sandbox.calls()
+    assert result(sandbox)["waiting"] == "v0.8.7"
+
+
+def test_only_young_releases_refuse_as_too_young_without_marking_them_bad(
+    sandbox: Sandbox,
+) -> None:
     stage_auto(sandbox)
     sandbox.git_set("tags", "v0.8.0\nv0.9.0\nv0.9.1\n")
     sandbox.env["SHIM_RELEASE_RC"] = "4"
     assert run_auto(sandbox).returncode == 0
-    assert result(sandbox)["error_code"] == "too_young"
-    assert len([c for c in sandbox.calls() if c.startswith("verify-release")]) == 1
+    res = result(sandbox)
+    assert res["last_result"] == "refused" and res["error_code"] == "too_young"
+    assert res["to"] == "v0.9.1"
+    assert len([c for c in sandbox.calls() if c.startswith("verify-release")]) == 2
+    assert names(sandbox) == []
     assert not (sandbox.root / ".suckerpot-state" / "bad-versions").exists()
+
+
+def test_at_most_ten_releases_are_checked_per_run(sandbox: Sandbox) -> None:
+    stage_auto(sandbox)
+    sandbox.git_set("tags", "v0.8.0\n" + "".join(f"v0.8.{n}\n" for n in range(1, 13)))
+    sandbox.env["SHIM_RELEASE_RC"] = "4"
+    assert run_auto(sandbox).returncode == 0
+    assert len([c for c in sandbox.calls() if c.startswith("verify-release")]) == 10
+    assert result(sandbox)["error_code"] == "too_young"
+    assert names(sandbox) == []
 
 
 # ---- what counts as a verdict on the release, and what is only a problem of this machine

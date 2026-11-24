@@ -405,6 +405,19 @@ def test_updated_result_and_systemd_schedule(st: Status) -> None:
     assert "updated v0.5.0 to v0.6.0" in out
 
 
+def test_an_update_that_skipped_a_young_release_names_it(st: Status) -> None:
+    st.schedule()
+    st.auto_state(
+        last_run=iso(timedelta(hours=1)),
+        last_result="updated",
+        waiting="v0.6.3",
+        **{"from": "v0.6.0", "to": "v0.6.1"},
+    )
+    rc, out, _ = st.run()
+    assert rc == 0, out
+    assert "updated v0.6.0 to v0.6.1 (newest v0.6.3 waits for its minimum age)" in out
+
+
 def test_a_once_a_day_schedule_from_an_older_release_still_shows(st: Status) -> None:
     st.schedule("05:12", daily=True)
     st.auto_state(last_run=iso(timedelta(hours=1)), last_result="ok", **{"from": "v0.6.0"})

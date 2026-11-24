@@ -404,6 +404,9 @@ def _auto_line(doc: dict[str, Any], info: dict[str, Any]) -> str:
         "refused": f"refused ({state.get('error_code') or 'see the log'})",
         "failed": f"failed ({state.get('error_code') or 'see the log'}), rolled back",
     }.get(result, result or "unknown")
+    waiting = state.get("waiting")
+    if result == "updated" and isinstance(waiting, str) and waiting and waiting != target:
+        detail += f" (newest {waiting} waits for its minimum age)"
     return f"{line} Last run {day}: {detail}"
 
 
