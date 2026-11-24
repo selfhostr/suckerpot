@@ -6,6 +6,7 @@
 import { delay, http, HttpResponse } from "msw"
 import { SENSOR_META, isSensor } from "@/lib/sensors"
 import type { BenignCount, TodayCardData, TodayResponse } from "@/lib/today"
+import { formReportWaiting } from "./abuse-forms"
 import { buildBenignFixtures } from "./benign"
 import { buildFixtures } from "./fixtures"
 
@@ -206,6 +207,15 @@ const EXPOSURE: TodayCardData = {
   empty: false,
 }
 
+const FORMS: TodayCardData = {
+  id: "forms",
+  sentence:
+    "1 report to submit by web form, for 1 provider. These desks take no mail: the report waits until you paste it into their form.",
+  items: [],
+  action: { label: "Open the form queue", to: "/abuse?status=forms" },
+  empty: false,
+}
+
 function benignCount(): BenignCount {
   const recent = benign.filter((f) => Date.parse(f.session.started_at) >= Date.now() - DAY)
   return {
@@ -223,7 +233,15 @@ export const todayHandlers = [
       generated_at: new Date().toISOString(),
       window_hours: 24,
       hidden_benign: include ? 0 : benignCount().sessions,
-      cards: [happened(include), CAMPAIGNS, ACT, NEW_WEEK, EXPOSURE],
+      cards: [
+        happened(include),
+        ...(formReportWaiting() ? [FORMS] : []),
+        CAMPAIGNS,
+        ACT,
+        NEW_WEEK,
+        EXPOSURE,
+      ],
+      form_queue: formReportWaiting() ? { reports: 1, providers: 1 } : null,
     }
     return HttpResponse.json(body)
   }),

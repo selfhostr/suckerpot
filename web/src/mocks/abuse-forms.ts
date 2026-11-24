@@ -21,6 +21,9 @@ const monday = (() => {
 
 let submitted = false
 
+/** Whether the one form report of the mock still waits (read by the Today mock). */
+export const formReportWaiting = () => !submitted
+
 const item: FormQueueItem = {
   public_id: ID,
   revision: 3,

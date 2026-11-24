@@ -1,14 +1,17 @@
 """The Today page and the hidden-scanner count (M19).
 
-``GET /api/v1/today`` answers "what do I need to know right now?" in up to five cards. Every card
+``GET /api/v1/today`` answers "what do I need to know right now?" in up to six cards. Every card
 is one plain-English sentence, at most three items and one action (a UI route with its filters).
 The sentences are built here by small pure functions, so they are unit tested and the web UI only
 lays them out. The cards read tables other features fill (campaigns, blocklist entries, the
 service inventory); while those are empty a card says so instead of disappearing, except
-"your exposure", which only exists once an inventory does.
+"your exposure", which only exists once an inventory does, and "to submit by form" (M38), which
+only an admin sees and only while form reports wait.
 
 The response is cached for a minute per app and ``include_benign`` value, because the page is the
 home screen and the queries behind it (first-seen values over 90 days) are not free.
+The form queue count is not cached: it is one small query, and a report marked as submitted leaves
+it at once.
 
 ``GET /api/v1/stats/benign`` counts what the "hide research scanners" switch hides.
 """
@@ -24,6 +27,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from suckerpot_db.form_queue import FormQueueCount, form_queue_count, form_queue_sentence
 from suckerpot_db.models import (
     BlocklistEntryRow,
     CampaignRow,
@@ -33,6 +37,7 @@ from suckerpot_db.models import (
 )
 from suckerpot_db.session_counts import sessions_count
 
+from api.auth import current_principal
 from api.benign import IncludeBenign, visible_sessions
 from api.deps import DbSession
 from api.indicators import defang
@@ -45,6 +50,7 @@ router = APIRouter(tags=["today"])
 WINDOW = timedelta(hours=24)
 NEW_WINDOW = timedelta(days=7)
 MAX_ITEMS = 3
+FORM_QUEUE_LINK = "/abuse?status=forms"
 CACHE_SECONDS = 60.0
 BLOCK_SCORE = 70
 # One source of truth for what is severe: the insight rules' tag table.
@@ -56,7 +62,7 @@ NEW_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("username", "username", "usernames"),
 )
 
-CardId = Literal["happened", "campaigns", "act", "new_week", "exposure"]
+CardId = Literal["happened", "forms", "campaigns", "act", "new_week", "exposure"]
 ItemKind = Literal["sensor", "country", "tag", "campaign", "host", "session", "service", "new"]
 
 
@@ -84,12 +90,21 @@ class TodayCard(BaseModel):
     empty: bool = False
 
 
+class FormQueueOut(BaseModel):
+    """Form reports still to submit (M38) and the providers they go to."""
+
+    reports: int
+    providers: int
+
+
 class TodayResponse(BaseModel):
     generated_at: datetime
     window_hours: int
     #: Research-scanner sessions in the window that are left out (0 when they are included).
     hidden_benign: int
     cards: list[TodayCard]
+    #: Admins only (the queue is an admin screen); null when no form report waits.
+    form_queue: FormQueueOut | None = None
 
 
 class BenignCount(BaseModel):
@@ -183,6 +198,13 @@ def exposure_sentence(listed: int, targeted: int, attacks: int) -> str:
     return (
         f"Attackers went after {targeted} of the {plural(listed, 'service')} you listed today, "
         f"{plural(attacks, 'attack')} in all."
+    )
+
+
+def forms_sentence(count: FormQueueCount) -> str:
+    return (
+        f"{form_queue_sentence(count)}. These desks take no mail: "
+        "the report waits until you paste it into their form."
     )
 
 
@@ -499,6 +521,24 @@ async def build_today(db: AsyncSession, now: datetime, *, include_benign: bool) 
     )
 
 
+def with_form_queue(result: TodayResponse, count: FormQueueCount) -> TodayResponse:
+    """The form queue card (after "what happened") and count, only while form reports wait."""
+    if count.reports <= 0:
+        return result
+    card = TodayCard(
+        id="forms",
+        sentence=forms_sentence(count),
+        items=[],
+        action=TodayAction(label="Open the form queue", to=FORM_QUEUE_LINK),
+    )
+    return result.model_copy(
+        update={
+            "cards": [*result.cards[:1], card, *result.cards[1:]],
+            "form_queue": FormQueueOut(reports=count.reports, providers=count.providers),
+        }
+    )
+
+
 def _cache(request: Request) -> dict[bool, tuple[float, TodayResponse]]:
     cache: dict[bool, tuple[float, TodayResponse]] | None = getattr(
         request.app.state, "today_cache", None
@@ -516,10 +556,14 @@ async def today(
     cache = _cache(request)
     hit = cache.get(include_benign)
     if hit is not None and time.monotonic() - hit[0] < CACHE_SECONDS:
-        return hit[1]
-    result = await build_today(db, datetime.now(UTC), include_benign=include_benign)
-    cache[include_benign] = (time.monotonic(), result)
-    return result
+        result = hit[1]
+    else:
+        result = await build_today(db, datetime.now(UTC), include_benign=include_benign)
+        cache[include_benign] = (time.monotonic(), result)
+    principal = await current_principal(request)
+    if principal is None or not principal.is_admin:
+        return result
+    return with_form_queue(result, await form_queue_count(db))
 
 
 @router.get("/stats/benign", response_model=BenignCount)

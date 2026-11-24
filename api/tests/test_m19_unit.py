@@ -2,11 +2,13 @@
 
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from sqlalchemy import Select
 from sqlalchemy.dialects import postgresql
+from suckerpot_db.form_queue import FormQueueCount
 
 from api import analytics_queries as q
 from api import search, today
@@ -167,3 +169,55 @@ def test_new_week_and_exposure_sentences() -> None:
     assert today.exposure_sentence(3, 2, 40) == (
         "Attackers went after 2 of the 3 services you listed today, 40 attacks in all."
     )
+
+
+def _base() -> today.TodayResponse:
+    action = today.TodayAction(label="x", to="/x")
+    return today.TodayResponse(
+        generated_at=datetime(2026, 11, 24, tzinfo=UTC),
+        window_hours=24,
+        hidden_benign=0,
+        cards=[
+            today.TodayCard(id="happened", sentence="s", items=[], action=action),
+            today.TodayCard(id="act", sentence="s", items=[], action=action),
+        ],
+    )
+
+
+def test_the_forms_card_comes_only_while_form_reports_wait() -> None:
+    base = _base()
+    assert today.with_form_queue(base, FormQueueCount(reports=0, providers=0)) is base
+    out = today.with_form_queue(base, FormQueueCount(reports=3, providers=2))
+    assert [c.id for c in out.cards] == ["happened", "forms", "act"]
+    assert [c.id for c in base.cards] == ["happened", "act"]  # the cached response is untouched
+    card = out.cards[1]
+    assert card.sentence.startswith("3 reports to submit by web form, for 2 providers.")
+    assert card.action.to == "/abuse?status=forms" and card.items == [] and not card.empty
+    assert out.form_queue == today.FormQueueOut(reports=3, providers=2)
+    one = today.with_form_queue(base, FormQueueCount(reports=1, providers=1)).cards[1]
+    assert one.sentence.startswith("1 report to submit by web form, for 1 provider.")
+
+
+@pytest.mark.parametrize(
+    ("principal", "admin"), [(None, False), ("viewer", False), ("admin", True)]
+)
+async def test_only_an_admin_gets_the_form_queue(
+    monkeypatch: pytest.MonkeyPatch, principal: str | None, admin: bool
+) -> None:
+    async def who(_request: Any) -> Any:
+        return None if principal is None else SimpleNamespace(is_admin=principal == "admin")
+
+    async def build(_db: Any, _now: datetime, *, include_benign: bool) -> today.TodayResponse:
+        return _base()
+
+    async def count(_db: Any) -> FormQueueCount:
+        return FormQueueCount(reports=2, providers=1)
+
+    monkeypatch.setattr(today, "current_principal", who)
+    monkeypatch.setattr(today, "build_today", build)
+    monkeypatch.setattr(today, "form_queue_count", count)
+    request: Any = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    for _ in range(2):  # the second answer comes from the cache: the count is still added
+        body = await today.today(request, db=None, include_benign=False)  # type: ignore[arg-type]
+        assert (body.form_queue is not None) is admin
+        assert ("forms" in [c.id for c in body.cards]) is admin

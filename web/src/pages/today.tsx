@@ -10,6 +10,7 @@ import { StoryFlow } from "@/components/story/story-flow"
 import { TimelineScrubber } from "@/components/story/timeline-scrubber"
 import { StatTile } from "@/components/stat-tile"
 import { Term, TermText } from "@/components/term"
+import { FormQueueNotice } from "@/components/today/form-queue-notice"
 import { TodayCard, TodayCardSkeleton } from "@/components/today/today-card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -99,13 +100,18 @@ function StoryLoading() {
   )
 }
 
-/** What to do about it: the cards of GET /today that are about action, not about the past. */
-function ToDo() {
-  const query = useQuery({
+/** GET /today, shared by the to-do cards and the form queue notice (one request). */
+function useToday() {
+  return useQuery({
     queryKey: todayKeys.today,
     queryFn: todayApi.today,
     refetchInterval: 120_000,
   })
+}
+
+/** What to do about it: the cards of GET /today that are about action, not about the past. */
+function ToDo() {
+  const query = useToday()
   if (query.isError) return null
   const cards = query.data?.cards.filter((c) => c.id !== "happened") ?? []
   if (query.data && cards.length === 0) return null
@@ -145,6 +151,7 @@ function ToDo() {
  */
 export function TodayPage() {
   const { hide, setHide } = useScannerFilter()
+  const todo = useToday()
   const query = useQuery({
     queryKey: [...storyKeys.story(HOURS), hide],
     queryFn: () => storyApi.story(HOURS),
@@ -164,6 +171,8 @@ export function TodayPage() {
         title="Today"
         description="The last 24 hours on your decoy servers, in plain words. Click anything to dig deeper."
       />
+
+      <FormQueueNotice count={todo.data?.form_queue} className="mb-6" />
 
       {query.isPending || !story ? (
         <StoryLoading />

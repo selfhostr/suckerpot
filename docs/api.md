@@ -614,7 +614,7 @@ Query `q` (1 to 512 characters, cut to 128). Under two characters the answer is 
 
 ### `GET /api/v1/today`
 
-`{"generated_at", "window_hours": 24, "hidden_benign": 0, "cards": [...]}`. Each card has `id` (`happened`, `campaigns`, `act`, `new_week`, `exposure`), a `sentence`, up to three `items` (`kind`, `value`, `label`, `detail`, `count`, `to` = a web route with its filters), one `action` (`label`, `to`) and `empty`. The `exposure` card is only present once the service inventory has rows. The answer is cached for a minute per `include_benign` value.
+`{"generated_at", "window_hours": 24, "hidden_benign": 0, "cards": [...], "form_queue": null}`. Each card has `id` (`happened`, `forms`, `campaigns`, `act`, `new_week`, `exposure`), a `sentence`, up to three `items` (`kind`, `value`, `label`, `detail`, `count`, `to` = a web route with its filters), one `action` (`label`, `to`) and `empty`. The `exposure` card is only present once the service inventory has rows. For an admin, while form reports wait in the form queue (M38), `form_queue` is `{"reports", "providers"}` and a `forms` card follows `happened`; for a viewer, or with an empty queue, `form_queue` is null and there is no `forms` card. The answer is cached for a minute per `include_benign` value, except the form queue count, which is read on every call.
 
 ## Insights, trends and malware (M7)
 

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from suckerpot_db.form_queue import FormQueueCount, form_queue_count
 from suckerpot_db.session_counts import sql_sessions_count
 
 from ingest.alerts.text import clean_text, defang
@@ -245,6 +246,25 @@ async def collect(session: AsyncSession, week_start: date, tz_name: str) -> dict
         campaigns=campaigns,
         hosts=hosts,
         cves=cves,
+        # Not bound to the week: what still waits in the form queue when the report is built.
+        form_queue=await form_queue_count(session),
+    )
+
+
+def form_queue_count_text(count: FormQueueCount) -> str:
+    """``"3 reports (2 providers)"``."""
+    reports = f"{count.reports:,} report{'' if count.reports == 1 else 's'}"
+    providers = f"{count.providers:,} provider{'' if count.providers == 1 else 's'}"
+    return f"{reports} ({providers})"
+
+
+def form_queue_line(count: FormQueueCount) -> str:
+    """The weekly to-do for form reports, or "" when none waits."""
+    if count.reports <= 0:
+        return ""
+    return (
+        f"Waiting for a web form: {form_queue_count_text(count)}. These desks take no mail: "
+        "submit them from Abuse reports, To submit by form."
     )
 
 
@@ -263,8 +283,10 @@ def summarize(
     campaigns: list[dict[str, Any]],
     hosts: list[dict[str, Any]],
     cves: list[dict[str, Any]],
+    form_queue: FormQueueCount | None = None,
 ) -> dict[str, Any]:
     """Pure: the numbers become the summary with its headline and next actions."""
+    forms = form_queue or FormQueueCount(reports=0, providers=0)
     change = _pct(sessions, previous)
     trend = (
         "about the same as the week before"
@@ -301,6 +323,8 @@ def summarize(
         )
     if top in SENSOR_ADVICE:
         actions.append(SENSOR_ADVICE[top])
+    if line := form_queue_line(forms):
+        actions.append(line)
     if not actions:
         actions.append("Nothing unusual this week. Keep systems patched and exposure minimal.")
     return {
@@ -323,16 +347,22 @@ def summarize(
         "download_hosts": hosts,
         "watched_cves": cves,
         "actions": actions,
+        "form_queue": {"reports": forms.reports, "providers": forms.providers},
     }
 
 
 def alert_facts(summary: dict[str, Any]) -> list[list[str]]:
     t = summary["totals"]
     change = t["change_pct"]
-    return [
+    facts = [
         ["Sessions", f"{t['sessions']:,}" + (f" ({change:+d}%)" if change is not None else "")],
         ["Sources", f"{t['sources']:,}"],
         ["New campaigns", str(len(summary["campaigns"]))],
         ["New download hosts", str(len(summary["download_hosts"]))],
         ["Malware sessions", f"{t['malware']:,}"],
     ]
+    forms = summary.get("form_queue") or {}
+    if isinstance(forms, dict) and forms.get("reports"):
+        count = FormQueueCount(int(forms["reports"]), int(forms.get("providers") or 0))
+        facts.append(["Waiting for a web form", form_queue_count_text(count)])
+    return facts

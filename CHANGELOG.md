@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Abuse reports: form reports that wait in **To submit by form** are now hard to miss. An admin sees "N reports to submit by web form, for M providers" at the top of the Today page and as a card in its to-do list, with a link to the queue. `GET /api/v1/today` has a new `form_queue` field (admins only) and a `forms` card. The weekly report lists "Waiting for a web form: N reports (M providers)" in its next actions and its alert facts. Nothing shows when the queue is empty.
+
 ### Fixed
 
 - Automatic update: a release that is only too young (under its 48 h minimum age) no longer stops the run. The next older release of the same major version is tried, and it is not marked bad. Before, after a burst of releases every run saw a young newest tag and gave up, so nodes stayed on an old version for days. `refused (too_young)` is now recorded only when no candidate is old enough. Releases that are only too young do not count against the 3 tries per run; at most 10 releases are checked per run. `status.sh` names the newest release that still waits after an update.
