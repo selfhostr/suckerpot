@@ -1,4 +1,353 @@
 {
-  "entries": [],
+  "entries": [
+    {
+      "accepts_mail": true,
+      "fields": [],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://www.akamai.com/legal/abuse",
+      "id": "akamai-cloud",
+      "match": {
+        "asns": [
+          63949
+        ],
+        "mailbox_domains": [
+          "linode.com"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "akamai.com",
+        "linode.com"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Akamai Cloud (Linode)",
+      "source": "https://www.akamai.com/legal/abuse",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": false,
+      "fields": [],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://abuse.cloudflare.com/",
+      "id": "cloudflare",
+      "match": {
+        "asns": [
+          13335
+        ],
+        "mailbox_domains": [
+          "cloudflare.com"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "cloudflare.com"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Cloudflare",
+      "source": "https://www.cloudflare.com/trust-hub/reporting-abuse/",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://contabo.com/en/abuse/",
+      "id": "contabo",
+      "match": {
+        "asns": [
+          51167
+        ],
+        "mailbox_domains": [
+          "contabo.de"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "contabo.com",
+        "contabo.de"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Contabo",
+      "source": "https://contabo.com/en/abuse/",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [
+        {
+          "choices": {},
+          "key": "abuse_type",
+          "label": "Please select an abuse type"
+        }
+      ],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://www.digitalocean.com/company/contact/abuse",
+      "id": "digitalocean",
+      "match": {
+        "asns": [
+          14061
+        ],
+        "mailbox_domains": [
+          "digitalocean.com"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "digitalocean.com"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "DigitalOcean",
+      "source": "https://www.digitalocean.com/company/contact",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [
+        {
+          "choices": {},
+          "key": "name",
+          "label": "Name"
+        },
+        {
+          "choices": {},
+          "key": "email",
+          "label": "Email address"
+        },
+        {
+          "choices": {},
+          "key": "first_seen",
+          "label": "Abuse date"
+        },
+        {
+          "choices": {},
+          "key": "description",
+          "label": "Abuse details"
+        },
+        {
+          "choices": {},
+          "key": "evidence",
+          "label": "Additional logs to help us investigate"
+        }
+      ],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://support.google.com/code/contact/cloud_platform_report",
+      "id": "google-cloud",
+      "match": {
+        "asns": [
+          396982,
+          139070
+        ],
+        "mailbox_domains": []
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "google.com"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Google Cloud",
+      "source": "https://docs.cloud.google.com/docs/security/respond-to-abuse-misuse",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [
+        {
+          "choices": {},
+          "key": "abuse_type",
+          "label": "Type of abuse"
+        }
+      ],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://abuse.hetzner.com/",
+      "id": "hetzner",
+      "match": {
+        "asns": [
+          24940,
+          213230,
+          212317
+        ],
+        "mailbox_domains": [
+          "hetzner.com"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "hetzner.com"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Hetzner",
+      "source": "https://www.hetzner.com/legal/digital-services-act/",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://www.hostinger.com/report-abuse",
+      "id": "hostinger",
+      "match": {
+        "asns": [
+          47583
+        ],
+        "mailbox_domains": [
+          "hostinger.com"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "hostinger.com"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Hostinger",
+      "source": "https://www.hostinger.com/legal/abuse-policy",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://msrc.microsoft.com/report/abuse",
+      "id": "microsoft",
+      "match": {
+        "asns": [
+          8075
+        ],
+        "mailbox_domains": [
+          "microsoft.com"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "microsoft.com"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Microsoft (Azure)",
+      "source": "https://www.microsoft.com/en-us/msrc/blog/2024/07/whats-new-in-the-msrc-report-abuse-portal-and-api",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [
+        {
+          "choices": {},
+          "key": "name",
+          "label": "First and last name"
+        },
+        {
+          "choices": {},
+          "key": "email",
+          "label": "Email address"
+        },
+        {
+          "choices": {},
+          "key": "abuse_type",
+          "label": "Type of abuse"
+        }
+      ],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://www.netcup.com/en/abuse",
+      "id": "netcup",
+      "match": {
+        "asns": [
+          197540
+        ],
+        "mailbox_domains": [
+          "netcup.de"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "netcup.com",
+        "netcup.de"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "netcup",
+      "source": "https://www.netcup.com/en/abuse",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://www.ovhcloud.com/en/abuse/",
+      "id": "ovhcloud",
+      "match": {
+        "asns": [
+          16276
+        ],
+        "mailbox_domains": [
+          "ovh.net",
+          "ovh.ca"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "ovhcloud.com",
+        "ovh.net",
+        "ovh.ca"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "OVHcloud",
+      "source": "https://www.ovhcloud.com/en/abuse/",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    },
+    {
+      "accepts_mail": true,
+      "fields": [],
+      "file_types": [
+        "csv"
+      ],
+      "form_url": "https://abuse.scaleway.com/",
+      "id": "scaleway",
+      "match": {
+        "asns": [
+          12876
+        ],
+        "mailbox_domains": [
+          "scaleway.com"
+        ]
+      },
+      "max_chars": 1000,
+      "official_domains": [
+        "scaleway.com",
+        "online.net"
+      ],
+      "one_ip_per_submission": false,
+      "provider": "Scaleway",
+      "source": "https://www.scaleway.com/en/abuse-notice/",
+      "verified_on": "2026-11-24",
+      "xarf": "unknown"
+    }
+  ],
   "schema": "suckerpot-abuse-forms/1"
 }

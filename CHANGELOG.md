@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Automatic update: a release that is only too young (under its 48 h minimum age) no longer stops the run. The next older release of the same major version is tried, and it is not marked bad. Before, after a burst of releases every run saw a young newest tag and gave up, so nodes stayed on an old version for days. `refused (too_young)` is now recorded only when no candidate is old enough. Releases that are only too young do not count against the 3 tries per run; at most 10 releases are checked per run. `status.sh` names the newest release that still waits after an update.
 
+### Changed
+
+- The shared directory of abuse forms lists 11 providers: Akamai Cloud (Linode), Cloudflare, Contabo, DigitalOcean, Google Cloud, Hetzner, Hostinger, Microsoft (Azure), netcup, OVHcloud and Scaleway. Each entry was checked on the provider's own abuse page. Only Cloudflare is marked as not taking mail (its page says it is generally unable to process complaints sent by email), so only Cloudflare desks move to the form queue; the others keep getting mail.
+
 ## [0.14.1] - 2026-11-22
 
 ### Fixed

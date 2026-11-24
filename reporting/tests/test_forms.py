@@ -71,7 +71,7 @@ def problems(*entries: dict[str, Any]) -> str:
 
 def test_the_shipped_directory_validates_and_is_compiled() -> None:
     raw = yaml.safe_load(SOURCE.read_text(encoding="utf-8"))
-    directory = validate(raw, TODAY)
+    directory = validate(raw)  # the real date: a shipped entry is checked on the day it is added
     assert COMPILED.read_text(encoding="ascii") == dumps(directory)
     assert bundled().entries == directory.entries
 

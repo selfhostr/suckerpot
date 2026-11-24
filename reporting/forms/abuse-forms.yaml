@@ -63,4 +63,147 @@
 #     verified_on: 2026-11-22
 
 schema: suckerpot-abuse-forms/1
-entries: []
+entries:
+  - id: akamai-cloud
+    provider: Akamai Cloud (Linode)
+    match:
+      mailbox_domains: [linode.com]
+      asns: [63949]
+    official_domains: [akamai.com, linode.com]
+    form_url: https://www.akamai.com/legal/abuse
+    accepts_mail: true
+    source: https://www.akamai.com/legal/abuse
+    verified_on: 2026-11-24
+
+  - id: cloudflare
+    provider: Cloudflare
+    match:
+      mailbox_domains: [cloudflare.com]
+      asns: [13335]
+    official_domains: [cloudflare.com]
+    form_url: https://abuse.cloudflare.com/
+    accepts_mail: false
+    source: https://www.cloudflare.com/trust-hub/reporting-abuse/
+    verified_on: 2026-11-24
+
+  - id: contabo
+    provider: Contabo
+    match:
+      mailbox_domains: [contabo.de]
+      asns: [51167]
+    official_domains: [contabo.com, contabo.de]
+    form_url: https://contabo.com/en/abuse/
+    accepts_mail: true
+    source: https://contabo.com/en/abuse/
+    verified_on: 2026-11-24
+
+  - id: digitalocean
+    provider: DigitalOcean
+    match:
+      mailbox_domains: [digitalocean.com]
+      asns: [14061]
+    official_domains: [digitalocean.com]
+    form_url: https://www.digitalocean.com/company/contact/abuse
+    accepts_mail: true
+    fields:
+      - key: abuse_type
+        label: Please select an abuse type
+    source: https://www.digitalocean.com/company/contact
+    verified_on: 2026-11-24
+
+  - id: google-cloud
+    provider: Google Cloud
+    match:
+      asns: [396982, 139070]
+    official_domains: [google.com]
+    form_url: https://support.google.com/code/contact/cloud_platform_report
+    accepts_mail: true
+    fields:
+      - key: name
+        label: Name
+      - key: email
+        label: Email address
+      - key: first_seen
+        label: Abuse date
+      - key: description
+        label: Abuse details
+      - key: evidence
+        label: Additional logs to help us investigate
+    source: https://docs.cloud.google.com/docs/security/respond-to-abuse-misuse
+    verified_on: 2026-11-24
+
+  - id: hetzner
+    provider: Hetzner
+    match:
+      mailbox_domains: [hetzner.com]
+      asns: [24940, 213230, 212317]
+    official_domains: [hetzner.com]
+    form_url: https://abuse.hetzner.com/
+    accepts_mail: true
+    fields:
+      - key: abuse_type
+        label: Type of abuse
+    source: https://www.hetzner.com/legal/digital-services-act/
+    verified_on: 2026-11-24
+
+  - id: hostinger
+    provider: Hostinger
+    match:
+      mailbox_domains: [hostinger.com]
+      asns: [47583]
+    official_domains: [hostinger.com]
+    form_url: https://www.hostinger.com/report-abuse
+    accepts_mail: true
+    source: https://www.hostinger.com/legal/abuse-policy
+    verified_on: 2026-11-24
+
+  - id: microsoft
+    provider: Microsoft (Azure)
+    match:
+      mailbox_domains: [microsoft.com]
+      asns: [8075]
+    official_domains: [microsoft.com]
+    form_url: https://msrc.microsoft.com/report/abuse
+    accepts_mail: true
+    source: https://www.microsoft.com/en-us/msrc/blog/2024/07/whats-new-in-the-msrc-report-abuse-portal-and-api
+    verified_on: 2026-11-24
+
+  - id: netcup
+    provider: netcup
+    match:
+      mailbox_domains: [netcup.de]
+      asns: [197540]
+    official_domains: [netcup.com, netcup.de]
+    form_url: https://www.netcup.com/en/abuse
+    accepts_mail: true
+    fields:
+      - key: name
+        label: First and last name
+      - key: email
+        label: Email address
+      - key: abuse_type
+        label: Type of abuse
+    source: https://www.netcup.com/en/abuse
+    verified_on: 2026-11-24
+
+  - id: ovhcloud
+    provider: OVHcloud
+    match:
+      mailbox_domains: [ovh.net, ovh.ca]
+      asns: [16276]
+    official_domains: [ovhcloud.com, ovh.net, ovh.ca]
+    form_url: https://www.ovhcloud.com/en/abuse/
+    accepts_mail: true
+    source: https://www.ovhcloud.com/en/abuse/
+    verified_on: 2026-11-24
+
+  - id: scaleway
+    provider: Scaleway
+    match:
+      mailbox_domains: [scaleway.com]
+      asns: [12876]
+    official_domains: [scaleway.com, online.net]
+    form_url: https://abuse.scaleway.com/
+    accepts_mail: true
+    source: https://www.scaleway.com/en/abuse-notice/
+    verified_on: 2026-11-24
