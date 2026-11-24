@@ -1421,11 +1421,13 @@ async def requests_of(engine: AsyncEngine) -> list[Any]:
     )
 
 
-def soon() -> int:
+def soon(ahead: int) -> int:
+    """The digest hour, in two minutes. The test runs the sender up to ``ahead`` minutes later:
+    a run past midnight UTC is on the next day, before its digest hour, and sends nothing."""
     now = datetime.now(UTC)
-    if minute_of(now) > 1400:
+    if minute_of(now) + ahead + 5 >= 24 * 60:  # 5 minutes for the test itself
         pytest.skip("too close to midnight UTC for a same-day digest hour")
-    return minute_of(now) + 2  # the digest hour is in two minutes
+    return minute_of(now) + 2
 
 
 async def test_a_shared_host_cancel_is_rescheduled_once_the_source_is_dropped(
@@ -1436,7 +1438,7 @@ async def test_a_shared_host_cancel_is_rescheduled_once_the_source_is_dropped(
     for ip in (IP_A, IP_B):
         await seed_attack(engine, ip=ip)
     await add_self_address(engine)
-    await smtp_profile(engine, mode="auto", minute=soon())
+    await smtp_profile(engine, mode="auto", minute=soon(ahead=40))
     b = DraftBuilder(factory, DEMO, TermsCache(factory, {}), resolver(factory, Wire(), DEMO))
     s = real_sender(factory)
     now = datetime.now(UTC)
@@ -1473,7 +1475,7 @@ async def test_a_too_old_end_is_rescheduled_at_the_next_digest_hour_with_fresh_s
     real_origins(monkeypatch, set())
     await seed_attack(engine, ip=IP_A, ago_h=7 * 24 - 1)  # fresh for one more hour
     await add_self_address(engine)
-    minute = soon()
+    minute = soon(ahead=120)
     await smtp_profile(engine, mode="auto", minute=minute)
     b = DraftBuilder(factory, DEMO, TermsCache(factory, {}), resolver(factory, Wire(), DEMO))
     s = real_sender(factory)
@@ -1530,7 +1532,7 @@ async def test_switching_digests_on_reschedules_a_send_queued_while_they_were_of
     real_origins(monkeypatch, set())
     await seed_attack(engine, ip=IP_A)
     await add_self_address(engine)
-    minute = soon()
+    minute = soon(ahead=15)
     await smtp_profile(engine, mode="auto", minute=minute)
     async with engine.begin() as conn:
         await conn.execute(text("UPDATE report_settings SET digest_enabled = false"))
