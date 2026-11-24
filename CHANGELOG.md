@@ -7,18 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-11-24
+
 ### Added
 
 - Abuse reports: form reports that wait in **To submit by form** are now hard to miss. An admin sees "N reports to submit by web form, for M providers" at the top of the Today page and as a card in its to-do list, with a link to the queue. `GET /api/v1/today` has a new `form_queue` field (admins only) and a `forms` card. The weekly report lists "Waiting for a web form: N reports (M providers)" in its next actions and its alert facts. Nothing shows when the queue is empty.
+
+### Changed
+
+- The shared directory of abuse forms lists 11 providers: Akamai Cloud (Linode), Cloudflare, Contabo, DigitalOcean, Google Cloud, Hetzner, Hostinger, Microsoft (Azure), netcup, OVHcloud and Scaleway. Each entry was checked on the provider's own abuse page. Only Cloudflare is marked as not taking mail (its page says it is generally unable to process complaints sent by email), so only Cloudflare desks move to the form queue; the others keep getting mail.
 
 ### Fixed
 
 - Automatic update: a release that is only too young (under its 48 h minimum age) no longer stops the run. The next older release of the same major version is tried, and it is not marked bad. Before, after a burst of releases every run saw a young newest tag and gave up, so nodes stayed on an old version for days. `refused (too_young)` is now recorded only when no candidate is old enough. Releases that are only too young do not count against the 3 tries per run; at most 10 releases are checked per run. `status.sh` names the newest release that still waits after an update.
 - Abuse replies: an acknowledgement that accepts mail but suggests a web form ("while we accept email reports, we encourage you to use our abuse form") is now an automatic receipt with a "form preferred" hint (migration 0042). Mail keeps going to that desk and the report page says "This provider also has a web form; mail still works". Before, it was read as a refusal and the desk was marked form only. A desk marked this way by an earlier version stays marked until you press **Clear this flag** on its report page. A refusal from a ticket portal ("we require you to submit all tickets via our online client support portal") now marks the desk form only, also when the mail wraps the phrase over two lines or when the reply matched no report and you linked it by hand. The web form phrases are broader and stricter: "we no longer accept reports by email", "must be submitted through", "use the form at" count; an instruction next to "you can also" or "we accept email", a "not monitored" next to "do not reply", and a registrar that sends you to the hosting provider do not.
-
-### Changed
-
-- The shared directory of abuse forms lists 11 providers: Akamai Cloud (Linode), Cloudflare, Contabo, DigitalOcean, Google Cloud, Hetzner, Hostinger, Microsoft (Azure), netcup, OVHcloud and Scaleway. Each entry was checked on the provider's own abuse page. Only Cloudflare is marked as not taking mail (its page says it is generally unable to process complaints sent by email), so only Cloudflare desks move to the form queue; the others keep getting mail.
 
 ## [0.14.1] - 2026-11-22
 
@@ -1100,7 +1102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/selfhostr/suckerpot/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/selfhostr/suckerpot/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/selfhostr/suckerpot/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/selfhostr/suckerpot/compare/v0.12.2...v0.13.0

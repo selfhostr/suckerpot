@@ -421,3 +421,11 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - The `podman` CI job failed on the v0.14.0 release commit because it asked for images the Release workflow had not published yet. It now uses the newest tag whose images exist.
 - No database change and no migration.
 
+## 2026-11-24: v0.14.2 (auto-update after a release burst, web forms)
+
+- Five pull requests since v0.14.1 (#189 to #193). The details are in `CHANGELOG.md`.
+- Found in the field: participant nodes stayed on v0.11.9 for days. After a burst of six releases in 36 h, every nightly run saw a newest tag under its 48 h minimum age and stopped. Auto-update now falls back to the newest release that is old enough.
+- Found in the first digest replies: one desk that accepts mail but suggests its form was marked form only and stopped getting mail, and one desk that refuses mail was missed when its reply wrapped a key phrase. Replies are now read as "form only", "form preferred" (mail keeps going, the form shows as a hint) or neither.
+- The shared directory of abuse forms lists 11 providers. Waiting form reports show on the Today page and in the weekly report.
+- A digest test depended on the time of day (it failed after about 21:00 UTC); it now runs on a fixed clock.
+- Migration 0042 (`abuse_recipients.form_preferred`).
