@@ -14,6 +14,8 @@
 #   - a release that is unsigned, whose manifest does not match its tag, or whose signature cosign
 #     rejects is written to bad-versions with its reason (bad-versions.log) and the next newest candidate of the same
 #     major version is tried, at most 3 per run; it never goes below the installed version;
+#   - a release that is only too young is not marked bad: the next older candidate is tried (it
+#     does not count against the 3, but at most 10 releases are checked per run);
 #   - its images verify (scripts/verify-images.sh).
 # Then it runs scripts/update.sh --yes --auto (backup first). If the update fails after the code
 # changed, it runs scripts/rollback.sh --yes (which restores the database only if the schema
@@ -29,7 +31,8 @@
 # One run at a time (flock on .suckerpot-state/update.lock). A random wait of up to 30 minutes
 # keeps a fleet from updating at the same second (AUTO_UPDATE_JITTER_S overrides the maximum).
 # Output goes to .suckerpot-state/auto-update.log (rotated at 1 MiB); the outcome of the last run
-# is in .suckerpot-state/auto-update.json: {last_run, last_result, from, to, error_code}.
+# is in .suckerpot-state/auto-update.json: {last_run, last_result, from, to, error_code, waiting}
+# (waiting: the newest release skipped only because it is too young, or "").
 #
 # Turn it off: ./scripts/participant.sh auto-update off   (or: just set AUTO_UPDATE_ENABLED=false)
 set -euo pipefail
@@ -76,12 +79,14 @@ safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._-' | cut -c1-40; }
 
 from_version=""
 to_version=""
+# The newest candidate that was only too young (it waits for its minimum age).
+waiting=""
 # record RESULT ERROR_CODE: writes the outcome file (constant codes only) and ends the run.
 record() {
   local result=$1 code=$2 tmp
   tmp=$(mktemp "$STATE_DIR/.auto.XXXXXX")
-  printf '{\n  "last_run": "%s",\n  "last_result": "%s",\n  "from": "%s",\n  "to": "%s",\n  "error_code": "%s"\n}\n' \
-    "$(now)" "$result" "$(safe "$from_version")" "$(safe "$to_version")" "$code" > "$tmp"
+  printf '{\n  "last_run": "%s",\n  "last_result": "%s",\n  "from": "%s",\n  "to": "%s",\n  "error_code": "%s",\n  "waiting": "%s"\n}\n' \
+    "$(now)" "$result" "$(safe "$from_version")" "$(safe "$to_version")" "$code" "$(safe "$waiting")" > "$tmp"
   mv -f "$tmp" "$RESULT"
   log "result: $result${code:+ ($code)}"
   echo "auto-update: $result${code:+ ($code)}" >&3
@@ -134,10 +139,15 @@ mark_bad() {
 target=""
 vr_out=""
 last_code=""
+# Two caps. At most 3 releases with a real verdict against them per run (as before). A release
+# that is only too young does not count against that cap, so a burst of recent releases does not
+# hide an older one that has waited long enough; checks of any kind stop at 10 per run (each one
+# downloads a manifest and runs cosign).
 tried=0
+checked=0
 for tag in "${candidates[@]}"; do
-  [ "$tried" -lt 3 ] || break
-  tried=$((tried + 1))
+  [ "$tried" -lt 3 ] && [ "$checked" -lt 10 ] || break
+  checked=$((checked + 1))
   to_version=$tag
   log "candidate: $from_version -> $tag"
   vr_rc=0
@@ -145,7 +155,12 @@ for tag in "${candidates[@]}"; do
   printf '%s\n' "$vr_out"
   case $vr_rc in
     0) target=$tag; break ;;
-    4) record refused too_young ;;
+    # Too young: not a verdict. It is not marked bad; an older candidate may already be old enough.
+    4)
+      log "$tag waits for its minimum age; trying the next older candidate"
+      [ -n "$waiting" ] || waiting=$tag
+      continue
+      ;;
     # No verdict (network, Sigstore, Docker, disk): nothing is held against the release.
     9) record failed verification_unavailable ;;
     # A real verdict: unsigned, not matching its tag, or rejected by cosign. Never retried; the
@@ -156,9 +171,14 @@ for tag in "${candidates[@]}"; do
     # Anything else (a malformed answer, a usage or local error) says nothing about the release.
     *) record refused manifest_invalid ;;
   esac
+  tried=$((tried + 1))
   mark_bad "$tag" "$last_code"
 done
-[ -n "$target" ] || record refused "${last_code:-manifest_invalid}"
+if [ -z "$target" ]; then
+  # Nothing old enough: the newest release that waits is what the next run will try.
+  if [ -n "$waiting" ]; then to_version=$waiting; record refused too_young; fi
+  record refused "${last_code:-manifest_invalid}"
+fi
 to_version=$target
 
 expect=$(mktemp "$STATE_DIR/.expect.XXXXXX")
