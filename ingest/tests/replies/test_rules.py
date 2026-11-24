@@ -486,3 +486,62 @@ def test_a_ticket_acknowledgement_that_suggests_the_form_stays_a_ticket(rules: R
 def test_a_phrase_cut_by_a_line_break_still_matches(rules: ReplyRules) -> None:
     raw = mail(body="Sorry, we no\r\nlonger   accept\treports by email.\r\n")
     assert classify(rules, raw) == ("rejected", "form-required")
+
+
+PORTAL_REFUSAL = (
+    "Your email to our support system could not be accepted because we require you to submit "
+    "all tickets via our online client support portal. You can do this at the URL below. "
+    "https://billing.example.net//submitticket.php"
+)
+
+
+def _wrap(text: str, width: int) -> str:
+    lines, line = [], ""
+    for word in text.split(" "):
+        if line and len(line) + 1 + len(word) > width:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}" if line else word
+    return "\r\n".join([*lines, line]) + "\r\n"
+
+
+@pytest.mark.parametrize("width", [40, 50, 60, 66, 72, 76, 78, 1000])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"Auto-Submitted": "auto-replied"},
+        {"Auto-Submitted": "auto-generated", "Precedence": "bulk"},
+        {"X-Autoreply": "yes", "X-Autorespond": "yes"},
+        {"Precedence": "auto_reply"},
+    ],
+)
+def test_an_automatic_portal_refusal_is_form_only_however_it_wraps(
+    rules: ReplyRules, width: int, extra: dict[str, str]
+) -> None:
+    """Automatic headers never turn a refusal into a receipt (field case: the auto-ack rule won
+    when the mail wrapped "submit all / tickets")."""
+    raw = mail(subject="Support ticket not opened", extra=extra, body=_wrap(PORTAL_REFUSAL, width))
+    assert classify(rules, raw) == ("rejected", "form-required")
+
+
+def test_an_automatic_portal_refusal_in_html_is_form_only(rules: ReplyRules) -> None:
+    html = (
+        "<p>Your email to our support system could not be accepted because we require you to "
+        "submit all<br>\r\ntickets via our online client support portal. You can do this at the"
+        " URL below.</p><p><a href='https://billing.example.net//submitticket.php'>"
+        "https://billing.example.net//submitticket.php</a></p>"
+    )
+    raw = mail(
+        extra={"Auto-Submitted": "auto-replied"},
+        ctype="text/html; charset=utf-8",
+        body=html + "\r\n",
+    )
+    assert classify(rules, raw) == ("rejected", "form-required")
+
+
+@pytest.mark.parametrize("extra", [ACK, {"X-Autoreply": "yes"}, {"Precedence": "bulk"}])
+def test_an_automatic_form_preferred_ack_stays_a_receipt(
+    rules: ReplyRules, extra: dict[str, str]
+) -> None:
+    assert classify(rules, mail(extra=extra, body=PREFERRED_ACK)) == ("auto_ack", "form-preferred")
