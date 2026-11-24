@@ -1052,6 +1052,10 @@ class AbuseRecipientRow(Base):
     # directory entry that routed it.
     form_source: Mapped[str | None] = mapped_column(Text)
     form_entry: Mapped[str | None] = mapped_column(Text)
+    # The desk reads mail but suggests its web form (0042): a hint only, the link is form_url.
+    form_preferred: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
 
 
 class AbuseReportRow(Base):

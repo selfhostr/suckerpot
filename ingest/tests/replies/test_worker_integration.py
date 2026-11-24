@@ -1082,7 +1082,8 @@ async def _desk(world: World, rid: int) -> Any:
         return (
             await conn.execute(
                 text(
-                    "SELECT rec.form_only, rec.form_url, rec.undeliverable, rec.hard_bounces "
+                    "SELECT rec.form_only, rec.form_url, rec.undeliverable, rec.hard_bounces, "
+                    "rec.form_preferred, rec.form_source "
                     "FROM abuse_reports r JOIN abuse_recipients rec ON rec.id = r.recipient_id "
                     "WHERE r.id = :i"
                 ),
@@ -1263,4 +1264,95 @@ async def test_an_acknowledgement_that_says_not_monitored_does_not_pause_the_des
     await poll(world, FakeMailbox({1: ack}))
     (row,) = await world.replies()
     assert row.classification == "auto_ack"
+    assert (await _desk(world, rid)).form_only is False
+
+
+async def test_an_acknowledgement_that_prefers_the_form_keeps_mail_and_the_link(
+    world: World,
+) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, token = await world.sent_report("abuse@example.net")
+    ack = mail(
+        in_reply_to=None,
+        subject=f"Re: report (ref {token})",
+        extra=AUTHED,
+        body=(
+            "THIS IS AN AUTOMATED MESSAGE.\r\n\r\nWe have received your abuse report and it has\r\n"
+            "been forwarded to our systems for analysis. For faster processing and better\r\n"
+            "tracking: while we accept email reports, we highly encourage you to submit your\r\n"
+            "report via our dedicated abuse form (https://abuse.example.net/report).\r\n"
+        ),
+    )
+    await poll(world, FakeMailbox({1: ack}))
+    (row,) = await world.replies()
+    assert row.classification == "auto_ack" and row.rule_id == "form-preferred" and row.verified
+    desk = await _desk(world, rid)
+    assert desk.form_only is False and desk.form_source is None
+    assert desk.form_preferred is True and desk.form_url == "https://abuse.example.net/report"
+
+
+async def test_a_portal_refusal_the_owner_links_by_hand_marks_the_desk(world: World) -> None:
+    await world.profile(trusted="mx.example.org")
+    # Two reports to the same domain: the sender domain alone cannot match the reply.
+    rid, _ = await world.sent_report("abuse@example.net")
+    await world.sent_report("noc@example.net")
+    refusal = mail(
+        in_reply_to=None,
+        subject="Support ticket not opened",
+        extra=AUTHED,
+        body=(
+            "Your email to our support system could not be accepted because we require you\r\n"
+            "to submit all tickets via our online client support portal. You can do this at\r\n"
+            "the URL below.\r\n\r\nhttps://billing.example.net//submitticket.php\r\n"
+        ),
+    )
+    await poll(world, FakeMailbox({1: refusal}))
+    (row,) = await world.replies()
+    assert row.report_id is None and row.rule_id == "form-required"
+    assert (await _desk(world, rid)).form_only is False
+    # The owner links it from the dashboard (the API role), then ingest's next pass learns.
+    async with world.api.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_replies SET report_id = :r, match_method = 'manual', "
+                "verified = true, reviewed_at = now(), reviewed_by = 'admin' WHERE id = :i"
+            ),
+            {"r": rid, "i": row.id},
+        )
+    await outcome.ensure_rows(world.factory)
+    await outcome.recompute(world.factory)
+    desk = await _desk(world, rid)
+    assert desk.form_only is True and desk.form_source == "reply"
+    assert desk.form_url == "https://billing.example.net//submitticket.php"
+
+
+async def test_a_linked_reply_never_undoes_the_owners_clear(world: World) -> None:
+    await world.profile(trusted="mx.example.org")
+    rid, _ = await world.sent_report("abuse@example.net")
+    await world.sent_report("noc@example.net")
+    refusal = mail(
+        in_reply_to=None,
+        extra=AUTHED,
+        body="We no longer accept reports by email. Use the form at https://example.net/f\r\n",
+    )
+    await poll(world, FakeMailbox({1: refusal}))
+    (row,) = await world.replies()
+    async with world.owner.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_recipients SET form_source = 'cleared' WHERE id = "
+                "(SELECT recipient_id FROM abuse_reports WHERE id = :r)"
+            ),
+            {"r": rid},
+        )
+    async with world.api.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE abuse_replies SET report_id = :r, match_method = 'manual', "
+                "verified = true, reviewed_at = now(), reviewed_by = 'admin' WHERE id = :i"
+            ),
+            {"r": rid, "i": row.id},
+        )
+    await outcome.ensure_rows(world.factory)
+    await outcome.recompute(world.factory)
     assert (await _desk(world, rid)).form_only is False

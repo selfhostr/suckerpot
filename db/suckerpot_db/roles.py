@@ -129,6 +129,10 @@ DECLARE
     _fold text := 'public.fold_session_buckets(inet[], text[], timestamptz[], integer, '
                   'text[], interval, integer, timestamptz)';
     _restore text := 'public.restore_folded_sessions(jsonb)';
+    -- 0042: whether abuse_recipients has the form_preferred column yet.
+    _preferred boolean := EXISTS (
+        SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.abuse_recipients')
+        AND attname = 'form_preferred' AND NOT attisdropped);
     _tables text := (
         SELECT string_agg(format('%I', c), ', ') FROM unnest(
             ARRAY['events', 'sessions', 'ip_reputation', 'enrichment_quota', 'enrichment_status',
@@ -269,6 +273,10 @@ BEGIN
             EXECUTE format('GRANT UPDATE (channel, week) ON abuse_reports TO %I', r);
             EXECUTE format(
                 'GRANT UPDATE (form_source, form_entry) ON abuse_recipients TO %I', r);
+        END IF;
+        IF _preferred THEN
+            -- 0042: a reply says the desk reads mail but suggests its web form (a hint only).
+            EXECUTE format('GRANT UPDATE (form_preferred) ON abuse_recipients TO %I', r);
         END IF;
         EXECUTE format('GRANT SELECT, INSERT, DELETE ON abuse_report_subjects TO %I', r);
         EXECUTE format('GRANT SELECT ON abuse_report_requests TO %I', r);

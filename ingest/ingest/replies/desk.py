@@ -1,16 +1,18 @@
 """What a reply teaches the node about the desk that sent it (the recipient of the report).
 
-Two facts are remembered on the recipient, so automatic sending stops there and the owner can
-act by hand:
+Three facts are remembered on the recipient:
 
-* the desk takes reports only through a web form (rule ``form-required``), with the form link
-  when the reply carries one;
+* the desk takes reports only through a web form (rules ``form-required*``), with the form link
+  when the reply carries one. Automatic sending stops there and the reports wait in the form
+  queue;
+* the desk reads mail but suggests its web form (rule ``form-preferred``): a hint only, with the
+  form link. Mail keeps going;
 * the address bounced for good: one hard bounce for "user unknown", two for any other 5.x.x.
 
-Any reply matched to a report counts, verified or not; an unmatched one never does. The
-effect is small: it only stops automatic sends, the report page shows it, and the owner can
-clear it. Mail text is hostile: the link is the first ``https`` URL of the excerpt, checked and
-bounded, and no regular expression reads it.
+Any reply matched to a report counts, verified or not; an unmatched one never does, until the
+owner links it to a report by hand (``learn_linked``). The effect is small: the report page
+shows it, and the owner can clear a flag. Mail text is hostile: the link is the first ``https``
+URL of the excerpt, checked and bounded, and no regular expression reads it.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ from .parse import ParsedReply, strip_quoted
 FORM_RULES: Final = frozenset(
     {"form-required", "form-required-portal", "form-required-unmonitored"}
 )
+# The desk reads mail and suggests its form: a hint, never the form queue.
+PREFERRED_RULE: Final = "form-preferred"
 MAX_FORM_URL: Final = 500
 URL_END: Final = frozenset(" \t\r\n<>\"'`\\^{}|[]")
 TRAILING: Final = ".,;:!?)("
@@ -52,6 +56,12 @@ MARK_FORM = (
     "form_source = 'reply' "
     "WHERE id = (SELECT recipient_id FROM abuse_reports WHERE id = :r) "
     "AND (form_source IS DISTINCT FROM 'cleared' OR CAST(:verified AS boolean))"
+)
+# A hint only: sending is not touched. The link is the same column as a form-only desk's, so a
+# desk that later turns form-only keeps it.
+MARK_PREFERRED = (
+    "UPDATE abuse_recipients SET form_preferred = true, form_url = COALESCE(form_url, :url) "
+    "WHERE id = (SELECT recipient_id FROM abuse_reports WHERE id = :r)"
 )
 MARK_BOUNCE = (
     "UPDATE abuse_recipients SET hard_bounces = LEAST(hard_bounces + 1, 100), "
@@ -141,6 +151,38 @@ async def _own_domains(session: AsyncSession, report_id: int) -> set[str]:
     return domains
 
 
+async def _form_url(
+    session: AsyncSession, report_id: int, excerpt: str, *, verified: bool
+) -> str | None:
+    """The form link of a verified reply, when it points at the provider's own domain."""
+    url = form_url_of(excerpt) if verified else None
+    if url is not None:
+        host = host_of_url(url).lower()
+        if not any(_in_domain(host, d) for d in await _own_domains(session, report_id)):
+            url = None
+    return url
+
+
+async def _learn_form(
+    session: AsyncSession,
+    *,
+    report_id: int,
+    excerpt: str,
+    verified: bool,
+    outcome: str,
+    rule_id: str | None,
+    over_cleared: bool,
+) -> None:
+    if rule_id in FORM_RULES and outcome == "rejected":
+        url = await _form_url(session, report_id, excerpt, verified=verified)
+        await session.execute(
+            text(MARK_FORM), {"r": report_id, "url": url, "verified": over_cleared}
+        )
+    elif rule_id == PREFERRED_RULE and outcome == "auto_ack":
+        url = await _form_url(session, report_id, excerpt, verified=verified)
+        await session.execute(text(MARK_PREFERRED), {"r": report_id, "url": url})
+
+
 async def learn(
     session: AsyncSession,
     reply: ParsedReply,
@@ -150,22 +192,62 @@ async def learn(
     outcome: str,
     rule_id: str | None,
 ) -> None:
-    """Remember a form-only desk or a dead address on the report's recipient.
+    """Remember a form-only desk, a desk that prefers its form, or a dead address on the
+    report's recipient.
 
-    ``form_only`` and the bounce count follow any matched reply. The form link is stricter: an
-    attacker can forge a matched reply, so the link is kept only from a verified reply, only
-    when it points at the provider's own domain (mailbox or reply domains, or below), and only
-    the first one is kept."""
+    ``form_only``, ``form_preferred`` and the bounce count follow any matched reply. The form
+    link is stricter: an attacker can forge a matched reply, so the link is kept only from a
+    verified reply, only when it points at the provider's own domain (mailbox or reply domains,
+    or below), and only the first one is kept."""
     if report_id is None:
         return
-    if rule_id in FORM_RULES:
-        url = form_url_of(reply.excerpt or reply.body) if verified else None
-        if url is not None:
-            host = host_of_url(url).lower()
-            if not any(_in_domain(host, d) for d in await _own_domains(session, report_id)):
-                url = None
-        await session.execute(text(MARK_FORM), {"r": report_id, "url": url, "verified": verified})
+    if rule_id in FORM_RULES or rule_id == PREFERRED_RULE:
+        await _learn_form(
+            session,
+            report_id=report_id,
+            excerpt=reply.excerpt or reply.body,
+            verified=verified,
+            outcome=outcome,
+            rule_id=rule_id,
+            over_cleared=verified,
+        )
     elif outcome == "bounce" and hard_bounce(reply):
         await session.execute(
             text(MARK_BOUNCE), {"r": report_id, "unknown": user_unknown(reply), "at": HARD_AT}
+        )
+
+
+# Replies the owner linked to this report by hand since its outcome was last computed. The rule
+# that classified the reply still holds (the owner did not pick another class).
+LINKED = """
+SELECT excerpt, classification, rule_id FROM abuse_replies
+WHERE report_id = :r AND match_method = 'manual' AND classification_source = 'rule'
+  AND rule_id = ANY(CAST(:rules AS text[]))
+  AND (CAST(:since AS timestamptz) IS NULL OR reviewed_at > CAST(:since AS timestamptz))
+ORDER BY id LIMIT 20
+"""
+
+
+async def learn_linked(session: AsyncSession, report_id: int, since: object) -> None:
+    """What an unmatched reply teaches, once the owner links it to a report.
+
+    A web-form reply often comes from another system (a ticket portal) that does not quote the
+    report, so it arrives unmatched and nothing is learned at intake. The owner's link vouches
+    for it, so its form link may be kept. A flag the owner cleared stays cleared: they can set it
+    again from the report page."""
+    rows = (
+        await session.execute(
+            text(LINKED),
+            {"r": report_id, "rules": [*sorted(FORM_RULES), PREFERRED_RULE], "since": since},
+        )
+    ).all()
+    for row in rows:
+        await _learn_form(
+            session,
+            report_id=report_id,
+            excerpt=row.excerpt or "",
+            verified=True,
+            outcome=row.classification,
+            rule_id=row.rule_id,
+            over_cleared=False,
         )

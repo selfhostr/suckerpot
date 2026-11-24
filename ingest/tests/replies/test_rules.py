@@ -84,7 +84,7 @@ def test_resolved_by_subject(rules: ReplyRules) -> None:
         ("the range is not hosted by us", "not-our-customer"),
         ("we have insufficient evidence", "insufficient-evidence"),
         ("please use our web form", "form-required"),
-        ("Please submit via our portal", "form-required-portal"),
+        ("Please submit via our portal", "form-required"),
         ("Reports sent to this email address will not be processed", "form-required"),
         ("Please submit your report using webform", "form-required"),
         ("This email inbox is not monitored", "form-required-unmonitored"),
@@ -362,3 +362,186 @@ def test_a_ticket_acknowledgement_that_names_a_portal_is_not_a_web_form_request(
     assert classify(rules, ack)[0] != "rejected"
     only = mail(body="Reports must go through our portal, nothing else is read.\r\n")
     assert classify(rules, only) == ("rejected", "form-required-portal")
+
+
+# --- web forms: form only, form preferred, neither -----------------------------------------
+
+ACK = {"Auto-Submitted": "auto-replied"}
+
+
+@pytest.mark.parametrize(
+    ("body", "rule"),
+    [
+        # A ticket portal that refuses mail, wrapped at 72 columns.
+        (
+            "Your email to our support system could not be accepted because we require\r\n"
+            "you to submit all\r\ntickets via our online client support portal. You can do\r\n"
+            "this at the URL below.\r\n\r\nhttps://billing.example.net//submitticket.php\r\n",
+            "form-required",
+        ),
+        ("We no longer accept reports by email.", "form-required"),
+        ("We no longer accept abuse reports by e-mail.", "form-required"),
+        ("Abuse reports must be submitted through https://example.net/abuse", "form-required"),
+        ("Please use our web form at https://example.net/abuse", "form-required"),
+        ("Please use the form at https://example.net/abuse", "form-required"),
+        ("Kindly use the form at\r\nhttps://example.net/abuse", "form-required"),
+        ("Please submit your report through our online form.", "form-required"),
+        ("Please submit via our portal.", "form-required"),
+        ("We only accept reports via https://example.net/abuse", "form-required"),
+        # Refused outright: a polite "we encourage" next to it does not soften it.
+        (
+            "We no longer accept reports by email. We encourage you to use our abuse form.",
+            "form-required",
+        ),
+        ("This mailbox is not monitored.", "form-required-unmonitored"),
+        ("This abuse inbox is no longer monitored.", "form-required-unmonitored"),
+        ("Reports go through our portal only.", "form-required-portal"),
+    ],
+)
+def test_form_only(rules: ReplyRules, body: str, rule: str) -> None:
+    assert classify(rules, mail(body=body + "\r\n")) == ("rejected", rule)
+
+
+def test_form_only_wins_over_an_automatic_header(rules: ReplyRules) -> None:
+    raw = mail(extra=ACK, body="We require you to submit all tickets via our portal.\r\n")
+    assert classify(rules, raw) == ("rejected", "form-required")
+
+
+PREFERRED_ACK = (
+    "THIS IS AN AUTOMATED MESSAGE - PLEASE DO NOT REPLY.\r\n\r\n"
+    "We have received your abuse report and it has been forwarded to our systems for\r\n"
+    "analysis. For faster processing and better tracking: While we accept email reports,\r\n"
+    "we highly encourage you to submit your report via our dedicated abuse form\r\n"
+    "(https://abuse.example.net/report).\r\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "extra"),
+    [
+        (PREFERRED_ACK, None),
+        (PREFERRED_ACK, ACK),
+        ("Thank you for your report. You can also use our web form next time.", None),
+        ("We have received your report. If you prefer, use the form at example.net.", None),
+        ("Thanks. Alternatively, reports can be filed via our portal.", ACK),
+    ],
+)
+def test_form_preferred_is_an_acknowledgement(
+    rules: ReplyRules, body: str, extra: dict[str, str] | None
+) -> None:
+    assert classify(rules, mail(body=body + "\r\n", extra=extra)) == ("auto_ack", "form-preferred")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # A person answers and mentions the form: still a human reply, never a refusal.
+        mail(body="We will look into it. You can also use our web form next time.\r\n"),
+        # A form in a signature.
+        mail(body="Thanks, we will look.\r\n\r\nFor sales use our contact form.\r\n"),
+        # "information" or "platform" is not a form.
+        mail(extra=ACK, body="We have received your report. You can also send information.\r\n"),
+        mail(extra=ACK, body="We have received your report. Alternatively visit our platform.\r\n"),
+        # A no-reply sender of an acknowledgement.
+        mail(
+            extra=ACK,
+            body="We have received your report. This mailbox is not monitored, do not reply.\r\n",
+        ),
+        mail(body="Please do not reply to this email, this address is not monitored.\r\n"),
+    ],
+)
+def test_neither_form_only_nor_form_preferred(rules: ReplyRules, raw: bytes) -> None:
+    outcome, rule = classify(rules, raw)
+    assert outcome != "rejected"
+    assert rule not in ("form-required", "form-required-portal", "form-required-unmonitored")
+    assert rule != "form-preferred"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "We are only the registrar. Please use the form at https://example.net/abuse for "
+        "domain matters; content complaints go to the hosting provider.",
+        "This is not our customer. Please contact the hosting provider. Domain complaints "
+        "can be filed via our web form.",
+        "We are the registrar for this domain. Abuse reports must be submitted through the "
+        "hosting provider.",
+    ],
+)
+def test_a_registrar_that_sends_you_elsewhere_is_not_a_form_only_desk(
+    rules: ReplyRules, body: str
+) -> None:
+    assert classify(rules, mail(body=body + "\r\n")) == ("rejected", "not-our-customer")
+
+
+def test_a_ticket_acknowledgement_that_suggests_the_form_stays_a_ticket(rules: ReplyRules) -> None:
+    raw = mail(
+        extra=ACK,
+        subject="[#48213] We received your report",
+        body="Your ticket has been created. You can also use our web form next time.\r\n",
+    )
+    assert classify(rules, raw)[0] == "ticket_opened"
+
+
+def test_a_phrase_cut_by_a_line_break_still_matches(rules: ReplyRules) -> None:
+    raw = mail(body="Sorry, we no\r\nlonger   accept\treports by email.\r\n")
+    assert classify(rules, raw) == ("rejected", "form-required")
+
+
+PORTAL_REFUSAL = (
+    "Your email to our support system could not be accepted because we require you to submit "
+    "all tickets via our online client support portal. You can do this at the URL below. "
+    "https://billing.example.net//submitticket.php"
+)
+
+
+def _wrap(text: str, width: int) -> str:
+    lines, line = [], ""
+    for word in text.split(" "):
+        if line and len(line) + 1 + len(word) > width:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}" if line else word
+    return "\r\n".join([*lines, line]) + "\r\n"
+
+
+@pytest.mark.parametrize("width", [40, 50, 60, 66, 72, 76, 78, 1000])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"Auto-Submitted": "auto-replied"},
+        {"Auto-Submitted": "auto-generated", "Precedence": "bulk"},
+        {"X-Autoreply": "yes", "X-Autorespond": "yes"},
+        {"Precedence": "auto_reply"},
+    ],
+)
+def test_an_automatic_portal_refusal_is_form_only_however_it_wraps(
+    rules: ReplyRules, width: int, extra: dict[str, str]
+) -> None:
+    """Automatic headers never turn a refusal into a receipt (field case: the auto-ack rule won
+    when the mail wrapped "submit all / tickets")."""
+    raw = mail(subject="Support ticket not opened", extra=extra, body=_wrap(PORTAL_REFUSAL, width))
+    assert classify(rules, raw) == ("rejected", "form-required")
+
+
+def test_an_automatic_portal_refusal_in_html_is_form_only(rules: ReplyRules) -> None:
+    html = (
+        "<p>Your email to our support system could not be accepted because we require you to "
+        "submit all<br>\r\ntickets via our online client support portal. You can do this at the"
+        " URL below.</p><p><a href='https://billing.example.net//submitticket.php'>"
+        "https://billing.example.net//submitticket.php</a></p>"
+    )
+    raw = mail(
+        extra={"Auto-Submitted": "auto-replied"},
+        ctype="text/html; charset=utf-8",
+        body=html + "\r\n",
+    )
+    assert classify(rules, raw) == ("rejected", "form-required")
+
+
+@pytest.mark.parametrize("extra", [ACK, {"X-Autoreply": "yes"}, {"Precedence": "bulk"}])
+def test_an_automatic_form_preferred_ack_stays_a_receipt(
+    rules: ReplyRules, extra: dict[str, str]
+) -> None:
+    assert classify(rules, mail(extra=extra, body=PREFERRED_ACK)) == ("auto_ack", "form-preferred")

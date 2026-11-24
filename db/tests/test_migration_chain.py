@@ -77,11 +77,11 @@ def revisions() -> dict[str, tuple[str | None, str]]:
     return out
 
 
-def test_the_chain_is_linear_up_to_0041() -> None:
+def test_the_chain_is_linear_up_to_0042() -> None:
     revs = revisions()
     assert len(revs) == len({d for d, _ in revs.values()})  # no two revisions share a parent
     heads = set(revs) - {d for d, _ in revs.values() if d}
-    assert heads == {"0041"}
+    assert heads == {"0042"}
     for n in range(11, 23):
         assert revs[f"{n:04d}"][0] == f"{n - 1:04d}"
     # 0023 and 0024 were never released; 0025 (M28) is chained on 0022.
@@ -117,6 +117,8 @@ def test_the_chain_is_linear_up_to_0041() -> None:
     assert revs["0040"][0] == "0039"
     # The form-only desks queue (M38 P3) follows 0040.
     assert revs["0041"][0] == "0040"
+    # A desk that prefers its web form (a hint, mail keeps going) follows 0041.
+    assert revs["0042"][0] == "0041"
 
 
 def test_every_new_revision_has_a_downgrade() -> None:
@@ -461,6 +463,7 @@ def test_m26_reply_columns() -> None:
     desk = {"form_only", "form_url", "undeliverable", "hard_bounces"}
     assert desk <= _update_columns(_GRANTS_API, "abuse_recipients")
     routing = {"form_source", "form_entry"}  # M38 P3: the shared directory of abuse forms
+    routing |= {"form_preferred"}  # 0042: a hint, mail keeps going
     assert not _update_columns(_GRANTS_INGEST, "abuse_recipients") - {"name"} - desk - routing
 
 
@@ -758,3 +761,15 @@ def test_m38_form_queue_migration() -> None:
     clear = down.index("SET form_only = false WHERE form_only")
     assert "form_source = 'directory'" in down[clear : clear + 120]
     assert clear < down.index("DROP COLUMN IF EXISTS form_source")
+
+
+def test_form_preferred_migration_and_grants() -> None:
+    script = (VERSIONS / "0042_form_preferred.py").read_text()
+    code = script.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    assert "ADD COLUMN form_preferred boolean NOT NULL DEFAULT false" in code
+    # No automatic correction: a desk flagged form-only stays so until the owner clears it.
+    assert "UPDATE" not in code
+    assert "DROP COLUMN IF EXISTS form_preferred" in script.split("def downgrade", 1)[1]
+    # Ingest learns the hint; the API only reads it.
+    assert "form_preferred" in _update_columns(_GRANTS_INGEST, "abuse_recipients")
+    assert "form_preferred" not in _update_columns(_GRANTS_API, "abuse_recipients")
