@@ -1,14 +1,18 @@
 # Replies: the provider says it will not or cannot act.
+# A desk that wants its web form instead of mail is in 32-forms.yaml.
 rules:
   - id: not-our-customer
     outcome: rejected
     priority: 30
-    description: The provider says the address is not theirs.
+    description: The provider says the address is not theirs. Runs before the web form rules.
     when:
       field: body
       contains_any: ["not our customer", "not within our network", "does not belong to",
                      "we do not host", "not hosted by", "please contact the",
-                     "outside our jurisdiction"]
+                     "outside our jurisdiction", "contact the hosting provider",
+                     "to the hosting provider", "we are only the registrar",
+                     "we are the registrar", "we are just the registrar",
+                     "we are the domain registrar", "only the domain registrar"]
   - id: insufficient-evidence
     outcome: rejected
     priority: 31
@@ -16,40 +20,3 @@ rules:
     when:
       field: body
       contains_any: ["insufficient evidence", "unable to act"]
-  - id: form-required
-    outcome: rejected
-    priority: 32
-    description: The provider asks for its own web form or portal.
-    when:
-      field: body
-      contains_any: ["please use our web form", "fill in our web form",
-                     "complete our web form", "via our web form", "through our web form", "via the web form",
-                     "using our web form", "using our online form", "via our online form",
-                     "through our online form", "using webform", "using the webform",
-                     "via webform", "via the webform", "through the webform",
-                     "sent to this email address will not be processed",
-                     "sent to this address will not be processed",
-                     "sent to this mailbox will not be processed",
-                     "submit all tickets", "submit your report using",
-                     "submit your report via", "submit your report through",
-                     "submit your report at", "submit your report on"]
-  - id: form-required-portal
-    outcome: rejected
-    priority: 34
-    description: The provider points to its portal. Not an acknowledgement that mentions a ticket.
-    when:
-      all:
-        - {field: body, contains_any: ["submit via our portal", "through our portal",
-                                       "via our portal", "online client support portal"]}
-        - not: {field: ticket_id, exists: true}
-        - not: {field: body, contains_any: ["ticket", "case number", "was created"]}
-  - id: form-required-unmonitored
-    outcome: rejected
-    priority: 33
-    description: The provider says the inbox is not read. Not a ticket or an acknowledgement.
-    when:
-      all:
-        - {field: body, contains_any: ["inbox is not monitored", "mailbox is not monitored",
-                                       "address is not monitored", "email is not monitored"]}
-        - not: {field: ticket_id, exists: true}
-        - not: {field: body, contains_any: ["ticket", "case number", "was created"]}

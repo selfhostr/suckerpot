@@ -85,8 +85,11 @@ class Verdict:
 
 def _fresh(reply: ParsedReply) -> str:
     """What the sender wrote, for the rules: never the quoted original (our own report, which
-    holds words like "suspended" or "abuse" that no rule may read as an answer)."""
-    return strip_quoted(reply.body[: BODY_FOR_RULES * 4])[:BODY_FOR_RULES]
+    holds words like "suspended" or "abuse" that no rule may read as an answer).
+
+    Runs of spaces, tabs and line breaks become one space: a mail wrapped at 72 columns still
+    matches a phrase that spans two lines ("submit all\\ntickets")."""
+    return " ".join(strip_quoted(reply.body[: BODY_FOR_RULES * 4]).split())[:BODY_FOR_RULES]
 
 
 class ReplyRules:

@@ -301,3 +301,32 @@ async def test_the_recipient_panel_uses_the_kit_rule_for_a_reply_link(
         listed = (await client.get("/api/v1/abuse/recipients")).json()["items"]
         row = next(r for r in listed if r["id"] == 1)
         assert row["form_url_clickable"] is clickable, url
+
+
+async def test_a_desk_that_prefers_its_form_shows_the_link_as_a_hint(
+    client: httpx.AsyncClient,
+) -> None:
+    await run(
+        "UPDATE abuse_recipients SET form_only = false, form_preferred = true, form_url = :u "
+        "WHERE id = 1",
+        u=REPLY_FORM,
+    )
+    row = next(
+        r for r in (await client.get("/api/v1/abuse/recipients")).json()["items"] if r["id"] == 1
+    )
+    assert (row["form_only"], row["form_preferred"]) == (False, True)
+    assert row["form_url"] == REPLY_FORM and row["form_url_clickable"] is True
+    # Clearing a form-only flag keeps the hint of a desk that also prefers its form.
+    await run("UPDATE abuse_recipients SET form_only = true, form_source = 'reply' WHERE id = 1")
+    off = (await client.patch("/api/v1/abuse/recipients/1", json={"form_only": False})).json()
+    assert (off["form_only"], off["form_preferred"], off["form_url"]) == (
+        False,
+        True,
+        REPLY_FORM,
+    )
+    # Without the hint, the link of a plain desk stays hidden.
+    await run("UPDATE abuse_recipients SET form_preferred = false WHERE id = 1")
+    row = next(
+        r for r in (await client.get("/api/v1/abuse/recipients")).json()["items"] if r["id"] == 1
+    )
+    assert row["form_url"] is None and row["form_url_clickable"] is False

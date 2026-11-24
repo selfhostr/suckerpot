@@ -1,0 +1,130 @@
+# Replies: the desk talks about its web form or portal. Three outcomes:
+#
+# * form only: mail is refused or not read, the form is required. Outcome rejected; the desk is
+#   flagged form_only (rule ids form-required*) and goes to the form queue.
+# * form preferred: mail is accepted, the form is only suggested. Outcome auto_ack; the desk keeps
+#   getting mail and the form link is kept as a hint (rule id form-preferred).
+# * neither: a form named in passing (a signature, "for sales use our contact form").
+#
+# The body is lower case with runs of spaces and line breaks made one space, so a phrase still
+# matches when the mail wraps it. The "not our customer" rules (30-rejected.yaml) run first: a
+# registrar that sends you to the hosting provider never makes its desk form-only.
+rules:
+  - id: form-required
+    outcome: rejected
+    priority: 32
+    description: The provider refuses mail and asks for its own web form or portal.
+    when:
+      any:
+        # Mail is refused outright: these win even next to a polite "we encourage".
+        - {field: body, contains_any: &refused [
+            "submit all tickets", "we require you to submit", "require all reports",
+            "require all abuse reports", "require all tickets",
+            "sent to this email address will not be processed",
+            "sent to this address will not be processed",
+            "sent to this mailbox will not be processed",
+            "sent by email will not be processed", "sent via email will not be processed",
+            "email reports will not be processed", "reports by email will not be processed",
+            "no longer accept reports", "no longer accept abuse reports",
+            "no longer accept complaints", "no longer accept email",
+            "no longer accept e-mail", "no longer accepts reports", "no longer accepts abuse",
+            "no longer accepts email", "no longer process reports sent by email",
+            "do not accept reports by email", "do not accept abuse reports by email",
+            "do not accept reports via email", "do not accept email reports",
+            "does not accept reports by email", "does not accept email reports",
+            "cannot accept reports by email", "cannot accept email reports",
+            "only accept reports through", "only accept reports via",
+            "only accept reports using", "only accept abuse reports through",
+            "only accept abuse reports via", "only accepts reports through",
+            "only accepts reports via", "only accepted through", "only accepted via",
+            "must be submitted through", "must be submitted via", "must be submitted using",
+            "must be submitted on our", "must be filed through", "must be filed via",
+            "must be reported through", "must be reported via", "must use our web form",
+            "must use our online form", "must use our abuse form", "must use our portal"]}
+        # An instruction to use the form, unless the same mail says mail is fine too.
+        - all:
+            - {field: body, contains_any: [
+                "please use our web form", "please use our online form",
+                "please use our abuse form", "please use our webform",
+                "please use our portal", "please use the form at", "please use our form",
+                "use the form at", "use our form at", "fill in our web form",
+                "fill out our web form", "fill in our online form", "fill out our online form",
+                "complete our web form", "via our web form", "through our web form",
+                "via the web form", "using our web form", "using our online form",
+                "via our online form", "through our online form", "using webform",
+                "using the webform", "via webform", "via the webform", "through the webform",
+                "submit your report using", "submit your report via",
+                "submit your report through", "submit your report at",
+                "submit your report on", "submit via our portal", "submit through our portal",
+                "via our ticket portal", "through our ticket portal"]}
+            - not: {field: body, contains_any: &mail_ok [
+                "while we accept email", "while we accept e-mail", "we accept email",
+                "we accept e-mail", "we also accept", "we still accept", "we do accept",
+                "email reports are accepted", "email is accepted", "e-mail is accepted",
+                "reports by email are accepted", "email still works", "mail still works",
+                "you can also", "you may also", "alternatively", "if you prefer",
+                "optionally", "encourage you to", "encourage the use of", "encouraged to use",
+                "for faster processing", "for faster handling", "for quicker processing",
+                "for better tracking", "we recommend using", "we recommend that you use",
+                "recommend you use", "we prefer", "preferred method", "preferred way"]}
+  - id: form-required-unmonitored
+    outcome: rejected
+    priority: 33
+    description: >-
+      The provider says the abuse inbox is not read. Not a ticket, an acknowledgement or a
+      no-reply sender.
+    when:
+      all:
+        - {field: body, contains_any: ["inbox is not monitored", "mailbox is not monitored",
+                                       "address is not monitored", "email is not monitored",
+                                       "inbox is no longer monitored",
+                                       "mailbox is no longer monitored",
+                                       "address is no longer monitored"]}
+        - not: {field: ticket_id, exists: true}
+        - not: {field: body, contains_any: ["ticket", "case number", "was created",
+                                            "do not reply", "don't reply", "please don't reply",
+                                            "replies to this", "reply to this",
+                                            "we have received your", "we received your",
+                                            "has been received", "was received",
+                                            "forwarded to our"]}
+  - id: form-required-portal
+    outcome: rejected
+    priority: 34
+    description: The provider points to its portal. Not an acknowledgement that mentions a ticket.
+    when:
+      all:
+        - {field: body, contains_any: ["submit via our portal", "through our portal",
+                                       "via our portal", "online client support portal"]}
+        - not: {field: ticket_id, exists: true}
+        - not: {field: body, contains_any: ["ticket", "case number", "was created"]}
+        - not: {field: body, contains_any: *mail_ok}
+  - id: form-preferred
+    outcome: auto_ack
+    priority: 45
+    description: >-
+      The provider accepts mail and suggests its web form. Mail keeps going; the form link is a
+      hint.
+    when:
+      all:
+        - {field: body, contains_any: *mail_ok}
+        - {field: body, contains_any: ["web form", "webform", "online form", "abuse form",
+                                       "report form", "reporting form", "contact form",
+                                       "dedicated form", "our form", "the form at",
+                                       "portal", "submitticket"]}
+        - not: {field: body, contains_any: *refused}
+        # An acknowledgement: automatic headers or words. A person who mentions the form in a
+        # real answer stays a human reply.
+        - any:
+            - {field: auto_submitted, in: [auto-replied, auto-generated]}
+            - {field: x_autoreply, exists: true}
+            - {field: x_autorespond, exists: true}
+            - {field: precedence, in: [auto_reply, bulk, junk]}
+            - {field: subject, contains_any: ["automatic reply", "auto-reply", "autoreply",
+                                              "received", "acknowledg"]}
+            - {field: body, contains_any: ["this is an automated", "this is an automatic",
+                                           "automated message", "automatic message",
+                                           "automated response", "automatic response",
+                                           "do not reply to this", "we have received your",
+                                           "we received your", "has been received",
+                                           "thank you for your report",
+                                           "thank you for contacting"]}

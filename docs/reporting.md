@@ -156,11 +156,13 @@ Some abuse desks ignore mail and take reports only through a form on their websi
 
 **Which desks.** A recipient goes to the form queue when:
 
-- a reply that matched one of its reports says it only accepts its web form (for example "this inbox is not monitored" or "submit your report using our portal"). The first `https` link of a verified reply on the provider's own domain is kept as a hint;
+- a reply that matched one of its reports (or that you linked to one) says it refuses mail or only accepts its web form (for example "we no longer accept reports by email", "this inbox is not monitored" or "we require you to submit all tickets via our portal"). The first `https` link of a verified reply on the provider's own domain is kept as a hint;
 - the **shared directory of abuse forms** has an entry for it that says the desk does not read mail (`accepts_mail: false` or `ignored`). An entry matches a desk by its exact mailbox domain, or by ASN only when the mailbox is on one of the provider's own domains: an ASN alone never routes a desk. The node then sends no mail there at all, not even a first one;
 - you chose it: **This desk takes only a web form** on a report page.
 
 **Clear this flag** on the report page when the desk takes mail again. The shared directory then leaves that desk alone; only a new verified reply from the desk can mark it again.
+
+**Form preferred is not form only.** A desk that writes "while we accept email reports, we encourage you to use our form" still reads mail. Its reply is an automatic receipt, mail keeps going, and the report page only says "This provider also has a web form; mail still works", with the form link when there is a safe one. See [What a reply teaches about the desk](replies.md#what-a-reply-teaches-about-the-desk). Before this was fixed, such a reply could mark the desk form only: press **Clear this flag** on its report page to send it mail again.
 
 **One report per provider and week.** The sources of a form-only desk go into one form report per ISO week (Monday 00:00 UTC), which fills during the week like a digest. It is in the queue as soon as it holds a source, so you can submit early while the evidence is fresh. Sources older than 7 days are marked. A report you have not submitted moves into the next week with its sources.
 

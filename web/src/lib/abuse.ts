@@ -322,6 +322,11 @@ export interface Recipient {
    * port and no query string. Only then is it a link, or suggested in full for the directory.
    */
   form_url_clickable?: boolean
+  /**
+   * A reply said the desk reads mail but suggests its web form: a hint only, mail keeps going.
+   * form_url is then the optional form link.
+   */
+  form_preferred?: boolean
 }
 
 /** The form link is shown only when it is a plain https URL (the server checks it too). */

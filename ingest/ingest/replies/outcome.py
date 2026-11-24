@@ -16,6 +16,8 @@ from typing import Final
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .desk import learn_linked
+
 log = logging.getLogger(__name__)
 
 # Highest first. ``none`` means no verified reply at all.
@@ -117,6 +119,7 @@ LOAD_REPLIES = """
 SELECT classification, received_at, verified, reviewed_at IS NOT NULL AS reviewed, ticket_id
 FROM abuse_replies WHERE report_id = :r ORDER BY received_at, id LIMIT 1000
 """
+SINCE = "SELECT auto_updated_at FROM abuse_report_outcomes WHERE report_id = :r"
 LOAD_ROW = """
 SELECT auto_outcome, reply_count, first_reply_at, first_human_at, ticket_at, resolved_at,
        rejected_at, bounced_at, ticket_id, needs_review
@@ -146,6 +149,9 @@ async def recompute(factory: async_sessionmaker[AsyncSession]) -> int:
         ids = (await session.execute(text(CANDIDATES), {"n": BATCH})).scalars().all()
     for report_id in ids:
         async with factory() as session, session.begin():
+            # A reply the owner linked by hand since the last pass teaches about the desk too.
+            since = (await session.execute(text(SINCE), {"r": report_id})).scalar()
+            await learn_linked(session, report_id, since)
             rows = (await session.execute(text(LOAD_REPLIES), {"r": report_id})).all()
             summary = summarise(
                 ReplyFact(r.classification, r.received_at, r.verified, r.reviewed, r.ticket_id)

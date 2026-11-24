@@ -204,4 +204,32 @@ describe("DeskNotice", () => {
     show(recipient({ undeliverable: true }))
     expect(await screen.findByText(/bounced for good/)).toBeInTheDocument()
   })
+
+  it("shows a desk that prefers its form as a hint, without a flag to clear", async () => {
+    stub()
+    show(
+      recipient({
+        form_preferred: true,
+        form_url: "https://abuse.example.net/report",
+        form_url_clickable: true,
+      }),
+    )
+    expect(
+      await screen.findByText("This provider also has a web form; mail still works."),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /Open the form/ })).toHaveAttribute(
+      "href",
+      "https://abuse.example.net/report",
+    )
+    expect(screen.queryByText(/only accepts its web form/)).toBeNull()
+    expect(screen.queryByRole("button", { name: "Clear this flag" })).toBeNull()
+    expect(screen.queryByText("Suggest for the shared directory")).toBeNull()
+  })
+
+  it("says only form-only when a desk is both", async () => {
+    stub()
+    show(recipient({ form_only: true, form_preferred: true }))
+    expect(await screen.findByText(/only accepts its web form/)).toBeInTheDocument()
+    expect(screen.queryByText(/mail still works/)).toBeNull()
+  })
 })

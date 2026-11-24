@@ -156,6 +156,9 @@ class RecipientOut(BaseModel):
     # The reply's form link may be shown as a link and suggested for the shared directory: https
     # on the provider's own domain, no port, no query string (the kit uses the same rule).
     form_url_clickable: bool = False
+    # A reply said the desk reads mail but suggests its web form: a hint only, mail keeps going.
+    # form_url is then the optional form link (shown when it is clickable, as for form_only).
+    form_preferred: bool = False
 
 
 class AsnOut(BaseModel):
@@ -314,6 +317,7 @@ class RecipientRow(BaseModel):
     xarf_strict: bool = False
     form_source: str | None = None
     form_url_clickable: bool = False
+    form_preferred: bool = False
 
 
 class RecipientPage(BaseModel):
@@ -398,10 +402,11 @@ def _recipient_out(r: AbuseRecipientRow) -> RecipientOut:
         source=r.source,
         muted=r.muted,
         form_only=r.form_only,
-        form_url=r.form_url if r.form_only else None,
+        form_url=shown_form_url(r),
         undeliverable=r.undeliverable,
         xarf_strict=r.xarf_strict,
         form_source=r.form_source,
+        form_preferred=r.form_preferred,
         form_url_clickable=reply_link_ok(r),
     )
 
@@ -424,8 +429,13 @@ def reply_link_ok(r: AbuseRecipientRow) -> bool:
     shared directory in full, only when it is https on the provider's own domain with no user
     info, port, fragment or query string (``suckerpot_reporting.forms.url_problem``): a query
     could carry a ticket id or the reply contact."""
-    url = r.form_url if r.form_only else None
+    url = shown_form_url(r)
     return bool(url) and url_problem(url, own_domains(r), allow_lang=False) is None
+
+
+def shown_form_url(r: AbuseRecipientRow) -> str | None:
+    """The form link learned from a reply, for a desk that takes only its form or prefers it."""
+    return r.form_url if r.form_only or r.form_preferred else None
 
 
 def _asns_of(evidence: dict[str, Any]) -> list[AsnOut]:
@@ -1351,10 +1361,11 @@ async def list_recipients(
                 reply_domains=list(r.reply_domains or []),
                 shared_mailbox=_shared(r.override_mailbox or r.mailbox),
                 form_only=r.form_only,
-                form_url=r.form_url if r.form_only else None,
+                form_url=shown_form_url(r),
                 undeliverable=r.undeliverable,
                 xarf_strict=r.xarf_strict,
                 form_source=r.form_source,
+                form_preferred=r.form_preferred,
                 form_url_clickable=reply_link_ok(r),
             )
             for r in page
@@ -1435,7 +1446,9 @@ async def patch_recipient(
     if "muted" in sent and body.muted is not None:
         values["muted"] = body.muted
     if "form_only" in sent and body.form_only is False:
-        values.update(form_only=False, form_url=None, form_source="cleared")
+        # A desk that also said it prefers its form keeps the link as a hint.
+        url = rec.form_url if rec.form_preferred else None
+        values.update(form_only=False, form_url=url, form_source="cleared")
     elif "form_only" in sent and body.form_only is True and not rec.form_only:
         values.update(form_only=True, form_source="manual")
     if "undeliverable" in sent and body.undeliverable is False:
@@ -1472,10 +1485,11 @@ async def patch_recipient(
         reply_domains=list(rec.reply_domains or []),
         shared_mailbox=_shared(rec.override_mailbox or rec.mailbox),
         form_only=rec.form_only,
-        form_url=rec.form_url if rec.form_only else None,
+        form_url=shown_form_url(rec),
         undeliverable=rec.undeliverable,
         xarf_strict=rec.xarf_strict,
         form_source=rec.form_source,
+        form_preferred=rec.form_preferred,
         form_url_clickable=reply_link_ok(rec),
     )
 

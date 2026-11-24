@@ -95,7 +95,9 @@ export function DeskNotice({
   })
   const form = recipient.form_only ?? false
   const dead = recipient.undeliverable ?? false
-  if (!form && !dead) return null
+  // A desk that reads mail but suggests its form: a hint, shown only when it is not form-only.
+  const preferred = !form && (recipient.form_preferred ?? false)
+  if (!form && !dead && !preferred) return null
   // A link only when the server says so (https on the provider's own domain, no port, no query):
   // the same rule as the copy kit. Anything else is shown as text.
   const link = recipient.form_url_clickable ? safeFormUrl(recipient.form_url) : null
@@ -150,6 +152,32 @@ export function DeskNotice({
       ) : null}
       {form && suggested && canWrite && recipient.form_source === "reply" ? (
         <Suggest recipient={recipient} asns={asns} url={suggested} shortened={!link} />
+      ) : null}
+      {preferred ? (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>This provider also has a web form; mail still works.</span>
+          {link ? (
+            <a
+              href={link}
+              target="_blank"
+              rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
+              className="inline-flex items-center gap-1 underline underline-offset-2"
+            >
+              Open the form
+              <ExternalLink aria-hidden className="size-3.5" />
+            </a>
+          ) : null}
+          {link ? (
+            <span className="font-mono text-xs text-fg-muted">({new URL(link).host})</span>
+          ) : null}
+          {plain ? (
+            <span className="block w-full text-xs text-fg-muted">
+              Form address from the reply, not opened as a link (check it before you use it):{" "}
+              <span className="font-mono break-all">{plain}</span>
+            </span>
+          ) : null}
+        </p>
       ) : null}
       {dead ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
