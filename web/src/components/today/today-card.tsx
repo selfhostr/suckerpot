@@ -2,6 +2,7 @@ import {
   Activity,
   ArrowRight,
   ChevronRight,
+  ClipboardPaste,
   Crosshair,
   Flag,
   Link2,
@@ -31,6 +32,7 @@ import { cn } from "@/lib/utils"
 
 const CARD_ICON: Record<TodayCardId, LucideIcon> = {
   happened: Activity,
+  forms: ClipboardPaste,
   campaigns: Flag,
   act: ShieldAlert,
   new_week: Sparkles,

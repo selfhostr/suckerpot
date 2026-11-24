@@ -1,7 +1,8 @@
 /** The Today page: types mirror api/api/today.py. */
 import { getJson } from "./api"
+import { plural } from "./format"
 
-export type TodayCardId = "happened" | "campaigns" | "act" | "new_week" | "exposure"
+export type TodayCardId = "happened" | "forms" | "campaigns" | "act" | "new_week" | "exposure"
 export type TodayItemKind =
   "sensor" | "country" | "tag" | "campaign" | "host" | "session" | "service" | "new"
 
@@ -24,11 +25,18 @@ export interface TodayCardData {
   empty: boolean
 }
 
+export interface FormQueueCount {
+  reports: number
+  providers: number
+}
+
 export interface TodayResponse {
   generated_at: string
   window_hours: number
   hidden_benign: number
   cards: TodayCardData[]
+  /** Form reports still to submit (M38). Admins only; null or absent when none waits. */
+  form_queue?: FormQueueCount | null
 }
 
 export interface BenignCount {
@@ -50,8 +58,18 @@ export const todayKeys = {
 /** The cards' small headings; the sentence below each one carries the finding. */
 export const CARD_TITLE: Record<TodayCardId, string> = {
   happened: "What happened",
+  forms: "To submit by form",
   campaigns: "New campaigns",
   act: "Act now",
   new_week: "New this week",
   exposure: "Your exposure",
+}
+
+/** Where the form queue lives: Abuse reports, To submit by form. */
+export const FORM_QUEUE_LINK = "/abuse?status=forms"
+
+/** "3 reports to submit by web form, for 2 providers" (the API's wording); "" when none waits. */
+export function formQueueSentence(count: FormQueueCount | null | undefined): string {
+  if (!count || count.reports <= 0) return ""
+  return `${plural(count.reports, "report")} to submit by web form, for ${plural(count.providers, "provider")}`
 }

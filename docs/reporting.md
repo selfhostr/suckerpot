@@ -164,6 +164,8 @@ Some abuse desks ignore mail and take reports only through a form on their websi
 
 **Form preferred is not form only.** A desk that writes "while we accept email reports, we encourage you to use our form" still reads mail. Its reply is an automatic receipt, mail keeps going, and the report page only says "This provider also has a web form; mail still works", with the form link when there is a safe one. See [What a reply teaches about the desk](replies.md#what-a-reply-teaches-about-the-desk). Before this was fixed, such a reply could mark the desk form only: press **Clear this flag** on its report page to send it mail again.
 
+**Reminders.** While form reports wait, an admin sees "N reports to submit by web form, for M providers" at the top of the Today page, and a card in its "What you can do about it" list. Both link to the queue. The weekly report adds the line "Waiting for a web form: N reports (M providers)" to its next actions, and the weekly report alert gets the same fact. Nothing is shown when the queue is empty.
+
 **One report per provider and week.** The sources of a form-only desk go into one form report per ISO week (Monday 00:00 UTC), which fills during the week like a digest. It is in the queue as soon as it holds a source, so you can submit early while the evidence is fresh. Sources older than 7 days are marked. A report you have not submitted moves into the next week with its sources.
 
 **The copy kit.** Open **Abuse reports, To submit by form** and open a provider's kit. It holds, each with its own copy button:

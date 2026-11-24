@@ -117,4 +117,28 @@ describe("TodayPage", () => {
     expect(container.querySelector("img[onerror]")).toBeNull()
     expect(screen.getByText(/<img src=x/)).toBeInTheDocument()
   })
+
+  it("reminds the owner of form reports at the top, and only while some wait", async () => {
+    vi.spyOn(storyApi, "story").mockResolvedValue(buildStory(24))
+    vi.spyOn(todayApi, "today").mockResolvedValue({
+      ...today,
+      form_queue: { reports: 2, providers: 2 },
+    })
+    mount()
+    const notice = await screen.findByRole("region", { name: "Reports to submit by web form" })
+    expect(notice).toHaveTextContent("2 reports to submit by web form, for 2 providers.")
+    expect(within(notice).getByRole("link", { name: /Open the form queue/ })).toHaveAttribute(
+      "href",
+      "/abuse?status=forms",
+    )
+  })
+
+  it("shows no form reminder when the queue is empty", async () => {
+    stub()
+    mount()
+    await screen.findByText(/machines from 38 countries knocked/)
+    expect(
+      screen.queryByRole("region", { name: "Reports to submit by web form" }),
+    ).not.toBeInTheDocument()
+  })
 })

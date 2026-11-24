@@ -330,3 +330,30 @@ async def test_a_desk_that_prefers_its_form_shows_the_link_as_a_hint(
         r for r in (await client.get("/api/v1/abuse/recipients")).json()["items"] if r["id"] == 1
     )
     assert row["form_url"] is None and row["form_url_clickable"] is False
+
+
+async def test_today_counts_the_form_queue(client: httpx.AsyncClient, lenient: None) -> None:
+    # The rest of Today is cached for a minute; the count is not, so each change shows at once.
+    body = (await client.get("/api/v1/today")).json()
+    assert body["form_queue"] is None and "forms" not in {c["id"] for c in body["cards"]}
+    await set_intro(client)
+    await seed_form()
+    body = (await client.get("/api/v1/today")).json()
+    assert body["form_queue"] == {"reports": 1, "providers": 1}
+    card = next(c for c in body["cards"] if c["id"] == "forms")
+    assert card["sentence"].startswith("1 report to submit by web form, for 1 provider.")
+    assert card["action"]["to"] == "/abuse?status=forms"
+    # A report to a muted desk, or a submitted one, no longer waits.
+    await run("UPDATE abuse_recipients SET muted = true WHERE id = 1")
+    assert (await client.get("/api/v1/today")).json()["form_queue"] is None
+    await run("UPDATE abuse_recipients SET muted = false WHERE id = 1")
+    rev = (await client.get(f"/api/v1/abuse/reports/{FORM_ID}")).json()["revision"]
+    sub = await client.post(f"/api/v1/abuse/reports/{FORM_ID}/submitted", json={"revision": rev})
+    assert sub.status_code == 200, sub.text
+    assert (await client.get("/api/v1/today")).json()["form_queue"] is None
+
+
+async def test_a_demo_form_report_is_not_counted(client: httpx.AsyncClient) -> None:
+    await seed_form(demo=True)
+    body = (await client.get("/api/v1/today")).json()
+    assert body["form_queue"] is None

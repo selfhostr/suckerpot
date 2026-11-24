@@ -19,6 +19,7 @@ import {
   type Kit,
 } from "@/lib/abuse-forms"
 import { plural } from "@/lib/format"
+import { todayKeys } from "@/lib/today"
 
 /** The field name, and the form's own label when the shared directory knows it. */
 function labelOf(kit: Kit, key: string, ours: string): string {
@@ -118,6 +119,8 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
         everything ? undefined : refsOf(kit.sources, chosen),
       )
       await qc.invalidateQueries({ queryKey: abuseKeys.all })
+      // The reminder on Today counts the same queue.
+      void qc.invalidateQueries({ queryKey: todayKeys.today })
       onDone()
     } catch (e) {
       setError(describeAbuseError(e))

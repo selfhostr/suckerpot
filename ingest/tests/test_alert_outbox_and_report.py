@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+from suckerpot_db.form_queue import FormQueueCount
 
 from ingest.alerts.outbox import (
     CYCLE_LIMIT,
@@ -125,3 +126,24 @@ def test_window_across_the_autumn_clock_change() -> None:
 
 def test_unknown_time_zone_falls_back_to_utc() -> None:
     assert zone("Mars/Base").key == "UTC"
+
+
+def test_waiting_form_reports_are_one_action_and_one_fact() -> None:
+    s = make_summary(form_queue=FormQueueCount(reports=3, providers=2))
+    assert s["form_queue"] == {"reports": 3, "providers": 2}
+    line = "Waiting for a web form: 3 reports (2 providers)."
+    assert sum(a.startswith(line) for a in s["actions"]) == 1
+    assert alert_facts(s)[-1] == ["Waiting for a web form", "3 reports (2 providers)"]
+    one = make_summary(form_queue=FormQueueCount(reports=1, providers=1))
+    assert alert_facts(one)[-1] == ["Waiting for a web form", "1 report (1 provider)"]
+
+
+def test_an_empty_form_queue_says_nothing() -> None:
+    for s in (make_summary(), make_summary(form_queue=FormQueueCount(reports=0, providers=0))):
+        assert s["form_queue"] == {"reports": 0, "providers": 0}
+        assert not any("web form" in a for a in s["actions"])
+        assert all(k != "Waiting for a web form" for k, _ in alert_facts(s))
+    # A report stored before this field existed still gives its facts.
+    old = make_summary()
+    del old["form_queue"]
+    assert len(alert_facts(old)) == 5
