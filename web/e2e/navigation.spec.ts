@@ -147,6 +147,8 @@ test("account menu: theme, masking; the version at the foot", async ({ page }, i
   const account = page.getByRole("button", { name: /^Account menu for / }).locator("visible=true")
   // Only the name under the avatar: no role.
   await expect(account).not.toContainText(/owner/i)
+  // Measured before the menu opens: an open menu hides the rest of the page from the role tree.
+  const accountTop = (await account.boundingBox())?.y ?? 0
   await account.click()
   const menu = page.getByRole("menu")
   await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeVisible()
@@ -156,7 +158,7 @@ test("account menu: theme, masking; the version at the foot", async ({ page }, i
   await expect(menu.getByRole("menuitem", { name: /^Language/ })).toHaveCount(0)
   const above = (await menu.boundingBox())?.y ?? 0
   const height = (await menu.boundingBox())?.height ?? 0
-  expect(above + height).toBeLessThanOrEqual((await account.boundingBox())?.y ?? 0)
+  expect(above + height).toBeLessThanOrEqual(accountTop)
   await shoot(page, "account-menu", info.project.name)
   // One item cycles the theme and stays open to show the change: light, dark, system.
   const theme = menu.getByRole("menuitem", { name: /^Theme/ })
