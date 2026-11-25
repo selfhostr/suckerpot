@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { ArrowLeft, FileCode2, Lightbulb } from "lucide-react"
 import { Link, useParams } from "react-router"
 import { EmptyState } from "@/components/empty-state"
@@ -55,18 +56,12 @@ function SessionsCard({ id }: { id: number }) {
           ))}
         </div>
       )}
-      {query.hasNextPage ? (
-        <div className="border-t p-3 text-center">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={query.isFetchingNextPage}
-            onClick={() => void query.fetchNextPage()}
-          >
-            Show more sessions
-          </Button>
-        </div>
-      ) : null}
+      <LoadMore
+        hasNextPage={query.hasNextPage}
+        isFetchingNextPage={query.isFetchingNextPage}
+        fetchNextPage={query.fetchNextPage}
+        label="Show more sessions"
+      />
     </FindingCard>
   )
 }

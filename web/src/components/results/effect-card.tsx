@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react"
+import { BarFill } from "@/components/bar-fill"
 import { FindingCard } from "@/components/finding-card"
 import { Meter } from "@/components/meter"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -28,8 +29,8 @@ function ShareBar({ label, share }: { label: string; share: number }) {
   return (
     <li className="grid grid-cols-[minmax(8rem,12rem)_1fr_3rem] items-center gap-3">
       <span className="text-sm text-fg-muted">{label}</span>
-      <div className="h-2 rounded-full bg-surface-hover" aria-hidden>
-        <div className="h-full rounded-full bg-fg-muted" style={{ width: `${share * 100}%` }} />
+      <div className="h-2 overflow-hidden rounded-full bg-surface-hover" aria-hidden>
+        <BarFill ratio={share} className="bg-fg-muted" />
       </div>
       <span className="text-right text-sm text-fg tabular-nums">{wholePercent(share)}</span>
     </li>

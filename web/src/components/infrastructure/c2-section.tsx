@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { Check, ChevronRight, Copy, ExternalLink, Radio, SearchX } from "lucide-react"
 import { useIpMask } from "@/app/ip-mask"
 import { EmptyState } from "@/components/empty-state"
@@ -212,18 +213,12 @@ export function C2Section({ className }: { className?: string }) {
           </ul>
         )}
       </div>
-      {query.hasNextPage ? (
-        <div className="flex justify-center border-t px-4 py-3 sm:px-5">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={query.isFetchingNextPage}
-            onClick={() => void query.fetchNextPage()}
-          >
-            Show more
-          </Button>
-        </div>
-      ) : null}
+      <LoadMore
+        hasNextPage={query.hasNextPage}
+        isFetchingNextPage={query.isFetchingNextPage}
+        fetchNextPage={query.fetchNextPage}
+        label="Show more"
+      />
     </section>
   )
 }

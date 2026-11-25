@@ -140,8 +140,13 @@ export function EntriesCard() {
         </label>
       </FilterBar>
 
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-        <div className={cn("hidden border-b px-5 py-2.5 type-column text-fg-subtle", FEED_GRID)}>
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
+        <div
+          className={cn(
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle",
+            FEED_GRID,
+          )}
+        >
           <span>Value</span>
           <span>What it is</span>
           <span>Dates</span>

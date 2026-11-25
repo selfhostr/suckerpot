@@ -1,10 +1,10 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { ArrowRight } from "lucide-react"
 import { useMemo } from "react"
 import { Link } from "react-router"
 import { FindingCard } from "@/components/finding-card"
 import { SkeletonText } from "@/components/skeletons"
-import { Button } from "@/components/ui/button"
 import { alertKeys, alertsApi, reportsFinding, weekLabel } from "@/lib/alerts"
 import { formatNumber } from "@/lib/format"
 
@@ -61,18 +61,13 @@ export function ReportsCard() {
               </li>
             ))}
           </ul>
-          {q.hasNextPage ? (
-            <div className="border-t px-4 py-3 sm:px-5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={q.isFetchingNextPage}
-                onClick={() => void q.fetchNextPage()}
-              >
-                {q.isFetchingNextPage ? "Loading…" : "Show older reports"}
-              </Button>
-            </div>
-          ) : null}
+          <LoadMore
+            hasNextPage={q.hasNextPage}
+            isFetchingNextPage={q.isFetchingNextPage}
+            fetchNextPage={q.fetchNextPage}
+            label="Show older reports"
+            className="border-t"
+          />
         </>
       )}
     </FindingCard>

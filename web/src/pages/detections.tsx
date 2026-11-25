@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { Download, FileSearch, SearchX } from "lucide-react"
 import { GuidanceCard } from "@/components/defend/guidance-card"
 import { PeriodSwitch } from "@/components/defend/period-switch"
@@ -102,16 +103,12 @@ export function DetectionsPage() {
             ))}
           </ul>
           <div className="mt-4 flex flex-col items-center gap-2">
-            {rules.hasNextPage ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={rules.isFetchingNextPage}
-                onClick={() => void rules.fetchNextPage()}
-              >
-                {rules.isFetchingNextPage ? "Loading…" : "Load more rules"}
-              </Button>
-            ) : null}
+            <LoadMore
+              hasNextPage={rules.hasNextPage}
+              isFetchingNextPage={rules.isFetchingNextPage}
+              fetchNextPage={rules.fetchNextPage}
+              label="Load more rules"
+            />
             <p className="text-xs text-fg-subtle">
               Showing {formatNumber(list.length)} of {plural(total ?? list.length, "rule")}
             </p>

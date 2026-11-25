@@ -1,5 +1,6 @@
 import { ChevronDown } from "lucide-react"
 import { useId, useState } from "react"
+import { Collapse } from "@/components/collapse"
 import { CodeBlock } from "@/components/defend/code-block"
 import { SeverityBadge } from "@/components/severity-badge"
 import { evidenceLine, RULE_KIND_META, SOURCE_LABELS, type DetectionRule } from "@/lib/defend"
@@ -37,15 +38,13 @@ export function RuleCard({ rule }: { rule: DetectionRule }) {
           />
         </span>
       </button>
-      {open ? (
-        <div id={panelId} className="animate-fade-in border-t px-4 py-4 sm:px-5">
-          <CodeBlock
-            text={rule.text}
-            label={`${RULE_KIND_META[rule.kind].label} rule: ${rule.title}`}
-            caption={`${RULE_KIND_META[rule.kind].label} rule`}
-          />
-        </div>
-      ) : null}
+      <Collapse open={open} id={panelId} className="border-t px-4 py-4 sm:px-5">
+        <CodeBlock
+          text={rule.text}
+          label={`${RULE_KIND_META[rule.kind].label} rule: ${rule.title}`}
+          caption={`${RULE_KIND_META[rule.kind].label} rule`}
+        />
+      </Collapse>
     </li>
   )
 }

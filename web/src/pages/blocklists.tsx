@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { Download, SearchX, ShieldCheck, ShieldOff } from "lucide-react"
+import { ChevronDown, Download, SearchX, ShieldCheck, ShieldOff } from "lucide-react"
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
 import { useSearchParams } from "react-router"
@@ -16,6 +16,7 @@ import { OverridesCard } from "@/components/defend/overrides-card"
 import { UrlSearch } from "@/components/defend/url-search"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar } from "@/components/filter-bar"
+import { StickyFilters } from "@/components/sticky-filters"
 import { PageHeader } from "@/components/page-header"
 import { ReadOnlyBadge } from "@/components/read-only-badge"
 import { SegmentedControl } from "@/components/segmented-control"
@@ -124,6 +125,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
   })
   const rows = query.data?.pages.flatMap((p) => p.items) ?? []
 
+  const [toolsOpen, setToolsOpen] = useState(false)
   const [dialog, setDialog] = useState<{ target: OverrideTarget; action: OverrideAction } | null>(
     null,
   )
@@ -182,11 +184,18 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
         <>
           <ReadOnlyBadge />
           {!off ? (
-            <Button asChild variant="outline" size="sm">
-              <a href="#export">
-                <Download aria-hidden />
-                Export
-              </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setToolsOpen(true)
+                requestAnimationFrame(() =>
+                  document.getElementById("export")?.scrollIntoView({ block: "start" }),
+                )
+              }}
+            >
+              <Download aria-hidden />
+              Export
             </Button>
           ) : null}
         </>
@@ -231,144 +240,164 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
 
       <KindTiles summary={s} kind={kind} onSelect={(k) => setKindParam(k)} />
 
-      {/* Act first: the export and your own rules sit above the evidence, so they stay reachable
-          however long the list grows (it loads more rows as you scroll). */}
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
-        <ExportPanel summary={s} initialKind={kind ?? "ip"} initialScore={minScore} />
-        <OverridesCard canWrite={canWrite} />
-      </div>
-
-      <h2 className="mt-10 type-section-title text-fg">Entries</h2>
-      <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
-        Every value with its score, the reasons behind it and when it was last seen. Pick a reason
-        or a type to narrow it down.
-      </p>
-
-      <FilterBar
-        className="mt-4 mb-4"
-        chips={[
-          {
-            param: "kind",
-            label: "Type",
-            render: (v) => (isBlockKind(v) ? KIND_META[v].label : v),
-          },
-          { param: "reason", label: "Reason", render: reasonLabel },
-        ]}
-        alsoClears={["min_score", "q", "include_benign"]}
-      >
-        <SegmentedControl
-          label="Minimum score"
-          value={String(minScore)}
-          onChange={(v) => setScoreParam(Number(v) === DEFAULT_MIN_SCORE ? null : v)}
-          options={SCORE_OPTIONS}
-        />
-        <UrlSearch label="Search the list" placeholder="Search a value" />
-        <label
-          htmlFor={benignId}
-          className="inline-flex h-(--control-sm) items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
+      {/* The export and your own rules fold away so the entries start near the top of the page;
+          "Export" in the page header opens them. */}
+      <div className="mt-4">
+        <Button
+          variant="outline"
+          size="sm"
+          aria-expanded={toolsOpen}
+          aria-controls="blocklist-tools"
+          onClick={() => setToolsOpen((v) => !v)}
         >
-          <Switch
-            id={benignId}
-            size="sm"
-            checked={includeBenign}
-            onCheckedChange={(on) => setBenignParam(on ? "1" : null)}
-          />
-          Show research scanners
-        </label>
-      </FilterBar>
-
-      {s && s.top_reasons.length > 0 && !reason ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-fg-muted">Common reasons</span>
-          {s.top_reasons.map((r) => (
-            <button
-              key={r.reason}
-              type="button"
-              onClick={() => setReason(r.reason)}
-              className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
-            >
-              {reasonLabel(r.reason)}
-              <span className="text-fg-subtle">{formatNumber(r.count)}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-        <div
-          className={cn("hidden border-b px-5 py-2.5 type-column text-fg-subtle", BLOCKLIST_GRID)}
-        >
-          <span>Value</span>
-          <span>Score</span>
-          <span>Why it is listed</span>
-          <span>Seen</span>
-          <span className="sr-only">Actions</span>
-        </div>
-        {query.isPending ? (
-          <SkeletonList rows={8} />
-        ) : query.isError ? (
-          <EmptyState
-            variant="bare"
-            icon={SearchX}
-            title="Could not load the blocklist"
-            description={query.error.message}
-            action={
-              <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
-              </Button>
-            }
-          />
-        ) : rows.length === 0 ? (
-          <EmptyState
-            variant="bare"
-            icon={SearchX}
-            title={filtered ? "Nothing matches" : "Nothing listed"}
-            description={
-              filtered
-                ? "Lower the minimum score, or clear a filter to see more."
-                : "No entry has reached this score yet."
-            }
-          />
-        ) : (
+          <ChevronDown aria-hidden className={cn("transition-none", toolsOpen && "rotate-180")} />
+          Export and your own rules
+        </Button>
+        {toolsOpen ? (
           <div
-            ref={listRef}
-            role="list"
-            aria-label="Blocklist entries"
-            aria-busy={isFetchingNextPage}
-            className="relative w-full"
-            style={{ height: virtualizer.getTotalSize() }}
+            id="blocklist-tools"
+            className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start"
           >
-            {items.map((item) => {
-              const row = rows[item.index]
-              return (
-                <div
-                  key={item.key}
-                  role="listitem"
-                  data-index={item.index}
-                  ref={virtualizer.measureElement}
-                  className={cn("absolute top-0 left-0 w-full", item.index > 0 && "border-t")}
-                  style={{
-                    transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
-                  }}
-                >
-                  {row ? (
-                    <BlocklistRow
-                      entry={row}
-                      canWrite={canWrite}
-                      onOverride={(entry, action) =>
-                        setDialog({ target: { kind: entry.kind, value: entry.value }, action })
-                      }
-                      onRemoveOverride={askRemoveOverride}
-                    />
-                  ) : (
-                    <SkeletonRow />
-                  )}
-                </div>
-              )
-            })}
+            <ExportPanel summary={s} initialKind={kind ?? "ip"} initialScore={minScore} />
+            <OverridesCard canWrite={canWrite} />
           </div>
-        )}
+        ) : null}
       </div>
+
+      <h2 className="mt-6 type-section-title text-fg">Entries</h2>
+
+      <StickyFilters
+        className="mt-3"
+        filters={
+          <FilterBar
+            chips={[
+              {
+                param: "kind",
+                label: "Type",
+                render: (v) => (isBlockKind(v) ? KIND_META[v].label : v),
+              },
+              { param: "reason", label: "Reason", render: reasonLabel },
+            ]}
+            alsoClears={["min_score", "q", "include_benign"]}
+          >
+            <SegmentedControl
+              label="Minimum score"
+              value={String(minScore)}
+              onChange={(v) => setScoreParam(Number(v) === DEFAULT_MIN_SCORE ? null : v)}
+              options={SCORE_OPTIONS}
+            />
+            <UrlSearch label="Search the list" placeholder="Search a value" />
+            <label
+              htmlFor={benignId}
+              className="inline-flex h-(--control-sm) items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
+            >
+              <Switch
+                id={benignId}
+                size="sm"
+                checked={includeBenign}
+                onCheckedChange={(on) => setBenignParam(on ? "1" : null)}
+              />
+              Show research scanners
+            </label>
+          </FilterBar>
+        }
+      >
+        {s && s.top_reasons.length > 0 && !reason ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-fg-muted">Common reasons</span>
+            {s.top_reasons.map((r) => (
+              <button
+                key={r.reason}
+                type="button"
+                onClick={() => setReason(r.reason)}
+                className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
+              >
+                {reasonLabel(r.reason)}
+                <span className="text-fg-subtle">{formatNumber(r.count)}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
+          <div
+            className={cn(
+              "sticky top-[calc(3.5rem+var(--filters-h,0px))] z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle",
+              BLOCKLIST_GRID,
+            )}
+          >
+            <span>Value</span>
+            <span>Score</span>
+            <span>Why it is listed</span>
+            <span>Seen</span>
+            <span className="sr-only">Actions</span>
+          </div>
+          {query.isPending ? (
+            <SkeletonList rows={8} />
+          ) : query.isError ? (
+            <EmptyState
+              variant="bare"
+              icon={SearchX}
+              title="Could not load the blocklist"
+              description={query.error.message}
+              action={
+                <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : rows.length === 0 ? (
+            <EmptyState
+              variant="bare"
+              icon={SearchX}
+              title={filtered ? "Nothing matches" : "Nothing listed"}
+              description={
+                filtered
+                  ? "Lower the minimum score, or clear a filter to see more."
+                  : "No entry has reached this score yet."
+              }
+            />
+          ) : (
+            <div
+              ref={listRef}
+              role="list"
+              aria-label="Blocklist entries"
+              aria-busy={isFetchingNextPage}
+              className="relative w-full"
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {items.map((item) => {
+                const row = rows[item.index]
+                return (
+                  <div
+                    key={item.key}
+                    role="listitem"
+                    data-index={item.index}
+                    ref={virtualizer.measureElement}
+                    className={cn("absolute top-0 left-0 w-full", item.index > 0 && "border-t")}
+                    style={{
+                      transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
+                    }}
+                  >
+                    {row ? (
+                      <BlocklistRow
+                        entry={row}
+                        canWrite={canWrite}
+                        onOverride={(entry, action) =>
+                          setDialog({ target: { kind: entry.kind, value: entry.value }, action })
+                        }
+                        onRemoveOverride={askRemoveOverride}
+                      />
+                    ) : (
+                      <SkeletonRow />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </StickyFilters>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
           End of the list · {formatNumber(rows.length)} {rows.length === 1 ? "entry" : "entries"}

@@ -1,4 +1,5 @@
 import { ArrowRight, Play } from "lucide-react"
+import { memo } from "react"
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
 import { CountryFlag } from "@/components/country-flag"
@@ -47,7 +48,7 @@ interface LiveTickerProps {
  * glide right. On phones, the latest five as stacked rows. Each chip opens its
  * session; hovering one lights its source on the map.
  */
-export function LiveTicker({
+export const LiveTicker = memo(function LiveTicker({
   events,
   pending,
   held,
@@ -160,9 +161,10 @@ export function LiveTicker({
       {allLink}
     </div>
   )
-}
+})
 
-function TickerChip({
+/** Memoized: a new event renders its own chip, the others only glide (their props are unchanged). */
+const TickerChip = memo(function TickerChip({
   event,
   isNew,
   lit,
@@ -208,4 +210,4 @@ function TickerChip({
       <span className="min-w-0 flex-1 truncate text-fg-muted">{summary}</span>
     </Link>
   )
-}
+})

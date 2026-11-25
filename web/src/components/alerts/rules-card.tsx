@@ -54,8 +54,7 @@ export function ChannelPicker({
             title={c.enabled ? undefined : "This channel is switched off"}
             onClick={() => onChange(on ? selected.filter((i) => i !== c.id) : [...selected, c.id])}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors duration-150",
-              "focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+              "inline-flex h-(--control-sm) items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors duration-150",
               "disabled:cursor-not-allowed disabled:opacity-50",
               on
                 ? "border-border-strong bg-surface-hover text-fg"

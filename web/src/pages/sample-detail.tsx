@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Copy, ExternalLink, FileSearch } from "lucide-react"
 import { Link, useParams } from "react-router"
 import { useAuth } from "@/app/auth"
 import { EmptyState } from "@/components/empty-state"
+import { ExpandToggle } from "@/components/expand-toggle"
 import { FindingCard } from "@/components/finding-card"
 import { IPChip } from "@/components/ip-chip"
 import { PageHeader } from "@/components/page-header"
@@ -18,7 +19,9 @@ import { SkeletonCard } from "@/components/skeletons"
 import { TagBadge } from "@/components/tag-badge"
 import { Button } from "@/components/ui/button"
 import { useCopy } from "@/hooks/use-copy"
+import { useExpandable } from "@/hooks/use-expandable"
 import { ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { formatBytes, formatNumber, plural } from "@/lib/format"
 import {
   describeChain,
@@ -157,6 +160,34 @@ function Origin({ d }: { d: SampleDetail }) {
         </div>
       ) : null}
     </FindingCard>
+  )
+}
+
+/** The deobfuscated script as raw text: capped, with an Expand toggle for the whole of it. */
+function DeobfuscatedScript({ text }: { text: string }) {
+  const { ref: boxRef, expanded, overflowing, toggle } = useExpandable<HTMLPreElement>()
+  return (
+    <div className="space-y-1">
+      <div className="overflow-hidden rounded-md border bg-bg has-[pre:focus-visible]:ring-2 has-[pre:focus-visible]:ring-ring">
+        <pre
+          ref={boxRef}
+          tabIndex={0}
+          aria-label="Deobfuscated script"
+          className={cn(
+            "scroll-fade-y overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap text-fg outline-none",
+            !expanded && "max-h-80",
+          )}
+        >
+          {text}
+        </pre>
+      </div>
+      <ExpandToggle
+        expanded={expanded}
+        overflowing={overflowing}
+        onToggle={toggle}
+        label="deobfuscated script"
+      />
+    </div>
   )
 }
 
@@ -366,13 +397,7 @@ export function SampleDetailPage() {
                 ))}
               </ol>
             ) : null}
-            <pre
-              tabIndex={0}
-              aria-label="Deobfuscated script"
-              className="max-h-96 overflow-auto rounded-md border bg-bg p-3 font-mono text-xs break-all whitespace-pre-wrap text-fg focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {a.deobfuscated}
-            </pre>
+            <DeobfuscatedScript text={a.deobfuscated} />
           </FindingCard>
         ) : null}
 

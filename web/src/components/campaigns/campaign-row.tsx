@@ -1,4 +1,5 @@
 import { Link } from "react-router"
+import { markSubject, subjectProps } from "@/app/view-transitions"
 import { RelativeTime } from "@/components/relative-time"
 import { SensorBadge } from "@/components/sensor-badge"
 import { SeverityBadge } from "@/components/severity-badge"
@@ -44,16 +45,23 @@ export function CampaignRow({
         CAMPAIGN_GRID,
         className,
       )}
+      data-vt-row
     >
       <Link
         to={`/campaigns/${c.id}`}
+        onClick={(e) => markSubject(`campaign:${c.id}`, e)}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
         aria-label={`${c.name}: ${describeScale(c)}`}
       />
       <div className="min-w-0 space-y-1">
         <div className="flex min-w-0 items-center gap-2">
           <SeverityBadge severity={c.severity} iconOnly />
-          <h3 className="truncate type-subtitle text-fg">{c.name}</h3>
+          <h3
+            {...subjectProps(`campaign:${c.id}`)}
+            className="truncate type-subtitle text-fg"
+          >
+            {c.name}
+          </h3>
         </div>
         <p className="line-clamp-2 text-xs text-fg-muted md:truncate">
           {describeScale(c)}

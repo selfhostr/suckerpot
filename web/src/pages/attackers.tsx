@@ -162,10 +162,10 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
 
   return (
     <>
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid",
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle md:grid",
             ATTACKER_GRID,
           )}
         >
@@ -254,8 +254,13 @@ function AsnList({ sort }: { sort: AsnSort }) {
   const items = q.data?.items ?? []
   const grid = "md:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_5.5rem_6rem] md:gap-x-4"
   return (
-    <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-      <div className={cn("hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid", grid)}>
+    <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
+      <div
+        className={cn(
+          "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle md:grid",
+          grid,
+        )}
+      >
         <span>Network</span>
         <span className="text-right">Addresses</span>
         <span className="text-right">Sessions</span>

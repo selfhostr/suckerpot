@@ -1,4 +1,5 @@
 import { OctagonAlert } from "lucide-react"
+import { BarFill } from "@/components/bar-fill"
 import { useMemo } from "react"
 import { useIpMask } from "@/app/ip-mask"
 import { formatNumber, plural } from "@/lib/format"
@@ -56,10 +57,7 @@ export function FlowList({
                   aria-hidden
                   className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-hover"
                 >
-                  <span
-                    className="block h-full rounded-full bg-fg-muted"
-                    style={{ width: `${Math.max(6, (node.weight / max) * 100)}%` }}
-                  />
+                  <BarFill ratio={Math.max(0.06, node.weight / max)} className="bg-fg-muted" />
                 </span>
                 <span className="text-fg tabular-nums">
                   {formatNumber(node.weight)}{" "}

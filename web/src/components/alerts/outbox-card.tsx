@@ -1,11 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { CircleAlert, CircleCheck, CircleDashed, CircleSlash, type LucideIcon } from "lucide-react"
 import { useMemo } from "react"
 import { FindingCard } from "@/components/finding-card"
 import { RelativeTime } from "@/components/relative-time"
 import { SeverityBadge } from "@/components/severity-badge"
 import { SkeletonText } from "@/components/skeletons"
-import { Button } from "@/components/ui/button"
 import {
   alertKeys,
   alertsApi,
@@ -85,18 +85,13 @@ export function OutboxCard() {
               <OutboxRow key={item.id} item={item} />
             ))}
           </ul>
-          {q.hasNextPage ? (
-            <div className="border-t px-4 py-3 sm:px-5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={q.isFetchingNextPage}
-                onClick={() => void q.fetchNextPage()}
-              >
-                {q.isFetchingNextPage ? "Loading…" : "Show older alerts"}
-              </Button>
-            </div>
-          ) : null}
+          <LoadMore
+            hasNextPage={q.hasNextPage}
+            isFetchingNextPage={q.isFetchingNextPage}
+            fetchNextPage={q.fetchNextPage}
+            label="Show older alerts"
+            className="border-t"
+          />
         </>
       )}
     </FindingCard>

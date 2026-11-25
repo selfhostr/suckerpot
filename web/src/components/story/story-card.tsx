@@ -1,6 +1,7 @@
 import { ArrowRight, ChevronDown } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
+import { Collapse } from "@/components/collapse"
 import { CountryFlag } from "@/components/country-flag"
 import { IPChip } from "@/components/ip-chip"
 import { SensorBadge } from "@/components/sensor-badge"
@@ -87,9 +88,9 @@ function StepPath({ steps }: { steps: StoryItem["steps"] }) {
 }
 
 /** Everything an analyst needs, one click away. Attacker-controlled text is rendered as text. */
-function Technical({ story, id }: { story: StoryItem; id: string }) {
+function Technical({ story }: { story: StoryItem }) {
   return (
-    <div id={id} className="mt-3 space-y-4 rounded-md border bg-surface-hover/40 p-3 sm:p-4">
+    <div className="mt-3 space-y-4 rounded-md border bg-surface-hover/40 p-3 sm:p-4">
       <ul className="space-y-1 font-mono text-xs break-words text-fg-muted">
         {story.steps.map((s, i) => (
           <li key={`${s.ts}-${i}`}>
@@ -187,7 +188,7 @@ export function StoryCard({ story, index = 0 }: { story: StoryItem; index?: numb
             aria-expanded={open}
             aria-controls={detailId}
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-sm text-sm text-fg-muted hover:text-fg"
+            className="inline-flex min-h-(--control-sm) items-center gap-1.5 rounded-sm text-xs font-medium text-fg-muted hover:text-fg"
           >
             <ChevronDown
               aria-hidden
@@ -196,7 +197,9 @@ export function StoryCard({ story, index = 0 }: { story: StoryItem; index?: numb
             Technical details
           </button>
         </div>
-        {open ? <Technical story={story} id={detailId} /> : null}
+        <Collapse open={open} id={detailId}>
+          <Technical story={story} />
+        </Collapse>
       </div>
     </Card>
   )

@@ -294,10 +294,10 @@ export function InfrastructurePage() {
         <IndicatorSearch />
       </FilterBar>
 
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid",
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle md:grid",
             INDICATOR_GRID,
           )}
         >
