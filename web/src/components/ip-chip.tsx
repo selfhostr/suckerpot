@@ -2,6 +2,7 @@ import { Check, Copy } from "lucide-react"
 import { Link } from "react-router"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useIpMask } from "@/app/ip-mask"
+import { subjectProps } from "@/app/view-transitions"
 import { useCopy } from "@/hooks/use-copy"
 import { maskIp } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -15,6 +16,8 @@ interface IPChipProps {
   copyable?: boolean
   /** `chip`: bordered pill. `ghost`: plain mono text, copy button on hover (dense lists). */
   variant?: "chip" | "ghost"
+  /** Shared-element key: the address morphs into the page this row opens (view-transitions.ts). */
+  subject?: string
   className?: string
 }
 
@@ -25,6 +28,7 @@ export function IPChip({
   masked: maskedProp,
   copyable = true,
   variant = "chip",
+  subject,
   className,
 }: IPChipProps) {
   const { copied, copy } = useCopy()
@@ -44,13 +48,16 @@ export function IPChip({
       {to ? (
         <Link
           to={to}
+          {...(subject ? subjectProps(subject) : null)}
           className="truncate rounded-sm px-1.5 transition-colors duration-150 hover:text-fg hover:underline hover:decoration-fg-subtle hover:underline-offset-4"
           aria-label={masked ? "Masked address, show sessions" : `Show sessions from ${ip}`}
         >
           {shown}
         </Link>
       ) : (
-        <span className="truncate px-1.5">{shown}</span>
+        <span {...(subject ? subjectProps(subject) : null)} className="truncate px-1.5">
+          {shown}
+        </span>
       )}
       {copyable && !masked ? (
         <Tooltip>

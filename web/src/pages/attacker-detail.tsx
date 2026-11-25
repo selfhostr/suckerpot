@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, SearchX } from "lucide-react"
 import { Link, useParams } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { subjectProps } from "@/app/view-transitions"
 import { Term } from "@/components/term"
 import { DayBars } from "@/components/charts/day-bars"
 import { CountryFlag } from "@/components/country-flag"
@@ -141,7 +142,11 @@ export function AttackerDetailPage() {
       <PageHeader
         help="attacker"
         eyebrow={back}
-        title={shownIp}
+        title={
+          <span {...subjectProps(`attacker:${ip}`)} className="inline-block">
+            {shownIp}
+          </span>
+        }
         description={story ? (masked ? maskIpsInText(story) : story) : "Loading the profile…"}
         actions={
           <Button asChild variant="outline" size="sm">

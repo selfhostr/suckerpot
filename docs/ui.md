@@ -30,7 +30,7 @@ The Styleguide page is routable everywhere but listed in the sidebar only in dev
 - **A sentence before a chart.** Every card opens with a plain-English finding, then shows the evidence.
 - **Colour means something.** One hue per sensor family (remote shells blue, web and APIs purple, databases green, Windows and VoIP ochre), always paired with an icon and a label. The Synology sensor belongs to the web and APIs family, so it adds no new colour. Each sensor has its own icon and name. Red is reserved for severe events: a download attempt, or an exploit or malware tag.
 - **Everything is clickable.** An address, a tag or a sensor count opens the matching filtered view. Filters live in the URL, so every view can be shared.
-- **Calm real-time.** New events slide in softly, numbers tween, nothing flashes. With "reduce motion" set in the system, all animation is off.
+- **Calm real-time.** New events slide in softly, numbers count, nothing flashes. New sessions wait behind an "N new sessions" button when you have scrolled down the Attacks list. With "reduce motion" set in the system, all animation is off (spinners turn slowly, placeholders breathe).
 - **Times** are stored in UTC and shown in the browser's time zone, relative ("5 min. ago") with the exact time on hover.
 - **Dark by default**, with a light theme. The theme follows the stored choice, then the system setting.
 
@@ -217,7 +217,7 @@ The story comes from `GET /api/v1/story`. Underlined words (brute force, malware
 
 **Research scanners.** Known, harmless crawlers such as Censys and Shodan are labelled when they connect and hidden by default, so they do not drown the real attacks. The **Hide research scanners** switch in the header (the navigation drawer on a phone) shows them again, with the number of sessions the last 24 hours hid. The list lives in `ingest/rules/scanners.yaml`. A scanner is recognised by the network that owns its address, never by what it says about itself (a user-agent can be forged). Even then a session stays labelled only while it just looks around: it may connect, probe and send GET, HEAD or OPTIONS requests. A login attempt, a command, a download, a POST, an exploit flag or an attack tag makes it a normal session for good, and its earlier events too. Charts that cover more than a few days come from pre-computed totals that do not separate scanners, so they include scanner traffic.
 
-**Motion.** Cards and pages fade in softly. With `prefers-reduced-motion`, or `?motion=off`, nothing moves.
+**Motion.** Pages change with a short cross-fade (the sidebar and the top bar stay still), the row you open becomes the title of its page. Filters make numbers count and bars rescale. On phones motion is plain fades. With `prefers-reduced-motion`, or `?motion=off`, nothing moves.
 
 ## Screenshot mode
 

@@ -164,7 +164,7 @@ export function AppShell() {
           {/* Desktop sidebar */}
           {/* The whole sidebar scrolls when the window is short, so a group is never cut in half;
             on tall windows the spacer keeps System and the status footer at the bottom. */}
-          <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto overscroll-contain border-r bg-bg py-4 lg:flex">
+          <aside className="vt-sidebar fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto overscroll-contain border-r bg-bg py-4 lg:flex">
             <div className="px-5 pt-1 pb-5">
               <Logo />
             </div>
@@ -176,7 +176,7 @@ export function AppShell() {
           </aside>
 
           {/* Mobile top bar */}
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-bg/85 px-2 backdrop-blur-md lg:hidden">
+          <header className="vt-mobilebar sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-bg/85 px-2 backdrop-blur-md lg:hidden">
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger asChild>
                 <Button
@@ -215,7 +215,7 @@ export function AppShell() {
              * Desktop header: search on the left; on the right what applies to every page (the
              * scanner filter) and whether the feed is live. Phones get these in the top bar and drawer.
              */}
-            <div className="sticky top-0 z-20 hidden h-14 items-center gap-6 border-b bg-bg/85 px-10 backdrop-blur-md lg:flex">
+            <div className="vt-topbar sticky top-0 z-20 hidden h-14 items-center gap-6 border-b bg-bg/85 px-10 backdrop-blur-md lg:flex">
               <SearchTrigger className="max-w-md min-w-0 flex-1" />
               <div className="ml-auto flex shrink-0 items-center gap-5">
                 <TourButton />

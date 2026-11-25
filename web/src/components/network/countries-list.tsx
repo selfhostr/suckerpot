@@ -1,4 +1,5 @@
 import { Link } from "react-router"
+import { BarFill } from "@/components/bar-fill"
 import { CountryFlag } from "@/components/country-flag"
 import { countryName, formatNumber } from "@/lib/format"
 import type { NetworkCountry } from "@/lib/network"
@@ -33,10 +34,7 @@ export function CountriesList({ countries }: { countries: readonly NetworkCountr
               </span>
             </span>
             <span aria-hidden className="h-1.5 overflow-hidden rounded-full bg-surface-hover">
-              <span
-                className="block h-full rounded-full bg-fg-muted"
-                style={{ width: `${(c.members / max) * 100}%` }}
-              />
+              <BarFill ratio={c.members / max} className="bg-fg-muted" />
             </span>
             <span className="text-xs text-fg-muted tabular-nums">{formatNumber(c.members)}</span>
           </Link>

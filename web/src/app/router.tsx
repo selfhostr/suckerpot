@@ -9,6 +9,7 @@ import { SetPasswordPage } from "@/pages/set-password"
 import { AppShell } from "./app-shell"
 import { RequireAuth } from "./auth"
 import type { RouteHandle } from "./page-width"
+import { installViewTransitions } from "./view-transitions"
 
 // Heavy pages (charts, terminal emulator, virtualised feeds) load on demand.
 const OverviewPage = lazy(() =>
@@ -103,6 +104,9 @@ export const router = createBrowserRouter(
   // "/" in a normal build, "/demo/" in the hosted demo.
   { basename: import.meta.env.BASE_URL.replace(/\/$/, "") || undefined },
 )
+
+// Page changes animate with the View Transitions API (view-transitions.ts).
+installViewTransitions(router)
 
 /**
  * Every page declares how wide it may grow (`handle.width`, see page-width.ts): lists, hubs and
