@@ -82,7 +82,7 @@ Two kinds of people can use the dashboard besides the owner: **administrators** 
 - **Status** is one word with an icon: Active, Waiting for first sign-in, Locked, Disabled. The owner row says "Set in .env" and has no actions.
 - **Audit log**: newest first, one sentence per entry ("sam reset the password of riley"), filterable by kind (Sign-ins, Users, Keys) and by name; the filters are in the URL (`?audit_action=user.&audit_actor=sam`). Click a name to filter by it.
 - **Viewers** get the same pages, with "Viewer, read-only" under their name in the sidebar, a "Read-only access" mark on pages with actions, no key buttons, and no Users or Audit cards.
-- **Account menu** (your profile at the foot of the sidebar): your name, role, last sign-in, **Change password**, the **Theme** (dark, light or match the system), **Mask IP addresses**, **Sign out** and the version. The owner's password is changed in `.env`, so that entry is disabled for the owner. Mock builds say there that nothing is real traffic.
+- **Account menu** (your profile at the foot of the sidebar): your name, role, last sign-in, **Change password**, the **Theme** (light, dark or system), **Mask IP addresses**, **Sign out** and the version. The owner's password is changed in `.env`, so that entry is disabled for the owner. Mock builds say there that nothing is real traffic.
 
 In the demo and mock builds, add `?as=viewer` to any address to preview the read-only interface and `?as=first-login` for the Set your password screen (`?as=admin` goes back). The choice lasts for the browser tab.
 

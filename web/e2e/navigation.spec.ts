@@ -110,9 +110,13 @@ test("account menu: theme, masking, version", async ({ page }, info) => {
   await expect(menu.getByRole("menuitemcheckbox", { name: /Mask IP addresses/ })).toBeVisible()
   await expect(menu.getByText("Mock data: nothing here is real traffic.")).toBeVisible()
   await shoot(page, "account-menu", info.project.name)
-  await menu.getByRole("menuitem", { name: /Theme/ }).click()
-  await page.getByRole("menuitemradio", { name: "Light" }).click()
+  // Light, dark or system, right in the menu, which stays open to show the change.
+  await menu.getByRole("menuitemradio", { name: "Light" }).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+  await expect(menu.getByRole("menuitemradio", { name: "Light" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  )
 })
 
 test("settings tabs", async ({ page }, info) => {

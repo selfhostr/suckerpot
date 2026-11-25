@@ -12,9 +12,6 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -27,17 +24,10 @@ import { useTheme, type ThemePreference } from "./theme"
 
 const MOCK = import.meta.env.VITE_MOCK === "1"
 
-interface ThemeOption {
-  value: ThemePreference
-  label: string
-  icon: typeof Moon
-}
-
-const SYSTEM_THEME: ThemeOption = { value: "system", label: "Match system", icon: Laptop }
-const THEMES: ThemeOption[] = [
-  { value: "dark", label: "Dark", icon: Moon },
+const THEMES: { value: ThemePreference; label: string; icon: typeof Moon }[] = [
   { value: "light", label: "Light", icon: Sun },
-  SYSTEM_THEME,
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Laptop },
 ]
 
 function initials(name: string): string {
@@ -87,7 +77,6 @@ export function AccountMenu({
   const role = user.is_owner ? "Owner" : ROLE_LABEL[user.role]
   const roleLine = user.role === "viewer" && !user.is_owner ? `${role}, read-only` : role
   const label = `Account menu for ${user.display_name}`
-  const theme = THEMES.find((t) => t.value === preference) ?? SYSTEM_THEME
 
   const trigger =
     variant === "rail" ? (
@@ -158,25 +147,27 @@ export function AccountMenu({
               Change password
             </DropdownMenuItem>
           )}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground">
-              <theme.icon aria-hidden className="size-4" />
-              <span className="flex-1">Theme</span>
-              <span className="text-xs text-fg-subtle">{theme.label}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-44">
-              <DropdownMenuRadioGroup
-                value={preference}
-                onValueChange={(v) => setPreference(v as ThemePreference)}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="py-1 text-xs font-normal text-fg-subtle">
+            Theme
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={preference}
+            onValueChange={(v) => setPreference(v as ThemePreference)}
+          >
+            {THEMES.map((t) => (
+              <DropdownMenuRadioItem
+                key={t.value}
+                value={t.value}
+                // The menu stays open, so the new theme is seen before moving on.
+                onSelect={(e) => e.preventDefault()}
               >
-                {THEMES.map((t) => (
-                  <DropdownMenuRadioItem key={t.value} value={t.value}>
-                    {t.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+                <span className="flex-1">{t.label}</span>
+                <t.icon aria-hidden className="size-4 text-fg-subtle" />
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
           <DropdownMenuCheckboxItem
             checked={masked}
             onCheckedChange={setMasked}
