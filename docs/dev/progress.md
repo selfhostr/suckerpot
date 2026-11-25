@@ -429,3 +429,11 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - The shared directory of abuse forms lists 11 providers. Waiting form reports show on the Today page and in the weekly report.
 - A digest test depended on the time of day (it failed after about 21:00 UTC); it now runs on a fixed clock.
 - Migration 0042 (`abuse_recipients.form_preferred`).
+
+## 2026-11-25: v0.15.0 (dashboard redesign, nine languages)
+
+- One pull request since v0.14.2 (#196). The details are in `CHANGELOG.md`.
+- The web dashboard is reworked: lighter first load (charts load only on pages that draw them), a cheaper live map, fluid page width, a collapsible sidebar with three sections and one entry per page group, and in-page tabs. Today, Live and Overview are one single-screen page. Alerts moved into Settings; old URLs redirect.
+- Duplicate content is merged and low-value charts are removed or replaced. Attacks gets a shared filter bar kept in the URL. One scroll model with sticky column headers, one type scale and control heights, motion that respects reduced motion, and contextual help on every page.
+- The UI is in nine languages (en, fr, de, es, it, pt, pt-BR, ru, zh-Hans) with i18next and ICU messages. Text produced by the API and abuse report output stay in English.
+- Only `web/` and its docs change. No API change, no database change and no migration.
