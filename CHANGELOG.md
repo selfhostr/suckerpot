@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-25
+
 ### Added
 
 - The dashboard is available in nine languages: English, French, German, Spanish, Italian, Portuguese (Portugal), Portuguese (Brazil), Russian and Simplified Chinese. The first visit follows your browser's languages (English when none matches); Settings, General has a **Language** card that lists the nine by their own names and remembers your choice in this browser. Every string of the UI is translated, and numbers, dates and times follow the language. Product and sensor names, commands, ports, file names, code, MITRE ids and everything that comes from the server or the traffic stay as they are, and the text of an abuse report sent to a provider stays in English. Translations live in `web/src/i18n/locales/<code>.json` (one flat file per language, `en.json` is the source, a missing key shows the English text) and a test checks them against `en.json`.
@@ -1129,7 +1131,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.14.2...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/selfhostr/suckerpot/compare/v0.14.2...v0.15.0
 [0.14.2]: https://github.com/selfhostr/suckerpot/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/selfhostr/suckerpot/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/selfhostr/suckerpot/compare/v0.13.0...v0.14.0
