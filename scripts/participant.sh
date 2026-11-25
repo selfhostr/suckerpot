@@ -90,6 +90,11 @@ revert() {
 
 # shellcheck source=scripts/lib/enrol_wait.sh
 . scripts/lib/enrol_wait.sh
+# shellcheck source=scripts/lib/ask.sh
+. scripts/lib/ask.sh
+# tell TEXT / tell_err TEXT: a message, wrapped at the width of a terminal (as given without one).
+tell() { printf '%s\n' "$*" | text_out 1; }
+tell_err() { printf '%s\n' "$*" | text_out 2; }
 
 # Prints the TOP-LEVEL "state" string of a JSON document on stdin. A grep over the whole document
 # is wrong: the nested verifier, consent and membership objects have their own "state" keys, and
@@ -175,7 +180,7 @@ case $cmd in
     vpn=0
     [ -z "$(env_get VPN_WG_PRIVATE_KEY)" ] || vpn=1
     echo
-    consent_screen "$shown" "$vpn"
+    consent_screen "$shown" "$vpn" | text_out 1 --join
     confirm "Join the SuckerPot network as described?" || die "not joined; nothing was changed"
     begin
     env_set_line .env NETWORK_CONSENT "$(consent_record)"
@@ -284,7 +289,7 @@ case $cmd in
     [ "$cmd" = set-name ] || what=country
     shown=${value:-none}
     if [ "$(env_get NETWORK_ENABLED false)" != true ]; then
-      echo "participant: the $what is saved ($shown). This node is not in the network: it is used when you join (./scripts/participant.sh join)."
+      tell "participant: the $what is saved ($shown). This node is not in the network: it is used when you join (./scripts/participant.sh join)."
       exit 0
     fi
     st=$(cli_state) || st=""
@@ -319,7 +324,7 @@ case $cmd in
     quiet_up --no-deps --force-recreate ingest || { revert; die "ingest did not restart; .env was put back"; }
     case $st in
       member)
-        echo "participant: waiting for the hub to take the new $what..."
+        tell "participant: waiting for the hub to take the new $what..."
         waited=0 limit=${SUCKERPOT_PROFILE_WAIT:-90} synced="" code=""
         while [ "$waited" -lt "$limit" ]; do
           doc=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null) || doc=""
@@ -335,28 +340,28 @@ case $cmd in
           [ -z "$name" ] || kept="the name '$name'"
           revert
           compose_up --no-deps ingest > /dev/null 2>&1 || true
-          echo "participant: the hub refused the name '$value': another node already uses it. The node keeps $kept; .env was put back." >&2
-          echo "  Try another one: ./scripts/participant.sh set-name $(pseudonym_suggest "$value" || echo NEW-NAME)" >&2
+          tell_err "participant: the hub refused the name '$value': another node already uses it. The node keeps $kept; .env was put back."
+          tell_err "  Try another one: ./scripts/participant.sh set-name $(pseudonym_suggest "$value" || echo NEW-NAME)"
           exit 1
         elif [ "$code" = pseudonym_invalid ]; then
           revert
           compose_up --no-deps ingest > /dev/null 2>&1 || true
           die "the identity check or the hub refused the name '$value' (it may contain one of your own names). .env was put back."
         elif [ -n "$synced" ]; then
-          echo "participant: the $what is now $shown, and the hub has it."
+          tell "participant: the $what is now $shown, and the hub has it."
         else
-          echo "participant: the $what is now $shown here. The hub gets it at the next contact (at most 15 minutes). Check: ./suckerpot status"
+          tell "participant: the $what is now $shown here. The hub gets it at the next contact (at most 15 minutes). Check: ./suckerpot status"
         fi
         ;;
       error)
-        echo "participant: the $what is saved ($shown). The node was refused before; it now tries to join again with it."
-        echo "  Watch for the answer: ./suckerpot status --wait"
+        tell "participant: the $what is saved ($shown). The node was refused before; it now tries to join again with it."
+        tell "  Watch for the answer: ./suckerpot status --wait"
         ;;
       enrolling | not_joined)
-        echo "participant: the $what is saved ($shown) and goes with the join that is in progress. Check: ./suckerpot status --wait"
+        tell "participant: the $what is saved ($shown) and goes with the join that is in progress. Check: ./suckerpot status --wait"
         ;;
       *)
-        echo "participant: the $what is saved ($shown). It is used when this node joins: ./scripts/participant.sh join"
+        tell "participant: the $what is saved ($shown). It is used when this node joins: ./scripts/participant.sh join"
         ;;
     esac
     ;;
@@ -533,8 +538,8 @@ case $cmd in
     fi
     dc down
     prefix=$(env_get SUCKERPOT_VOLUME_PREFIX)
-    echo "participant: stopped. The sensors and the node are down; the schedule is removed."
-    echo "Your data volumes were NOT deleted. To delete them for good (this cannot be undone), run:"
+    tell "participant: stopped. The sensors and the node are down; the schedule is removed."
+    tell "Your data volumes were NOT deleted. To delete them for good (this cannot be undone), run:"
     echo "  ${ENGINE_CTR[*]} volume ls -q --filter \"name=^${prefix}_\" | xargs ${ENGINE_CTR[*]} volume rm"
     # Podman: the socket group is root-equivalent; it stays until removed. With --yes it is removed
     # (the commands above then need sudo, or a new login back in the group).

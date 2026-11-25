@@ -71,18 +71,19 @@ profile_ask_name() {
 
 # _ask_say_block LINE...: a short block of text, one blank line before it. The first line is the
 # title (bold); an empty title prints none.
+# On a terminal the lines are one paragraph, wrapped at its width; without one they print as given.
 _ask_say_block() {
-  local first=1 l
+  local title=$1
+  shift
   _ask_style
   printf '\n' 1>&"$ASK_OUT"
-  for l in "$@"; do
-    if [ "$first" = 1 ]; then
-      [ -z "$l" ] || printf '%s%s%s%s\n' "$ASK_IND" "$ASK_B" "$l" "$ASK_R" 1>&"$ASK_OUT"
-      first=0
-    else
-      printf '%s%s\n' "$ASK_IND" "$l" 1>&"$ASK_OUT"
-    fi
-  done
+  [ -z "$title" ] || printf '%s%s%s%s\n' "$ASK_IND" "$ASK_B" "$title" "$ASK_R" 1>&"$ASK_OUT"
+  text_width "$ASK_OUT"
+  if [ "$TEXT_W" -gt 0 ]; then
+    ask_lines "" "$*"
+  else
+    ask_lines "" "$@"
+  fi
   printf '\n' 1>&"$ASK_OUT"
 }
 
@@ -157,14 +158,15 @@ profile_check_country() {
   _ask_style
   case $GEO_RESULT in
     match)
-      printf '%s%s%s matches: %s places %s in %s.%s\n' "$ASK_IND" "$ASK_OK" "$cc" "$GEO_SOURCE" "$GEO_ADDR" "$GEO_FOUND" "$ASK_R" 1>&"$ASK_OUT"
+      ask_lines "$ASK_OK" "$cc matches: $GEO_SOURCE places $GEO_ADDR in $GEO_FOUND."
       ;;
     mismatch)
-      printf '\n%s%s! %s places this machine (%s) in %s, not in %s.%s\n' "$ASK_IND" "$ASK_WARN" "$GEO_SOURCE" "$GEO_ADDR" "$GEO_FOUND" "$cc" "$ASK_R" 1>&"$ASK_OUT"
-      printf '%s  A node shows the country it runs in. A VPS is often elsewhere than its owner.\n\n' "$ASK_IND" 1>&"$ASK_OUT"
+      printf '\n' 1>&"$ASK_OUT"
+      ask_lines "$ASK_WARN" "! $GEO_SOURCE places this machine ($GEO_ADDR) in $GEO_FOUND, not in $cc."
+      ask_lines "" "  A node shows the country it runs in. A VPS is often elsewhere than its owner." ""
       ;;
     *)
-      printf '%s%s not checked: %s.\n' "$ASK_IND" "$cc" "${GEO_WHY:-no local GeoIP database}" 1>&"$ASK_OUT"
+      ask_lines "" "$cc not checked: ${GEO_WHY:-no local GeoIP database}."
       ;;
   esac
   return 0

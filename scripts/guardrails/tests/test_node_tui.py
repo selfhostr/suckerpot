@@ -748,3 +748,49 @@ def test_the_menu_commands_without_a_terminal(node: Sandbox) -> None:
     proc = node.run("suckerpot", "frobnicate")
     assert proc.returncode != 0 and "unknown command" in proc.stderr
     assert "./suckerpot install [FLAGS]" in node.run("suckerpot", "help").stdout
+
+
+# ------------------------------------------------------------------ text wrapped at the terminal
+
+
+def test_hand_broken_text_is_joined_and_wrapped_at_word_boundaries(tmp_path: Path) -> None:
+    proc = lib_bash(
+        f'. "{LIB / "env.sh"}"\nconsent_screen amber-falcon-42 0 | text_wrap --join 60',
+        tmp_path,
+    )
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    assert max(len(line) for line in lines) <= 60
+    text = proc.stdout
+    assert "\nSuckerPot maintainers" not in text  # never the old break of the source text
+    # Items keep their mark, and their next lines are indented under the text.
+    item = next(i for i, line in enumerate(lines) if line.startswith("  - source addresses"))
+    assert lines[item + 1].startswith("    ") and not lines[item + 1].startswith("     ")
+    words = " ".join(" ".join(lines).split())
+    assert "with the services they used, what they did and rounded counts;" in words
+    assert "a hub run by the SuckerPot maintainers. What is sent" in words
+    # Without a terminal nothing changes (plain and CI output).
+    plain = lib_bash(f'. "{LIB / "env.sh"}"\nconsent_screen x 0 | text_out 1 --join', tmp_path)
+    raw = lib_bash(f'. "{LIB / "env.sh"}"\nconsent_screen x 0', tmp_path)
+    assert plain.stdout == raw.stdout
+
+
+def test_lines_without_join_keep_their_breaks(tmp_path: Path) -> None:
+    proc = lib_bash(
+        "printf '%s\\n' 'Sensors (2)' '  ssh  router 22' "
+        "'  ! one two three four five six seven eight nine ten' | text_wrap 30",
+        tmp_path,
+    )
+    assert proc.stdout == (
+        "Sensors (2)\n  ssh  router 22\n  ! one two three four five\n    six seven eight nine ten\n"
+    )
+
+
+def test_a_long_question_wraps_on_a_narrow_terminal() -> None:
+    q = "The hub has not answered this node's join yet. Wait for its answer (at most 10 minutes)?"
+    rc, raw, out = run_pty_bash(f'ask_open\nask_yn "{q}" y && echo yes >&9', [b"\r"], cols=40)
+    assert rc == 0 and out == "yes\n", raw
+    s = Screen(40)
+    s.feed(raw)
+    assert not s.overflow
+    assert "minutes)? [Y/n]" in s.text()

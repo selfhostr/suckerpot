@@ -76,6 +76,8 @@ LOG=install.log
 
 # shellcheck source=scripts/lib/ui.sh
 . scripts/lib/ui.sh
+# shellcheck source=scripts/lib/ask.sh
+. scripts/lib/ask.sh
 UI_PREFIX=install
 
 # Plain mode (no terminal, TERM=dumb, --plain) prints exactly what the installer always printed.
@@ -139,7 +141,8 @@ say() { if [ -n "$*" ]; then echo "${UI_IND}$*" 1>&"$UI_OUT"; else echo 1>&"$UI_
 # show CMD...: the output of CMD for the terminal, indented in rich mode, unchanged otherwise.
 show() {
   # Rich: indented and wrapped at the width of the terminal (the consent text is wider than 80).
-  if [ "$UI_MODE" = rich ]; then "$@" | fold -s -w $((UI_COLS > 30 ? UI_COLS - 3 : 77)) | sed 's/^./  &/' 1>&"$UI_OUT"; else "$@"; fi
+  # The lines broken by hand are joined again and wrapped at the terminal's width minus 4.
+  if [ "$UI_MODE" = rich ]; then "$@" | text_wrap --join $((UI_COLS > 30 ? UI_COLS - 4 : 76)) | sed 's/^./  &/' 1>&"$UI_OUT"; else "$@"; fi
 }
 # quiet CMD...: CMD with its stdout dropped (its errors still reach the log).
 quiet() { "$@" > /dev/null; }
@@ -1024,8 +1027,6 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
   . scripts/lib/geocheck.sh
   GEO_SELF_ADDRESS=$self_address
   if [ "$ask_name$ask_country" != 00 ]; then
-    # shellcheck source=scripts/lib/ask.sh
-    . scripts/lib/ask.sh
     # shellcheck source=scripts/lib/nodeprofile.sh
     . scripts/lib/nodeprofile.sh
     ASK_TTY=1 ASK_OUT=$UI_ERR ASK_IND=$UI_IND
@@ -1638,15 +1639,10 @@ participant_rich() {
     # Not decided yet: the proof of work of a new node can take minutes on a small machine. On a
     # terminal the owner may wait longer here; otherwise the final screen says how to check later.
     while [ "$enrol_st" = enrolling ] && [ "$has_tty" = 1 ] && [ "$assume_yes" = 0 ]; do
-      # shellcheck source=scripts/lib/ask.sh
-      . scripts/lib/ask.sh
       ASK_TTY=1 ASK_OUT=$UI_ERR ASK_IND=$UI_IND
       ui_pause
-      {
-        echo
-        echo "${UI_IND}The hub has not accepted this node yet. A new node first solves a proof-of-work puzzle,"
-        echo "${UI_IND}which can take several minutes on a small machine; SuckerPot keeps trying by itself."
-      } 1>&"$UI_ERR"
+      echo 1>&"$UI_ERR"
+      ask_lines "" "The hub has not accepted this node yet. A new node first solves a proof-of-work puzzle, which can take several minutes on a small machine; SuckerPot keeps trying by itself."
       ask_yn "Wait up to 10 more minutes for the answer?" y || break
       ui_detail "waiting for the hub's answer"
       ui_run --expect 300 -- enrol_to_file 600 || true

@@ -24,6 +24,8 @@ cd "$(dirname "$0")/.."
 . scripts/lib/ask.sh
 
 die() { echo "uninstall: $*" >&2; exit 1; }
+# say TEXT: a line, wrapped at the width of a terminal (as given without one).
+say() { printf '%s\n' "$*" | text_out 1; }
 
 yes=0 rm_fw=0 rm_data=0
 while [ $# -gt 0 ]; do
@@ -52,27 +54,27 @@ nvol=$(printf '%s' "$volumes" | grep -c . || true)
 fw=0
 fw_installed && fw=1
 
-echo
-echo "Remove SuckerPot from this machine ($stack install, project $(env_get COMPOSE_PROJECT_NAME))"
-echo
-echo "  This will:"
-[ "$stack" != participant ] || [ "$(env_get NETWORK_ENABLED false)" != true ] || echo "    - leave the network (the hub deletes this node and what it sent)"
-echo "    - remove the automatic update schedule"
-[ "$ENGINE_ID" != podman ] || echo "    - remove the boot unit suckerpot-stack.service"
-echo "    - stop and remove the containers"
-[ "$rm_fw" = 0 ] || echo "    - remove the host firewall (sudo)"
-[ "$rm_data" = 0 ] || echo "    - DELETE the $nvol data volumes ${prefix}_* (cannot be undone) and rename .env"
-echo
-echo "  This keeps:"
+say ""
+say "Remove SuckerPot from this machine ($stack install, project $(env_get COMPOSE_PROJECT_NAME))"
+say ""
+say "  This will:"
+[ "$stack" != participant ] || [ "$(env_get NETWORK_ENABLED false)" != true ] || say "    - leave the network (the hub deletes this node and what it sent)"
+say "    - remove the automatic update schedule"
+[ "$ENGINE_ID" != podman ] || say "    - remove the boot unit suckerpot-stack.service"
+say "    - stop and remove the containers"
+[ "$rm_fw" = 0 ] || say "    - remove the host firewall (sudo)"
+[ "$rm_data" = 0 ] || say "    - DELETE the $nvol data volumes ${prefix}_* (cannot be undone) and rename .env"
+say ""
+say "  This keeps:"
 if [ "$nvol" = 0 ]; then
-  echo "    - (no data volume named ${prefix}_* was found)"
+  say "    - (no data volume named ${prefix}_* was found)"
 elif [ "$rm_data" = 0 ]; then
-  echo "    - the $nvol data volumes ${prefix}_* (database, captured files, node key)"
+  say "    - the $nvol data volumes ${prefix}_* (database, captured files, node key)"
 fi
-[ "$rm_data" = 1 ] || echo "    - .env (the database password lives in the data: keep both or neither)"
-echo "    - install.log and this folder ($PWD)"
-[ "$rm_fw" = 1 ] || [ "$fw" = 0 ] || echo "    - the host firewall (remove it: ./scripts/participant.sh firewall uninstall)"
-echo
+[ "$rm_data" = 1 ] || say "    - .env (the database password lives in the data: keep both or neither)"
+say "    - install.log and this folder ($PWD)"
+[ "$rm_fw" = 1 ] || [ "$fw" = 0 ] || say "    - the host firewall (remove it: ./scripts/participant.sh firewall uninstall)"
+say ""
 
 if [ "$yes" = 0 ]; then
   [ "$ASK_TTY" = 1 ] || die "no terminal to ask on; use --yes"
@@ -89,11 +91,11 @@ else
     engine_remove_boot_unit || echo "uninstall: warning: could not remove suckerpot-stack.service" >&2
   fi
   dc --profile '*' down
-  echo "uninstall: stopped. The containers are removed; the schedule is removed."
+  say "uninstall: stopped. The containers are removed; the schedule is removed."
 fi
 
 if [ "$fw" = 1 ] && [ "$rm_fw" = 0 ] && [ "$yes" = 0 ]; then
-  echo
+  say ""
   if ask_yn "Also remove the host firewall (sudo)?" n; then rm_fw=1; fi
 fi
 if [ "$rm_fw" = 1 ] && [ "$fw" = 1 ]; then
@@ -101,8 +103,8 @@ if [ "$rm_fw" = 1 ] && [ "$fw" = 1 ]; then
 fi
 
 if [ "$rm_data" = 0 ] && [ "$yes" = 0 ] && [ "$nvol" -gt 0 ]; then
-  echo
-  echo "  The data volumes stay, so you can install again and keep your history."
+  say ""
+  say "  The data volumes stay, so you can install again and keep your history."
   if ask_yn "Delete the data volumes too? This cannot be undone." n; then rm_data=1; fi
 fi
 if [ "$rm_data" = 1 ] && [ "$nvol" -gt 0 ]; then
@@ -120,10 +122,10 @@ if [ "$rm_data" = 1 ]; then
   moved=".env.removed-$(date -u +%Y%m%d%H%M%S)"
   mv .env "$moved"
   chmod 600 "$moved"
-  echo "uninstall: the data volumes are deleted. .env is now $moved (delete it when you are sure)."
-  echo "uninstall: this folder can install again: ./suckerpot install"
+  say "uninstall: the data volumes are deleted. .env is now $moved (delete it when you are sure)."
+  say "uninstall: this folder can install again: ./suckerpot install"
 else
-  echo
-  echo "Kept: the data volumes ${prefix}_* and .env. Install again with your data: ./scripts/install.sh --repair"
-  echo "Delete them later: ./scripts/uninstall.sh --delete-data"
+  say ""
+  say "Kept: the data volumes ${prefix}_* and .env. Install again with your data: ./scripts/install.sh --repair"
+  say "Delete them later: ./scripts/uninstall.sh --delete-data"
 fi

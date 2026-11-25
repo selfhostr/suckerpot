@@ -21,6 +21,17 @@
 #
 # ASK_PLAIN=1 (the --plain display) keeps the numbered list on a terminal too.
 #
+# Text for a terminal is wrapped at its width minus 4, at word boundaries (a line never breaks in
+# the middle of a word). Without a terminal it is printed as given, so plain and CI output stay
+# the same:
+#   text_wrap [--join] WIDTH      stdin to stdout; long lines wrap under their own indent (under
+#                                 the text of a "- " or "! " item). --join first joins the lines
+#                                 of a paragraph that were broken by hand (a line that ends in the
+#                                 middle of a sentence, and the indented lines of an item).
+#   text_width FD                 TEXT_W = the width to wrap at for FD: 0 when FD is not a
+#                                 terminal (it sets a variable: in $(...) fd 1 is a pipe)
+#   text_out FD [--join]          stdin to FD, wrapped when FD is a terminal
+#
 # The key menu redraws itself with cursor-up and erase-below only (the sequences of ui.sh), never
 # the alternate screen. NO_COLOR, TERM=dumb or no terminal: no colour (reverse video is not a
 # colour, but NO_COLOR also drops it; the current line keeps its ">" mark).
@@ -96,7 +107,7 @@ ask_text() {
     _try=$((_try + 1))
     _shown=""
     [ -z "$_def" ] || _shown=" [$_def]"
-    printf '%s%s%s: ' "$ASK_IND" "$_prompt" "$_shown" 1>&"$ASK_OUT"
+    if [ -n "$_shown" ]; then _ask_prompt "$_prompt" "${_shown# }:"; else _ask_prompt "$_prompt:" ""; fi
     if ! _ask_read _a; then _a=$_def; _try=5; fi
     # Surrounding blanks never count.
     _a="${_a#"${_a%%[![:space:]]*}"}"
@@ -116,7 +127,7 @@ ask_yn() {
   local _prompt=$1 _def=${2:-n} _a _hint
   if [ "$_def" = y ]; then _hint="[Y/n]"; else _hint="[y/N]"; fi
   while :; do
-    printf '%s%s %s ' "$ASK_IND" "$_prompt" "$_hint" 1>&"$ASK_OUT"
+    _ask_prompt "$_prompt" "$_hint"
     _ask_read _a || _a=""
     case ${_a:-$_def} in
       y | Y | yes | YES | Yes) return 0 ;;
@@ -131,6 +142,97 @@ ask_pause() {
   [ "$ASK_TTY" = 1 ] && [ -t "$ASK_IN" ] || return 0
   printf '%s%s%s' "$ASK_IND" "${1:-Press Enter to go back to the menu.}" " " 1>&"$ASK_OUT"
   IFS= read -r _a <&"$ASK_IN" || true
+}
+
+text_wrap() {
+  local join=0
+  [ "${1:-}" != --join ] || { join=1; shift; }
+  awk -v W="${1:-0}" -v J="$join" '
+    function lead(s) { match(s, /^ */); return RLENGTH }
+    # Prints TEXT word-wrapped: the first line after P1, the next ones after P2.
+    function out(text, p1, p2,   n, w, i, line, pre) {
+      if (W <= 0 || length(p1 text) <= W) { print p1 text; return }
+      n = split(text, w, / +/); line = ""; pre = p1
+      for (i = 1; i <= n; i++) {
+        if (w[i] == "") continue
+        if (line != "" && length(pre line " " w[i]) > W) { print pre line; line = w[i]; pre = p2 }
+        else line = (line == "") ? w[i] : line " " w[i]
+      }
+      print pre line
+    }
+    function flush() { if (have) out(buf, p1, p2); have = 0; buf = "" }
+    function start(s,   i, rest) {
+      i = lead(s); rest = substr(s, i + 1)
+      p1 = sprintf("%" i "s", ""); p2 = p1; ind = i
+      if (rest ~ /^[-!] /) { p1 = p1 substr(rest, 1, 2); rest = substr(rest, 3); p2 = sprintf("%" (i + 2) "s", ""); cont = i + 2 }
+      else cont = i
+      buf = rest; have = 1
+    }
+    {
+      # Width 0 (no terminal): the text as given, nothing joined.
+      if (W <= 0) { print; next }
+      sub(/\r$/, "")
+      if ($0 ~ /^ *$/) { flush(); print ""; next }
+      if (!J) { start($0); flush(); next }
+      i = lead($0); rest = substr($0, i + 1)
+      if (have && rest !~ /^[-!] / && i == cont && (cont > ind || buf ~ /[A-Za-z0-9,]$/)) {
+        buf = buf " " rest; next
+      }
+      flush(); start($0)
+    }
+    END { flush() }'
+}
+
+text_width() {
+  local s r c fd=${1:-1}
+  TEXT_W=0
+  [ -t "$fd" ] && [ -n "${TERM:-}" ] && [ "$TERM" != dumb ] || return 0
+  [ "${ASK_PLAIN:-0}" = 0 ] || return 0
+  s=$(stty size <&"$fd" 2> /dev/null || true)
+  read -r r c <<< "$s"
+  [[ ${c:-} =~ ^[1-9][0-9]*$ ]] || c=${COLUMNS:-80}
+  [[ $c =~ ^[1-9][0-9]*$ ]] || c=80
+  [ "$c" -gt 24 ] || c=24
+  TEXT_W=$((c - 4))
+}
+
+text_out() {
+  local fd=${1:-1} join=()
+  [ "${2:-}" != --join ] || join=(--join)
+  text_width "$fd"
+  text_wrap ${join[@]+"${join[@]}"} "$TEXT_W" 1>&"$fd"
+}
+
+# ask_lines STYLE TEXT...: one paragraph per TEXT, after ASK_IND, in STYLE (an SGR string or ""),
+# wrapped at the width of a terminal (as given without one).
+ask_lines() {
+  local st=$1 w l
+  shift
+  text_width "$ASK_OUT"
+  w=$TEXT_W
+  [ "$w" = 0 ] || w=$((w - ${#ASK_IND}))
+  [ "$w" -ge 0 ] || w=20
+  _ask_style
+  while IFS= read -r l; do
+    if [ -n "$l" ]; then printf '%s%s%s%s\n' "$ASK_IND" "$st" "$l" "${st:+$ASK_R}"; else printf '\n'; fi
+  done < <(printf '%s\n' "$@" | text_wrap "$w") 1>&"$ASK_OUT"
+}
+
+# _ask_prompt TEXT HINT: the question, wrapped on a terminal; the cursor stays after HINT.
+_ask_prompt() {
+  local text="$ASK_IND$1" hint=$2 w body last
+  text_width "$ASK_OUT"
+  w=$TEXT_W
+  if [ "$w" -gt 0 ] && [ $((${#text} + ${#hint} + 1)) -gt "$w" ]; then
+    body=$(printf '%s%s\n' "$text" "${hint:+ $hint}" | text_wrap "$w")
+    last=${body##*$'\n'}
+    [ "$last" = "$body" ] || printf '%s\n' "${body%$'\n'*}" 1>&"$ASK_OUT"
+    printf '%s ' "$last" 1>&"$ASK_OUT"
+  elif [ -n "$hint" ]; then
+    printf '%s %s ' "$text" "$hint" 1>&"$ASK_OUT"
+  else
+    printf '%s ' "$text" 1>&"$ASK_OUT"
+  fi
 }
 
 # _ask_cols: the width of the terminal the menu is drawn on.

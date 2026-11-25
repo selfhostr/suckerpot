@@ -25,6 +25,8 @@ ENGINE_LENIENT=1
 . scripts/lib/fwcheck.sh
 # shellcheck source=scripts/lib/enrol_wait.sh
 . scripts/lib/enrol_wait.sh
+# shellcheck source=scripts/lib/ask.sh
+. scripts/lib/ask.sh
 
 die() { echo "status: $*" >&2; exit 2; }
 
@@ -214,8 +216,9 @@ rc=0
 if [ "$want_json" = 1 ]; then
   printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" --json || rc=$?
 elif [ "$want_brief" = 1 ]; then
-  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" --brief || rc=$?
+  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" --brief | text_out 1 || rc=$?
 else
-  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" || rc=$?
+  # On a terminal the long lines wrap at its width (word boundaries); otherwise unchanged.
+  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" | text_out 1 || rc=$?
 fi
 exit "$rc"
