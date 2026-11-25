@@ -430,7 +430,7 @@ export function StyleguidePage() {
   const [speed, setSpeed] = useState("1")
 
   const addEvent = () => {
-    const template = EVENTS[Math.floor(Math.random() * EVENTS.length)]
+    const template = EVENTS[nextId % EVENTS.length]
     if (!template) return
     const e = { ...template, id: nextId++, ts: new Date().toISOString() }
     setNewestId(e.id)
@@ -773,7 +773,7 @@ export function StyleguidePage() {
                 variant="outline"
                 size="sm"
                 className="w-full"
-                onClick={() => setCounter((c) => c + Math.round(37 + Math.random() * 400))}
+                onClick={() => setCounter((c) => c + 37 + ((c * 7) % 400))}
               >
                 <RefreshCw aria-hidden /> Bump counter
               </Button>
