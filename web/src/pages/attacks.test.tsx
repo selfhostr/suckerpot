@@ -148,8 +148,8 @@ describe("AttacksPage and floods", () => {
       50,
     )
     expect(screen.getByRole("radio", { name: "Show only floods" })).toBeChecked()
-    // "Clear filters" resets the Floods choice as well.
-    await userEvent.setup().click(screen.getByRole("button", { name: "Clear filters" }))
+    // "Clear all" resets the Floods choice as well.
+    await userEvent.setup().click(screen.getByRole("button", { name: "Clear all" }))
     expect(screen.getByLabelText("query string").textContent).toBe("")
   })
 })

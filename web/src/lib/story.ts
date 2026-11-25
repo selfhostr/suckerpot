@@ -383,6 +383,7 @@ export function windowLabel(
   if (since && until) return `Between ${hhmm(since)} and ${hhmm(until)}`
   if (since) {
     const hours = Math.round((now - Date.parse(since)) / 3_600_000)
+    if (hours >= 48 && hours <= 168 && hours % 24 === 0) return `Last ${plural(hours / 24, "day")}`
     if (hours >= 1 && hours <= 168) return `Last ${plural(hours, "hour")}`
     return `Since ${hhmm(since)}`
   }

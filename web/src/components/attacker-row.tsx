@@ -13,11 +13,15 @@ import {
   describeAttacker,
   describeAttackerText,
 } from "@/lib/describe-attacker"
-import { maskIpsInText } from "@/lib/format"
+import { countryName, formatNumber, maskIpsInText } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
+/**
+ * Desktop columns: IP address, country, what it did, tags, sessions, last seen; from xl the
+ * network and the event count join in.
+ */
 export const ATTACKER_GRID =
-  "md:grid-cols-[9.5rem_minmax(22rem,1fr)_minmax(0,auto)_6rem] md:gap-x-4"
+  "md:grid-cols-[9.5rem_9rem_minmax(14rem,1fr)_minmax(0,auto)_4.5rem_6rem] md:gap-x-4 xl:grid-cols-[9.5rem_9rem_12rem_minmax(18rem,1fr)_minmax(0,auto)_4.5rem_4.5rem_6rem]"
 
 /** One attacker as one line. The row opens the profile; chips and flags open filtered lists. */
 export function AttackerRow({
@@ -41,13 +45,6 @@ export function AttackerRow({
       <CountryFlag code={a.country} />
     </Link>
   ) : null
-
-  const story = (
-    <p className="min-w-0 text-sm text-fg">
-      {origin ? <span className="text-fg-muted">{origin} — </span> : null}
-      {describeAttacker(a)}
-    </p>
-  )
 
   return (
     <div
@@ -73,11 +70,40 @@ export function AttackerRow({
         </span>
       </div>
 
+      <div className="hidden min-w-0 items-center gap-1.5 text-xs text-fg-muted md:flex">
+        {flag ? (
+          <>
+            {flag}
+            <span>{countryName(a.country) ?? a.country}</span>
+          </>
+        ) : (
+          <>
+            <CountryFlag code={null} />
+            <span>Unknown</span>
+          </>
+        )}
+      </div>
+
+      <div className="hidden min-w-0 text-xs text-fg-muted xl:block">
+        {a.asn !== null ? (
+          <Link
+            to={`/attackers?asn=${a.asn}`}
+            className="relative z-10 block hover:text-fg"
+            title={`AS${a.asn}`}
+          >
+            <span className="block font-mono text-2xs text-fg-subtle">AS{a.asn}</span>
+            {a.org ?? "Unknown network"}
+          </Link>
+        ) : (
+          "Unknown network"
+        )}
+      </div>
+
       <div className="flex min-w-0 items-start gap-2.5 md:items-center">
-        <span className="mt-0.5 hidden min-w-[18px] shrink-0 md:mt-0 md:inline-flex">
-          {flag ?? <CountryFlag code={null} />}
-        </span>
-        {story}
+        <p className="min-w-0 text-sm text-fg">
+          {origin ? <span className="text-fg-muted md:hidden">{origin} — </span> : null}
+          <span className="md:first-letter:uppercase">{describeAttacker(a)}</span>
+        </p>
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 md:flex-nowrap md:justify-end md:overflow-hidden">
@@ -104,6 +130,13 @@ export function AttackerRow({
           <SeverityBadge severity={severity} iconOnly className="z-10 hidden md:inline-flex" />
         ) : null}
       </div>
+
+      <span className="hidden text-right text-sm text-fg tabular-nums md:block">
+        {formatNumber(a.sessions)}
+      </span>
+      <span className="hidden text-right text-sm text-fg tabular-nums xl:block">
+        {formatNumber(a.events)}
+      </span>
 
       <div className="hidden justify-self-end md:block">
         <RelativeTime iso={a.last_seen} className="relative z-10 text-xs" />
