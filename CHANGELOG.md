@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Dashboard layout: each page now declares how wide it may grow. Lists, hubs, Today, Trends and Results use up to 1680 px (the whole content area of a 1920 px screen) instead of 1200 px; Settings and detail pages stay at 1200 px for reading; Live keeps 2400 px. From 1536 px wide, Today shows the stories in two columns with the to-do cards in a third, Results puts three cards to a row, Trends shows its four top lists in one row, and Infrastructure puts the diagram beside the control servers. Long places and network names in the Sessions list no longer get cut.
 - Today and Results open with their key numbers as large figures on one ruled band instead of a row of cards. Stories and to-do cards on Today flow in columns, so a short card no longer leaves an empty gap next to a tall one, and a story's "Technical details" sits on the same row as "Open the full session". On phones the flow's countries list in two columns.
 - Blocklists: the firewall how-to moved into a side sheet ("Firewall steps"), so the entries start higher on the page. Settings lists the sensors in two columns and puts Updates beside Pipeline.
+- Navigation: tab names now match page titles (Overview, Trends, Abuse reports). The attacker ASN list is "Attacker networks" and the community is "SuckerPot network", in the sidebar, tabs, titles and Settings. The Abuse reports page lists Drafts first, then the send queue, replies and the archive. The abuse report page keeps its review actions in view while you scroll, and the options that change the message sit right under it. The Techniques page no longer has a second "Campaigns" button (use the tab). The Settings alert channels and network tabs link to the Alerts and SuckerPot network pages.
+
+### Fixed
+
+- The tab of `/network/members` is highlighted as Members, not Overview.
+- The reporting section links in Settings no longer slide under the sticky header.
+- Settings, First-run setup no longer says "The setup is finished" next to a checklist with open steps.
 
 ## [0.14.2] - 2026-11-24
 

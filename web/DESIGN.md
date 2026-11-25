@@ -284,7 +284,7 @@ Primitives (button, card, badge, tooltip, dropdown-menu, sheet, separator, skele
 
 ## Structure for feature work
 
-- **Navigation**: `src/app/nav.ts` lists every item with its `space` (Observe, Understand, Defend, footer) and an optional `badge`. The old Overview is shown as "Activity"; its route is still `/overview`.
+- **Navigation**: `src/app/nav.ts` lists every item with its `space` (Observe, Understand, Defend, footer) and an optional `badge`. The hub "Trends" has the tabs "Overview" (`/overview`) and "Trends" (`/trends`). The community entry is "SuckerPot network" and the attacker ASN list "Attacker networks", so the two never share a name. A tab strip is the one way between the pages of a hub; a detail page adds a "back" link to its list.
 - **Pages**: one file per page in `src/pages/`. Unbuilt pages are a "Coming soon" `EmptyState`; replace the file, the route already exists in `src/app/router.tsx`.
 - **API clients**: one `src/lib/<feature>-api.ts` per feature, exporting its own `<feature>QueryKeys`. Do not extend `api.ts` or its `queryKeys`.
 - **Mocks**: one `src/mocks/<feature>.ts` per feature (campaigns, defend, scripts, alerts, search, today), already imported by `handlers.ts`.

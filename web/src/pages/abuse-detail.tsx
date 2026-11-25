@@ -479,11 +479,8 @@ const OPTION_LABEL: { key: keyof ReportOptions; label: string; hint: string }[] 
   },
 ]
 
-function NotesCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetail) => void }) {
-  const { canWrite } = useAuth()
-  const id = useId()
-  const editable = canWrite && (r.status === "draft" || r.status === "reviewed")
-  const [notes, setNotes] = useState(r.notes ?? "")
+/** Saves a patch of the report; both the options and the notes cards use it. */
+function useReportPatch(r: ReportDetail, onSaved: (d: ReportDetail) => void) {
   const [error, setError] = useState<string | null>(null)
   const save = useMutation({
     mutationFn: (body: Parameters<typeof abuseApi.patch>[1]) => abuseApi.patch(r.public_id, body),
@@ -493,76 +490,95 @@ function NotesCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetail)
     },
     onError: (e) => setError(describeAbuseError(e)),
   })
+  return { save, error }
+}
+
+/** The switches that change what the message says: they sit right under the message. */
+function OptionsCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetail) => void }) {
+  const { canWrite } = useAuth()
+  const id = useId()
+  const editable = canWrite && (r.status === "draft" || r.status === "reviewed")
+  const { save, error } = useReportPatch(r, onSaved)
   const minute = r.options.time_precision === "minute"
   return (
-    <FindingCard
-      eyebrow="Notes and options"
-      finding="Notes stay here. Options change what the message says."
-    >
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="space-y-2">
-          <label htmlFor={id} className="text-sm font-medium text-fg">
-            Your notes
+    <FindingCard eyebrow="Options" finding="These options change what the message says.">
+      <fieldset className="space-y-3" disabled={!editable}>
+        <legend className="sr-only">Options</legend>
+        <div className="flex items-start gap-3">
+          <Switch
+            id={`${id}-minute`}
+            checked={minute}
+            disabled={!editable}
+            onCheckedChange={(on) =>
+              save.mutate({ options: { time_precision: on ? "minute" : "second" } })
+            }
+            className="mt-0.5"
+          />
+          <label htmlFor={`${id}-minute`} className="text-sm text-fg">
+            Round times to the minute
+            <span className="block text-xs text-fg-muted">
+              Exact seconds make it easier to match flow logs, and so to recognise you.
+            </span>
           </label>
-          {editable ? (
-            <>
-              <Textarea
-                id={id}
-                value={notes}
-                maxLength={4000}
-                rows={4}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={save.isPending || notes === (r.notes ?? "")}
-                onClick={() => save.mutate({ notes: notes.trim() === "" ? null : notes })}
-              >
-                Save notes
-              </Button>
-            </>
-          ) : (
-            <p id={id} className="text-sm whitespace-pre-wrap text-fg-muted">
-              {r.notes ?? "No notes."}
-            </p>
-          )}
         </div>
-        <fieldset className="space-y-3" disabled={!editable}>
-          <legend className="text-sm font-medium text-fg">Options</legend>
-          <div className="flex items-start gap-3">
+        {OPTION_LABEL.map((o) => (
+          <div key={o.key} className="flex items-start gap-3">
             <Switch
-              id={`${id}-minute`}
-              checked={minute}
+              id={`${id}-${o.key}`}
+              checked={Boolean(r.options[o.key])}
               disabled={!editable}
-              onCheckedChange={(on) =>
-                save.mutate({ options: { time_precision: on ? "minute" : "second" } })
-              }
+              onCheckedChange={(on) => save.mutate({ options: { [o.key]: on } })}
               className="mt-0.5"
             />
-            <label htmlFor={`${id}-minute`} className="text-sm text-fg">
-              Round times to the minute
-              <span className="block text-xs text-fg-muted">
-                Exact seconds make it easier to match flow logs, and so to recognise you.
-              </span>
+            <label htmlFor={`${id}-${o.key}`} className="text-sm text-fg">
+              {o.label}
+              <span className="block text-xs text-fg-muted">{o.hint}</span>
             </label>
           </div>
-          {OPTION_LABEL.map((o) => (
-            <div key={o.key} className="flex items-start gap-3">
-              <Switch
-                id={`${id}-${o.key}`}
-                checked={Boolean(r.options[o.key])}
-                disabled={!editable}
-                onCheckedChange={(on) => save.mutate({ options: { [o.key]: on } })}
-                className="mt-0.5"
-              />
-              <label htmlFor={`${id}-${o.key}`} className="text-sm text-fg">
-                {o.label}
-                <span className="block text-xs text-fg-muted">{o.hint}</span>
-              </label>
-            </div>
-          ))}
-        </fieldset>
+        ))}
+      </fieldset>
+      <p role="alert" className="mt-3 text-sm text-fg empty:hidden">
+        {error}
+      </p>
+    </FindingCard>
+  )
+}
+
+function NotesCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetail) => void }) {
+  const { canWrite } = useAuth()
+  const id = useId()
+  const editable = canWrite && (r.status === "draft" || r.status === "reviewed")
+  const [notes, setNotes] = useState(r.notes ?? "")
+  const { save, error } = useReportPatch(r, onSaved)
+  return (
+    <FindingCard eyebrow="Notes" finding="Notes stay here and are never sent.">
+      <div className="space-y-2">
+        <label htmlFor={id} className="text-sm font-medium text-fg">
+          Your notes
+        </label>
+        {editable ? (
+          <>
+            <Textarea
+              id={id}
+              value={notes}
+              maxLength={4000}
+              rows={4}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={save.isPending || notes === (r.notes ?? "")}
+              onClick={() => save.mutate({ notes: notes.trim() === "" ? null : notes })}
+            >
+              Save notes
+            </Button>
+          </>
+        ) : (
+          <p id={id} className="text-sm whitespace-pre-wrap text-fg-muted">
+            {r.notes ?? "No notes."}
+          </p>
+        )}
       </div>
       <p role="alert" className="mt-3 text-sm text-fg empty:hidden">
         {error}
@@ -644,7 +660,8 @@ function Actions({
   const canRegenerate = r.status === "draft" || r.status === "reviewed"
   if (next.length === 0 && !canRegenerate) return null
   return (
-    <div className="space-y-3">
+    // Sticky under the page header, so the review actions stay in reach while the message is read.
+    <div className="sticky top-14 z-10 -mx-1 space-y-3 border-b bg-bg px-1 py-3">
       <div className="flex flex-wrap items-center gap-2">
         {next.includes("reviewed") ? (
           <Button size="sm" disabled={blocker !== null} onClick={() => go("reviewed")}>
@@ -884,6 +901,7 @@ export function AbuseDetailPage() {
         {r.status === "sent" || r.status === "closed" ? <OutcomeCard r={r} /> : null}
         <IdentityCard r={r} />
         <MessageCard r={r} />
+        <OptionsCard key={`${r.revision}:options`} r={r} onSaved={(d) => refresh(d)} />
         <SubjectsCard r={r} />
         <NotesCard key={`${r.revision}:${r.notes ?? ""}`} r={r} onSaved={(d) => refresh(d)} />
         <HistoryCard r={r} />

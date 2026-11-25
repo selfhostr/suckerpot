@@ -30,10 +30,10 @@ export function SetupResumeCard() {
       eyebrow="First-run setup"
       finding={
         unfinished
-          ? `The setup is not finished. ${describeProgress(p, WIZARD_STEPS)}`
+          ? `The setup wizard is not finished. ${describeProgress(p, WIZARD_STEPS)}`
           : p.state === "skipped"
             ? "You skipped the setup. You can run it whenever you like."
-            : "The setup is finished. You can go through it again whenever you like."
+            : "You went through the setup wizard. The checklist below shows what the running stack still lacks, and you can open the wizard again whenever you like."
       }
       detail="It walks through the sensors, the router ports, the VPN, your own address, reports and alerts."
       action={

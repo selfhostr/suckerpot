@@ -278,6 +278,15 @@ export function AbusePage() {
           aria-label="Report status"
           className="scroll-fade-x mb-4 max-w-full justify-start overflow-x-auto"
         >
+          {/* Workflow order: review drafts, send, check replies, then the archive. */}
+          {LIST_STATUSES.filter((s) => s === "draft" || s === "reviewed").map((s) => (
+            <TabsTrigger key={s} value={s} className="flex-none px-3">
+              {TAB_LABEL[s]}
+              {counts ? (
+                <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">{counts[s]}</span>
+              ) : null}
+            </TabsTrigger>
+          ))}
           {canWrite ? (
             <TabsTrigger value="queue" className="flex-none px-3">
               To send
@@ -304,7 +313,7 @@ export function AbusePage() {
               <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">{repliesToCheck}</span>
             </TabsTrigger>
           ) : null}
-          {LIST_STATUSES.map((s) => (
+          {LIST_STATUSES.filter((s) => s !== "draft" && s !== "reviewed").map((s) => (
             <TabsTrigger key={s} value={s} className="flex-none px-3">
               {TAB_LABEL[s]}
               {counts ? (

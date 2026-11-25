@@ -37,10 +37,10 @@ test("nav spaces and placeholder routes", async ({ page }, info) => {
   if (info.project.name.startsWith("mobile")) await page.keyboard.press("Escape")
   await page.goto("/attacks")
   const tabs = page.getByRole("navigation", { name: "Attacks pages" })
-  await expect(tabs.getByRole("link")).toHaveText(["Sessions", "Attackers", "Networks"])
-  await tabs.getByRole("link", { name: "Networks" }).click()
+  await expect(tabs.getByRole("link")).toHaveText(["Sessions", "Attackers", "Attacker networks"])
+  await tabs.getByRole("link", { name: "Attacker networks" }).click()
   await expect(page).toHaveURL(/\/networks$/)
-  await expect(page.getByRole("list", { name: "Networks" })).toBeVisible()
+  await expect(page.getByRole("list", { name: "Attacker networks" })).toBeVisible()
   // The old address keeps working.
   await page.goto("/attackers?view=asns")
   await expect(page).toHaveURL(/\/networks$/)
@@ -60,7 +60,7 @@ test("settings tabs", async ({ page }, info) => {
     "Feeds",
     "Reporting",
     "VPN",
-    "Network",
+    "SuckerPot network",
   ])
   await page.getByRole("tab", { name: "Alert channels" }).click()
   await expect(page).toHaveURL(/tab=alerts/)

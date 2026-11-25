@@ -76,12 +76,19 @@ describe("navigation", () => {
     expect(screen.getAllByRole("link").map((l) => l.textContent)).toEqual([
       "Sessions",
       "Attackers",
-      "Networks",
+      "Attacker networks",
     ])
     expect(screen.getByRole("link", { name: "Attackers" }).getAttribute("aria-current")).toBe(
       "page",
     )
     expect(screen.getByRole("link", { name: "Sessions" }).getAttribute("aria-current")).toBeNull()
     expect(activeTab(hub, "/attacks/1")?.label).toBe("Sessions")
+  })
+
+  it("picks the longest matching tab", () => {
+    const hub = NAV_ITEMS.find((i) => i.label === "SuckerPot network")
+    if (!hub) throw new Error("Network hub missing")
+    expect(activeTab(hub, "/network")?.label).toBe("Overview")
+    expect(activeTab(hub, "/network/members")?.label).toBe("Members")
   })
 })

@@ -368,7 +368,7 @@ const TABS = [
   { id: "feeds", label: "Feeds", adminOnly: true },
   { id: "reporting", label: "Reporting", adminOnly: true },
   { id: "vpn", label: "VPN", adminOnly: true },
-  { id: "network", label: "Network", adminOnly: false },
+  { id: "network", label: "SuckerPot network", adminOnly: false },
 ] as const
 
 export function SettingsPage() {
@@ -476,6 +476,13 @@ export function SettingsPage() {
         ) : null}
         <TabsContent value="alerts" className="grid grid-cols-1 gap-4">
           <ChannelsCard />
+          <p className="text-sm text-fg-muted">
+            The rules, the recent alerts and the weekly reports are on the{" "}
+            <Link to="/defend/alerts" className="text-fg underline underline-offset-4">
+              Alerts page
+            </Link>
+            .
+          </p>
         </TabsContent>
         {canWrite ? (
           <TabsContent value="feeds">
@@ -504,6 +511,13 @@ export function SettingsPage() {
         ) : null}
         <TabsContent value="network" className="grid grid-cols-1 gap-4">
           <NetworkTab />
+          <p className="text-sm text-fg-muted">
+            What the network sees and who takes part are on the{" "}
+            <Link to="/network" className="text-fg underline underline-offset-4">
+              SuckerPot network page
+            </Link>
+            .
+          </p>
         </TabsContent>
       </Tabs>
     </>
