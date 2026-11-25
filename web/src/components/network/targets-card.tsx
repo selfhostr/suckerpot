@@ -173,6 +173,7 @@ export function TargetsCard() {
   return (
     <FindingCard
       eyebrow={t("network_targets_eyebrow")}
+      help="targets"
       finding={target ? t("network_targets_one") : targetsFinding({ state, kind, mine })}
       detail={
         <span className="text-xs">

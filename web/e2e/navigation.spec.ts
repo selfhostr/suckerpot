@@ -158,6 +158,11 @@ test("account menu: theme, masking; the version at the foot", async ({ page }, i
   await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeVisible()
   await expect(menu.getByRole("menuitemcheckbox", { name: /Mask IP addresses/ })).toBeVisible()
   await expect(menu.getByText(/SuckerPot v|Last sign-in|\.env/)).toHaveCount(0)
+  // The language lives in Settings; the menu opens above the profile block, as wide as the sidebar.
+  await expect(menu.getByRole("menuitem", { name: /^Language/ })).toHaveCount(0)
+  const above = (await menu.boundingBox())?.y ?? 0
+  const height = (await menu.boundingBox())?.height ?? 0
+  expect(above + height).toBeLessThanOrEqual((await account.boundingBox())?.y ?? 0)
   await shoot(page, "account-menu", info.project.name)
   // One item cycles the theme and stays open to show the change: light, dark, system.
   const theme = menu.getByRole("menuitem", { name: /^Theme/ })
@@ -170,6 +175,15 @@ test("account menu: theme, masking; the version at the foot", async ({ page }, i
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
 })
 
+test("language is chosen in Settings, not in the account menu", async ({ page }) => {
+  await page.goto("/settings")
+  await settle(page)
+  await expect(page.getByRole("combobox", { name: "Language" })).toBeVisible()
+  await page.getByRole("combobox", { name: "Language" }).click()
+  await expect(page.getByRole("option")).toHaveCount(9)
+  await page.keyboard.press("Escape")
+})
+
 test("settings tabs", async ({ page }, info) => {
   await page.goto("/settings")
   await expect(h1(page, "Settings")).toBeVisible()
@@ -179,7 +193,7 @@ test("settings tabs", async ({ page }, info) => {
     "href",
     "/styleguide",
   )
-  await expect(page.getByRole("tab")).toHaveText([
+  const sections = [
     "General",
     "Keys",
     "Users",
@@ -191,8 +205,19 @@ test("settings tabs", async ({ page }, info) => {
     "Reporting",
     "VPN",
     "SuckerPot network",
-  ])
-  await page.getByRole("tab", { name: "Alert channels" }).click()
+  ]
+  if (info.project.name.startsWith("mobile")) {
+    // A phone has a select, not a list of tabs, and nothing scrolls sideways.
+    await expect(page.getByRole("tab")).toHaveCount(0)
+    await page.getByRole("combobox", { name: "Settings sections" }).click()
+    await expect(page.getByRole("option")).toHaveText(sections)
+    await page.getByRole("option", { name: "Alert channels" }).click()
+  } else {
+    // A vertical list beside the cards: every section is in view, none behind a scroll.
+    await expect(page.getByRole("tab")).toHaveText(sections)
+    for (const tab of await page.getByRole("tab").all()) await expect(tab).toBeInViewport()
+    await page.getByRole("tab", { name: "Alert channels" }).click()
+  }
   await expect(page).toHaveURL(/tab=alerts/)
   await expect(page.getByRole("list", { name: "Alert channels" })).toBeVisible()
   await settle(page)

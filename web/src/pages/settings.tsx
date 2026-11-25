@@ -8,7 +8,6 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react"
-import { useEffect, useRef } from "react"
 import { Link } from "react-router"
 import { t, tk } from "@/i18n"
 import { tNodes } from "@/i18n/rich"
@@ -21,6 +20,8 @@ import { AlertsPanel } from "@/components/alerts/alerts-panel"
 import { ChannelsCard } from "@/components/alerts/channels-card"
 import { TourButton } from "@/components/tour/tour-button"
 import { Button } from "@/components/ui/button"
+import { LanguageCard } from "@/components/language-card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { EgressCard } from "@/components/egress-card"
@@ -123,6 +124,7 @@ function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolea
   return (
     <FindingCard
       eyebrow={t("settings_sensors_title")}
+      help="sensors"
       finding={data ? sensorsFinding(data.sensors) : t("settings_sensors_checking")}
       detail={t("settings_sensors_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
@@ -136,19 +138,19 @@ function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolea
           <Failed />
         </div>
       ) : (
-        // Two columns from lg: twelve sensors take six rows instead of twelve. Each row draws its
-        // own top rule (none on the first row), and the left column a rule on its right. From 2xl
+        // Two columns from 1280 px: twelve sensors take six rows instead of twelve. Each row draws its
+        // own top rule (none on the first row), and the left column a rule on its right. From 1760 px
         // the card is one column of the General tab, so the list goes back to one column.
         <ul
           aria-label={t("settings_sensors_title")}
-          className="grid grid-cols-1 border-t lg:grid-cols-2 2xl:grid-cols-1"
+          className="grid grid-cols-1 border-t min-[1280px]:grid-cols-2 min-[1760px]:grid-cols-1"
         >
           {data.sensors.map((s) => {
             const state = SENSOR_STATE[s.status]
             return (
               <li
                 key={s.sensor}
-                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 lg:odd:border-r 2xl:odd:border-r-0 lg:[&:nth-child(2)]:border-t-0 2xl:[&:nth-child(2)]:border-t"
+                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 min-[1280px]:odd:border-r min-[1760px]:odd:border-r-0 min-[1280px]:[&:nth-child(2)]:border-t-0 min-[1760px]:[&:nth-child(2)]:border-t"
               >
                 <SensorBadge sensor={s.sensor} className="justify-self-start" />
                 <StateLabel label={t(state.labelKey)} icon={state.icon} className={state.className} />
@@ -285,6 +287,7 @@ function StorageCard({ data, loading }: { data?: SystemSettings; loading: boolea
   return (
     <FindingCard
       eyebrow={t("settings_storage_title")}
+      help="storage"
       finding={data ? storageFinding(data) : t("settings_storage_checking")}
     >
       {loading ? (
@@ -367,6 +370,7 @@ function RetentionCard({ data, loading }: { data?: SystemSettings; loading: bool
   return (
     <FindingCard
       eyebrow={t("settings_retention_title")}
+      help="storage"
       finding={r ? retentionFinding(r, data.disk_guard) : t("settings_retention_checking")}
     >
       {loading ? (
@@ -449,16 +453,6 @@ export function SettingsPage() {
   const tab = tabs.find((x) => x.id === tabParam)?.id ?? "general"
   // The tab lives in the URL, so a section can be linked; "general" is the default and stays bare.
   const setTab = (next: string) => setTabParam(next === "general" ? null : next)
-  // On phones the tab strip scrolls sideways: keep the open tab in view (e.g. ?tab=feeds).
-  const tabsRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const list = tabsRef.current
-    const active = list?.querySelector<HTMLElement>('[data-state="active"]')
-    if (!list || !active) return
-    const a = active.getBoundingClientRect()
-    const l = list.getBoundingClientRect()
-    if (a.left < l.left || a.right > l.right) list.scrollLeft += a.left - l.left - 16
-  }, [tab])
   const q = useQuery({
     queryKey: queryKeys.systemSettings,
     queryFn: api.systemSettings,
@@ -511,35 +505,63 @@ export function SettingsPage() {
         )}
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
+      {/*
+        * The sections: a list down the left from `lg`, a select on a phone and a tablet. Eleven
+        * tabs never fit one row, and a strip that scrolls sideways hides the ones at its end.
+        */}
+      <Tabs
+        value={tab}
+        onValueChange={setTab}
+        orientation="vertical"
+        className="gap-4 max-lg:flex-col lg:flex-row lg:items-start lg:gap-8"
+      >
+        <div className="lg:hidden">
+          <Select value={tab} onValueChange={setTab}>
+            <SelectTrigger aria-label={t("settings_tabs_label")} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {tabs.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {t(item.labelKey)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <TabsList
-          ref={tabsRef}
           variant="line"
           aria-label={t("settings_tabs_label")}
-          className="scroll-fade-x mb-2 max-w-full justify-start overflow-x-auto"
+          className="hidden w-52 shrink-0 gap-0.5 p-0 lg:sticky lg:top-20 lg:flex lg:flex-col lg:items-stretch"
         >
           {tabs.map((item) => (
-            <TabsTrigger key={item.id} value={item.id} className="flex-none px-3">
+            <TabsTrigger
+              key={item.id}
+              value={item.id}
+              className="h-8 flex-none justify-start rounded-md px-3 after:hidden group-data-[variant=line]/tabs-list:data-[state=active]:bg-surface-hover dark:group-data-[variant=line]/tabs-list:data-[state=active]:bg-surface-hover"
+            >
               {t(item.labelKey)}
             </TabsTrigger>
           ))}
         </TabsList>
 
+        <div className="min-w-0 flex-1">
         {/* Wide screens: setup and sensors on the left, the system's health stacked on the right.
             Each column is its own stack, so a short card never leaves a hole beside a tall one. */}
         <TabsContent value="general" className="grid grid-cols-1 gap-4">
           <SetupResumeCard />
-          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] 2xl:items-start">
+          <div className="grid grid-cols-1 gap-4 min-[1760px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] min-[1760px]:items-start">
             <div className="grid grid-cols-1 gap-4">
               <SetupChecklistCard />
               <SensorsCard data={q.data} loading={q.isPending} />
             </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-1">
+            <div className="grid grid-cols-1 gap-4 min-[1360px]:grid-cols-2 min-[1760px]:grid-cols-1">
+              <LanguageCard />
               <UpdatesCard />
               <PipelineCard />
               <StorageCard data={q.data} loading={q.isPending} />
               <RetentionCard data={q.data} loading={q.isPending} />
-              <div className="lg:col-span-2 2xl:col-span-1">
+              <div className="min-[1360px]:col-span-2 min-[1760px]:col-span-1">
                 <EgressCard />
               </div>
             </div>
@@ -591,7 +613,7 @@ export function SettingsPage() {
           <TabsContent value="reporting" className="grid grid-cols-1 gap-4">
             <ReportingNav />
             {/* Wide screens: what a report says on the left, how it travels on the right. */}
-            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2 2xl:items-start">
+            <div className="grid grid-cols-1 gap-4 min-[1760px]:grid-cols-2 min-[1760px]:items-start">
               <div className="grid grid-cols-1 gap-4">
                 <ReportingCard />
               </div>
@@ -630,6 +652,7 @@ export function SettingsPage() {
             )}
           </p>
         </TabsContent>
+        </div>
       </Tabs>
     </>
   )

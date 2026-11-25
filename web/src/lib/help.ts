@@ -178,6 +178,39 @@ export const HELP = {
 
 export type HelpId = keyof typeof HELP
 
+/**
+ * The "?" beside a card, a section or a column: what it shows, where the figures come from and what
+ * to do with them. Titles reuse the card's own label, so the popover and the card say the same.
+ */
+export const CARD_HELP = {
+  language: withText({ title: tk("account_language"), body: tk("help_card_language_body") }, {}),
+  leaders: withText({ title: tk("help_card_leaders_title"), body: tk("help_card_leaders_body") }, {}),
+  hourly: withText({ title: tk("charts_hourly_title"), body: tk("help_card_hourly_body") }, {}),
+  todo: withText({ title: tk("today_todo_title"), body: tk("help_card_todo_body") }, {}),
+  pipeline: withText({ title: tk("pipeline_title"), body: tk("help_card_pipeline_body") }, {}),
+  sensors: withText({ title: tk("settings_sensors_title"), body: tk("help_card_sensors_body") }, {}),
+  storage: withText({ title: tk("help_card_storage_title"), body: tk("help_card_storage_body") }, {}),
+  egress: withText({ title: tk("egress_eyebrow"), body: tk("help_card_egress_body") }, {}),
+  checklist: withText({ title: tk("checklist_title"), body: tk("help_card_checklist_body") }, {}),
+  tags: withText({ title: tk("help_card_tags_title"), body: tk("help_card_tags_body") }, {}),
+  new: withText({ title: tk("help_card_new_title"), body: tk("help_card_new_body") }, {}),
+  indicators: withText({ title: tk("infra_indicators_title"), body: tk("help_card_indicators_body") }, {}),
+  c2: withText({ title: tk("c2_list_label"), body: tk("help_card_c2_body") }, {}),
+  overrides: withText({ title: tk("overrides_eyebrow"), body: tk("help_card_overrides_body") }, {}),
+  company: withText({ title: tk("detections_company_title"), body: tk("help_card_company_body") }, {}),
+  unlisted: withText({ title: tk("exposure_unlisted_title"), body: tk("help_card_unlisted_body") }, {}),
+  node: withText({ title: tk("network_node_eyebrow"), body: tk("help_card_node_body") }, {}),
+  targets: withText({ title: tk("network_targets_eyebrow"), body: tk("help_card_targets_body") }, {}),
+  effect: withText({ title: tk("results_effect_eyebrow"), body: tk("help_card_effect_body") }, {}),
+  queue: withText({ title: tk("send_queue_eyebrow"), body: tk("help_card_queue_body") }, {}),
+  forms: withText({ title: tk("abuse_form_queue_eyebrow"), body: tk("help_card_forms_body") }, {}),
+  blocked: withText({ title: tk("abuse_blocked_eyebrow"), body: tk("help_card_blocked_body") }, {}),
+} as const satisfies Record<string, HelpText>
+
+export type CardHelpId = keyof typeof CARD_HELP
+
+export const CARD_HELP_IDS = Object.keys(CARD_HELP) as CardHelpId[]
+
 export const HELP_IDS = Object.keys(HELP) as HelpId[]
 
 /** The help id of a Settings tab; unknown tabs fall back to General. */

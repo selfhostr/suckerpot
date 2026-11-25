@@ -1,3 +1,4 @@
+import { CardHelp } from "@/components/page-help"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { LoadMore } from "@/components/load-more"
 import { Download, FileSearch, SearchX } from "lucide-react"
@@ -117,9 +118,12 @@ export function DetectionsPage() {
       )}
 
       <section aria-labelledby="company-check" className="mt-12">
-        <h2 id="company-check" className="type-section-title text-fg">
-          {t("detections_company_title")}
-        </h2>
+        <div className="flex items-center gap-1.5">
+          <h2 id="company-check" className="type-section-title text-fg">
+            {t("detections_company_title")}
+          </h2>
+          <CardHelp id="company" />
+        </div>
         <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
           {guidance.data
             ? guidance.data.items.length === 0

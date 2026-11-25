@@ -25,6 +25,7 @@ export function PipelineCard() {
   return (
     <FindingCard
       eyebrow={t("pipeline_title")}
+      help="pipeline"
       finding={loading ? t("pipeline_checking") : pipelineFinding(p)}
       detail={t("pipeline_detail")}
     >

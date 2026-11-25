@@ -31,6 +31,7 @@ export function EgressCard() {
   return (
     <FindingCard
       eyebrow={t("egress_eyebrow")}
+      help="egress"
       finding={
         e
           ? describeEgress(e)

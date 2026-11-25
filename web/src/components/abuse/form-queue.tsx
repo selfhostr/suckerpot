@@ -103,6 +103,7 @@ export function FormQueue() {
     <div className="space-y-4 normal-nums">
       <FindingCard
         eyebrow={t("abuse_form_queue_eyebrow")}
+        help="forms"
         finding={describeFormQueue(items.length)}
       >
         <p className="text-sm text-fg-muted">

@@ -91,6 +91,8 @@ describe("type roles", () => {
   it("gives every page title the page-title role", () => {
     for (const f of app) {
       for (const m of f.text.matchAll(/<h1\b[^>]*className="([^"]*)"/g)) {
+        // A title only for screen readers (PageHeader) has no size to give.
+        if (m[1]?.includes("sr-only")) continue
         expect(m[1], f.path).toContain("type-page-title")
       }
     }

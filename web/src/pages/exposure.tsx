@@ -1,3 +1,4 @@
+import { CardHelp } from "@/components/page-help"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, SearchX, ServerCog, ShieldQuestion } from "lucide-react"
 import { useState } from "react"
@@ -119,9 +120,12 @@ export function ExposurePage() {
 
           {r.unlisted.length > 0 ? (
             <section aria-labelledby="unlisted" className="mt-10">
-              <h2 id="unlisted" className="type-section-title text-fg">
-                {t("exposure_unlisted_title")}
-              </h2>
+              <div className="flex items-center gap-1.5">
+                <h2 id="unlisted" className="type-section-title text-fg">
+                  {t("exposure_unlisted_title")}
+                </h2>
+                <CardHelp id="unlisted" />
+              </div>
               <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
                 {t("exposure_unlisted_description", { count: r.unlisted.length })}
               </p>

@@ -165,6 +165,7 @@ export function SendQueue() {
       </p>
       <FindingCard
         eyebrow={t("send_queue_eyebrow")}
+        help="queue"
         finding={describeQueue(sorted.length)}
         action={
           <span

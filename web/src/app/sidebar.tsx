@@ -244,30 +244,19 @@ function SectionFlyout({
 
 const RAIL_ICON =
   "relative grid size-10 shrink-0 place-items-center rounded-lg text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-/** The expanded foot's icon buttons: 40 px on a phone, 32 px from `lg`, side by side. */
-const ROW_ICON =
-  "relative grid size-10 shrink-0 place-items-center rounded-md text-fg-subtle transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none lg:size-8"
-
-/** A tooltip above an icon of the expanded foot row. */
-function RowTip({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="top" sideOffset={6}>
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
+/**
+ * The expanded foot's three buttons share the width of the sidebar (each grows from its own label), each an icon over its
+ * short name, so they are easy to hit and need no tooltip.
+ */
+const FOOT_BUTTON =
+  "relative flex h-14 min-w-0 flex-auto flex-col items-center justify-center gap-1 rounded-md border bg-surface px-1 text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
 
 function Foot({
   rail,
-  drawer,
   settingsCurrent,
   onNavigate,
 }: {
   rail: boolean
-  drawer: boolean
   settingsCurrent: boolean
   onNavigate?: (() => void) | undefined
 }) {
@@ -301,36 +290,35 @@ function Foot({
       </div>
     )
   }
-  // Unfolded: the three links share one row of icons above the profile block.
+  // Unfolded: the three links share the full width above the profile block.
   return (
-    <div className="flex shrink-0 flex-col gap-1.5 border-t px-3 pt-2 pb-3">
-      <div className="flex items-center gap-1 px-0.5">
-        <RowTip label={t("nav_settings")}>
-          <Link
-            to={SETTINGS_PAGE.to}
-            onClick={onNavigate}
-            aria-label={t("nav_settings")}
-            aria-current={settingsCurrent ? "page" : undefined}
-            className={cn(ROW_ICON, settingsCurrent && "bg-surface-hover text-fg")}
-          >
-            <Settings aria-hidden strokeWidth={1.85} className="size-4" />
-            <UpdateDot className="absolute top-1.5 right-1.5" />
-          </Link>
-        </RowTip>
-        <RowTip label={t("sidebar_docs")}>
-          <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={ROW_ICON}>
-            <BookOpen aria-hidden strokeWidth={1.85} className="size-4" />
-            <span className="sr-only">{t("sidebar_docs_new_tab")}</span>
-          </a>
-        </RowTip>
-        <RowTip label={t("sidebar_github")}>
-          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className={ROW_ICON}>
-            <GithubMark className="size-4" />
-            <span className="sr-only">{t("sidebar_github_new_tab")}</span>
-          </a>
-        </RowTip>
+    <div className="flex shrink-0 flex-col gap-2 border-t px-3 pt-3 pb-3">
+      <div className="flex items-stretch gap-1.5">
+        <Link
+          to={SETTINGS_PAGE.to}
+          onClick={onNavigate}
+          aria-current={settingsCurrent ? "page" : undefined}
+          className={cn(
+            FOOT_BUTTON,
+            settingsCurrent && "border-border-strong bg-surface-hover text-fg",
+          )}
+        >
+          <Settings aria-hidden strokeWidth={1.85} className="size-[1.125rem]" />
+          <span className="max-w-full truncate text-xs font-medium">{t("nav_settings")}</span>
+          <UpdateDot className="absolute top-1.5 right-1.5" />
+        </Link>
+        <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={FOOT_BUTTON}>
+          <BookOpen aria-hidden strokeWidth={1.85} className="size-[1.125rem]" />
+          <span className="max-w-full truncate text-xs font-medium">{t("sidebar_docs_short")}</span>
+          <span className="sr-only">{t("sidebar_docs_new_tab")}</span>
+        </a>
+        <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className={FOOT_BUTTON}>
+          <GithubMark className="size-[1.0625rem]" />
+          <span className="max-w-full truncate text-xs font-medium">{t("sidebar_github")}</span>
+          <span className="sr-only">{t("sidebar_github_new_tab")}</span>
+        </a>
       </div>
-      <AccountMenu menuSide={drawer ? "top" : "right"} />
+      <AccountMenu />
     </div>
   )
 }
@@ -454,7 +442,6 @@ export function Sidebar({
       {variant === "drawer" ? <ScannerToggle className="border-t px-5 pt-3 pb-2" /> : null}
       <Foot
         rail={rail}
-        drawer={variant === "drawer"}
         settingsCurrent={settingsCurrent}
         onNavigate={onNavigate}
       />

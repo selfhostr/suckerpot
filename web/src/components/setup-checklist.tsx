@@ -95,6 +95,7 @@ export function SetupChecklistCard() {
   return (
     <FindingCard
       eyebrow={t("checklist_title")}
+      help="checklist"
       finding={
         items
           ? describeSetup(items)

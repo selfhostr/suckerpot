@@ -1,3 +1,4 @@
+import { CardHelp } from "@/components/page-help"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
 import { Download, Network, Search, SearchX, Workflow } from "lucide-react"
@@ -269,7 +270,10 @@ export function InfrastructurePage() {
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 space-y-1">
-          <h2 className="type-section-title text-fg">{t("infra_indicators_title")}</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="type-section-title text-fg">{t("infra_indicators_title")}</h2>
+            <CardHelp id="indicators" />
+          </div>
           <p className="max-w-2xl type-lede text-fg-muted">
             {range === "all"
               ? t("infra_indicators_all")
