@@ -36,15 +36,15 @@ export const HELP = {
     body: "Everything one address did across all sensors: when it came, what it tried and what happened. The reputation and network details come from the enrichment done when its first event arrived. Click a session to read the story, or a network to see its other addresses.",
   },
   networks: {
-    title: "Networks",
+    title: "Attacker networks",
     body: "The hosting providers and networks (ASNs) that attacks come from, counted from the same sessions as the Attackers list. Many addresses in one network often means one operator or one hosting farm. Click a network to see its sessions.",
   },
   activity: {
-    title: "Activity",
+    title: "Overview",
     body: "The last 24 hours in numbers: sessions, addresses, activity per sensor and the latest events, with up to three written insights. Everything is counted from the stored events, and fixed rules write the insights. Click an insight to open the evidence behind it.",
   },
   patterns: {
-    title: "Patterns",
+    title: "Trends",
     body: "The most tried usernames, passwords, commands and URLs, tags over time, a day by hour heatmap and what is new this week. All of it is counted from the stored events over the period you pick. Click a value to open the sessions that used it.",
   },
   campaigns: {
@@ -164,7 +164,7 @@ export const HELP = {
     body: "Each sensor, the port to open on your router, the port on this machine it is forwarded to, and whether it has received a connection in the last 24 hours. The status is read from the stored events. To switch sensors on or off, copy the command from the setup.",
   },
   network: {
-    title: "Network",
+    title: "SuckerPot network",
     body: "The SuckerPot network pools what many installations see, so an attacker seen by five or more sensors gets one strong report instead of many weak ones. It is off until an administrator joins, and members share only the items listed on this page. Open a target to see how it ended, or leave from Your node.",
   },
   "network-members": {
@@ -172,7 +172,7 @@ export const HELP = {
     body: "Who takes part in the network, by pseudonym only. A country shows when the member chose to show it and at least three members share it, and activity is the number of days last week. There is no ranking and never an address.",
   },
   "settings-network": {
-    title: "Network",
+    title: "SuckerPot network",
     body: "Join or leave the SuckerPot network, and change your pseudonym and country. Joining is optional, asks for your password and starts with nothing ticked. You can read every batch that was sent, and leaving deletes your data here and at the hub.",
   },
   styleguide: {

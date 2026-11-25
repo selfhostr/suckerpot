@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Flag, Grid3x3, SearchX } from "lucide-react"
-import { Link } from "react-router"
+import { Grid3x3, SearchX } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
 import { FindingCard } from "@/components/finding-card"
@@ -45,19 +44,7 @@ export function TechniquesPage() {
 
   return (
     <>
-      <PageHeader
-        help="techniques"
-        title="Techniques"
-        description={headline}
-        actions={
-          <Button asChild variant="outline" size="sm">
-            <Link to="/campaigns">
-              <Flag aria-hidden />
-              Campaigns
-            </Link>
-          </Button>
-        }
-      />
+      <PageHeader help="techniques" title="Techniques" description={headline} />
 
       <FilterBar className="mb-4" chips={[]} alsoClears={["sensor", "window"]}>
         <SensorFilter />

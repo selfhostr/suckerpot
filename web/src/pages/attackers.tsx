@@ -283,7 +283,7 @@ function AsnList({ sort }: { sort: AsnSort }) {
           description="Networks appear once GeoIP and ASN enrichment has run on incoming events."
         />
       ) : (
-        <ul aria-label="Networks">
+        <ul aria-label="Attacker networks">
           {items.map((n: AsnItem, i) => (
             <li key={n.asn} className={cn(i > 0 && "border-t")}>
               <Link
@@ -363,7 +363,7 @@ function AttackersView({ asns }: { asns: boolean }) {
     <>
       <PageHeader
         help={asns ? "networks" : "attackers"}
-        title={asns ? "Networks" : "Attackers"}
+        title={asns ? "Attacker networks" : "Attackers"}
         description={description}
       />
 

@@ -10,7 +10,7 @@ const SECTIONS = [
 export function ReportingNav() {
   return (
     // The sticky band keeps its solid fill; only the links inside fade at a cut edge.
-    <div className="sticky top-0 z-10 -mx-1 bg-bg px-1 py-2">
+    <div className="sticky top-14 z-10 -mx-1 bg-bg px-1 py-2">
       <nav aria-label="Reporting sections" className="scroll-fade-x flex gap-1 overflow-x-auto">
         {SECTIONS.map((s) => (
           <a

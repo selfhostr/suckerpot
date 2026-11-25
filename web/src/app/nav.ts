@@ -62,7 +62,7 @@ export const NAV_ITEMS: NavItem[] = [
     tabs: [
       { to: "/attacks", label: "Sessions" },
       { to: "/attackers", label: "Attackers" },
-      { to: "/networks", label: "Networks" },
+      { to: "/networks", label: "Attacker networks" },
     ],
   },
 
@@ -94,8 +94,8 @@ export const NAV_ITEMS: NavItem[] = [
     icon: TrendingUp,
     // The routes stay /overview and /trends; only the grouping changed.
     tabs: [
-      { to: "/overview", label: "Activity" },
-      { to: "/trends", label: "Patterns" },
+      { to: "/overview", label: "Overview" },
+      { to: "/trends", label: "Trends" },
     ],
   },
 
@@ -132,14 +132,14 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Abuse reports",
     icon: MailWarning,
     tabs: [
-      { to: "/defend/abuse", label: "Reports" },
+      { to: "/defend/abuse", label: "Abuse reports" },
       { to: "/defend/results", label: "Results" },
     ],
   },
   {
     space: "defend",
     to: "/network",
-    label: "Network",
+    label: "SuckerPot network",
     icon: Share2,
     tabs: [
       { to: "/network", label: "Overview" },
@@ -183,7 +183,12 @@ export function hubForPath(pathname: string): NavItem | undefined {
 
 /** The tab of `hub` that is current on `pathname` (detail routes count for their list). */
 export function activeTab(hub: NavItem, pathname: string): NavPage | undefined {
-  return hub.tabs?.find((t) => isUnder(pathname, t.to))
+  // The longest matching path wins: "/network/members" is Members, not Overview ("/network").
+  let best: NavPage | undefined
+  for (const t of hub.tabs ?? []) {
+    if (isUnder(pathname, t.to) && (!best || t.to.length > best.to.length)) best = t
+  }
+  return best
 }
 
 /** Every individual page, flattened: what a search or command palette lists. */

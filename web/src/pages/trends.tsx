@@ -33,7 +33,7 @@ const NEW_LABEL: Record<NewField, string> = {
   password: "Passwords",
   command: "Commands",
   url: "URLs",
-  asn: "Networks",
+  asn: "Attacker networks",
   user_agent: "User agents",
 }
 

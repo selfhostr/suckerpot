@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Navigation: tab names now match page titles (Overview, Trends, Abuse reports). The attacker ASN list is "Attacker networks" and the community is "SuckerPot network", in the sidebar, tabs, titles and Settings. The Abuse reports page lists Drafts first, then the send queue, replies and the archive. The abuse report page keeps its review actions in view while you scroll, and the options that change the message sit right under it. The Techniques page no longer has a second "Campaigns" button (use the tab). The Settings alert channels and network tabs link to the Alerts and SuckerPot network pages.
+
+### Fixed
+
+- The tab of `/network/members` is highlighted as Members, not Overview.
+- The reporting section links in Settings no longer slide under the sticky header.
+- Settings, First-run setup no longer says "The setup is finished" next to a checklist with open steps.
+
 ## [0.14.2] - 2026-11-24
 
 ### Added
