@@ -64,7 +64,8 @@ describe("page help texts", () => {
   it("has a text for every page in the navigation", () => {
     const byRoute: Record<string, HelpId> = {
       "/": "today",
-      "/live": "live",
+      // /live opens Today (the live map is part of it).
+      "/live": "today",
       "/attacks": "attacks",
       "/attackers": "attackers",
       "/networks": "networks",

@@ -21,7 +21,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "daily",
     title: "Read it daily: start with Today, then open Attacks.",
-    body: "Today tells the last 24 hours in plain words. Attacks lists every visit as one line; open a session to read its timeline and, for shell sessions, replay the commands at real speed.",
+    body: "Today shows what is happening right now on a live map, the last 24 hours in a few numbers, and what needs you. Attacks lists every visit as one line; open a session to read its timeline and, for shell sessions, replay the commands at real speed.",
   },
   {
     id: "group",

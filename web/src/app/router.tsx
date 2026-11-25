@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- route table: lazy page components live next to the router on purpose. */
 import { Suspense, lazy } from "react"
-import { createBrowserRouter, type RouteObject } from "react-router"
+import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "react-router"
 import { PageSkeleton } from "@/components/skeletons"
 import { NotFoundPage, RouteError } from "@/pages/not-found"
 import { AppShell } from "./app-shell"
@@ -13,7 +13,6 @@ const OverviewPage = lazy(() =>
   import("@/pages/overview").then((m) => ({ default: m.OverviewPage })),
 )
 const TodayPage = lazy(() => import("@/pages/today").then((m) => ({ default: m.TodayPage })))
-const LivePage = lazy(() => import("@/pages/live").then((m) => ({ default: m.LivePage })))
 const SessionDetailPage = lazy(() =>
   import("@/pages/session-detail").then((m) => ({ default: m.SessionDetailPage })),
 )
@@ -125,10 +124,16 @@ export const router = createBrowserRouter(
 // Page changes animate with the View Transitions API (view-transitions.ts).
 installViewTransitions(router)
 
+/** `/live` became part of Today: same query string (`?sensor=`), no history entry. */
+function ToToday() {
+  const { search } = useLocation()
+  return <Navigate to={{ pathname: "/", search }} replace />
+}
+
 /**
  * Every page declares how wide it may grow (`handle.width`, see page-width.ts): lists, hubs and
- * dashboards (and Settings, a set of panels) are "wide", Live is "full", and anything without a
- * width (setup and every detail page) is a "prose" reading page.
+ * dashboards (and Settings, a set of panels) are "wide", Today (with the live map) is "full", and
+ * anything without a width (setup and every detail page) is a "prose" reading page.
  */
 export function appRoutes(): RouteObject {
   return {
@@ -137,7 +142,7 @@ export function appRoutes(): RouteObject {
     children: [
       {
         index: true,
-        handle: { width: "wide" } satisfies RouteHandle,
+        handle: { width: "full" } satisfies RouteHandle,
         element: (
           <Lazy>
             <TodayPage />
@@ -145,13 +150,9 @@ export function appRoutes(): RouteObject {
         ),
       },
       {
+        // The live map is part of Today now; old links and bookmarks keep their filters.
         path: "live",
-        handle: { width: "full" } satisfies RouteHandle,
-        element: (
-          <Lazy>
-            <LivePage />
-          </Lazy>
-        ),
+        element: <ToToday />,
       },
       {
         path: "overview",

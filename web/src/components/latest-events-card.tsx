@@ -11,7 +11,7 @@ import { useReorderMotion } from "@/hooks/use-reorder-motion"
 import { LATEST_ROWS } from "@/lib/latest"
 import { deriveStats, liveFinding } from "@/lib/live-stats"
 
-/** The newest events from the shared live feed, with the same finding sentence as /live. */
+/** The newest events from the shared live feed, opened by a finding about the last minute. */
 export function LatestEventsCard({ className }: { className?: string }) {
   const { events, stats, status } = useLiveFeed()
   const latest = events.slice(0, LATEST_ROWS)
@@ -30,7 +30,7 @@ export function LatestEventsCard({ className }: { className?: string }) {
       finding={finding}
       action={
         <Button asChild variant="ghost" size="sm">
-          <Link to="/live">See all</Link>
+          <Link to="/">See all</Link>
         </Button>
       }
       bodyClassName="p-0 sm:p-0 pt-4 sm:pt-4"

@@ -13,11 +13,7 @@ export interface HelpText {
 export const HELP = {
   today: {
     title: "Today",
-    body: "Today tells the last 24 hours in plain words, from the events the sensors recorded. The flow diagram shows where visitors came from, which door they knocked on and how far they got. Click a block or a story to open the matching list of attacks.",
-  },
-  live: {
-    title: "Live",
-    body: "A map of the last 15 minutes of attacks, fed by the sensors over a live connection. Each arc is one source country landing on your home point, coloured by the kind of sensor it hit most. Click a sensor family in the stats strip to filter the page, or press Pause to freeze the picture.",
+    body: "The live map shows the last 15 minutes of attacks as arcs from each source country to your home point, coloured by the kind of sensor they hit, with the newest events under it and the busiest countries, addresses and networks beside it. Below are the last 24 hours in numbers and per hour, and what needs you. Click a family in the stats strip to filter, press Pause to freeze the picture, or click any number, row or hour to open the matching attacks.",
   },
   attacks: {
     title: "Attacks",

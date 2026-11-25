@@ -36,7 +36,7 @@ Every title, label and figure uses a **role** (`@utility type-*` in `index.css`)
 | meta (`text-xs`)     | 12/18 · 400                 | hints, timestamps, chips, sm controls                            |
 | `type-column`        | 11/16 · 500 · caps, +0.04em | column labels over a list or table                               |
 | `type-kpi`           | 28/34 · 600                 | the value of a KPI tile (StatTile, FamilyTile, KindTiles)        |
-| `type-figure`        | 28/34, 36/42 from `sm`      | the headline figures that open Today and Results                 |
+| `type-figure`        | 28/34, 36/42 from `sm`      | the headline figures that open Results                           |
 
 The finding sentence is 500, not the 600 of other headings: it is a whole sentence, often two lines, and the eyebrow above it already names the card.
 
@@ -94,10 +94,10 @@ No decorative gradients. The only fills under lines are flat, 8 % opacity.
 - 4 px grid. Page gutters: 16 px on mobile, 24 px on tablet, 40 px on desktop, the same on every page. Cards pad 16 px (mobile) / 20 px. Sections are separated by 24 px or more.
 - **Page width** is declared per route in the route table (`handle: { width }`, `src/app/page-width.ts`), gutters included:
   - `prose`, 1200 px: setup and every detail page (an attacker, a session, a campaign, a script, a sample, a report). Also the default for a route that declares nothing.
-  - `wide`, 1680 px: lists, hubs, Today, Trends, Results, the other Defend pages, Settings and the styleguide. On a 1920 px screen this is the whole content area, so leaving Live moves nothing.
-  - `full`, 2400 px: Live only.
-- Wide pages use the room from `2xl` (1536 px), and only where it shortens the read: a third column (Today: the stories in two columns and what to do in the third; Results: three cards to a row; Trends: the four top lists in one row), side by side panels (Infrastructure: the diagram beside the control servers), and wider table cells so a place and a network fit on one line. Below `2xl` the layout is the same as before. Reading pages keep 1200 px: wider lines are harder to read, not faster.
-- Cards of uneven height (Today's stories and to-do cards) flow in CSS columns, not grid rows, so a short card never sits next to a hole.
+  - `wide`, 1680 px: lists, hubs, Trends, Results, the other Defend pages, Settings and the styleguide. On a 1920 px screen this is the whole content area, so leaving Today moves nothing.
+  - `full`, 2400 px: Today only, the screen left running with the live map. It grows with the window and when the sidebar folds.
+- Wide pages use the room from `2xl` (1536 px), and only where it shortens the read: a third column (Results: three cards to a row; Trends: the four top lists in one row), side by side panels (Infrastructure: the diagram beside the control servers), and wider table cells so a place and a network fit on one line. Below `2xl` the layout is the same as before. Reading pages keep 1200 px: wider lines are harder to read, not faster.
+- Cards of uneven height flow in CSS columns, not grid rows, so a short card never sits next to a hole.
 - Radius, as in the selfhostr guidelines: 6 px chips (`rounded-sm`, the "plate"), 8 px controls, small panels and nav items (`rounded-md`, the button), 12 px cards (`rounded-lg`). 4 px (`rounded-xs`) only for marks inside a chip or a control (a copy button inside an address chip, a checkbox). Pills are fully rounded only for the sensor share bar and meters.
 - Cards side by side in a grid row share one height (grid rows stretch); a card whose title sits outside its box is a bug, the title goes inside like `FindingCard`. Uneven stacks are two column stacks (Settings, Reporting, VPN), never a grid with holes.
 
@@ -121,7 +121,7 @@ One set of heights, as tokens in `tokens.css` and used by every control primitiv
 
 ## Motion
 
-Motion explains a change; it never decorates. Calm and precise: slow to start, fast to settle, and nothing blinks. One authored motion per page (Live's map, Today's cards rising in); everything else is a short answer to what the reader just did.
+Motion explains a change; it never decorates. Calm and precise: slow to start, fast to settle, and nothing blinks. One authored motion per page (Today's live map); everything else is a short answer to what the reader just did.
 
 - **Tokens** (`tokens.css`, mirrored in `@theme` so `transition`, `duration-*` and `ease-*` follow them): `--motion-instant` 100 ms, `--motion-fast` 140 ms (hover, colour, exits), `--motion-base` 220 ms (fades, enters, overlays), `--motion-slow` 320 ms (cards, disclosures, morphs, sheets), `--motion-tween` 600 ms (numbers, bars). Easings: `--ease-out` `cubic-bezier(0.22, 1, 0.36, 1)` for anything arriving, `--ease-in` for anything leaving, `--ease-move` `cubic-bezier(0.4, 0, 0.2, 1)` for something going from A to B. **An exit is shorter than its enter**: overlays (tw-animate-css `animate-in` / `animate-out`, every dialog, menu, popover and tooltip) enter on `--motion-enter` and leave on `--motion-exit`, whatever `duration-*` a primitive says; a sheet slides in on slow and out on base.
 - **Only transform and opacity move.** The one exception is a disclosure's height. No `transition-[width]`, no animated `top`/`left`, no layout read in a loop.
@@ -161,7 +161,7 @@ The replay terminal is always dark, in both themes, with its own muted ANSI pale
 
 Every tile has the same structure: label, value, one footer line pinned to the bottom. The footer shows a neutral delta when a previous window exists, otherwise a plain hint. No sparkline in the Overview KPIs: the activity chart right below already shows the series.
 
-**Headline figures** (`StatTile variant="figure"`): the numbers that open Today and Results are not cards. They keep the same three parts, drop the border and fill, take the `3xl` size from `sm`, and sit on one band between two hairlines. A page whose every block is the same bordered card has no first thing to read; the figures are it. Use them once per page, for the page's key numbers only; other KPI rows stay tiles.
+**Headline figures** (`StatTile variant="figure"`): the numbers that open Results are not cards. They keep the same three parts, drop the border and fill, take the `3xl` size from `sm`, and sit on one band between two hairlines. A page whose every block is the same bordered card has no first thing to read; the figures are it. Use them once per page, for the page's key numbers only; other KPI rows stay tiles.
 
 ## Bars and shares
 
@@ -175,11 +175,26 @@ Only one tag is red: the leading payload tag, which is what the card's finding s
 
 Day × hour uses a five-step neutral scale (color-mix of `--fg` into `--surface`), a "Fewer … More" key, and a readout line for the hovered or tapped cell. Hours are shown in the browser time zone.
 
-## Live page
+## Today
 
-Live is the screen left running on a wall or a second monitor, so the map is the hero and everything else stays out of its way. There is no 3D globe: a flat map is easier to read at a glance and puts every source in its real place at once.
+The home page at `/` (first item of Observe), and the screen left running on a wall or a second monitor. `/live` opens it (with its query string), so old links keep their filters. It answers three questions at a glance: is something happening now, how was the day, does anything need me. Everything else is one click away: every number, row, hour and item opens its filtered list.
 
-**Layout, top to bottom.** The page header (title, one sentence, sensor filter, Pause), then one card: the map, full content width (Live is the one `full` page, up to 2400 px), about `100dvh - 19.5rem` tall on desktop (26rem to 72rem), 26rem on tablets, 11:8 on phones; the live ticker is the card's footer. Below the card, three ranking cards. On a 1440 × 900 screen the map, the ticker and the ranking titles are above the fold.
+**One screen, no scroll.** From `lg` the page is a CSS grid the height of the window (`100dvh` minus the header and the shell's padding, at least 40 rem) on the `full` width, so it grows when the sidebar folds. Under the page header, two rows and two columns: **now** (the map card, and who is behind it) over **the day** (five numbers and the hour strip, and what to do). The right column is one width in both rows (`clamp(20rem, 26%, 26rem)`) and the day row is `clamp(16.5rem, 30dvh, 20rem)`, so the four cards line up on both edges and every component sizes to its cell. Below `lg` the cards stack in reading order (map, to do, the day, the rankings) and the page scrolls, kept short: three ticker rows, six ranking rows.
+
+- **Header**: the title, the day's sentence from `GET /story` (glossary words as `Term`s), and on the right the sensor filter and Pause, which act on the live parts (map, ticker, rankings) and on the hour strip.
+- **Map card**: see [The live map](#the-live-map). The map takes what the card leaves after the stats strip and the ticker.
+- **Last 15 minutes** (`LiveLeaders`): one card with a switch, Addresses or Networks (the countries are on the map: its labels and dot tooltips). It opens with the finding of the ranking shown ("203.0.113.77 (France) is the busiest address: 116 events, 8% of the total."). On desktop it lists as many rows as fit the card (3 to 10, measured, never a clipped row).
+- **The day** (`DayCard` in `pages/today.tsx`): five numbers in one row (Visits, Machines, Countries, Got in, Tried to install; `type-kpi`, each a link to its list, "Updated 17:22" on the right), a hairline, then the hour strip (`HourlyActivity`). No hint lines under the numbers: the header sentence already says what they count.
+- **Hour strip** (`HourlyActivity`): visits per hour over 24 hours, one column per hour, stacked by family (the arc hues, so the map's strip is the same key) or, with the Families / Sensors switch, by sensor in the `--sensor-*` shades. Columns are at most 24 px wide with a 4 px round top and a square base, a 2 px gap between segments; hairline grid at zero, half and a round top value; a time label every six hours. Hover or focus shows a readout beside the column (anchored to the baseline, so it stays inside the card); a click or Enter opens that hour's sessions; the arrow keys, Home and End move between hours (one tab stop). An sr-only table carries every value. It follows the sensor filter.
+- **To do** (`TodoList`): at most three items from `GET /today`, the ones with news first, in this order: form reports to submit, act now (servers to block), new campaigns, new this week, your exposure ("what happened" is the page itself). Each is one line pair: the card's name in medium weight, its sentence (two lines at most), a chevron; the whole row opens the page where it is handled. When nothing has news, "Nothing needs you right now." and the two first quiet items, muted. The last line is the alerts sent in the last 24 hours ("4 sent in the last 24 hours, the latest 14 min. ago: …"), linked to the alerts; hidden when the outbox cannot be read.
+- **Act now is the only red** on the page besides severe ticker chips: its icon turns `sev-severe` when servers handed out malware.
+- What left the page: the flow diagram (where from, which door, how far: the map and the five numbers carry it), the stage legend, the stories of the day (the sessions list tells every visit as a sentence) and the item lists of the to-do cards (each item opens the page that lists them).
+
+## The live map
+
+The hero of Today: the biggest card, and everything else stays out of its way. There is no 3D globe: a flat map is easier to read at a glance and puts every source in its real place at once.
+
+**In the card**: the map on top, the stats strip under it on narrow cards, the live ticker as the footer. On phones the map has the World preset's own shape (11:8), 26 rem on tablets, and the rest of the card on desktop.
 
 **The picture** (`components/map/activity.ts`): the last **15 minutes** of sources, aggregated **per country**, one arc per country to home, coloured by the country's dominant sensor family, thicker for more events (log scale) and fading with age (never below 22 % inside the window). A new event sends one short dash along its arc; active sources (last minute) pulse softly. Nothing flashes, and a quiet minute still shows where traffic came from.
 
@@ -187,24 +202,13 @@ Live is the screen left running on a wall or a second monitor, so the map is the
 - **Home** is a solid dot, a fixed ring, a slow pulse and a "⌂ Switzerland" label (from `GET /settings/site`), always on top and never covered by source labels.
 - **Labels**: "FR 37" next to the 12 busiest visible sources, busiest first. Each label tries the right of its dot, then the left, above, below and the four diagonals, and never covers home, its label or a busier source's dot or label (a quieter dot may sit under it, still clickable); it is dropped only when every spot collides (the tight cluster around home at World scale), so the busiest neighbours keep theirs. Every source dot is a button (tooltip: country, events, addresses, sensors) that opens the country's Attacks view. The tooltip opens on the side away from home, so the lit arc stays visible.
 - **Stats strip** (`FamilyStrip`): events per minute in total and per family, on the map's top-left corner on cards 896 px or wider, under the map otherwise. The family swatch is the arc colour, so the strip is also the legend. A family button filters the whole page (`?sensor=`), a second press clears it.
-- **Ticker** (`LiveTicker`): the newest events as one row of fixed-width chips (sensor icon, flag, address, summary; red outline and icon for a severe event). A new chip fades in on the left while the others glide right (500 ms); the row is clipped with a short fade on the right. Hovering or focusing the ticker holds it; held events show as an "N new events" pill that resumes. Phones get the latest five as stacked `LiveEventRow`s instead. "All attacks" links to the full list.
-- **Rankings** (`LiveLeaders`): Top addresses, Top countries, Top networks over the same 15 minutes, six rows each, each card opening with its finding ("France leads with 21% of events, from 10 addresses."). Rows show flag, name, up to three sensor icons, count and share, with a neutral share bar. Each row opens the filtered Attacks view (`src_ip`, `country`, `asn`).
+- **Ticker** (`LiveTicker`): the newest events as one row of fixed-width chips (sensor icon, flag, address, summary; red outline and icon for a severe event). A new chip fades in on the left while the others glide right (500 ms); the row is clipped with a short fade on the right. Hovering or focusing the ticker holds it; held events show as an "N new events" pill that resumes. Phones get the latest three as stacked `LiveEventRow`s instead. "All attacks" links to the full list.
+- **Rankings** (`LiveLeaders`): Top addresses or Top networks over the same 15 minutes (see [Today](#today)). Rows show rank, flag, name, the network or AS number when the card is 22 rem or wider, up to three sensor icons (same width), count and share, with a neutral share bar. Each row opens the filtered Attacks view (`src_ip`, `asn`).
 - **Linked highlight**: hovering or focusing a ranking row, a ticker chip or a map dot lights that country everywhere: its arc goes full opacity and one pixel thicker, other arcs, dots and labels step back to 28 %, its tooltip opens on the map, and matching rows and chips get the hover background.
 - **Pause** freezes the whole picture (map, rankings, ticker) at the newest event; Resume or the pill catches up.
 - **Reduced motion**: no dashes, pulses, glides or tweens; the picture is the same. Screenshots set `window.__SUCKERPOT_MAP__ = { freeze: true }` for the same effect.
-- **Weight**: the map paths are about 30 kB gzip in `world.svg`, fetched by Live only (drawn with `<use href>`, coloured by the tokens) and cached as a hashed asset, never in the JS. No WebGL, no three.js.
-- **Cost**: Live is left running, so idle must be cheap. The map is a stack of layers, each on its own compositing layer: land and borders (repainted only when the view moves), arcs, dashes, pulses, dots. Pulses and dashes are HTML elements animated with `transform` and `opacity` only, which the compositor runs without repainting anything: a pulse is a ring drawn at full size and grown from the dot (so the line stays 1 px), a dash a capsule moved along its arc by keyframes computed in `map/dash.ts`. Never animate an SVG attribute (`stroke-dashoffset`, `r`) or an SVG transform in a loop: it repaints the layer every frame. Pulses and dashes stop while the map is scrolled out of view or the tab is hidden. The map, ticker, chips and rankings are memoized, so a new event re-renders only what it changes.
-
-## Today
-
-The home page at `/` (first item of Observe). The headline sentence, the five headline figures, the flow, the hour strip, then the stories and the to-do cards. From `2xl` the stories take two columns and the to-do cards stack in a third beside them; below that the to-do cards follow the stories in two columns. Stories and to-do cards flow in columns (no equal heights, no holes). Three to five to-do cards, each one the same shape: a small heading with an icon, one plain-English sentence written by `GET /today`, at most three items (each opens a filtered view), and one outlined action at the bottom. Cards are, in order: what happened in 24 h, new campaigns, act now (download servers worth blocking), new this week (first-seen networks, URLs, commands) and your exposure (only once a service inventory exists). A card with nothing to report keeps its place, its sentence turns muted, and the action stays. Cards enter with the staggered `animate-card-in`.
-
-- **One meta line** under the title: "Updated 17:22" (minutes, not seconds: the page refreshes every two minutes), then, if research scanners are hidden, how many sessions are left out and "Show them".
-- **Numbers say what they count**: "82 sessions", "14 sightings", "41 times" (`countUnit`), the unit in the subtle colour. A campaign row has no number: its detail line already says "37 sessions from 9 sources".
-- **Item icons carry meaning**: the sensor icon, the country flag, a tag; first-seen items get the icon of what they are (network, URL, command, username), so a card never repeats one glyph three times.
-- **Act now is the only red** on the page: its heading icon turns `sev-severe` when it lists servers handing out malware. The word "Act now" carries the meaning; the colour only reinforces it.
-- Glossary terms go in the sentence, never in the small card heading (one dotted underline per idea).
-- Big changes read as a ratio: "15 times as many as the day before", not "1,415% more".
+- **Weight**: the map paths are about 30 kB gzip in `world.svg`, fetched by Today only (drawn with `<use href>`, coloured by the tokens) and cached as a hashed asset, never in the JS. No WebGL, no three.js.
+- **Cost**: Today is left running, so idle must be cheap. The map is a stack of layers, each on its own compositing layer: land and borders (repainted only when the view moves), arcs, dashes, pulses, dots. Pulses and dashes are HTML elements animated with `transform` and `opacity` only, which the compositor runs without repainting anything: a pulse is a ring drawn at full size and grown from the dot (so the line stays 1 px), a dash a capsule moved along its arc by keyframes computed in `map/dash.ts`. Never animate an SVG attribute (`stroke-dashoffset`, `r`) or an SVG transform in a loop: it repaints the layer every frame. Pulses and dashes stop while the map is scrolled out of view or the tab is hidden. The map, ticker, chips and rankings are memoized, so a new event re-renders only what it changes.
 
 ## App shell
 
@@ -289,7 +293,7 @@ Script detail, top to bottom: the sentence (what it does, how often, which campa
 
 ## Loading
 
-Heavy pages (Overview, Live, Attackers, attacker profile, session detail, styleguide) load on demand behind a `PageSkeleton` in the final layout. Skeletons are shaped like what they stand for (a top list's skeleton has the rank, label, count and share of a row) and shimmer faintly. Recharts and xterm get their own chunks, so the first load stays small.
+Heavy pages (Today, Overview, Attackers, attacker profile, session detail, styleguide) load on demand behind a `PageSkeleton` in the final layout. Skeletons are shaped like what they stand for (a top list's skeleton has the rank, label, count and share of a row) and shimmer faintly. Recharts and xterm get their own chunks, so the first load stays small.
 
 ## Scrolling
 
@@ -300,7 +304,7 @@ One scroll model, four rules.
 3. **Inner scroll is for raw text only** (strings, code, a message body, a copy field, a deobfuscated script). The box is capped (20 rem), takes `scroll-fade-y`, and shows an "Expand" toggle (`useExpandable` and `ExpandToggle`) only when there is more to show; expanded, it grows to its full height and the window scrolls. The capped strings list hands over to a window-scrolled list when expanded.
 4. **Overview cards show the latest eight rows** (`LATEST_ROWS`) and a ghost "See all" link in the card's action slot, top right, on every page.
 
-On long pages the list is the main thing: summaries and filters stay compact above it, and the filter bar of Blocklists and Malware stays in view while the rows scroll under it (from `md`; on a phone it scrolls away, the column header is not shown there). On a short window only the sidebar's sections scroll (rows are 28 px tall from `lg`, and a section can be folded); its foot stays in reach. A tab strip that scrolls sideways starts at the left and keeps the open tab in view. A box that scrolls (tab strips, segmented controls, a capped message body) takes `scroll-fade-x` or `scroll-fade-y`: its content fades out over 2 rem (2.5 rem vertically) at the edge that hides more, only while there is more, driven by its own scroll timeline (no JavaScript; browsers without scroll timelines show the plain box). The mask also fades borders and fills, so a framed box puts the class on the scrolling element inside the frame, never on the frame. The Live page has no scrolling list: its ticker and rankings are bounded (ten chips, six rows), and the full history is the Attacks list.
+On long pages the list is the main thing: summaries and filters stay compact above it, and the filter bar of Blocklists and Malware stays in view while the rows scroll under it (from `md`; on a phone it scrolls away, the column header is not shown there). On a short window only the sidebar's sections scroll (rows are 28 px tall from `lg`, and a section can be folded); its foot stays in reach. A tab strip that scrolls sideways starts at the left and keeps the open tab in view. A box that scrolls (tab strips, segmented controls, a capped message body) takes `scroll-fade-x` or `scroll-fade-y`: its content fades out over 2 rem (2.5 rem vertically) at the edge that hides more, only while there is more, driven by its own scroll timeline (no JavaScript; browsers without scroll timelines show the plain box). The mask also fades borders and fills, so a framed box puts the class on the scrolling element inside the frame, never on the frame. Today has no scrolling list and does not scroll on desktop: its ticker and rankings are bounded (ten chips, at most ten rows), and the full history is the Attacks list.
 
 ## Components
 
@@ -313,10 +317,10 @@ On long pages the list is the main thing: summaries and filters stay compact abo
 | SensorBadge                | `sensor-badge.tsx`                       | `badge` (family tint + sensor icon + label) or `dot`                                                                                            |
 | SensorFilter               | `sensor-filter.tsx`                      | multi-select popover grouped by family, `?sensor=a,b`, keyboard: type, arrows, Enter                                                            |
 | FamilyTile                 | `family-tile.tsx`                        | KPI per family: total in its hue, one line per sensor (icon, name, count), each a filtered link                                                 |
-| LiveMap, WorldMap          | `map/live-map.tsx`, `map/world-map.tsx`  | Live hero card: flat map, stats strip, ticker footer; linked highlight                                                                          |
+| LiveMap, WorldMap          | `map/live-map.tsx`, `map/world-map.tsx`  | Today hero card: flat map, stats strip, ticker footer; linked highlight                                                                         |
 | FamilyStrip                | `family-strip.tsx`                       | events / min in total and per family; family toggles filter the page; doubles as the arc legend                                                 |
 | LiveTicker                 | `live-ticker.tsx`                        | newest events as gliding chips (stacked rows on phones), hold on hover, "N new events" pill                                                     |
-| LiveLeaders                | `live-leaders.tsx`                       | top addresses, countries and networks of the last 15 minutes, finding first, rows link to filtered Attacks                                      |
+| LiveLeaders                | `live-leaders.tsx`                       | top addresses or networks of the last 15 minutes behind a switch, finding first, rows fit the card, rows link to filtered Attacks               |
 | SeverityBadge              | `severity-badge.tsx`                     | icon + label, or icon only with an accessible name                                                                                              |
 | TagBadge                   | `tag-badge.tsx`                          | mono, neutral; red diamond for payload tags                                                                                                     |
 | IPChip                     | `ip-chip.tsx`                            | mono, copy button, links to `?src_ip=`, `masked`, `chip` or `ghost`                                                                             |
@@ -344,7 +348,9 @@ On long pages the list is the main thing: summaries and filters stay compact abo
 | LiveEventRow               | `live-event-row.tsx`                     | one live event: sensor badge, summary (text only), tags, IP, flag, time; whole row opens the session                                            |
 | LiveSensorTile             | `live-sensor-tile.tsx`                   | events in the last minute for one sensor, in its hue, links to filtered Attacks                                                                 |
 | LatestEventsCard           | `latest-events-card.tsx`                 | FindingCard with the newest live events (Overview)                                                                                              |
+| TodoList                   | `today/todo-list.tsx`                    | Today's to-do: three items of `GET /today` (news first), one linked row each, then the alerts line                                              |
 | SensorActivityChart        | `charts/sensor-activity-chart.tsx`       | Recharts stacked bars (events per hour, fixed sensor order, sensor hues), legend with icons + totals linking to filtered Attacks, sr-only table |
+| HourlyActivity             | `charts/hourly-activity.tsx`             | Today's hour strip: visits per hour stacked by family or sensor, readout, click opens the hour, arrow keys, sr-only table                       |
 | DayBars                    | `charts/day-bars.tsx`                    | 30 neutral daily bars for one attacker, sr-only table                                                                                           |
 | TopList                    | `top-list.tsx`                           | ranked rows with printed count + share ("<1%", never "0%"; bar is decoration), each row a filtered link; `scale="total"` when rows can tie      |
 | AttackerRow                | `attacker-row.tsx`                       | one-line attacker profile story; row opens the profile, chips/flags/tags open filtered lists                                                    |

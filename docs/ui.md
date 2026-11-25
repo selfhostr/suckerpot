@@ -10,7 +10,7 @@ On a computer, the button beside the logo (or `Ctrl+B`, `⌘B` on a Mac) folds t
 
 | Section | Pages | Question it answers |
 | --- | --- | --- |
-| Observe | Today, Live | What is happening now? |
+| Observe | Today | What is happening now? |
 | Observe | Sessions, Attackers, Attacker networks | Who is attacking, and from where? |
 | Understand | Campaigns, Techniques | Who is behind it? |
 | Understand | Scripts, Malware, Infrastructure | What do they drop, and from where? |
@@ -41,8 +41,7 @@ The **Take the tour** button in the Settings header plays the guided tour again.
 | --- | --- | --- |
 | Sign in | `/login` | The login form. Any other page sends you here when there is no session. `/set-password` asks for a new password on first sign-in. |
 | **Observe** | | |
-| Today | `/` | The home page: the last 24 hours as a visual story. A plain headline and five big numbers, a flow diagram (country, door, how far they got), an hour-by-hour strip, a few "stories of the day", then what to do about it. See [Today, search and the glossary](#today-search-and-the-glossary). |
-| Live | `/live` | A flat world map of the last 15 minutes of attacks, with arcs landing at the home point, a stats strip, a ticker of the newest events and rankings of addresses, countries and networks. See [The Live page](#the-live-page). |
+| Today | `/` | The home page, on one screen: the live map of the last 15 minutes with a ticker of the newest events and the busiest addresses and networks, then the last 24 hours in five numbers and an hour-by-hour chart, and the few things to do. `/live` opens it too. See [Today](#today). |
 | Attacks | `/attacks` | Sessions, newest first, one line each, as a short story. Filters: sensor, floods (All, Hide, Only), source address, period, tag, country and network. Pages of 50, virtualised. A source that flooded the sensors is one row per hour (see [Flood groups](#flood-groups)). |
 | Session detail | `/attacks/<session id>` | The attack timeline, with long runs of the same event folded, a terminal replay for shell sessions, and a source panel. A flood group has its own page, with the credentials it tried instead of a replay. |
 | Attackers | `/attackers`, `/attackers/<ip>` | Profiles by address: first and last seen, sensors targeted, reputation. |
@@ -156,7 +155,7 @@ The tab adds no new colour. Red is kept for severe events, as in the rest of the
 
 ## Sessions as stories
 
-A session row reads like a sentence, for example: "203.0.113.9 tried 37 SSH passwords, then ran 5 commands and tried to download 1 file". The text is written by one pure function in the app and covered by unit tests. The same words are used on the Attacks list, the Live feed and the Session page.
+A session row reads like a sentence, for example: "203.0.113.9 tried 37 SSH passwords, then ran 5 commands and tried to download 1 file". The text is written by one pure function in the app and covered by unit tests. The same words are used on the Attacks list, the live ticker on Today and the Session page.
 
 A session is marked severe when it downloaded something or carries a payload tag (such as `php2shell`, `crypto-miner`, `mirai` or `malware-drop`). A single event gets the red icon only when the event itself is severe.
 
@@ -167,50 +166,42 @@ Some sources open hundreds of plain connections in an hour: a password spray, a 
 - **The row.** One story that counts the connections, for example "203.0.113.7 opened 812 RDP connections, one login each", a neutral chip with an icon, the word "flood" and the count ("x812"), and the hours the group ran in your time zone ("14:02–14:58", under the start time, with the date and time zone on hover). A flood is volume, not a payload, so the chip is never red and never relies on colour.
 - **The Attacks page.** The headline says how much of the day came in floods ("... 96% of them in floods from 20 addresses."). The **Floods** control has three choices: **All** (the default), **Hide** and **Only**. It is written in the URL as `?kind=session` (Hide) and `?kind=burst` (Only), so a view can be shared. The end of the list counts connections, not rows ("End of the list · 5,432 sessions in 140 rows").
 - **The group page.** A sentence says what the group is (none of its connections got in, ran a command or downloaded a file), then the window it covers, the connections, the logins tried, the events and the target port (there is no single source port to show). A **Credentials tried** card lists the most used usernames and passwords, each opening the matching [Trends](#trends-and-malware) filter. **First events** shows the first 200 events in the usual timeline, with long runs folded. **Same hour** lists the other groups of the same address in that hour, and the source card links to every session of the address. There is no terminal replay.
-- **Links from events.** A link to a session from an event (the Live feed, the latest events of the Overview page) carries the time of the event as `?at=`. A connection that was folded into a group has no page of its own, so the page opens the group that holds it and says so. A link without `?at=` to a folded connection shows "Session not found".
+- **Links from events.** A link to a session from an event (the ticker on Today, the latest events of the Overview page) carries the time of the event as `?at=`. A connection that was folded into a group has no page of its own, so the page opens the group that holds it and says so. A link without `?at=` to a folded connection shows "Session not found".
 - **Attacker profile.** The profile sentence adds "of which 1,456 in floods" (a link to that address's flood groups; "at least" when the address has more than 200 groups).
 
-## The Live page
+## Today
 
-The Live page is the screen to leave running on a wall or a second monitor. The map is the main element. There is no 3D globe: a flat map is easier to read at a glance, and it shows every source in its real place.
+**Today** is the page you land on, and the screen to leave running on a wall or a second monitor. On a computer it fits the window and never scrolls; it grows when you fold the sidebar. On a phone the parts stack and the page scrolls. The old `/live` address opens it, with its filters.
 
-From top to bottom:
+At the top, one sentence tells the last 24 hours ("In the last 24 hours, 612 machines from 38 countries knocked on your decoy doors 16,740 times."). On the right, the sensor filter and **Pause** act on the live parts and on the hour-by-hour chart.
 
-- **Map.** A flat world map (Equal Earth projection) with land and borders. It shows the last 15 minutes of traffic: one arc per source country, landing at the home point (Switzerland by default). An arc takes the colour of the sensor family that sends most traffic from that country, and gets thicker with more events. Presets are "World" (the default) and "Europe"; the last choice is remembered. Drag, scroll, pinch or use the arrow keys, `+`, `-`, `E` and `0` to pan and zoom.
-- **Stats strip.** Events per minute, in total and per sensor family, in the top-left corner of the map (or under it on phones). The family colour is also the arc colour, so the strip is the legend. Click a family to filter the page. Click it again to clear the filter.
-- **Ticker.** The newest events, as one row of chips under the map. Hover or focus the ticker to hold it still. New events then wait behind an "N new events" pill. Click the pill to catch up.
-- **Rankings.** Three cards show the top addresses, the top countries and the top networks over the same 15 minutes. Each card opens with a sentence, such as "France leads with 21% of events, from 10 addresses." Each row opens the filtered Attacks view.
+- **Map.** A flat world map (Equal Earth projection) with land and borders. It shows the last 15 minutes of traffic: one arc per source country, landing at the home point (Switzerland by default). An arc takes the colour of the sensor family that sends most traffic from that country, and gets thicker with more events. The busiest countries carry a label ("FR 376"); hover a dot for the country's events, addresses and sensors, click it for its attacks. Presets are "World" (the default) and "Europe"; the last choice is remembered. Drag, scroll, pinch or use the arrow keys, `+`, `-`, `E` and `0` to pan and zoom. There is no 3D globe: a flat map is easier to read at a glance, and it shows every source in its real place.
+- **Stats strip.** Events per minute, in total and per sensor family, in the top-left corner of the map (or under it when the map is narrow). The family colour is also the arc colour, so the strip is the legend. Click a family to filter the page. Click it again to clear the filter.
+- **Ticker.** The newest events, as one row of chips under the map (the latest three as rows on a phone). Hover or focus the ticker to hold it still. New events then wait behind an "N new events" pill. Click the pill to catch up.
+- **Last 15 minutes.** The busiest addresses or networks (a switch picks one), opening with a sentence such as "203.0.113.77 (France) is the busiest address: 116 events, 8% of the total." Each row opens the filtered Attacks view. The countries are on the map.
+- **The day.** Five numbers for the last 24 hours (visits, machines, countries, how many got in, how many tried to install something), each a link to its list, then visits per hour, stacked by sensor family or, with the switch, by sensor. Hover an hour for its numbers, click it (or press Enter) to open those visits; the arrow keys move between hours.
+- **To do.** The three most pressing items from `GET /api/v1/today`, the ones with news first: form reports to submit, servers to block, new campaigns, what is new this week, your exposure. Each line opens the page where you handle it. The last line says how many alerts went out in the last 24 hours and links to them.
 
 Hovering a ranking row, a ticker chip or a map dot highlights that country everywhere. Its arc becomes fully opaque, and the other arcs fade. **Pause** freezes the map, the rankings and the ticker at the newest event.
 
-The home point comes from `GET /api/v1/settings/site`. Its position is set with `SITE_HOME_LAT` and `SITE_HOME_LON` (see [Configuration](configuration.md#site-live-map-home)).
+The day comes from `GET /api/v1/story`, the to-do list from `GET /api/v1/today`. The home point comes from `GET /api/v1/settings/site`. Its position is set with `SITE_HOME_LAT` and `SITE_HOME_LON` (see [Configuration](configuration.md#site-live-map-home)). Underlined words (brute force, malware, exploit, scanner and more) show a one-sentence definition.
 
 With "reduce motion" set in the system, the arcs do not animate, the ticker does not glide and the numbers do not tween. The picture stays the same.
 
 ## The live feed
 
-The Live page and the small dot beside **Live** in the sidebar share one connection per browser tab.
+Today and the small dot beside **Live** in the sidebar share one connection per browser tab.
 
 - **WebSocket.** The app connects to `/api/v1/live`. It receives the 50 newest events first, then each new event, and statistics every 5 seconds.
 - **Reconnects.** When the socket closes, the app retries with exponential backoff and jitter (1 s, 2 s, 4 s, up to 30 s). The dot dims.
-- **Polling fallback.** After 3 failed attempts in a row, or when the server refuses the socket (full, or origin not allowed), the app reads `/api/v1/events/recent` every 10 seconds while it keeps trying to reconnect. The Live page says so.
+- **Polling fallback.** After 3 failed attempts in a row, or when the server refuses the socket (full, or origin not allowed), the app reads `/api/v1/events/recent` every 10 seconds while it keeps trying to reconnect. Today says so.
 - **Refusals.** If the server is full (close code 1013), the app waits a minute before it tries again. If the origin is rejected (1008), it waits five minutes, because only a configuration change fixes it. See [Behind a TLS-terminating tunnel](deployment.md#behind-a-tls-terminating-tunnel).
 - **Heartbeat.** The app sends a `ping` every 25 seconds.
 - **Hidden tabs.** After five minutes in the background, the app disconnects. It reconnects when the tab is visible again.
 - **Hold to read.** When you scroll away from the top of the feed, hover it, or press pause, new events wait in a counter ("N new events, jump to latest") instead of moving the list. The buffer keeps the newest 500 events.
 - **Slow clients.** If the server had to skip messages for this tab, the app is told how many (`dropped`), and it can say so.
 
-## Today, search and the glossary
-
-**Today** is the page you land on. It tells the last 24 hours in plain words first, and keeps the technical detail one click away.
-
-- **Headline and numbers.** One sentence, then visits, machines, countries, how many got in and how many tried to install something.
-- **The flow.** A diagram from the country, to the door (the sensor), to how far the visitor got: only looked, guessed passwords, got in, ran commands, tried to install something, sent an exploit. Hover for the plain label and the count. Click a block or ribbon to open the Attacks list filtered the same way (`/attacks?stage=…`). A legend explains each stage in one sentence. On a phone it becomes one bar per door.
-- **Hour by hour.** Drag, click or use the arrow keys to pick an hour; one sentence says what happened in it.
-- **Stories of the day.** Three to five notable visits, each with a plain title, a step-by-step path that plays once, a severity badge, the country and address, and a **Technical details** button (raw lines, tags, ATT&CK techniques, campaign and a link to the full session).
-- **What you can do about it.** The cards from `GET /api/v1/today`: new campaigns, what to block, what is new this week, your exposure.
-
-The story comes from `GET /api/v1/story`. Underlined words (brute force, malware, exploit, scanner and more) show a one-sentence definition. A card with nothing to report keeps its place and says so.
+## Search and the glossary
 
 **Search** is the box at the top of every page on a computer, and the magnifier in the top bar on a phone. `Ctrl+K` (`Cmd+K` on a Mac) opens the same search from anywhere. Type an address, the start of an address ending in a dot such as `203.0.113.`, a CVE id, a file hash, a domain or a URL, or the start of a campaign name. Results are grouped, at most five per group, and Enter opens the first one: an attacker profile, a campaign, the CVE watch, or the Infrastructure page. Indicators are shown defanged and never as links.
 
@@ -233,7 +224,7 @@ README and documentation screenshots must use demo data only, even with the mask
 ## Keyboard and accessibility
 
 - Every control is a real link or button. Tab moves through the page in reading order, and the focus ring is always visible.
-- Whole rows in the Attacks list and the Live feed are links: Tab to a row and press Enter to open the session. The tag badges and address chips inside a row stay separately focusable.
+- Whole rows in the Attacks list and the live ticker on Today are links: Tab to a row and press Enter to open the session. The tag badges and address chips inside a row stay separately focusable.
 - Colour is never the only signal. Sensors have an icon and a name, severity has an icon and a label.
 - Text colours are checked for WCAG AA contrast in both themes by an automated test.
 - There are no custom keyboard shortcuts yet.

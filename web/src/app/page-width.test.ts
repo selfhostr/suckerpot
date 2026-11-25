@@ -16,13 +16,12 @@ describe("page width", () => {
     expect(pageWidth([{ handle: { width: "huge" } }])).toBe("prose")
   })
 
-  it("gives Live the whole screen", () => {
-    expect(widthAt("/live")).toBe("full")
+  it("gives Today, with the live map, the whole screen", () => {
+    expect(widthAt("/")).toBe("full")
   })
 
   it("widens lists, hubs and dashboards", () => {
     for (const path of [
-      "/",
       "/attacks",
       "/attackers",
       "/networks",

@@ -18,8 +18,8 @@ const CHIP_W = 300
 const CHIP_GAP = 8
 /** Chips kept in the row: enough to fill a 4K wall, the rest is history in Attacks. */
 const ROW_CHIPS = 10
-/** Rows kept in the stacked (phone) layout. */
-const STACK_ROWS = 5
+/** Rows kept in the stacked (phone) layout: Today stays short on a phone. */
+const STACK_ROWS = 3
 
 interface LiveTickerProps {
   /** Newest first, already filtered and held by the page. */
@@ -45,7 +45,7 @@ interface LiveTickerProps {
 /**
  * The newest events as a calm ticker under the map. On wide screens, one row
  * of fixed-width chips: a new event fades in on the left while the others
- * glide right. On phones, the latest five as stacked rows. Each chip opens its
+ * glide right. On phones, the latest three as stacked rows. Each chip opens its
  * session; hovering one lights its source on the map.
  */
 export const LiveTicker = memo(function LiveTicker({
