@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { alertKeys, alertsApi, reportHtmlUrl, weekLabel, type ReportSummary } from "@/lib/alerts"
 import { ApiError } from "@/lib/api"
-import { countryName, formatAbsolute, formatNumber, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { countryName, formatAbsolute, formatNumber } from "@/lib/format"
 import { sensorMeta } from "@/lib/sensors"
 
 const WEEK = /^\d{4}-\d{2}-\d{2}$/
@@ -63,9 +64,9 @@ function Section({
 
 /** A weekly report, drawn with the design system from its stored summary (text only). */
 function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; createdAt: string }) {
-  const t = s.totals ?? {}
-  const total = t.sessions ?? 0
-  const change = t.change_pct ?? null
+  const tot = s.totals ?? {}
+  const total = tot.sessions ?? 0
+  const change = tot.change_pct ?? null
   const actions = s.actions ?? []
 
   const sensors = items(s.by_sensor, total, (r) => ({
@@ -105,7 +106,7 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
     label: (
       <span>
         {r.name}
-        <span className="text-fg-muted"> · {plural(r.sources, "source")}</span>
+        <span className="text-fg-muted"> · {t("report_campaign_sources", { count: r.sources })}</span>
       </span>
     ),
     count: r.sessions,
@@ -124,26 +125,34 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <section aria-label="Key figures" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <section aria-label={t("report_key_figures")} className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatTile
-          label="Attack sessions"
+          label={t("report_tile_sessions")}
           value={total}
           delta={change === null ? null : change / 100}
-          deltaLabel="vs the week before"
-          hint="No earlier week to compare"
+          deltaLabel={t("report_tile_delta")}
+          hint={t("report_tile_sessions_hint")}
         />
-        <StatTile label="Different addresses" value={t.sources ?? 0} hint="Unique sources" />
-        <StatTile label="Ran commands" value={t.with_commands ?? 0} hint="Got past the login" />
-        <StatTile label="Dropped malware" value={t.malware ?? 0} hint="Sessions with a download" />
+        <StatTile
+          label={t("report_tile_addresses")}
+          value={tot.sources ?? 0}
+          hint={t("report_tile_addresses_hint")}
+        />
+        <StatTile
+          label={t("report_tile_commands")}
+          value={tot.with_commands ?? 0}
+          hint={t("report_tile_commands_hint")}
+        />
+        <StatTile
+          label={t("report_tile_malware")}
+          value={tot.malware ?? 0}
+          hint={t("report_tile_malware_hint")}
+        />
       </section>
 
       <FindingCard
-        eyebrow="What to do next"
-        finding={
-          actions.length === 1
-            ? "One thing to do this week."
-            : `${actions.length} things to do this week, most useful first.`
-        }
+        eyebrow={t("report_actions_eyebrow")}
+        finding={t("report_actions_finding", { count: actions.length })}
       >
         <ol className="space-y-2.5">
           {actions.map((a, i) => (
@@ -162,49 +171,50 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Section
-          eyebrow="Services attacked"
+          eyebrow={t("report_services_eyebrow")}
           finding={top(
             sensors,
-            (f) => `${f.name} took ${Math.round(f.share * 100)}% of the sessions.`,
+            (f) =>
+              t("report_services_finding", { name: f.name, percent: Math.round(f.share * 100) }),
           )}
           list={sensors}
-          empty="No sessions this week."
+          empty={t("report_services_empty")}
         />
         <Section
-          eyebrow="Where attacks came from"
-          finding={top(countries, (f) => `Most sessions came from ${f.name}.`)}
+          eyebrow={t("report_countries_eyebrow")}
+          finding={top(countries, (f) => t("report_countries_finding", { name: f.name }))}
           list={countries}
-          empty="No located sessions this week."
+          empty={t("report_countries_empty")}
         />
         <Section
-          eyebrow="What attackers did"
+          eyebrow={t("report_tags_eyebrow")}
           finding={top(
             tags,
-            (f) => `Most common behaviour: ${f.name}, in ${plural(f.count, "session")}.`,
+            (f) => t("report_tags_finding", { name: f.name, count: f.count }),
           )}
           list={tags}
-          empty="No tagged behaviour this week."
+          empty={t("report_tags_empty")}
         />
         <Section
-          eyebrow="Watched vulnerabilities seen"
-          finding={`${plural(cves.length, "watched CVE")} ${cves.length === 1 ? "was" : "were"} tried against the honeypot.`}
+          eyebrow={t("report_cves_eyebrow")}
+          finding={t("report_cves_finding", { count: cves.length })}
           list={cves}
-          empty="None of your watched CVEs was tried."
+          empty={t("report_cves_empty")}
         />
         <Section
-          eyebrow="New campaigns"
-          finding={`${plural(campaigns.length, "new campaign")} started this week.`}
+          eyebrow={t("report_campaigns_eyebrow")}
+          finding={t("report_campaigns_finding", { count: campaigns.length })}
           list={campaigns}
-          empty="No new campaign this week."
+          empty={t("report_campaigns_empty")}
         />
         <FindingCard
-          eyebrow="New malware download hosts"
+          eyebrow={t("report_hosts_eyebrow")}
           finding={
             hosts.length
-              ? `${plural(hosts.length, "new host")} served malware. Block them on your proxy or DNS filter.`
-              : "No new download host this week."
+              ? t("report_hosts_finding", { count: hosts.length })
+              : t("report_hosts_empty")
           }
-          detail={hosts.length ? "Defanged: replace [.] with . only in a safe tool." : undefined}
+          detail={hosts.length ? t("report_hosts_detail") : undefined}
         >
           {hosts.length ? (
             <ul className="divide-y">
@@ -213,7 +223,7 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
                   <span className="min-w-0 flex-1 text-fg">{h.label}</span>
                   <span className="shrink-0 text-sm text-fg">
                     {formatNumber(h.count)}
-                    <span className="sr-only"> times seen</span>
+                    <span className="sr-only"> {t("report_hosts_times_seen")}</span>
                   </span>
                 </li>
               ))}
@@ -225,8 +235,10 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
       <p className="flex items-start gap-2 text-xs text-fg-subtle">
         <ShieldCheck aria-hidden className="mt-px size-3.5 shrink-0" />
         <span>
-          Safe to forward: the report holds no IP address and only defanged indicators. Times in{" "}
-          {s.timezone ?? "UTC"}. Built {formatAbsolute(createdAt)}.
+          {t("report_footer", {
+            timezone: s.timezone ?? "UTC",
+            date: formatAbsolute(createdAt),
+          })}
         </span>
       </p>
     </div>
@@ -269,20 +281,20 @@ export function ReportPage() {
   const back = (
     <Link to={ALERTS_SETTINGS} className="inline-flex items-center gap-1 hover:text-fg">
       <ArrowLeft aria-hidden className="size-3.5" />
-      Alerts and reports
+      {t("report_back")}
     </Link>
   )
   if (!valid || (q.isError && q.error instanceof ApiError && q.error.status === 404)) {
     return (
       <>
-        <PageHeader help="report" title="Weekly report" eyebrow={back} />
+        <PageHeader help="report" title={t("report_title")} eyebrow={back} />
         <EmptyState
           icon={FileText}
-          title="This report does not exist"
-          description="Reports are built every Monday morning. Pick one from the list."
+          title={t("report_missing_title")}
+          description={t("report_missing_description")}
           action={
             <Button variant="outline" asChild>
-              <Link to={ALERTS_SETTINGS}>Back to the list</Link>
+              <Link to={ALERTS_SETTINGS}>{t("report_missing_back")}</Link>
             </Button>
           }
         />
@@ -294,14 +306,14 @@ export function ReportPage() {
     <>
       <PageHeader
         help="report"
-        title={`Week of ${weekLabel(week, q.data?.summary.week_end ?? null)}`}
+        title={t("report_week_of", { week: weekLabel(week, q.data?.summary.week_end ?? null) })}
         eyebrow={back}
-        description={headline ?? (q.isError ? undefined : "Loading the report…")}
+        description={headline ?? (q.isError ? undefined : t("report_loading"))}
         actions={
           <Button variant="outline" size="sm" asChild>
             <a href={reportHtmlUrl(week)} target="_blank" rel="noopener noreferrer">
               <Printer aria-hidden />
-              Print or save as PDF
+              {t("report_print")}
             </a>
           </Button>
         }
@@ -311,8 +323,8 @@ export function ReportPage() {
       ) : q.isError ? (
         <EmptyState
           icon={FileText}
-          title="The report could not be loaded"
-          description="Try again in a moment."
+          title={t("report_error_title")}
+          description={t("report_error_description")}
         />
       ) : (
         <ReportBody summary={q.data.summary} createdAt={q.data.created_at} />

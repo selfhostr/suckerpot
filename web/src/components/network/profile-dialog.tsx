@@ -13,6 +13,7 @@ import { describeUserError, UserError } from "@/lib/users"
 import { networkApi, validatePseudonym, type NetworkStatus } from "@/lib/network"
 import { ProfileFields, type Profile } from "./profile-fields"
 import { useRefreshNetwork } from "./use-network"
+import { t } from "@/i18n"
 
 function ProfileForm({ status, onClose }: { status: NetworkStatus; onClose: () => void }) {
   const refresh = useRefreshNetwork()
@@ -57,19 +58,19 @@ function ProfileForm({ status, onClose }: { status: NetworkStatus; onClose: () =
       }}
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Your pseudonym and country</DialogTitle>
+        <DialogTitle>{t("network_profile_title")}</DialogTitle>
         <DialogDescription>
-          Both are optional and visible to other members. You can change the pseudonym once a week.
+          {t("network_profile_description")}
         </DialogDescription>
       </DialogHeader>
       <ProfileFields value={profile} onChange={setProfile} pseudonymError={nameError} />
       <FormError id={errId} message={formError} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Save"}
+          {pending ? t("network_profile_saving") : t("common_save")}
         </Button>
       </DialogFooter>
     </form>

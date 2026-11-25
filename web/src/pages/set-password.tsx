@@ -5,6 +5,7 @@ import { Logo } from "@/app/logo"
 import { ChangePasswordForm } from "@/components/password-form"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Card } from "@/components/ui/card"
+import { t } from "@/i18n"
 
 /** The first screen of a new account, or of one whose password an administrator reset. */
 export function SetPasswordPage() {
@@ -31,16 +32,15 @@ export function SetPasswordPage() {
             >
               <KeyRound className="size-4" />
             </span>
-            <h1 className="type-page-title text-fg">Set your password</h1>
+            <h1 className="type-page-title text-fg">{t("pwd_set_title")}</h1>
             <p className="text-sm text-fg-muted">
-              Hello {user.display_name}. The password you signed in with is temporary. Choose your
-              own to open the dashboard.
+              {t("pwd_set_intro", { name: user.display_name })}
             </p>
           </div>
           <ChangePasswordForm
             username={user.username}
-            currentLabel="Temporary password"
-            submitLabel="Save and continue"
+            currentLabel={t("pwd_temporary")}
+            submitLabel={t("pwd_save_continue")}
             layout="page"
             onDone={() => {
               void refresh().then(() => navigate("/", { replace: true }))
@@ -53,7 +53,7 @@ export function SetPasswordPage() {
             }}
             className="text-center text-xs text-fg-muted underline-offset-4 hover:text-fg hover:underline"
           >
-            Sign out instead
+            {t("pwd_sign_out_instead")}
           </button>
         </Card>
       </main>

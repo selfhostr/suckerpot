@@ -15,6 +15,7 @@ import { useIpMask } from "@/app/ip-mask"
 import { ALERTS_SETTINGS } from "@/app/nav"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { t } from "@/i18n"
 import { alertKeys, alertsApi } from "@/lib/alerts"
 import { maskIpsInText } from "@/lib/format"
 import {
@@ -39,13 +40,13 @@ function TodoRow({ card }: { card: TodayCardData }) {
   const Icon = ICON[card.id] ?? Sparkles
   // Servers that hand out malware are the one severe thing on this page: the only red here.
   const urgent = card.id === "act" && !card.empty
-  const title = CARD_TITLE[card.id]
+  const title = t(CARD_TITLE[card.id])
   const sentence = masked ? maskIpsInText(card.sentence) : card.sentence
   return (
     <li data-todo={card.id}>
       <Link
         to={card.action.to}
-        aria-label={`${title}: ${sentence} ${card.action.label}`}
+        aria-label={t("today_todo_row_aria", { title, sentence, action: card.action.label })}
         className="group -mx-2 flex items-start gap-3 rounded-md px-2 py-2 transition-colors duration-150 hover:bg-surface-hover/70"
       >
         <Icon
@@ -62,7 +63,7 @@ function TodoRow({ card }: { card: TodayCardData }) {
             card.empty ? "text-fg-muted" : "text-fg",
           )}
         >
-          <span className="font-medium">{title}.</span>{" "}
+          <span className="font-medium">{t("today_todo_row_title", { title })}</span>{" "}
           <span className={card.empty ? undefined : "text-fg-muted"}>{sentence}</span>
         </p>
         <ChevronRight
@@ -92,12 +93,12 @@ function AlertsLine() {
     <Link
       to={ALERTS_SETTINGS}
       data-alerts
-      aria-label={`Alerts: ${text} Open the alerts`}
+      aria-label={t("today_alerts_aria", { text })}
       className="group -mx-2 mt-auto flex items-center gap-3 rounded-md border-t px-2 pt-3 pb-1 transition-colors duration-150 hover:text-fg"
     >
       <Bell aria-hidden className="size-4 shrink-0 text-fg-subtle" strokeWidth={1.85} />
       <p className="min-w-0 flex-1 truncate text-sm text-fg-muted">
-        <span className="font-medium text-fg">Alerts.</span> {text}
+        <span className="font-medium text-fg">{t("today_alerts_label")}</span> {text}
       </p>
       <ChevronRight
         aria-hidden
@@ -129,12 +130,12 @@ export function TodoList({ cards, error = false, className }: TodoListProps) {
       className={cn("min-h-0 overflow-hidden px-4 py-4 sm:px-5 sm:py-5", className)}
     >
       <h2 id="todo-title" className="type-eyebrow text-fg-muted">
-        To do
+        {t("today_todo_title")}
       </h2>
       {error ? (
-        <p className="mt-2 text-sm text-fg-muted">The to-do list could not be loaded.</p>
+        <p className="mt-2 text-sm text-fg-muted">{t("today_todo_error")}</p>
       ) : !cards ? (
-        <div role="status" aria-label="Loading" className="mt-3 space-y-3">
+        <div role="status" aria-label={t("common_loading")} className="mt-3 space-y-3">
           {Array.from({ length: 3 }, (_, i) => (
             <Skeleton key={i} className="h-9 w-full" />
           ))}
@@ -144,10 +145,10 @@ export function TodoList({ cards, error = false, className }: TodoListProps) {
           {calm ? (
             <p className="mt-2 flex items-center gap-2 text-sm text-fg">
               <CircleCheck aria-hidden className="size-4 text-fg-muted" strokeWidth={1.85} />
-              Nothing needs you right now.
+              {t("today_todo_calm")}
             </p>
           ) : null}
-          <ul aria-label="To do" className="mt-1.5">
+          <ul aria-label={t("today_todo_title")} className="mt-1.5">
             {(calm ? todo.slice(0, 2) : todo).map((card) => (
               <TodoRow key={card.id} card={card} />
             ))}

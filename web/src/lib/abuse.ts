@@ -4,7 +4,7 @@
  * the owner copies the draft into his own webmail. The sentences are pure and tested.
  */
 import { ApiError, getBlob, getJson, sendJson, type Page } from "./api"
-import { plural } from "./format"
+import { intlLocale, t, tk } from "@/i18n"
 import type { Outcome, RepliesStatus, Reply, ReportOutcome } from "./replies"
 
 // --- Vocabulary -------------------------------------------------------------------
@@ -13,42 +13,63 @@ export type ReportKind = "attack_source" | "payload_host" | "c2"
 /** A report holds one kind of source, or every kind for one provider (a daily digest, M38). */
 export type ReportItemKind = ReportKind | "digest"
 export const KIND_LABEL: Record<ReportKind, string> = {
-  attack_source: "Attack source",
-  payload_host: "Payload host",
-  c2: "C2 server",
+  get attack_source() {
+    return t("abuse_kind_attack_source")
+  },
+  get payload_host() {
+    return t("abuse_kind_payload_host")
+  },
+  get c2() {
+    return t("abuse_kind_c2")
+  },
 }
 /** The order and headings of the sections of a digest. */
 export const KINDS: readonly ReportKind[] = ["attack_source", "payload_host", "c2"]
 export const KIND_HEADING: Record<ReportKind, string> = {
-  attack_source: "Attack sources",
-  payload_host: "Payload hosts",
-  c2: "Command servers",
+  get attack_source() {
+    return t("abuse_kind_heading_attack_source")
+  },
+  get payload_host() {
+    return t("abuse_kind_heading_payload_host")
+  },
+  get c2() {
+    return t("abuse_kind_heading_c2")
+  },
 }
-const KIND_NOUN: Record<ReportKind, [string, string]> = {
-  attack_source: ["attack source", "attack sources"],
-  payload_host: ["payload host", "payload hosts"],
-  c2: ["command server", "command servers"],
+/** "3 attack sources", "1 payload host": the count and the noun of one kind. */
+function kindCount(kind: ReportKind, n: number): string {
+  switch (kind) {
+    case "attack_source":
+      return t("abuse_kind_count_attack_source", { count: n })
+    case "payload_host":
+      return t("abuse_kind_count_payload_host", { count: n })
+    case "c2":
+      return t("abuse_kind_count_c2", { count: n })
+  }
+}
+
+/**
+ * A label in the middle of a sentence: lower case, except in German where nouns keep their capital
+ * ("Entwurf", not "entwurf").
+ */
+export function lowerNoun(label: string): string {
+  const locale = intlLocale()
+  return locale.startsWith("de") ? label : label.toLocaleLowerCase(locale)
 }
 
 /** "Digest" for a daily digest, else the kind of its sources. */
 export function kindLabel(kind: ReportItemKind): string {
-  return kind === "digest" ? "Daily digest" : KIND_LABEL[kind]
+  return kind === "digest" ? t("abuse_kind_digest") : KIND_LABEL[kind]
 }
 
 /** "12 sources (9 attack sources, 3 payload hosts)", or the plain count of an older report. */
 export function describeSources(r: Pick<ReportItem, "kind" | "subject_count" | "kinds">): string {
   const kinds = r.kinds ?? {}
-  const parts = KINDS.filter((k) => (kinds[k] ?? 0) > 0).map((k) => {
-    const [one, many] = KIND_NOUN[k]
-    return plural(kinds[k] ?? 0, one, many)
-  })
+  const parts = KINDS.filter((k) => (kinds[k] ?? 0) > 0).map((k) => kindCount(k, kinds[k] ?? 0))
   const total = parts.length > 0 ? KINDS.reduce((n, k) => n + (kinds[k] ?? 0), 0) : r.subject_count
-  if (r.kind !== "digest") {
-    const [one, many] = KIND_NOUN[r.kind]
-    return plural(total, one, many)
-  }
-  const head = plural(total, "source")
-  return parts.length > 0 ? `${head} (${parts.join(", ")})` : head
+  if (r.kind !== "digest") return kindCount(r.kind, total)
+  const head = t("abuse_sources_count", { count: total })
+  return parts.length > 0 ? t("abuse_sources_with_kinds", { head, kinds: parts.join(", ") }) : head
 }
 
 /**
@@ -65,9 +86,10 @@ export function describeDue(
   const clock = `${String(due.getHours()).padStart(2, "0")}:${String(due.getMinutes()).padStart(2, "0")}`
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
   const days = Math.round((day(due) - day(now)) / 86_400_000)
-  if (days <= 0) return due.getTime() <= now.getTime() ? "goes soon" : `goes at ${clock}`
-  if (days === 1) return `goes tomorrow at ${clock}`
-  return "waiting for a later day"
+  if (days <= 0)
+    return due.getTime() <= now.getTime() ? t("abuse_due_soon") : t("abuse_due_at", { clock })
+  if (days === 1) return t("abuse_due_tomorrow", { clock })
+  return t("abuse_due_later")
 }
 
 export type ReportStatus = "draft" | "reviewed" | "sent" | "closed" | "discarded" | "superseded"
@@ -75,26 +97,53 @@ export type ReportStatus = "draft" | "reviewed" | "sent" | "closed" | "discarded
 export const LIST_STATUSES = ["draft", "reviewed", "sent", "closed", "discarded"] as const
 export type ListStatus = (typeof LIST_STATUSES)[number]
 export const STATUS_LABEL: Record<ReportStatus, string> = {
-  draft: "Draft",
-  reviewed: "Reviewed",
-  sent: "Sent",
-  closed: "Closed",
-  discarded: "Discarded",
-  superseded: "Replaced",
+  get draft() {
+    return t("abuse_status_draft")
+  },
+  get reviewed() {
+    return t("abuse_status_reviewed")
+  },
+  get sent() {
+    return t("abuse_status_sent")
+  },
+  get closed() {
+    return t("abuse_status_closed")
+  },
+  get discarded() {
+    return t("abuse_status_discarded")
+  },
+  get superseded() {
+    return t("abuse_status_superseded")
+  },
 }
 export const TAB_LABEL: Record<ListStatus, string> = {
-  draft: "Drafts",
-  reviewed: "Reviewed",
-  sent: "Sent",
-  closed: "Closed",
-  discarded: "Discarded",
+  get draft() {
+    return t("abuse_tab_draft")
+  },
+  get reviewed() {
+    return t("abuse_tab_reviewed")
+  },
+  get sent() {
+    return t("abuse_tab_sent")
+  },
+  get closed() {
+    return t("abuse_tab_closed")
+  },
+  get discarded() {
+    return t("abuse_tab_discarded")
+  },
 }
 /** The four steps of the stepper (discarded and replaced are side exits). */
 export const STEPS = ["draft", "reviewed", "sent", "closed"] as const
 
 export type MessageFormat = "text" | "xarf" | "eml"
 export const FORMAT_OPTIONS = [
-  { value: "text", label: "Plain text" },
+  {
+    value: "text",
+    get label() {
+      return t("abuse_format_text")
+    },
+  },
   { value: "xarf", label: "X-ARF" },
   { value: "eml", label: ".eml" },
 ] as const
@@ -109,105 +158,110 @@ export const DEFAULT_TLP: Tlp = "green"
 
 export type ReferenceStyle = "subject" | "subject_and_body" | "off"
 export const REFERENCE_STYLE_OPTIONS = [
-  { value: "subject", label: "In the subject" },
-  { value: "subject_and_body", label: "Subject and body" },
-  { value: "off", label: "Off" },
+  {
+    value: "subject",
+    get label() {
+      return t("abuse_reference_subject")
+    },
+  },
+  {
+    value: "subject_and_body",
+    get label() {
+      return t("abuse_reference_subject_and_body")
+    },
+  },
+  {
+    value: "off",
+    get label() {
+      return t("common_off")
+    },
+  },
 ] as const satisfies readonly { value: ReferenceStyle; label: string }[]
 
 /** Reason codes of the identity check. They never carry the matched value. */
-export const GUARD_REASON: Record<string, string> = {
-  self_address: "The text contains the public address of the monitored system.",
-  self_name: "The text contains a name that belongs to the monitored system.",
-  owner_domain: "The text contains a domain that belongs to you.",
-  vpn_address: "The text contains the address that outbound traffic leaves from.",
-  project_term: "The text contains the name of this project or a word that gives it away.",
-  private_address: "The text contains a private or reserved network address.",
-  documentation_address: "The text contains an example address that real reports must not use.",
-  dashboard_path: "The text contains a link or path into this dashboard.",
-  internal_id: "The text contains an internal identifier that links back to the dashboard.",
-  default_wording: "The text contains wording shipped with the software.",
-  no_self_address:
-    "The address of the monitored system is not known yet, so nothing can be checked. Reports stay locked until traffic teaches it, or you add it in Settings.",
-  self_terms_unavailable:
-    "The list of things that must never appear could not be read, so nothing is released.",
-  // Set by the draft builder, not by the guard itself.
-  settings_incomplete: "No reply contact is set, so the report cannot be written.",
-  evidence_invalid: "The stored evidence of this draft is not valid.",
-  eml_invalid_recipient: "The abuse mailbox of this provider is not a valid address.",
-  bad_reply_token: "The reply reference of this draft is not valid.",
+const GUARD_REASON: Record<string, string> = {
+  self_address: tk("abuse_guard_reason_self_address"),
+  self_name: tk("abuse_guard_reason_self_name"),
+  owner_domain: tk("abuse_guard_reason_owner_domain"),
+  vpn_address: tk("abuse_guard_reason_vpn_address"),
+  project_term: tk("abuse_guard_reason_project_term"),
+  private_address: tk("abuse_guard_reason_private_address"),
+  documentation_address: tk("abuse_guard_reason_documentation_address"),
+  dashboard_path: tk("abuse_guard_reason_dashboard_path"),
+  internal_id: tk("abuse_guard_reason_internal_id"),
+  default_wording: tk("abuse_guard_reason_default_wording"),
+  no_self_address: tk("abuse_guard_reason_no_self_address"),
+  self_terms_unavailable: tk("abuse_guard_reason_self_terms_unavailable"),
+  settings_incomplete: tk("abuse_guard_reason_settings_incomplete"),
+  evidence_invalid: tk("abuse_guard_reason_evidence_invalid"),
+  eml_invalid_recipient: tk("abuse_guard_reason_eml_invalid_recipient"),
+  bad_reply_token: tk("abuse_guard_reason_bad_reply_token"),
 }
 
 export function guardReason(code: string): string {
-  return GUARD_REASON[code] ?? "The identity check refused this text."
+  return t(GUARD_REASON[code] ?? tk("abuse_guard_reason_other"))
 }
 
 /**
  * What to do about each reason, in plain English. A blocked draft is re-checked on its own about
  * a minute after the settings are saved, so the settings advice never says "regenerate".
  */
-export const GUARD_FIX: Record<string, string> = {
-  project_term:
-    "Use a neutral reply address and neutral wording. An address on a domain that names the project counts. Saved changes are checked again within a minute.",
-  self_name:
-    "Use a reply address and texts that do not contain that name. If the name is not yours, delete it under Never in a report.",
-  owner_domain: "Use a reply address on a domain that does not belong to you.",
-  self_address:
-    "Remove it from your texts in the Reporting settings. If it still shows up, the captured traffic contains it: discard the draft.",
-  vpn_address:
-    "Remove it from your texts in the Reporting settings. If it still shows up, discard the draft.",
-  private_address:
-    "Regenerate the draft. If it is blocked again, the captured traffic contains it: discard the draft.",
-  documentation_address:
-    "Regenerate the draft. If it is blocked again, the captured traffic contains it: discard the draft.",
-  dashboard_path: "Remove the link from your texts in the Reporting settings, then regenerate.",
-  internal_id:
-    "Regenerate the draft. If it is blocked again, the captured traffic contains it: discard the draft.",
-  default_wording:
-    "Write the introduction, closing, note, signature and subject template in your own words, or leave them empty. Saved changes are checked again within a minute.",
-  no_self_address: "Wait until traffic teaches the address, or add it under Never in a report.",
-  self_terms_unavailable: "Try again in a minute. If it lasts, check that the database is healthy.",
-  settings_incomplete: "Set a reply contact in the Reporting settings.",
-  evidence_invalid: "Regenerate the draft, or discard it.",
-  eml_invalid_recipient: "Type a valid mailbox for this provider in the list of recipients.",
-  bad_reply_token: "Regenerate the draft, or discard it.",
+const GUARD_FIX: Record<string, string> = {
+  project_term: tk("abuse_guard_fix_project_term"),
+  self_name: tk("abuse_guard_fix_self_name"),
+  owner_domain: tk("abuse_guard_fix_owner_domain"),
+  self_address: tk("abuse_guard_fix_self_address"),
+  vpn_address: tk("abuse_guard_fix_vpn_address"),
+  private_address: tk("abuse_guard_fix_private_address"),
+  documentation_address: tk("abuse_guard_fix_documentation_address"),
+  dashboard_path: tk("abuse_guard_fix_dashboard_path"),
+  internal_id: tk("abuse_guard_fix_internal_id"),
+  default_wording: tk("abuse_guard_fix_default_wording"),
+  no_self_address: tk("abuse_guard_fix_no_self_address"),
+  self_terms_unavailable: tk("abuse_guard_fix_self_terms_unavailable"),
+  settings_incomplete: tk("abuse_guard_fix_settings_incomplete"),
+  evidence_invalid: tk("abuse_guard_fix_evidence_invalid"),
+  eml_invalid_recipient: tk("abuse_guard_fix_eml_invalid_recipient"),
+  bad_reply_token: tk("abuse_guard_fix_bad_reply_token"),
 }
 
 /** A few words for one draft row: why it is held back. */
-export const GUARD_SHORT: Record<string, string> = {
-  self_address: "has your address",
-  self_name: "names your system",
-  owner_domain: "uses your domain",
-  vpn_address: "has your outbound address",
-  project_term: "names the project",
-  private_address: "has a private address",
-  documentation_address: "has an example address",
-  dashboard_path: "links into the dashboard",
-  internal_id: "has an internal identifier",
-  default_wording: "uses old default wording",
-  no_self_address: "your address is not known yet",
-  self_terms_unavailable: "the deny list could not be read",
-  settings_incomplete: "no reply contact is set",
-  evidence_invalid: "its evidence is not valid",
-  eml_invalid_recipient: "its mailbox is not valid",
-  bad_reply_token: "its reply reference is not valid",
+const GUARD_SHORT: Record<string, string> = {
+  self_address: tk("abuse_guard_short_self_address"),
+  self_name: tk("abuse_guard_short_self_name"),
+  owner_domain: tk("abuse_guard_short_owner_domain"),
+  vpn_address: tk("abuse_guard_short_vpn_address"),
+  project_term: tk("abuse_guard_short_project_term"),
+  private_address: tk("abuse_guard_short_private_address"),
+  documentation_address: tk("abuse_guard_short_documentation_address"),
+  dashboard_path: tk("abuse_guard_short_dashboard_path"),
+  internal_id: tk("abuse_guard_short_internal_id"),
+  default_wording: tk("abuse_guard_short_default_wording"),
+  no_self_address: tk("abuse_guard_short_no_self_address"),
+  self_terms_unavailable: tk("abuse_guard_short_self_terms_unavailable"),
+  settings_incomplete: tk("abuse_guard_short_settings_incomplete"),
+  evidence_invalid: tk("abuse_guard_short_evidence_invalid"),
+  eml_invalid_recipient: tk("abuse_guard_short_eml_invalid_recipient"),
+  bad_reply_token: tk("abuse_guard_short_bad_reply_token"),
 }
 
 /** One reason as two sentences: what was found, and what to do about it. */
 export function guardAdvice(code: string): { why: string; fix: string } {
   return {
     why: guardReason(code),
-    fix: GUARD_FIX[code] ?? "Regenerate the draft, or discard it.",
+    fix: t(GUARD_FIX[code] ?? tk("abuse_guard_fix_other")),
   }
 }
 
 /** "Why: names the project, uses old default wording" for a blocked row, or null. */
 export function describeBlockedRow(guard: GuardResult): string | null {
   if (guard.ok) return null
-  const words = guard.codes.map((c) => GUARD_SHORT[c] ?? "was refused by the check")
-  if (words.length === 0) return "Why: the identity check refused it"
-  const shown = words.slice(0, 2).join(", ")
-  const more = words.length > 2 ? ` and ${words.length - 2} more` : ""
-  return `Why: ${shown}${more}`
+  const words = guard.codes.map((c) => t(GUARD_SHORT[c] ?? tk("abuse_guard_short_other")))
+  if (words.length === 0) return t("abuse_blocked_row_none")
+  return t("abuse_blocked_row", {
+    shown: words.slice(0, 2).join(", "),
+    more: Math.max(0, words.length - 2),
+  })
 }
 
 /**
@@ -216,7 +270,7 @@ export function describeBlockedRow(guard: GuardResult): string | null {
  */
 export function describeBlockedDrafts(blocked: BlockedDrafts): string {
   const n = blocked.count
-  return `${plural(n, "draft")} ${n === 1 ? "is" : "are"} blocked by the identity check: ${n === 1 ? "it" : "they"} cannot be reviewed, copied or sent until the cause is fixed.`
+  return t("abuse_blocked_drafts", { count: n })
 }
 
 /** The reasons of the blocked drafts, most common first, each with its fix. */
@@ -232,35 +286,30 @@ export function blockedReasons(
 
 /** How a sentence about one setting names it. */
 const SETTINGS_SUBJECT: Record<string, string> = {
-  reply_contact: "This reply address",
-  signature: "The signature",
-  intro: "The introduction",
-  outro: "The closing",
-  note: "The note",
-  subject_template: "The subject template",
-  xarf_user_agent: "The X-ARF user agent",
-  xarf_org: "The X-ARF organisation",
-  form_name: "Your name for web forms",
+  reply_contact: tk("abuse_settings_subject_reply_contact"),
+  signature: tk("abuse_settings_subject_signature"),
+  intro: tk("abuse_settings_subject_intro"),
+  outro: tk("abuse_settings_subject_outro"),
+  note: tk("abuse_settings_subject_note"),
+  subject_template: tk("abuse_settings_subject_subject_template"),
+  xarf_user_agent: tk("abuse_settings_subject_xarf_user_agent"),
+  xarf_org: tk("abuse_settings_subject_xarf_org"),
+  form_name: tk("abuse_settings_subject_form_name"),
 }
 
 /** What a reason means for a text that ends up in every report. */
 const SETTINGS_CONSEQUENCE: Record<string, string> = {
-  project_term: "names the project, so every report would reveal the honeypot.",
-  self_name: "names your monitored system, so every report would reveal it.",
-  owner_domain: "uses a domain that belongs to you, so every report would point back to you.",
-  self_address:
-    "contains the public address of the monitored system, so every report would reveal it.",
-  vpn_address:
-    "contains the address your outbound traffic leaves from, so every report would reveal it.",
-  private_address: "contains a private or reserved network address, so every report is blocked.",
-  documentation_address:
-    "contains an example address that real reports must not use, so every report is blocked.",
-  dashboard_path: "contains a link into this dashboard, so every report would reveal it.",
-  internal_id: "contains an internal identifier, so every report is blocked.",
-  default_wording:
-    "uses wording that older versions shipped as a default, so every report could be recognised.",
-  self_terms_unavailable:
-    "could not be checked, because the list of things that must never appear could not be read.",
+  project_term: tk("abuse_settings_issue_project_term"),
+  self_name: tk("abuse_settings_issue_self_name"),
+  owner_domain: tk("abuse_settings_issue_owner_domain"),
+  self_address: tk("abuse_settings_issue_self_address"),
+  vpn_address: tk("abuse_settings_issue_vpn_address"),
+  private_address: tk("abuse_settings_issue_private_address"),
+  documentation_address: tk("abuse_settings_issue_documentation_address"),
+  dashboard_path: tk("abuse_settings_issue_dashboard_path"),
+  internal_id: tk("abuse_settings_issue_internal_id"),
+  default_wording: tk("abuse_settings_issue_default_wording"),
+  self_terms_unavailable: tk("abuse_settings_issue_self_terms_unavailable"),
 }
 
 /**
@@ -268,12 +317,15 @@ const SETTINGS_CONSEQUENCE: Record<string, string> = {
  * report, never the matched text (the server sends reason codes only).
  */
 export function describeSettingsIssue(field: string, codes: string[]): string {
-  const subject = SETTINGS_SUBJECT[field] ?? "This text"
-  const parts = codes.map(
-    (c, i) =>
-      `${i === 0 ? subject : "It also"} ${SETTINGS_CONSEQUENCE[c] ?? "would be refused by the identity check, so every report is blocked."}`,
+  const subject = t(SETTINGS_SUBJECT[field] ?? tk("abuse_settings_subject_other"))
+  const parts = codes.map((c, i) =>
+    t(SETTINGS_CONSEQUENCE[c] ?? tk("abuse_settings_issue_other"), {
+      first: i === 0 ? "yes" : "no",
+      subject,
+    }),
   )
-  const fix = field === "reply_contact" ? "Use a neutral address." : "Reword it, or leave it empty."
+  const fix =
+    field === "reply_contact" ? t("abuse_settings_fix_address") : t("abuse_settings_fix_text")
   return `${parts.join(" ")} ${fix}`
 }
 
@@ -541,76 +593,62 @@ export function describeReports(
   status: AbuseStatus | undefined,
   extra: { toSend?: number; replies?: number } = {},
 ): string {
-  if (!status) return "Reports to the networks that host the attackers, for you to review and send."
-  if (!status.enabled)
-    return "Abuse reports are switched off on this server, so no drafts are written."
+  if (!status) return t("abuse_reports_intro")
+  if (!status.enabled) return t("abuse_reports_off")
   const drafts = status.counts.draft
   const toSend = extra.toSend ?? status.counts.reviewed
   const replies = extra.replies ?? 0
-  if (drafts === 0 && toSend === 0 && replies === 0)
-    return "Nothing to report: no source crossed the thresholds this week."
+  if (drafts === 0 && toSend === 0 && replies === 0) return t("abuse_reports_nothing")
   const parts: string[] = []
-  if (drafts > 0) parts.push(`${plural(drafts, "draft")} to review`)
-  if (toSend > 0) parts.push(`${plural(toSend, "report")} ready to send`)
-  if (replies > 0) parts.push(`${plural(replies, "reply", "replies")} to check`)
-  return `${parts.join(", ")}.`
+  if (drafts > 0) parts.push(t("abuse_reports_drafts_to_review", { count: drafts }))
+  if (toSend > 0) parts.push(t("abuse_reports_ready_to_send", { count: toSend }))
+  if (replies > 0) parts.push(t("abuse_reports_replies_to_check", { count: replies }))
+  return t("abuse_reports_summary", { parts: parts.join(", ") })
 }
 
 /** Why the list cannot be used yet, or null. The message is one sentence. */
 export function blockedReason(status: AbuseStatus | undefined): string | null {
   if (!status) return null
   if (!status.enabled)
-    return "The reporting worker is off. Set ABUSE_REPORTS_ENABLED=true in .env and restart to get drafts."
+    return t("abuse_blocked_worker_off", { setting: "ABUSE_REPORTS_ENABLED=true", file: ".env" })
   if (!status.self_address_known)
-    return "The public address of the monitored system is not known yet, so reports are locked. Traffic teaches it within a day, or you can add it in Settings."
+    return t("abuse_blocked_address_unknown")
   if (!status.self_address_fresh)
-    return "The learned address of the monitored system is out of date, so reports are blocked until a fresh one is known. Traffic refreshes it, or you can enter it by hand in Settings."
+    return t("abuse_blocked_address_stale")
   if (status.gate === "closed")
-    return "Outbound traffic is closed, so abuse contacts cannot be looked up. Drafts already written still open."
+    return t("abuse_blocked_gate_closed")
   return null
 }
 
 /** "3 addresses in 2 networks" for the first line of a report page. */
 export function describeReport(r: ReportItem): string {
   const nets = new Set(r.asns.map((a) => a.asn)).size
-  if (r.kind === "digest") {
-    const where = nets > 0 ? ` in ${plural(nets, "network")}` : ""
-    const name = r.recipient.name
-    return `${describeSources(r)}${where}, reported to ${name}${name.endsWith(".") ? "" : "."}`
-  }
-  const noun =
-    r.kind === "attack_source"
-      ? "address"
-      : r.kind === "payload_host"
-        ? "payload host"
-        : "C2 server"
-  const where = nets > 0 ? ` in ${plural(nets, "network")}` : ""
-  const n = r.subject_count
-  const what = noun === "address" ? plural(n, "address", "addresses") : plural(n, noun)
   const name = r.recipient.name
-  return `${what}${where}, reported to ${name}${name.endsWith(".") ? "" : "."}`
+  const stop = name.endsWith(".") ? "" : "."
+  if (r.kind === "digest")
+    return t("abuse_report_line_digest", { sources: describeSources(r), nets, name, stop })
+  const n = r.subject_count
+  const values = { count: n, nets, name, stop }
+  if (r.kind === "attack_source") return t("abuse_report_line_attack_source", values)
+  if (r.kind === "payload_host") return t("abuse_report_line_payload_host", values)
+  return t("abuse_report_line_c2", values)
 }
 
 /** The finding of the identity check card. */
 export function describeGuard(guard: GuardResult, redaction: { masked: number; removed: number }) {
-  if (!guard.ok) {
-    return "Blocked: this report would reveal something it must not. It cannot be copied or downloaded."
-  }
-  const parts: string[] = []
-  if (redaction.masked > 0) parts.push(`${plural(redaction.masked, "address", "addresses")} masked`)
-  if (redaction.removed > 0) parts.push(`${plural(redaction.removed, "line")} removed`)
-  return `Nothing identifying found.${parts.length ? ` ${capitalize(parts.join(", "))}.` : ""}`
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
+  if (!guard.ok) return t("abuse_guard_blocked")
+  if (redaction.masked > 0 && redaction.removed > 0)
+    return t("abuse_guard_clean_both", { masked: redaction.masked, removed: redaction.removed })
+  if (redaction.masked > 0) return t("abuse_guard_clean_masked", { masked: redaction.masked })
+  if (redaction.removed > 0) return t("abuse_guard_clean_removed", { removed: redaction.removed })
+  return t("abuse_guard_clean")
 }
 
 /** What the next step needs, or null when nothing blocks it. */
 export function reviewBlocker(r: ReportDetail): string | null {
-  if (!r.guard.ok) return "The identity check blocked this report, so it cannot be reviewed."
-  if (!r.recipient.mailbox) return "There is no abuse mailbox for this provider yet."
-  if (r.missing.length > 0) return "Set a reply contact in Settings first."
+  if (!r.guard.ok) return t("abuse_review_blocker_guard")
+  if (!r.recipient.mailbox) return t("abuse_no_mailbox")
+  if (r.missing.length > 0) return t("abuse_review_blocker_contact")
   return null
 }
 
@@ -630,35 +668,32 @@ export function nextActions(
   }
 }
 
-export const SETTINGS_INCOMPLETE = "Set the reply contact in the Reporting settings first"
+const settingsIncompleteText = () => t("abuse_settings_incomplete")
 
 /** A readable message for a failed call. */
 export function describeAbuseError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === "revision_mismatch" || (e.status === 409 && e.code === "stale"))
-      return "The draft changed while you were reading it. It was reloaded: read it again, then retry."
-    if (e.code === "invalid_transition") return "That step is not possible from the current status."
-    if (e.code === "settings_incomplete") return SETTINGS_INCOMPLETE
-    if (e.code === "demo_report") return "This is a demo report. It can be reviewed but never sent."
-    if (e.code === "no_mailbox") return "There is no abuse mailbox for this provider yet."
-    if (e.code === "evidence_invalid") return "The stored evidence for this report is not valid."
-    if (e.code === "xarf_unavailable") return "This report cannot be written as X-ARF."
-    if (e.code === "xarf_invalid")
-      return "An X-ARF part of this report did not pass the format check, so nothing is released."
-    if (e.code === "xarf_subject_required") return "Pick the source whose X-ARF file you want."
-    if (e.code === "xarf_kind_required") return "Pick the kind of the source as well."
-    if (e.code === "not_sent_with_xarf_v4")
-      return "This report was sent before X-ARF v4, so no X-ARF file left with it."
-    if (e.code === "reply_contact_not_email")
-      return "X-ARF needs the reply contact to be a mail address. Change it in the Reporting settings."
-    if (e.code === SAME_DAY) return SAME_DAY_TEXT
-    if (e.code === "identity_guard_failed") return "The identity check blocked this text."
-    if (e.code === "reauth_failed") return "That password is not right."
-    if (e.status === 429) return "Too many requests. Wait a moment and try again."
-    if (e.status === 403) return "Only an administrator can do this."
+      return t("abuse_error_stale")
+    if (e.code === "invalid_transition") return t("abuse_error_invalid_transition")
+    if (e.code === "settings_incomplete") return settingsIncompleteText()
+    if (e.code === "demo_report") return t("abuse_error_demo")
+    if (e.code === "no_mailbox") return t("abuse_no_mailbox")
+    if (e.code === "evidence_invalid") return t("abuse_error_evidence_invalid")
+    if (e.code === "xarf_unavailable") return t("abuse_error_xarf_unavailable")
+    if (e.code === "xarf_invalid") return t("abuse_error_xarf_invalid")
+    if (e.code === "xarf_subject_required") return t("abuse_error_xarf_subject_required")
+    if (e.code === "xarf_kind_required") return t("abuse_error_xarf_kind_required")
+    if (e.code === "not_sent_with_xarf_v4") return t("abuse_error_not_sent_with_xarf_v4")
+    if (e.code === "reply_contact_not_email") return t("abuse_error_reply_contact_not_email")
+    if (e.code === SAME_DAY) return sameDayText()
+    if (e.code === "identity_guard_failed") return t("abuse_error_guard_failed")
+    if (e.code === "reauth_failed") return t("abuse_error_reauth_failed")
+    if (e.status === 429) return t("abuse_error_too_many")
+    if (e.status === 403) return t("abuse_error_admin_only")
     if (e.status === 422 && e.message) return e.message
   }
-  return "That did not work. Check the connection and try again."
+  return t("abuse_error_generic")
 }
 
 /** Field names listed by a 409 `settings_incomplete` answer (`missing`), or []. */
@@ -754,8 +789,9 @@ export const downloadFile = (
 
 /** The 409 code when another report already went to the same provider today (UTC). */
 export const SAME_DAY = "recipient_sent_today"
-export const SAME_DAY_TEXT = "This provider already got a report today."
-export const SAME_DAY_QUESTION = "This provider already got a report today. Send anyway?"
+const sameDayText = () => t("abuse_same_day")
+/** The confirm question when another report already went to the same provider today. */
+export const sameDayQuestion = () => t("abuse_same_day_question")
 
 export function isSameDay(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409 && e.code === SAME_DAY
@@ -772,7 +808,7 @@ export async function withSameDayConfirm<T>(
   try {
     return await run(false)
   } catch (e) {
-    if (!isSameDay(e) || !ask(SAME_DAY_QUESTION)) throw e
+    if (!isSameDay(e) || !ask(sameDayQuestion())) throw e
     return run(true)
   }
 }

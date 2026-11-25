@@ -4,7 +4,8 @@
  * link such a row lives here; the sentence that tells it is in `describe-session.ts`.
  */
 import type { Session, SessionCredentials, StatsSummary } from "./api"
-import { browserTimeZone, formatNumber, formatPercent, formatWindow, plural } from "./format"
+import { intlLocale, t } from "@/i18n"
+import { browserTimeZone, formatPercent, formatWindow } from "./format"
 
 type FloodShape = Pick<Session, "kind" | "connections">
 
@@ -51,13 +52,13 @@ export function floodKindFor(view: FloodView): "session" | "burst" | undefined {
 
 /**
  * "96%": a share that is not zero never reads as 0% (or as 100% unless it is all of them).
- * Lower case: the phrase always sits inside a sentence.
+ * `kind` picks the wording inside the message (low: less than 1%, high: more than 99%).
  */
-function sharePhrase(part: number, whole: number): string {
+function shareParts(part: number, whole: number): { shareKind: string; share: string } {
   const ratio = whole > 0 ? part / whole : 0
-  if (ratio > 0 && ratio < 0.01) return "less than 1%"
-  if (ratio < 1 && ratio > 0.995) return "more than 99%"
-  return formatPercent(ratio)
+  if (ratio > 0 && ratio < 0.01) return { shareKind: "low", share: "" }
+  if (ratio < 1 && ratio > 0.995) return { shareKind: "high", share: "" }
+  return { shareKind: "exact", share: formatPercent(ratio) }
 }
 
 /**
@@ -70,7 +71,7 @@ export function floodShareClause(
   const floods = summary.flood_sessions ?? 0
   if (floods <= 0) return null
   const sources = Math.max(1, summary.flood_sources ?? 1)
-  return `${sharePhrase(floods, summary.sessions)} of them in floods from ${plural(sources, "address", "addresses")}`
+  return t("floods_share_clause", { ...shareParts(floods, summary.sessions), sources })
 }
 
 /**
@@ -80,41 +81,54 @@ export function floodShareClause(
 export function floodHeadline(view: FloodView, summary: StatsSummary): string | null {
   const floods = summary.flood_sessions ?? 0
   const sources = Math.max(1, summary.flood_sources ?? 1)
-  const addresses = plural(sources, "address", "addresses")
   const hours = summary.window_hours
   if (view === "only") {
     return floods > 0
-      ? `${plural(floods, "connection")} came in floods from ${addresses} in the last ${hours} hours, one row per address and hour.`
-      : `No address flooded the sensors in the last ${hours} hours.`
+      ? t("floods_headline_only", { floods, sources, hours })
+      : t("floods_headline_only_none", { hours })
   }
   if (view === "hide") {
     const rest = Math.max(0, summary.sessions - floods)
     return floods > 0
-      ? `${plural(rest, "session")} in the last ${hours} hours, without the ${plural(floods, "connection")} that came in floods.`
-      : `${plural(rest, "session")} in the last ${hours} hours, none of them in a flood.`
+      ? t("floods_headline_hide", { rest, floods, hours })
+      : t("floods_headline_hide_none", { rest, hours })
   }
-  const clause = floodShareClause(summary)
-  if (!clause) return null
-  return `${formatNumber(summary.sessions)} sessions from ${formatNumber(summary.unique_ips)} addresses in the last ${hours} hours, ${clause}.`
+  if (floods <= 0) return null
+  return t("floods_headline_all", {
+    sessions: summary.sessions,
+    ips: summary.unique_ips,
+    hours,
+    sources,
+    ...shareParts(floods, summary.sessions),
+  })
 }
 
 /** "of which 1,456 in floods" on an attacker profile; "at least" when the list was cut short. */
 export function floodSentence(connections: number, atLeast = false): string {
-  return `of which ${atLeast ? "at least " : ""}${formatNumber(connections)} in floods`
+  return atLeast
+    ? t("floods_of_which_at_least", { count: connections })
+    : t("floods_of_which", { count: connections })
 }
 
 // --- Time --------------------------------------------------------------------------------
 
-const clockFmt = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-})
+const clockFormats = new Map<string, Intl.DateTimeFormat>()
+
+/** "14:02" in the browser's time zone, built on first use for the active language. */
+function clockHM(d: Date): string {
+  const locale = intlLocale()
+  let f = clockFormats.get(locale)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    clockFormats.set(locale, f)
+  }
+  return f.format(d)
+}
 
 /** "14:02–14:58" in the browser's time zone: first to last connection of a flood group. */
 export function floodSpan(s: Pick<Session, "started_at" | "last_event_at">): string {
-  const a = clockFmt.format(new Date(s.started_at))
-  const b = clockFmt.format(new Date(s.last_event_at))
+  const a = clockHM(new Date(s.started_at))
+  const b = clockHM(new Date(s.last_event_at))
   return a === b ? a : `${a}–${b}`
 }
 
@@ -125,8 +139,11 @@ export function floodSpanLong(s: Pick<Session, "started_at" | "last_event_at">):
 
 /** The UTC hour a group belongs to: `[start, end)` as ISO instants. */
 export function floodHour(startedAt: string): { since: string; until: string } {
-  const t = Math.floor(Date.parse(startedAt) / 3_600_000) * 3_600_000
-  return { since: new Date(t).toISOString(), until: new Date(t + 3_600_000).toISOString() }
+  const hourMs = Math.floor(Date.parse(startedAt) / 3_600_000) * 3_600_000
+  return {
+    since: new Date(hourMs).toISOString(),
+    until: new Date(hourMs + 3_600_000).toISOString(),
+  }
 }
 
 // --- Links -------------------------------------------------------------------------------
@@ -151,24 +168,24 @@ export function parseAt(value: string | null): string | undefined {
 
 /** One sentence that says what a flood group is, and what it is not. */
 export function floodFinding(s: Pick<Session, "connections" | "kind">): string {
-  const n = connectionsOf(s)
-  return `None of the ${formatNumber(n)} connections got in, ran a command or downloaded a file. They are shown as one row because one address opened this many in the same hour.`
+  return t("floods_finding", { count: connectionsOf(s) })
 }
 
 /** The finding of the "Credentials tried" card. */
 export function credentialsFinding(c: SessionCredentials): string {
-  if (c.attempts <= 0) return "No login was tried."
-  const users = plural(c.distinct_usernames, "username")
+  if (c.attempts <= 0) return t("floods_creds_none")
   // A client that sends a hash (RDP with NLA) leaves the password empty.
   const [only] = c.passwords
   if (c.passwords.length === 1 && only?.value === "") {
-    return `${plural(c.attempts, "attempt")} with ${users}, and no password was captured.`
+    return t("floods_creds_no_password", { attempts: c.attempts, users: c.distinct_usernames })
   }
-  const secrets = plural(c.distinct_passwords, "password")
-  const head = `${plural(c.attempts, "attempt")}, ${users} and ${secrets}`
-  if (c.attempts > 1 && c.distinct_pairs === c.attempts) return `${head}: no pair was tried twice.`
-  if (c.distinct_pairs * 2 <= c.attempts) {
-    return `${head}: ${plural(c.distinct_pairs, "pair")} tried over and over.`
+  const values = {
+    attempts: c.attempts,
+    users: c.distinct_usernames,
+    secrets: c.distinct_passwords,
+    pairs: c.distinct_pairs,
   }
-  return `${head}.`
+  if (c.attempts > 1 && c.distinct_pairs === c.attempts) return t("floods_creds_no_repeat", values)
+  if (c.distinct_pairs * 2 <= c.attempts) return t("floods_creds_repeat", values)
+  return t("floods_creds_plain", values)
 }

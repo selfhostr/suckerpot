@@ -4,6 +4,7 @@
  * kept: callers hold it in component state until the dialog closes.
  */
 import { ApiError, API_BASE, sendJson, type Page } from "@/lib/api"
+import { t } from "@/i18n"
 import type { Role } from "@/lib/auth-api"
 import { PROVIDER_NAMES } from "@/lib/provider-keys"
 import type { ProviderId } from "@/lib/settings"
@@ -41,16 +42,37 @@ export interface AuditEntry {
   details: Record<string, unknown>
 }
 
-export const ROLE_LABEL: Record<Role, string> = { admin: "Administrator", viewer: "Viewer" }
+export const ROLE_LABEL: Record<Role, string> = {
+  get admin() {
+    return t("users_role_admin")
+  },
+  get viewer() {
+    return t("users_role_viewer")
+  },
+}
 
 export const ROLE_OPTIONS = [
-  { value: "viewer", label: "Viewer" },
-  { value: "admin", label: "Administrator" },
+  {
+    value: "viewer",
+    get label() {
+      return t("users_role_viewer")
+    },
+  },
+  {
+    value: "admin",
+    get label() {
+      return t("users_role_admin")
+    },
+  },
 ] as const
 
 export const ROLE_HINT: Record<Role, string> = {
-  viewer: "Can look at everything, can change nothing.",
-  admin: "Can also change settings and manage users.",
+  get viewer() {
+    return t("users_role_viewer_hint")
+  },
+  get admin() {
+    return t("users_role_admin_hint")
+  },
 }
 
 export type UserState = "active" | "disabled" | "locked" | "pending"
@@ -64,14 +86,18 @@ export function userState(u: UserItem, now: number = Date.now()): UserState {
 }
 
 export const STATE_LABEL: Record<UserState, string> = {
-  active: "Active",
-  disabled: "Disabled",
-  locked: "Locked",
-  pending: "Waiting for first sign-in",
-}
-
-function count(n: number, one: string, many = `${one}s`) {
-  return `${n} ${n === 1 ? one : many}`
+  get active() {
+    return t("users_state_active")
+  },
+  get disabled() {
+    return t("users_state_disabled")
+  },
+  get locked() {
+    return t("users_state_locked")
+  },
+  get pending() {
+    return t("users_state_pending")
+  },
 }
 
 /** The finding sentence of the Users card. */
@@ -82,19 +108,20 @@ export function usersFinding(list: UserList, now: number = Date.now()): string {
   const people = admins + viewers
   let text =
     people === 1
-      ? "One person can sign in: the owner."
-      : `${count(people, "person", "people")} can sign in: ${count(admins, "administrator")} and ${count(viewers, "viewer")}.`
+      ? t("users_finding_owner_only")
+      : t("users_finding_people", { people, admins, viewers })
   const locked = all.filter((u) => userState(u, now) === "locked").length
-  if (locked > 0) text += ` ${count(locked, "account is", "accounts are")} locked.`
+  if (locked > 0) text += ` ${t("users_finding_locked", { count: locked })}`
   const waiting = all.filter((u) => userState(u, now) === "pending").length
-  if (waiting > 0) text += ` ${count(waiting, "person has", "people have")} not signed in yet.`
+  if (waiting > 0) text += ` ${t("users_finding_waiting", { count: waiting })}`
   return text
 }
 
 const text = (value: unknown) => (typeof value === "string" ? value : "?")
 
 /** "admin" reads as "administrator" in a sentence, like the role badges. */
-const roleWord = (value: unknown) => (value === "admin" ? "administrator" : text(value))
+const roleWord = (value: unknown) =>
+  value === "admin" ? t("users_role_admin_word") : text(value)
 
 /** "abuseipdb" reads as "AbuseIPDB", as on the Settings page. */
 const providerName = (id: string) => (id in PROVIDER_NAMES ? PROVIDER_NAMES[id as ProviderId] : id)
@@ -107,58 +134,80 @@ export function isSystemActor(e: AuditEntry): boolean {
 
 /** The name that opens an audit sentence: the actor's username, or "System". */
 export function auditActorLabel(e: AuditEntry): string {
-  return isSystemActor(e) ? "System" : e.actor
+  return isSystemActor(e) ? t("users_audit_system") : e.actor
 }
 
 /** What the actor did, to follow their name: "created the user colleague (viewer)". */
 export function describeAudit(e: AuditEntry): string {
-  const who = e.target ?? "an account"
+  const who = e.target ?? t("users_audit_an_account")
   const d = e.details
   switch (e.action) {
     case "auth.login":
-      return "signed in"
+      return t("users_audit_login")
     case "password.change":
-      return "changed their own password"
+      return t("users_audit_password_change")
     case "user.create":
-      return `created the user ${who}${typeof d.role === "string" ? ` (${roleWord(d.role)})` : ""}`
+      return typeof d.role === "string"
+        ? t("users_audit_create_role", { who, role: roleWord(d.role) })
+        : t("users_audit_create", { who })
     case "user.role":
-      return `changed the role of ${who} from ${roleWord(d.from)} to ${roleWord(d.to)}`
+      return t("users_audit_role", { who, from: roleWord(d.from), to: roleWord(d.to) })
     case "user.disable":
-      return `disabled ${who}`
+      return t("users_audit_disable", { who })
     case "user.enable":
-      return `enabled ${who}`
+      return t("users_audit_enable", { who })
     case "user.rename":
-      return `renamed ${who}`
+      return t("users_audit_rename", { who })
     case "user.reset_password":
-      return `reset the password of ${who}`
+      return t("users_audit_reset_password", { who })
     case "user.unlock":
-      return `unlocked ${who}`
+      return t("users_audit_unlock", { who })
     case "user.locked":
       // Older entries name the locked user as the actor; newer ones are written by the system.
       return e.target && (isSystemActor(e) || e.actor !== e.target)
-        ? `locked ${e.target} after too many wrong passwords`
-        : "was locked after too many wrong passwords"
+        ? t("users_audit_locked_target", { target: e.target })
+        : t("users_audit_locked_self")
     case "user.revoke_sessions":
-      return `signed ${who} out everywhere`
+      return t("users_audit_revoke_sessions", { who })
     case "user.delete":
-      return `deleted the user ${who}`
+      return t("users_audit_delete", { who })
     case "provider_key.set":
-      return `saved the ${providerName(who)} key`
+      return t("users_audit_key_set", { provider: providerName(who) })
     case "provider_key.remove":
-      return `removed the ${providerName(who)} key`
+      return t("users_audit_key_remove", { provider: providerName(who) })
     case "provider_key.test":
-      return `tested the ${providerName(who)} key`
+      return t("users_audit_key_test", { provider: providerName(who) })
     default:
-      return e.target ? `${e.action} on ${e.target}` : e.action
+      return e.target ? t("users_audit_other_on", { action: e.action, target: e.target }) : e.action
   }
 }
 
 /** Action filters of the audit log: the server matches them as prefixes. */
 export const AUDIT_GROUPS = [
-  { value: "", label: "All" },
-  { value: "auth.", label: "Sign-ins" },
-  { value: "user.", label: "Users" },
-  { value: "provider_key.", label: "Keys" },
+  {
+    value: "",
+    get label() {
+      return t("common_all")
+    },
+  },
+  {
+    value: "auth.",
+    get label() {
+      return t("users_audit_group_auth")
+    },
+  },
+  {
+    value: "user.",
+    get label() {
+      return t("users_audit_group_users")
+    },
+  },
+  {
+    value: "provider_key.",
+    get label() {
+      return t("users_audit_group_keys")
+    },
+  },
 ] as const
 
 export type UserFailure =
@@ -184,17 +233,36 @@ export class UserError extends Error {
 }
 
 export const USER_MESSAGES: Record<UserFailure, string> = {
-  "wrong-password": "That password is not correct.",
-  taken: "That username is already taken.",
-  self: "You cannot do this to your own account.",
-  "not-found": "That user no longer exists. The list has been refreshed.",
-  "rate-limited": "Too many attempts. Wait a minute, then try again.",
-  session: "Your session has ended. Sign in again.",
-  invalid: "Some of the details are not valid.",
-  network: "The server could not be reached. Try again in a moment.",
-  unavailable: "This file is no longer stored, so there is nothing to download.",
-  excluded:
-    "The identity check left out every sample in the bundle, so there is nothing to download.",
+  get "wrong-password"() {
+    return t("users_msg_wrong_password")
+  },
+  get taken() {
+    return t("users_msg_taken")
+  },
+  get self() {
+    return t("users_msg_self")
+  },
+  get "not-found"() {
+    return t("users_msg_not_found")
+  },
+  get "rate-limited"() {
+    return t("users_msg_rate_limited")
+  },
+  get session() {
+    return t("users_msg_session")
+  },
+  get invalid() {
+    return t("users_msg_invalid")
+  },
+  get network() {
+    return t("users_msg_network")
+  },
+  get unavailable() {
+    return t("users_msg_unavailable")
+  },
+  get excluded() {
+    return t("users_msg_excluded")
+  },
 }
 
 export function describeUserError(e: unknown): string {
@@ -234,10 +302,9 @@ export function validateNewUser(
 ): Partial<Record<NewUserField, string>> {
   const errors: Partial<Record<NewUserField, string>> = {}
   if (!USERNAME_PATTERN.test(username))
-    errors.username =
-      "3 to 32 characters: letters, digits, dots, dashes and underscores, starting with a letter or digit."
-  if (!displayName.trim()) errors.displayName = "Enter a name."
-  else if (displayName.trim().length > 64) errors.displayName = "Use at most 64 characters."
+    errors.username = t("users_error_username")
+  if (!displayName.trim()) errors.displayName = t("users_error_name_required")
+  else if (displayName.trim().length > 64) errors.displayName = t("users_error_name_long")
   return errors
 }
 

@@ -8,10 +8,10 @@ import { SegmentedControl } from "@/components/segmented-control"
 import { TechniqueTable } from "@/components/techniques/technique-table"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { t } from "@/i18n"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { api, queryKeys } from "@/lib/api"
 import { TECHNIQUE_WINDOWS, describeMatrix, techniqueDays } from "@/lib/campaigns"
-import { plural } from "@/lib/format"
 import { formatSensors, parseSensors } from "@/lib/sensors"
 
 export function TechniquesPage() {
@@ -38,16 +38,16 @@ export function TechniquesPage() {
 
   const headline = matrix.data
     ? describeMatrix(matrix.data, total)
-    : "What attackers tried, in the vocabulary security teams use."
+    : t("techniques_headline")
 
   return (
     <>
-      <PageHeader help="techniques" title="Techniques" description={headline} />
+      <PageHeader help="techniques" title={t("techniques_title")} description={headline} />
 
       <FilterBar className="mb-4" chips={[]} alsoClears={["sensor", "window"]}>
         <SensorFilter />
         <SegmentedControl
-          label="Time window"
+          label={t("techniques_window_label")}
           value={String(days)}
           onChange={(v) => setWindow(v === "30" ? null : v)}
           options={TECHNIQUE_WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
@@ -55,18 +55,18 @@ export function TechniquesPage() {
       </FilterBar>
 
       <FindingCard
-        eyebrow="MITRE ATT&CK techniques"
+        eyebrow={t("techniques_eyebrow")}
         finding={
           top
-            ? `The most common move: they ${top.plain}, in ${plural(top.total_sessions, "session")}.`
+            ? t("techniques_finding", { plain: top.plain, count: top.total_sessions })
             : matrix.isPending
-              ? "Reading the techniques…"
-              : "Nothing to show for this window."
+              ? t("techniques_loading")
+              : t("techniques_none")
         }
-        detail="Each row is something attackers did, most sessions first, with the stage of the attack it belongs to."
+        detail={t("techniques_detail")}
       >
         {matrix.isPending ? (
-          <div role="status" aria-label="Loading" className="space-y-3">
+          <div role="status" aria-label={t("common_loading")} className="space-y-3">
             <Skeleton className="h-6 w-40" />
             <Skeleton className="h-64 w-full" />
           </div>
@@ -74,11 +74,11 @@ export function TechniquesPage() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load the techniques"
+            title={t("techniques_error_title")}
             description={matrix.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void matrix.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -86,8 +86,8 @@ export function TechniquesPage() {
           <EmptyState
             variant="bare"
             icon={Grid3x3}
-            title="No techniques seen"
-            description="Techniques are labelled as sessions arrive. Try a longer window or another sensor."
+            title={t("techniques_empty_title")}
+            description={t("techniques_empty_description")}
           />
         ) : (
           <TechniqueTable

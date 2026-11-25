@@ -2,7 +2,9 @@
  * Global search (header box and Ctrl/Cmd+K palette). Types mirror api/api/search.py.
  * The API does the matching; this module only types the answer and decides where a hit leads.
  */
+import { tk } from "@/i18n"
 import { getJson } from "./api"
+import { withText } from "./utils"
 
 export const SEARCH_KINDS = ["ip", "campaign", "cve", "hash", "domain"] as const
 export type SearchKind = (typeof SEARCH_KINDS)[number]
@@ -38,13 +40,16 @@ export const searchApi = {
 }
 
 /** Group titles, in the order the palette shows them. */
-export const GROUP_LABEL: Record<SearchKind, string> = {
-  ip: "Addresses",
-  campaign: "Campaigns",
-  cve: "CVEs",
-  hash: "File hashes",
-  domain: "Domains and URLs",
-}
+export const GROUP_LABEL: Record<SearchKind, string> = withText(
+  {
+    ip: tk("search_group_ip"),
+    campaign: tk("search_group_campaign"),
+    cve: tk("search_group_cve"),
+    hash: tk("search_group_hash"),
+    domain: tk("search_group_domain"),
+  },
+  {},
+)
 
 /** Where a hit opens: always an existing, filterable view, never an external site. */
 export function hitHref(hit: Pick<SearchHit, "kind" | "value">): string {

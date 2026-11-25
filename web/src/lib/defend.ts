@@ -4,8 +4,34 @@
  * builders are pure so they can be unit-tested.
  */
 import { ApiError, API_BASE, getJson, sendJson, type Page } from "@/lib/api"
-import { formatNumber, plural } from "@/lib/format"
 import { sensorMeta } from "@/lib/sensors"
+import { intlLocale, t, tk } from "@/i18n"
+
+/**
+ * A table of texts that are translated when they are read, not when the module loads: `t()` must
+ * not run at import time, and a language change shows at once. Reading `table.label` is a call to
+ * `t()`, so it only works inside render (or code called from render).
+ */
+export function lazyText<K extends string, X extends object = object>(
+  keys: Record<K, string>,
+  extra?: X,
+): Record<K, string> & X {
+  const out = { ...extra } as Record<K, string> & X
+  for (const name of Object.keys(keys) as K[]) {
+    const key = keys[name]
+    Object.defineProperty(out, name, { enumerable: true, get: () => t(key) })
+  }
+  return out
+}
+
+/** "a, b and c" in the active language ("and" is the locale's own word). */
+export function joinList(items: readonly string[]): string {
+  const locale = intlLocale()
+  return new Intl.ListFormat(locale === "en" ? "en-GB" : locale, {
+    style: "long",
+    type: "conjunction",
+  }).format(items)
+}
 
 /* --- Blocklists --------------------------------------------------------- */
 
@@ -25,32 +51,42 @@ export const KIND_META: Record<
     singular: string
     /** Plural inside a sentence ("IP addresses and domains"). */
     phrase: string
-    one: string
-    many: string
   }
 > = {
-  ip: {
-    label: "IP addresses",
-    singular: "IP address",
-    phrase: "IP addresses",
-    one: "address",
-    many: "addresses",
-  },
-  domain: {
-    label: "Domains",
-    singular: "Domain",
-    phrase: "domains",
-    one: "domain",
-    many: "domains",
-  },
-  url: { label: "URLs", singular: "URL", phrase: "URLs", one: "URL", many: "URLs" },
-  hash: {
-    label: "File hashes",
-    singular: "File hash",
-    phrase: "file hashes",
-    one: "file hash",
-    many: "file hashes",
-  },
+  ip: lazyText({
+    label: tk("kinds_ip_label"),
+    singular: tk("kinds_ip_singular"),
+    phrase: tk("kinds_ip_phrase"),
+  }),
+  domain: lazyText({
+    label: tk("kinds_domain_label"),
+    singular: tk("kinds_domain_singular"),
+    phrase: tk("kinds_domain_phrase"),
+  }),
+  url: lazyText({
+    label: tk("kinds_url_label"),
+    singular: tk("kinds_url_singular"),
+    phrase: tk("kinds_url_phrase"),
+  }),
+  hash: lazyText({
+    label: tk("kinds_hash_label"),
+    singular: tk("kinds_hash_singular"),
+    phrase: tk("kinds_hash_phrase"),
+  }),
+}
+
+/** "1 address", "12 addresses": a count with the noun of the kind, as one plural message. */
+export function kindCount(kind: BlockKind, count: number): string {
+  switch (kind) {
+    case "ip":
+      return t("kinds_ip_count", { count })
+    case "domain":
+      return t("kinds_domain_count", { count })
+    case "url":
+      return t("kinds_url_count", { count })
+    case "hash":
+      return t("kinds_hash_count", { count })
+  }
 }
 
 /** Scores: "listed" entries go to the firewall, "high" ones are the surest. */
@@ -65,21 +101,27 @@ export const DEFAULT_MIN_SCORE = LISTED_SCORE
  * tokens. "Balanced" is the default.
  */
 export const SCORE_PRESETS = [
-  {
-    score: HIGH_SCORE,
-    label: "High confidence",
-    hint: "Only the surest entries. Fewest false positives; start here if you block right away.",
-  },
-  {
-    score: LISTED_SCORE,
-    label: "Balanced",
-    hint: "Everything we would put on a firewall. The default, and a good start.",
-  },
-  {
-    score: EVERYTHING_SCORE,
-    label: "Everything",
-    hint: "Also entries seen only once or twice. Better for watching than for blocking.",
-  },
+  lazyText(
+    {
+      label: tk("defend_preset_high_label"),
+      hint: tk("defend_preset_high_hint"),
+    },
+    { score: HIGH_SCORE },
+  ),
+  lazyText(
+    {
+      label: tk("defend_preset_balanced_label"),
+      hint: tk("defend_preset_balanced_hint"),
+    },
+    { score: LISTED_SCORE },
+  ),
+  lazyText(
+    {
+      label: tk("defend_preset_everything_label"),
+      hint: tk("defend_preset_everything_hint"),
+    },
+    { score: EVERYTHING_SCORE },
+  ),
 ] as const
 
 export type ScorePreset = (typeof SCORE_PRESETS)[number]
@@ -91,7 +133,9 @@ export function scorePreset(score: number): ScorePreset | undefined {
 /** Segmented-control options: "High confidence 70+", "Balanced 50+", "Everything 20+". */
 export const SCORE_OPTIONS = SCORE_PRESETS.map((p) => ({
   value: String(p.score),
-  label: `${p.label} ${p.score}+`,
+  get label() {
+    return t("defend_score_option", { label: p.label, score: String(p.score) })
+  },
 }))
 
 /** A minimum score from the URL: a preset, else the default. */
@@ -156,52 +200,82 @@ export interface BlocklistFilters {
 
 /** Plain-English labels for the reason codes the scorer writes. */
 export const REASON_LABELS: Record<string, { label: string; sentence: string }> = {
-  "brute-force": {
-    label: "Guessed passwords",
-    sentence: "Tried many passwords against our logins.",
-  },
-  "login-succeeded": { label: "Got in", sentence: "Logged in to one of our decoys." },
-  "ran-commands": { label: "Ran commands", sentence: "Ran commands after logging in." },
-  "dropped-malware": { label: "Dropped malware", sentence: "Tried to download or drop malware." },
-  "exploit-attempt": { label: "Exploit attempt", sentence: "Sent a known exploit payload." },
-  "reported-abusive": {
-    label: "Reported abusive",
-    sentence: "Other people have reported this address as abusive.",
-  },
-  "multi-sensor": {
-    label: "Hit several decoys",
-    sentence: "Attacked more than one kind of decoy.",
-  },
-  campaign: { label: "Part of a campaign", sentence: "Belongs to a campaign we track." },
-  "repeat-visitor": { label: "Came back", sentence: "Returned on several different days." },
-  "mass-scanner": {
-    label: "Mass scanner",
-    sentence: "Scans the whole internet, not just you.",
-  },
-  "download-source": {
-    label: "Serves malware",
-    sentence: "Attackers told our decoys to download from here.",
-  },
-  "contacted-by-attacker": {
-    label: "Called by malware",
-    sentence: "Attackers made our decoys contact this host.",
-  },
-  "known-malware": { label: "Known malware", sentence: "Listed by a public malware feed." },
-  "malware-family": { label: "Known family", sentence: "Matches a named malware family." },
-  "seen-from-many-sources": {
-    label: "Many sources",
-    sentence: "Used by several different attackers.",
-  },
-  "file-hash": { label: "File seen", sentence: "A file attackers dropped on our decoys." },
-  "probable-c2": {
-    label: "Probable C2",
-    sentence: "Malware dropped on your decoys is said to contact this address.",
-  },
-  "manual-block": { label: "Blocked by you", sentence: "You chose to always block this." },
-  "network-confirmed": {
-    label: "Network confirmed",
-    sentence: "Five or more sensors in the SuckerPot network saw it too.",
-  },
+  "brute-force": lazyText({
+    label: tk("defend_reason_brute_force_label"),
+    sentence: tk("defend_reason_brute_force_sentence"),
+  }),
+  "login-succeeded": lazyText({
+    label: tk("defend_reason_login_succeeded_label"),
+    sentence: tk("defend_reason_login_succeeded_sentence"),
+  }),
+  "ran-commands": lazyText({
+    label: tk("defend_reason_ran_commands_label"),
+    sentence: tk("defend_reason_ran_commands_sentence"),
+  }),
+  "dropped-malware": lazyText({
+    label: tk("defend_reason_dropped_malware_label"),
+    sentence: tk("defend_reason_dropped_malware_sentence"),
+  }),
+  "exploit-attempt": lazyText({
+    label: tk("defend_reason_exploit_attempt_label"),
+    sentence: tk("defend_reason_exploit_attempt_sentence"),
+  }),
+  "reported-abusive": lazyText({
+    label: tk("defend_reason_reported_abusive_label"),
+    sentence: tk("defend_reason_reported_abusive_sentence"),
+  }),
+  "multi-sensor": lazyText({
+    label: tk("defend_reason_multi_sensor_label"),
+    sentence: tk("defend_reason_multi_sensor_sentence"),
+  }),
+  campaign: lazyText({
+    label: tk("defend_reason_campaign_label"),
+    sentence: tk("defend_reason_campaign_sentence"),
+  }),
+  "repeat-visitor": lazyText({
+    label: tk("defend_reason_repeat_visitor_label"),
+    sentence: tk("defend_reason_repeat_visitor_sentence"),
+  }),
+  "mass-scanner": lazyText({
+    label: tk("defend_reason_mass_scanner_label"),
+    sentence: tk("defend_reason_mass_scanner_sentence"),
+  }),
+  "download-source": lazyText({
+    label: tk("defend_reason_download_source_label"),
+    sentence: tk("defend_reason_download_source_sentence"),
+  }),
+  "contacted-by-attacker": lazyText({
+    label: tk("defend_reason_contacted_by_attacker_label"),
+    sentence: tk("defend_reason_contacted_by_attacker_sentence"),
+  }),
+  "known-malware": lazyText({
+    label: tk("defend_reason_known_malware_label"),
+    sentence: tk("defend_reason_known_malware_sentence"),
+  }),
+  "malware-family": lazyText({
+    label: tk("defend_reason_malware_family_label"),
+    sentence: tk("defend_reason_malware_family_sentence"),
+  }),
+  "seen-from-many-sources": lazyText({
+    label: tk("defend_reason_seen_from_many_sources_label"),
+    sentence: tk("defend_reason_seen_from_many_sources_sentence"),
+  }),
+  "file-hash": lazyText({
+    label: tk("defend_reason_file_hash_label"),
+    sentence: tk("defend_reason_file_hash_sentence"),
+  }),
+  "probable-c2": lazyText({
+    label: tk("defend_reason_probable_c2_label"),
+    sentence: tk("defend_reason_probable_c2_sentence"),
+  }),
+  "manual-block": lazyText({
+    label: tk("defend_reason_manual_block_label"),
+    sentence: tk("defend_reason_manual_block_sentence"),
+  }),
+  "network-confirmed": lazyText({
+    label: tk("defend_reason_network_confirmed_label"),
+    sentence: tk("defend_reason_network_confirmed_sentence"),
+  }),
 }
 
 export function reasonLabel(code: string): string {
@@ -217,28 +291,27 @@ export function scoreBand(score: number): "high" | "listed" | "seen" {
   return score >= HIGH_SCORE ? "high" : score >= LISTED_SCORE ? "listed" : "seen"
 }
 
-export const BAND_LABEL = { high: "High", listed: "Listed", seen: "Seen" } as const
+export const BAND_LABEL = lazyText({
+  high: tk("defend_band_high"),
+  listed: tk("defend_band_listed"),
+  seen: tk("defend_band_seen"),
+})
 
 /** "12 addresses, 3 domains and 2 URLs scored 50 or higher are ready for your firewall." */
 export function blocklistSentence(s: DefendSummary | undefined): string {
-  if (!s)
-    return "Addresses, domains and files seen attacking you, scored and ready for your firewall."
+  if (!s) return t("defend_blocklist_sentence_loading")
   const counts: { n: number; text: string }[] = []
   for (const kind of BLOCK_KINDS) {
     const k = s.kinds.find((x) => x.kind === kind)
-    if (k && k.listed > 0)
-      counts.push({
-        n: k.listed,
-        text: `${formatNumber(k.listed)} ${k.listed === 1 ? KIND_META[kind].one : KIND_META[kind].many}`,
-      })
+    if (k && k.listed > 0) counts.push({ n: k.listed, text: kindCount(kind, k.listed) })
   }
-  if (counts.length === 0)
-    return `Nothing has scored ${LISTED_SCORE} or higher yet. Entries appear here as attackers prove themselves.`
-  const texts = counts.map((c) => c.text)
-  const last = texts.pop()
-  const list = texts.length ? `${texts.join(", ")} and ${last}` : String(last)
+  if (counts.length === 0) return t("defend_blocklist_sentence_none", { score: LISTED_SCORE })
+  const list = joinList(counts.map((c) => c.text))
   const single = counts.length === 1 && counts[0]?.n === 1
-  return `${list} scored ${LISTED_SCORE} or higher and ${single ? "is" : "are"} ready for your firewall.`
+  return t(single ? "defend_blocklist_sentence_one" : "defend_blocklist_sentence_many", {
+    list,
+    score: LISTED_SCORE,
+  })
 }
 
 export interface ExportParams {
@@ -271,18 +344,18 @@ export function firewallInstructions(firewall: Firewall, feedUrlText: string): s
   const where =
     firewall === "opnsense" ? "Firewall > Aliases, then Add" : "Firewall > Aliases > URLs, then Add"
   return [
-    `Create a feed token in Settings > Feeds. A firewall cannot send headers, so use the token-in-URL form: ${feedUrlText}`,
-    `Open ${where}.`,
-    `Name it suckerpot_block and set Type to "URL Table (IPs)".`,
-    `Paste the feed URL as the content and set the refresh to once a day.`,
-    `Save and apply. Then add a Block rule on your WAN interface whose source is the alias suckerpot_block.`,
-    `Run the rule in log-only mode for a few days and read the log before you enforce it.`,
+    t("firewall_step_token", { url: feedUrlText }),
+    t("firewall_step_open", { where }),
+    t("firewall_step_name"),
+    t("firewall_step_paste"),
+    t("firewall_step_save"),
+    t("firewall_step_log"),
   ]
 }
 
 export function instructionsText(firewall: Firewall, feedUrlText: string): string {
   return [
-    `${FIREWALL_LABEL[firewall]}: use the blocklist as a URL table alias`,
+    t("firewall_instructions_title", { firewall: FIREWALL_LABEL[firewall] }),
     ...firewallInstructions(firewall, feedUrlText).map((s, i) => `${i + 1}. ${s}`),
   ].join("\n")
 }
@@ -311,20 +384,20 @@ export function parseDays(raw: string | null): number {
 }
 
 export const RULE_KIND_META: Record<RuleKind, { label: string; hint: string; ext: string }> = {
-  sigma: { label: "Sigma", hint: "Log searches for your SIEM", ext: ".yml" },
-  suricata: { label: "Suricata", hint: "Network rules for your IDS", ext: ".rules" },
+  sigma: lazyText({ hint: tk("rule_kind_sigma_hint") }, { label: "Sigma", ext: ".yml" }),
+  suricata: lazyText({ hint: tk("rule_kind_suricata_hint") }, { label: "Suricata", ext: ".rules" }),
 }
 
 export type RuleSource = "web-paths" | "commands" | "domains" | "urls" | "hashes" | "static"
 
-export const SOURCE_LABELS: Record<RuleSource, string> = {
-  "web-paths": "Web requests",
-  commands: "Shell commands",
-  domains: "Contacted domains",
-  urls: "Download URLs",
-  hashes: "File hashes",
-  static: "Built-in",
-}
+export const SOURCE_LABELS: Record<RuleSource, string> = lazyText({
+  "web-paths": tk("rule_source_web_paths"),
+  commands: tk("rule_source_commands"),
+  domains: tk("rule_source_domains"),
+  urls: tk("rule_source_urls"),
+  hashes: tk("rule_source_hashes"),
+  static: tk("rule_source_static"),
+})
 
 export interface DetectionRule {
   id: string
@@ -355,15 +428,13 @@ export interface GuidanceItem {
 }
 
 export function detectionsSentence(total: number | undefined, days: number): string {
-  if (total === undefined)
-    return "Detection rules written from the attacks the decoys recorded. Review each one before you deploy it."
-  if (total === 0)
-    return `No detection rules yet: nothing in the last ${plural(days, "day")} came from enough different sources.`
-  return `We wrote ${plural(total, "detection rule")} from attacks seen in the last ${plural(days, "day")}. Review each one before you deploy it.`
+  if (total === undefined) return t("rule_detections_lede")
+  if (total === 0) return t("rule_detections_none", { days })
+  return t("rule_detections_summary", { total, days })
 }
 
 export function evidenceLine(sessions: number, sources: number): string {
-  return `${plural(sessions, "session")} from ${plural(sources, "source")}`
+  return t("rule_evidence", { sessions, sources })
 }
 
 export function detectionsExportUrl(kind: RuleKind, days: number): string {
@@ -374,15 +445,30 @@ export function detectionsExportUrl(kind: RuleKind, days: number): string {
 
 export type Exposure = "internet" | "vpn" | "internal"
 export const EXPOSURE_OPTIONS: { value: Exposure; label: string }[] = [
-  { value: "internet", label: "Internet" },
-  { value: "vpn", label: "VPN" },
-  { value: "internal", label: "Internal" },
+  {
+    value: "internet",
+    get label() {
+      return t("exposure_option_internet")
+    },
+  },
+  {
+    value: "vpn",
+    get label() {
+      return t("exposure_option_vpn")
+    },
+  },
+  {
+    value: "internal",
+    get label() {
+      return t("exposure_option_internal")
+    },
+  },
 ]
-export const EXPOSURE_LABEL: Record<Exposure, string> = {
-  internet: "Faces the internet",
-  vpn: "Behind a VPN",
-  internal: "Internal only",
-}
+export const EXPOSURE_LABEL: Record<Exposure, string> = lazyText({
+  internet: tk("exposure_label_internet"),
+  vpn: tk("exposure_label_vpn"),
+  internal: tk("exposure_label_internal"),
+})
 
 export interface InventoryItem {
   id: number
@@ -408,12 +494,12 @@ export interface InventoryInput {
 
 export type Verdict = "internet_targeted" | "internet_quiet" | "private_targeted" | "private_quiet"
 
-export const VERDICT_SENTENCE: Record<Verdict, string> = {
-  internet_targeted: "Reachable from the internet and attacked",
-  internet_quiet: "Reachable from the internet, but no attacks recorded",
-  private_targeted: "Kept private, yet attackers go after this kind of service",
-  private_quiet: "Kept private, and no attacks recorded on this kind of service",
-}
+export const VERDICT_SENTENCE: Record<Verdict, string> = lazyText({
+  internet_targeted: tk("exposure_verdict_internet_targeted"),
+  internet_quiet: tk("exposure_verdict_internet_quiet"),
+  private_targeted: tk("exposure_verdict_private_targeted"),
+  private_quiet: tk("exposure_verdict_private_quiet"),
+})
 
 export interface ExposureService {
   item: InventoryItem
@@ -448,24 +534,27 @@ export interface ExposureReport {
 
 /** "You told us you run 6 services; 4 of them face the internet and were targeted 1,204 times ..." */
 export function exposureSentence(r: ExposureReport | undefined, days: number): string {
-  if (!r) return "How what you run compares with what attackers went after."
+  if (!r) return t("exposure_sentence_loading")
   const n = r.services.length
   if (n === 0) {
     const seen = r.unlisted.reduce((sum, u) => sum + u.sessions, 0)
-    return `Tell us what you run and we compare it with the ${plural(seen, "attack")} the decoys recorded in the last ${plural(days, "day")}.`
+    return t("exposure_sentence_empty", { seen, days })
   }
   const facing = r.services.filter((s) => s.item.exposure === "internet")
   const hits = facing.reduce((sum, s) => sum + s.attacks.sessions, 0)
-  const verbs = facing.length === 1 ? "faces the internet and was" : "face the internet and were"
-  return `You told us you run ${plural(n, "service")}; ${formatNumber(facing.length)} of them ${verbs} targeted ${plural(hits, "time")} in the last ${plural(days, "day")}.`
+  return t("exposure_sentence_summary", { n, facing: facing.length, hits, days })
 }
 
 /** "up 20% from 120 before". Neutral words: more attacks are neither good nor bad news here. */
 export function previousComparison(current: number, previous: number): string {
-  if (previous === 0) return current === 0 ? "none before either" : "none in the period before"
+  if (previous === 0)
+    return current === 0 ? t("exposure_prev_none_either") : t("exposure_prev_none")
   const change = (current - previous) / previous
-  if (Math.abs(change) < 0.05) return `about the same as before (${formatNumber(previous)})`
-  return `${change > 0 ? "up" : "down"} ${Math.round(Math.abs(change) * 100)}% from ${formatNumber(previous)} before`
+  if (Math.abs(change) < 0.05) return t("exposure_prev_same", { previous })
+  return t(change > 0 ? "exposure_prev_up" : "exposure_prev_down", {
+    percent: Math.round(Math.abs(change) * 100),
+    previous,
+  })
 }
 
 /** Placeholder product and version for the inventory form, so the example fits the kind. */
@@ -490,8 +579,8 @@ export function serviceLabel(service: string): string {
 
 export function validateInventory(input: InventoryInput): { name?: string } {
   const name = input.name.trim()
-  if (!name) return { name: "Give it a name, for example the host or the app." }
-  if (name.length > 80) return { name: "Use at most 80 characters." }
+  if (!name) return { name: t("inventory_name_required") }
+  if (name.length > 80) return { name: t("inventory_name_too_long") }
   return {}
 }
 
@@ -504,11 +593,24 @@ export function validateInventory(input: InventoryInput): { name?: string } {
 export const TOKEN_KINDS = [...BLOCK_KINDS, "network"] as const
 export type TokenKind = (typeof TOKEN_KINDS)[number]
 
+const blockTokenKind = (k: BlockKind) => ({
+  get label() {
+    return KIND_META[k].label
+  },
+  get phrase() {
+    return KIND_META[k].phrase
+  },
+})
+
 export const TOKEN_KIND_META: Record<TokenKind, { label: string; phrase: string }> = {
-  ...(Object.fromEntries(
-    BLOCK_KINDS.map((k) => [k, { label: KIND_META[k].label, phrase: KIND_META[k].phrase }]),
-  ) as Record<BlockKind, { label: string; phrase: string }>),
-  network: { label: "Community lists (local mirror)", phrase: "the community lists" },
+  ip: blockTokenKind("ip"),
+  domain: blockTokenKind("domain"),
+  url: blockTokenKind("url"),
+  hash: blockTokenKind("hash"),
+  network: lazyText({
+    label: tk("defend_token_kind_network_label"),
+    phrase: tk("defend_token_kind_network_phrase"),
+  }),
 }
 
 export interface FeedToken {
@@ -542,27 +644,49 @@ export interface NewFeedToken {
 }
 
 export const EXPIRY_OPTIONS = [
-  { value: "none", label: "Never", days: null },
-  { value: "30", label: "30 days", days: 30 },
-  { value: "90", label: "90 days", days: 90 },
-  { value: "365", label: "1 year", days: 365 },
+  {
+    value: "none",
+    get label() {
+      return t("defend_expiry_never")
+    },
+    days: null,
+  },
+  {
+    value: "30",
+    get label() {
+      return t("defend_expiry_days", { count: 30 })
+    },
+    days: 30,
+  },
+  {
+    value: "90",
+    get label() {
+      return t("defend_expiry_days", { count: 90 })
+    },
+    days: 90,
+  },
+  {
+    value: "365",
+    get label() {
+      return t("defend_expiry_year")
+    },
+    days: 365,
+  },
 ] as const
 
 export function feedsSentence(list: FeedTokenList | undefined): string {
-  if (!list) return "Let your firewall pull the blocklists on its own."
-  if (!list.enabled)
-    return "Feeds are off. Turn them on to let your firewall pull the blocklists by itself."
-  const active = list.items.filter((t) => t.state === "active").length
-  if (active === 0)
-    return "Feeds are on, but no token exists yet. Create one so your firewall can pull a list."
-  return `${plural(active, "token")} can read your blocklists right now. Revoke any you no longer use.`
+  if (!list) return t("defend_feeds_lede")
+  if (!list.enabled) return t("defend_feeds_off")
+  const active = list.items.filter((x) => x.state === "active").length
+  if (active === 0) return t("defend_feeds_no_token")
+  return t("defend_feeds_active", { count: active })
 }
 
 /** The kinds a token covers, as words: "IP addresses and domains". */
 export function kindsPhrase(kinds: readonly TokenKind[]): string {
   const names = TOKEN_KINDS.filter((k) => kinds.includes(k)).map((k) => TOKEN_KIND_META[k].phrase)
-  if (names.length <= 1) return names[0] ?? "nothing"
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
+  if (names.length <= 1) return names[0] ?? t("defend_kinds_nothing")
+  return joinList(names)
 }
 
 /** The URL form works for firewalls that cannot send headers (OPNsense, pfSense URL tables). */
@@ -588,15 +712,15 @@ export function feedCurl(origin: string, token: string, kind: BlockKind = "ip"):
 export type DefendFailure =
   "wrong-password" | "rate-limited" | "session" | "feeds-disabled" | "limit" | "invalid" | "network"
 
-const FAILURE_MESSAGES: Record<DefendFailure, string> = {
-  "wrong-password": "That password is not correct.",
-  "rate-limited": "Too many attempts. Wait a minute, then try again.",
-  session: "Your session has ended. Sign in again.",
-  "feeds-disabled": "Feeds are turned off on this server. Set FEEDS_ENABLED=true in .env first.",
-  limit: "You have reached the limit. Remove something you no longer need first.",
-  invalid: "That value cannot be used.",
-  network: "The server could not be reached. Try again in a moment.",
-}
+const FAILURE_MESSAGES: Record<DefendFailure, string> = lazyText({
+  "wrong-password": tk("defend_error_wrong_password"),
+  "rate-limited": tk("defend_error_rate_limited"),
+  session: tk("defend_error_session"),
+  "feeds-disabled": tk("defend_error_feeds_disabled"),
+  limit: tk("defend_error_limit"),
+  invalid: tk("defend_error_invalid"),
+  network: tk("defend_error_network"),
+})
 
 export function classifyFailure(e: unknown): DefendFailure {
   if (e instanceof ApiError) {

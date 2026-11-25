@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state"
 import { FindingCard } from "@/components/finding-card"
 import { SeverityBadge } from "@/components/severity-badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { t } from "@/i18n"
 import { api, queryKeys } from "@/lib/api"
 import { maskIpsInText } from "@/lib/format"
 import { INSIGHT_KIND_LABEL, type Insight } from "@/lib/trends"
@@ -26,24 +27,22 @@ export function InsightsCard({ className }: { className?: string }) {
   const items = q.data?.items ?? []
 
   const finding = q.isPending
-    ? "Reading the last 7 days…"
+    ? t("insights_reading")
     : q.isError
-      ? "Insights are not available right now."
+      ? t("insights_unavailable")
       : items.length === 0
-        ? "Nothing unusual in the last 7 days."
-        : items.length === 1
-          ? "One thing stands out in the last 7 days."
-          : `${items.length} things stand out in the last 7 days.`
+        ? t("insights_none")
+        : t("insights_stand_out", { count: items.length })
 
   return (
     <FindingCard
       className={className}
-      eyebrow="Insights"
+      eyebrow={t("insights_title")}
       finding={finding}
-      detail={items.length > 0 ? "Each one opens the view that proves it." : undefined}
+      detail={items.length > 0 ? t("insights_detail") : undefined}
     >
       {q.isPending ? (
-        <div role="status" aria-label="Loading" className="space-y-3">
+        <div role="status" aria-label={t("common_loading")} className="space-y-3">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-12 w-full" />
           ))}
@@ -52,7 +51,7 @@ export function InsightsCard({ className }: { className?: string }) {
         <EmptyState
           variant="bare"
           icon={Sparkles}
-          title="Could not load insights"
+          title={t("insights_error_title")}
           description={q.error.message}
           className="py-6"
         />
@@ -60,12 +59,12 @@ export function InsightsCard({ className }: { className?: string }) {
         <EmptyState
           variant="bare"
           icon={Sparkles}
-          title="No insights yet"
-          description="Insights appear when something changes: a surge, a new value, or one network dominating."
+          title={t("insights_empty_title")}
+          description={t("insights_empty_description")}
           className="py-6"
         />
       ) : (
-        <ul aria-label="Insights" className="-mx-2 space-y-1">
+        <ul aria-label={t("insights_title")} className="-mx-2 space-y-1">
           {items.map((i) => (
             <li key={i.id}>
               <InsightRow insight={i} />
@@ -91,7 +90,11 @@ export function InsightRow({ insight, className }: { insight: Insight; className
       <SeverityBadge severity={insight.severity} iconOnly className="mt-px" />
       <span className="min-w-0 flex-1 text-sm text-pretty text-fg">
         <span className="sr-only">
-          {(INSIGHT_KIND_LABEL as Partial<Record<string, string>>)[insight.kind] ?? "Insight"}:{" "}
+          {t("insights_row_prefix", {
+            kind:
+              (INSIGHT_KIND_LABEL as Partial<Record<string, string>>)[insight.kind] ??
+              t("insights_kind_fallback"),
+          })}{" "}
         </span>
         {text}
       </span>

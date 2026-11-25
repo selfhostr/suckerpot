@@ -2,11 +2,8 @@ import { useMutation } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { useAuth } from "@/app/auth"
 import { Switch } from "@/components/ui/switch"
+import { t } from "@/i18n"
 import { abuseApi, describeAbuseError, type Recipient } from "@/lib/abuse"
-
-/** What one mail per source costs, shown under the switch. */
-export const STRICT_COST =
-  "Each source then goes in its own mail. Every mail counts against the daily cap, so fewer sources go out each day."
 
 /**
  * The recipient's "One mail per source (strict X-ARF)" switch (M38). Off by default: a provider
@@ -43,8 +40,8 @@ export function StrictSwitch({
         className="mt-0.5"
       />
       <label htmlFor={id} className="text-fg">
-        One mail per source (strict X-ARF) for this provider
-        <span className="block text-xs text-fg-muted">{STRICT_COST}</span>
+        {t("abuse_strict_label")}
+        <span className="block text-xs text-fg-muted">{t("abuse_strict_cost")}</span>
         {error ? <span className="block text-xs text-fg">{error}</span> : null}
       </label>
     </div>

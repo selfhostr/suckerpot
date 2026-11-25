@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react"
 import { Link } from "react-router"
 import type { StoryStage } from "@/lib/campaigns"
+import { t as tr } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 interface TechniqueChipsProps {
@@ -21,12 +22,12 @@ export function TechniqueChips({ stages, campaignId, className }: TechniqueChips
     .filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)))
   if (techniques.length === 0) return null
   return (
-    <ul className={cn("flex flex-wrap gap-1.5", className)} aria-label="Techniques">
+    <ul className={cn("flex flex-wrap gap-1.5", className)} aria-label={tr("campaign_techniques_label")}>
       {techniques.map((t) => (
         <li key={t.id} className="inline-flex max-w-full min-w-0 items-center">
           <Link
             to={`/attacks?campaign_id=${campaignId}&technique=${encodeURIComponent(t.id)}`}
-            aria-label={`${t.name}, ${t.id}. Show the sessions of this campaign that used it.`}
+            aria-label={tr("campaign_technique_show_sessions", { name: t.name, id: t.id })}
             className="inline-flex h-(--chip) min-w-0 items-center gap-1.5 rounded-l-sm border border-border-strong px-2 text-xs text-fg-muted transition-colors duration-150 hover:border-fg-subtle hover:text-fg"
           >
             <span className="shrink-0 font-mono text-fg">{t.id}</span>
@@ -37,7 +38,7 @@ export function TechniqueChips({ stages, campaignId, className }: TechniqueChips
             target="_blank"
             rel="noreferrer noopener"
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-r-sm border border-l-0 border-border-strong text-fg-subtle transition-colors duration-150 hover:text-fg"
-            aria-label={`Read about ${t.id} ${t.name} on attack.mitre.org (opens in a new tab)`}
+            aria-label={tr("campaign_technique_read_about", { id: t.id, name: t.name })}
           >
             <ExternalLink aria-hidden className="size-3" />
           </a>

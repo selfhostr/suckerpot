@@ -1,16 +1,22 @@
+import { intlLocale } from "@/i18n"
+
 export interface DayPoint {
   day: string
   events: number
 }
 
-const hour = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-})
+const hourFormats = new Map<string, Intl.DateTimeFormat>()
 
-/** "14:00" in the browser time zone. */
-export const formatHour = (iso: string) => hour.format(new Date(iso))
+/** "14:00" in the browser time zone, in the active language. */
+export const formatHour = (iso: string) => {
+  const locale = intlLocale()
+  let f = hourFormats.get(locale)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    hourFormats.set(locale, f)
+  }
+  return f.format(new Date(iso))
+}
 
 /** Fill the gaps so a quiet day shows as an empty slot, not a missing one. */
 export function fillDays(points: readonly DayPoint[], days = 30, now = Date.now()): DayPoint[] {

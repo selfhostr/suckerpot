@@ -2,12 +2,14 @@ import { CircleCheck, Share2 } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { JoinDialog } from "@/components/network/join-dialog"
 import { WhatYouShare } from "@/components/network/what-you-share"
 import { useNetworkStatus } from "@/components/network/use-network"
 import { SkeletonText } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
-import { BENEFIT } from "@/lib/network"
+import { benefitText } from "@/lib/network"
 
 /**
  * The optional "Join the SuckerPot network" step of the setup flow. Standalone: the setup flow
@@ -45,38 +47,43 @@ export function NetworkStep({
           <CircleCheck aria-hidden className="size-4 text-status-ok" strokeWidth={2.25} />
           {s.state === "member"
             ? s.pseudonym
-              ? `You are part of the SuckerPot network as ${s.pseudonym}.`
-              : "You are part of the SuckerPot network."
-            : "Joining the SuckerPot network…"}
+              ? t("setup_network_member_as", { name: s.pseudonym })
+              : t("setup_network_member")
+            : t("setup_network_joining")}
         </h3>
         <p className="text-sm text-fg-muted">
-          You can read everything that was sent, change your pseudonym or leave with one button in{" "}
-          <Link to="/settings?tab=network" className="text-fg underline underline-offset-4">
-            Settings, Network
-          </Link>
-          .
+          {tNodes(
+            "setup_network_manage",
+            {},
+            {
+              link: (
+                <Link to="/settings?tab=network" className="text-fg underline underline-offset-4">
+                  {t("setup_network_manage_link")}
+                </Link>
+              ),
+            },
+          )}
         </p>
       </div>
     )
   }
 
   const blocked = !s.enabled_env
-    ? "Sharing is switched off in this system's settings (NETWORK_ENABLED=false)."
+    ? t("setup_network_sharing_off")
     : !s.hub_configured
-      ? "No network hub is configured yet, so there is nothing to join."
+      ? t("setup_network_no_hub")
       : null
 
   return (
     <div className="space-y-5">
       <div className="space-y-2">
         <h3 className="type-card-title text-fg">
-          Join the SuckerPot network{" "}
-          <span className="font-normal text-fg-muted">(recommended)</span>
+          {t("setup_network_join_title")}{" "}
+          <span className="font-normal text-fg-muted">{t("setup_network_recommended")}</span>
         </h3>
-        <p className="max-w-3xl text-sm text-fg-muted">{BENEFIT}</p>
+        <p className="max-w-3xl text-sm text-fg-muted">{benefitText()}</p>
         <p className="max-w-3xl text-sm text-fg">
-          One button and your password. Until you join, nothing leaves this system. You can skip
-          this, and join or leave later in Settings.
+          {t("setup_network_join_note")}
         </p>
       </div>
       <WhatYouShare />
@@ -92,12 +99,12 @@ export function NetworkStep({
         {canWrite ? (
           <Button onClick={() => setOpen(true)} disabled={!!blocked}>
             <Share2 aria-hidden />
-            Join the network
+            {t("setup_network_join")}
           </Button>
         ) : null}
         {onSkip ? (
           <Button variant="outline" onClick={onSkip}>
-            Not now
+            {t("setup_network_not_now")}
           </Button>
         ) : null}
       </div>

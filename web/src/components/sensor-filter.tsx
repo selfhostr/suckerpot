@@ -11,6 +11,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { t } from "@/i18n"
 import { useSensorFilter } from "@/hooks/use-sensor-filter"
 import {
   FAMILY_META,
@@ -53,7 +54,7 @@ function portLabel(s: Sensor) {
 
 /** What the closed trigger shows: a few icons or a family swatch, then the selection's name. */
 function TriggerValue({ sensors }: { sensors: readonly Sensor[] }) {
-  if (sensors.length === 0) return <span className="text-fg">All</span>
+  if (sensors.length === 0) return <span className="text-fg">{t("common_all")}</span>
   const family = sensors.length > 1 ? exactFamily(sensors) : null
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 text-fg">
@@ -129,7 +130,7 @@ export function SensorFilter({ className, align = "start" }: SensorFilterProps) 
           className={cn("max-w-full justify-between gap-2 px-2.5", className)}
         >
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            <span className="text-fg-muted">Sensors</span>
+            <span className="text-fg-muted">{t("sensor_filter_label")}</span>
             <TriggerValue sensors={sensors} />
           </span>
           <ChevronsUpDown aria-hidden className="size-3.5 text-fg-subtle" />
@@ -148,16 +149,16 @@ export function SensorFilter({ className, align = "start" }: SensorFilterProps) 
           <CommandInput
             value={query}
             onValueChange={setQuery}
-            placeholder="Find a sensor or port…"
-            aria-label="Find a sensor"
+            placeholder={t("sensor_filter_placeholder")}
+            aria-label={t("sensor_filter_find")}
           />
           <CommandList
-            label="Sensors"
+            label={t("sensor_filter_label")}
             aria-multiselectable="true"
             className="max-h-[min(26rem,60dvh)]"
           >
             <CommandEmpty className="py-6 text-center text-xs text-fg-muted">
-              No sensor matches.
+              {t("sensor_filter_empty")}
             </CommandEmpty>
             {SENSOR_FAMILIES.map((f) => ({
               f,
@@ -222,7 +223,9 @@ export function SensorFilter({ className, align = "start" }: SensorFilterProps) 
           </CommandList>
           <div className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs">
             <span className="text-fg-subtle" aria-live="polite">
-              {sensors.length ? `${sensors.length} selected` : "Showing every sensor"}
+              {sensors.length
+                ? t("sensor_filter_selected", { count: sensors.length })
+                : t("sensor_filter_every")}
             </span>
             {sensors.length ? (
               <button
@@ -230,7 +233,7 @@ export function SensorFilter({ className, align = "start" }: SensorFilterProps) 
                 onClick={() => setSensors([])}
                 className="rounded-sm font-medium text-fg-muted transition-colors hover:text-fg"
               >
-                Show all
+                {t("sensor_filter_show_all")}
               </button>
             ) : null}
           </div>

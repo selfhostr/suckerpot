@@ -8,9 +8,10 @@ import { SegmentedControl } from "@/components/segmented-control"
 import { Card } from "@/components/ui/card"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { useReorderMotion } from "@/hooks/use-reorder-motion"
-import { countryName, formatNumber, formatPercent, maskIp, plural } from "@/lib/format"
+import { t, tk } from "@/i18n"
+import { countryName, formatNumber, formatPercent, maskIp } from "@/lib/format"
 import { addressFinding, networkFinding } from "@/lib/live-stats"
-import { SENSOR_META, type Sensor } from "@/lib/sensors"
+import { SENSOR_META, listPlain, type Sensor } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 
 /** Rows per ranking: short enough to read from across the room, and to fit beside the map. */
@@ -66,12 +67,18 @@ function RankList({
   return (
     <ol ref={listRef} aria-label={label} className="@container -mx-2 space-y-0.5">
       {rows.map((r, i) => {
-        const sensorNames = r.sensors.map((s) => SENSOR_META[s].label).join(", ")
+        const sensorNames = listPlain(r.sensors.map((s) => SENSOR_META[s].label))
         return (
           <li key={r.key} data-flip={r.key}>
             <Link
               to={r.href}
-              aria-label={`${r.name}: ${plural(r.events, "event")}, ${formatPercent(r.share)}${sensorNames ? `, on ${sensorNames}` : ""}. Open these attacks`}
+              aria-label={t("live_leaders_row_aria", {
+                name: r.name,
+                count: r.events,
+                share: formatPercent(r.share),
+                hasSensors: sensorNames ? "yes" : "no",
+                sensors: sensorNames,
+              })}
               onPointerEnter={() => onFocusChange(r.country)}
               onPointerLeave={() => onFocusChange(null)}
               onFocus={() => onFocusChange(r.country)}
@@ -119,8 +126,8 @@ function RankList({
 export type LeaderBoard = "addresses" | "networks"
 
 const BOARDS = [
-  { value: "addresses", label: "Addresses" },
-  { value: "networks", label: "Networks" },
+  { value: "addresses", labelKey: tk("live_leaders_addresses") },
+  { value: "networks", labelKey: tk("live_leaders_networks") },
 ] as const
 
 /** One row (40 px) and the 2 px between rows. */
@@ -179,7 +186,11 @@ export const LiveLeaders = memo(function LiveLeaders({
             key: l.key,
             country: l.country,
             href: `/attacks?src_ip=${encodeURIComponent(l.key)}`,
-            name: `${ip}${l.country ? ` (${countryName(l.country) ?? l.country})` : ""}`,
+            name: t("live_leaders_address_name", {
+              ip,
+              hasCountry: l.country ? "yes" : "no",
+              country: l.country ? (countryName(l.country) ?? l.country) : "",
+            }),
             main: (
               <>
                 {flag(l.country)}
@@ -196,11 +207,16 @@ export const LiveLeaders = memo(function LiveLeaders({
           key: l.key,
           country: l.country,
           href: `/attacks?asn=${l.key}`,
-          name: `${l.org ?? "Unknown network"} (AS${l.key})`,
+          name: t("live_leaders_network_name", {
+            org: l.org ?? t("live_leaders_unknown_network"),
+            asn: l.key,
+          }),
           main: (
             <>
               {flag(l.country)}
-              <span className="min-w-0 truncate text-fg">{l.org ?? "Unknown network"}</span>
+              <span className="min-w-0 truncate text-fg">
+                {l.org ?? t("live_leaders_unknown_network")}
+              </span>
             </>
           ),
           aside: <span className="font-mono">AS{l.key}</span>,
@@ -216,7 +232,7 @@ export const LiveLeaders = memo(function LiveLeaders({
       className={cn("min-h-0 overflow-hidden", className)}
     >
       <header className="space-y-1.5 px-4 pt-4 sm:px-5 sm:pt-5">
-        <p className="type-eyebrow text-fg-muted">Last 15 minutes</p>
+        <p className="type-eyebrow text-fg-muted">{t("live_leaders_window")}</p>
         <h2 id="live-leaders-title" className="type-card-title text-pretty text-fg">
           {board === "addresses"
             ? addressFinding(leaders.addresses[0], masked)
@@ -225,21 +241,23 @@ export const LiveLeaders = memo(function LiveLeaders({
       </header>
       <div className="px-4 pt-3 sm:px-5">
         <SegmentedControl
-          label="Rank the last 15 minutes by"
+          label={t("live_leaders_rank_by")}
           value={board}
           onChange={setBoard}
-          options={BOARDS}
+          options={BOARDS.map((b) => ({ value: b.value, label: t(b.labelKey) }))}
           className="grid w-full grid-cols-2"
         />
       </div>
       <div ref={body} className="min-h-0 flex-1 overflow-hidden px-4 pt-2 sm:px-5">
         <RankList
-          label={board === "addresses" ? "Top addresses" : "Top networks"}
+          label={
+            board === "addresses" ? t("live_leaders_top_addresses") : t("live_leaders_top_networks")
+          }
           rows={rows}
           empty={
             board === "addresses"
-              ? "No events in the last 15 minutes."
-              : "No known network in the last 15 minutes."
+              ? t("live_leaders_empty_addresses")
+              : t("live_leaders_empty_networks")
           }
           focus={focus}
           onFocusChange={onFocusChange}

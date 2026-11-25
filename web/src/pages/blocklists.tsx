@@ -4,6 +4,8 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
 import { useSearchParams } from "react-router"
 import { useAuth } from "@/app/auth"
+import { t, tk } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { BLOCKLIST_GRID, BlocklistRow } from "@/components/defend/blocklist-row"
 import { ExportPanel } from "@/components/defend/export-panel"
 import { KindTiles } from "@/components/defend/kind-tiles"
@@ -46,8 +48,8 @@ import { cn } from "@/lib/utils"
 const PAGE_SIZE = 50
 
 const TABS = [
-  { id: "sensor", label: "This sensor" },
-  { id: "network", label: "Network" },
+  { id: "sensor", labelKey: tk("blocklists_tab_sensor") },
+  { id: "network", labelKey: tk("blocklists_tab_network") },
 ] as const
 
 /**
@@ -63,10 +65,10 @@ export function BlocklistsPage() {
       onValueChange={(next) => setParams(next === "network" ? { tab: "network" } : {})}
       className="mt-2 mb-4"
     >
-      <TabsList variant="line" aria-label="Blocklist views" className="justify-start">
-        {TABS.map((t) => (
-          <TabsTrigger key={t.id} value={t.id} className="flex-none px-3">
-            {t.label}
+      <TabsList variant="line" aria-label={t("blocklists_views")} className="justify-start">
+        {TABS.map((tabItem) => (
+          <TabsTrigger key={tabItem.id} value={tabItem.id} className="flex-none px-3">
+            {t(tabItem.labelKey)}
           </TabsTrigger>
         ))}
       </TabsList>
@@ -77,8 +79,8 @@ export function BlocklistsPage() {
       <>
         <PageHeader
           help="blocklists-network"
-          title="Blocklists"
-          description="Free community lists for your firewall, built only from what several independent sensors confirmed."
+          title={t("blocklists_title")}
+          description={t("blocklists_network_description")}
         />
         {tabs}
         <NetworkFeedTab />
@@ -174,12 +176,8 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
   const header = (
     <PageHeader
       help="blocklists"
-      title="Blocklists"
-      description={
-        off
-          ? "Addresses, domains and files seen attacking you, scored and ready for your firewall."
-          : blocklistSentence(s)
-      }
+      title={t("blocklists_title")}
+      description={off ? blocklistSentence(undefined) : blocklistSentence(s)}
       actions={
         <>
           <ReadOnlyBadge />
@@ -195,7 +193,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
               }}
             >
               <Download aria-hidden />
-              Export
+              {t("blocklists_export")}
             </Button>
           ) : null}
         </>
@@ -210,22 +208,27 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
         {tabs}
         <EmptyState
           icon={off ? ShieldOff : ShieldCheck}
-          title={off ? "Blocklists are turned off" : "No entries scored yet"}
+          title={off ? t("blocklists_off_title") : t("blocklists_empty_title")}
           description={
             off ? (
-              <>
-                <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code> is set in{" "}
-                <code className="font-mono text-fg">.env</code>. Remove that line, or set it to{" "}
-                <code className="font-mono text-fg">true</code>, and restart the stack. The scoring
-                worker then reads what the decoys recorded and builds the lists.
-              </>
+              tNodes(
+                "blocklists_off_description",
+                {},
+                {
+                  flag: <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code>,
+                  file: <code className="font-mono text-fg">.env</code>,
+                  value: <code className="font-mono text-fg">true</code>,
+                },
+              )
             ) : (
-              <>
-                The worker scores what the decoys recorded about once an hour. Entries show up here
-                as soon as attackers have earned a score. If it stays empty, check that{" "}
-                <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code> is not set in{" "}
-                <code className="font-mono text-fg">.env</code>.
-              </>
+              tNodes(
+                "blocklists_empty_description",
+                {},
+                {
+                  flag: <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code>,
+                  file: <code className="font-mono text-fg">.env</code>,
+                },
+              )
             )
           }
         />
@@ -251,7 +254,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
           onClick={() => setToolsOpen((v) => !v)}
         >
           <ChevronDown aria-hidden className={cn("transition-none", toolsOpen && "rotate-180")} />
-          Export and your own rules
+          {t("blocklists_tools")}
         </Button>
         {toolsOpen ? (
           <div
@@ -264,7 +267,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
         ) : null}
       </div>
 
-      <h2 className="mt-6 type-section-title text-fg">Entries</h2>
+      <h2 className="mt-6 type-section-title text-fg">{t("blocklists_entries")}</h2>
 
       <StickyFilters
         className="mt-3"
@@ -273,20 +276,23 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
             chips={[
               {
                 param: "kind",
-                label: "Type",
+                label: t("blocklists_chip_type"),
                 render: (v) => (isBlockKind(v) ? KIND_META[v].label : v),
               },
-              { param: "reason", label: "Reason", render: reasonLabel },
+              { param: "reason", label: t("blocklists_chip_reason"), render: reasonLabel },
             ]}
             alsoClears={["min_score", "q", "include_benign"]}
           >
             <SegmentedControl
-              label="Minimum score"
+              label={t("export_min_score")}
               value={String(minScore)}
               onChange={(v) => setScoreParam(Number(v) === DEFAULT_MIN_SCORE ? null : v)}
               options={SCORE_OPTIONS}
             />
-            <UrlSearch label="Search the list" placeholder="Search a value" />
+            <UrlSearch
+              label={t("blocklists_search_label")}
+              placeholder={t("blocklists_search_placeholder")}
+            />
             <label
               htmlFor={benignId}
               className="inline-flex h-(--control-sm) items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
@@ -297,14 +303,14 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
                 checked={includeBenign}
                 onCheckedChange={(on) => setBenignParam(on ? "1" : null)}
               />
-              Show research scanners
+              {t("blocklists_show_scanners")}
             </label>
           </FilterBar>
         }
       >
         {s && s.top_reasons.length > 0 && !reason ? (
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-fg-muted">Common reasons</span>
+            <span className="text-xs text-fg-muted">{t("blocklists_common_reasons")}</span>
             {s.top_reasons.map((r) => (
               <button
                 key={r.reason}
@@ -326,11 +332,11 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
               BLOCKLIST_GRID,
             )}
           >
-            <span>Value</span>
-            <span>Score</span>
-            <span>Why it is listed</span>
-            <span>Seen</span>
-            <span className="sr-only">Actions</span>
+            <span>{t("blocklists_col_value")}</span>
+            <span>{t("blocklists_col_score")}</span>
+            <span>{t("blocklists_why")}</span>
+            <span>{t("blocklists_col_seen")}</span>
+            <span className="sr-only">{t("blocklists_col_actions")}</span>
           </div>
           {query.isPending ? (
             <SkeletonList rows={8} />
@@ -338,11 +344,11 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
             <EmptyState
               variant="bare"
               icon={SearchX}
-              title="Could not load the blocklist"
+              title={t("blocklists_load_error")}
               description={query.error.message}
               action={
                 <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                  Try again
+                  {t("common_try_again")}
                 </Button>
               }
             />
@@ -350,18 +356,16 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
             <EmptyState
               variant="bare"
               icon={SearchX}
-              title={filtered ? "Nothing matches" : "Nothing listed"}
+              title={filtered ? t("blocklists_no_match") : t("blocklists_nothing")}
               description={
-                filtered
-                  ? "Lower the minimum score, or clear a filter to see more."
-                  : "No entry has reached this score yet."
+                filtered ? t("blocklists_no_match_hint") : t("blocklists_nothing_hint")
               }
             />
           ) : (
             <div
               ref={listRef}
               role="list"
-              aria-label="Blocklist entries"
+              aria-label={t("blocklists_entries_list")}
               aria-busy={isFetchingNextPage}
               className="relative w-full"
               style={{ height: virtualizer.getTotalSize() }}
@@ -400,13 +404,12 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
       </StickyFilters>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {formatNumber(rows.length)} {rows.length === 1 ? "entry" : "entries"}
+          {t("blocklists_end", { count: rows.length })}
         </p>
       ) : null}
       {s && s.demo_entries > 0 ? (
         <p className="mt-3 text-center text-xs text-fg-subtle">
-          {formatNumber(s.demo_entries)} entries are demo data. They are shown here and never
-          exported.
+          {t("blocklists_demo_note", { count: s.demo_entries })}
         </p>
       ) : null}
 

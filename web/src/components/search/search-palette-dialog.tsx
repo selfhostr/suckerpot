@@ -21,7 +21,9 @@ import {
 } from "@/components/ui/command"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ScannerBadge } from "@/components/scanner-badge"
-import { formatNumber, maskIpsInText, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
+import { formatNumber, maskIpsInText } from "@/lib/format"
 import {
   GROUP_LABEL,
   MIN_QUERY,
@@ -34,7 +36,7 @@ import {
   type SearchHit,
   type SearchKind,
 } from "@/lib/search"
-import { PLACEHOLDER } from "./search-palette-constants"
+import { searchPlaceholder } from "./search-palette-constants"
 import { cn } from "@/lib/utils"
 
 /** One example per kind; a click fills the box. Documentation addresses only. */
@@ -51,8 +53,8 @@ const KIND_ICON: Record<SearchKind, LucideIcon> = {
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value)
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setDebounced(value), ms)
+    return () => clearTimeout(timer)
   }, [value, ms])
   return debounced
 }
@@ -82,7 +84,7 @@ function Hit({ hit, masked, onSelect }: { hit: SearchHit; masked: boolean; onSel
       {hit.count != null ? (
         <span className="text-xs text-fg-muted tabular-nums">
           {hit.kind === "ip" || hit.kind === "campaign"
-            ? plural(hit.count, "session")
+            ? t("search_session_count", { count: hit.count })
             : formatNumber(hit.count)}
         </span>
       ) : null}
@@ -133,23 +135,23 @@ export default function SearchPaletteDialog({
         showCloseButton={false}
         className="top-[4.5rem] translate-y-0 gap-0 overflow-hidden p-0 sm:top-[12vh] sm:max-w-xl"
       >
-        <DialogTitle className="sr-only">Search</DialogTitle>
+        <DialogTitle className="sr-only">{t("common_search")}</DialogTitle>
         <DialogDescription className="sr-only">
-          Find an address, file hash, domain, CVE or campaign.
+          {t("search_description")}
         </DialogDescription>
-        <Command shouldFilter={false} label="Search" className="rounded-lg bg-popover">
+        <Command shouldFilter={false} label={t("common_search")} className="rounded-lg bg-popover">
           <CommandInput
             value={input}
             onValueChange={setInput}
             maxLength={128}
-            placeholder={PLACEHOLDER}
-            aria-label="Search"
+            placeholder={searchPlaceholder()}
+            aria-label={t("common_search")}
           />
           <CommandList className="max-h-[min(24rem,60dvh)]">
             {!ready ? (
               <>
                 {recent.length > 0 ? (
-                  <CommandGroup heading="Recent searches">
+                  <CommandGroup heading={t("search_recent")}>
                     {recent.map((r) => (
                       <CommandItem
                         key={r}
@@ -165,11 +167,10 @@ export default function SearchPaletteDialog({
                 ) : null}
                 <div className="px-4 py-4">
                   <p className="text-sm text-fg-muted">
-                    Type at least two characters: an address or its start, a CVE, a file hash, a
-                    domain, or part of a campaign name.
+                    {t("search_hint_min")}
                   </p>
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs text-fg-subtle">Try</span>
+                    <span className="text-xs text-fg-subtle">{t("search_try")}</span>
                     {EXAMPLES.map((ex) => (
                       <button
                         key={ex}
@@ -185,15 +186,14 @@ export default function SearchPaletteDialog({
               </>
             ) : searching && groups.length === 0 ? (
               <p role="status" className="px-4 py-6 text-center text-sm text-fg-muted">
-                Searching…
+                {t("search_searching")}
               </p>
             ) : (
               <>
                 {groups.length === 0 ? (
                   <div role="status" className="px-6 py-8 text-center text-sm text-fg-muted">
                     <SearchX aria-hidden className="mx-auto mb-2 size-5 text-fg-subtle" />
-                    Nothing matches &ldquo;{q}&rdquo;. Check the spelling, or paste the full address
-                    or hash.
+                    {t("search_no_match", { query: q })}
                   </div>
                 ) : null}
                 {groups.map((g) => (
@@ -208,7 +208,7 @@ export default function SearchPaletteDialog({
                     ))}
                     {g.more ? (
                       <p className="px-2 py-1 text-xs text-fg-subtle">
-                        More matches exist: type a little more to narrow them down.
+                        {t("search_more")}
                       </p>
                     ) : null}
                   </CommandGroup>
@@ -218,18 +218,25 @@ export default function SearchPaletteDialog({
           </CommandList>
           <div className="flex items-center justify-between border-t px-3 py-2 text-2xs text-fg-subtle">
             <span className="hidden sm:inline">
-              <kbd className="font-sans">↑</kbd> <kbd className="font-sans">↓</kbd> to move,{" "}
-              <kbd className="font-sans">Enter</kbd> to open
+              {tNodes(
+                "search_hint_keys",
+                {},
+                {
+                  up: <kbd className="font-sans">↑</kbd>,
+                  down: <kbd className="font-sans">↓</kbd>,
+                  enter: <kbd className="font-sans">Enter</kbd>,
+                },
+              )}
             </span>
             <span className="hidden sm:inline">
-              <kbd className="font-sans">Esc</kbd> to close
+              {tNodes("search_hint_esc", {}, { esc: <kbd className="font-sans">Esc</kbd> })}
             </span>
             <button
               type="button"
               onClick={() => close(false)}
               className="-my-1 inline-flex h-8 items-center rounded-md px-2 text-xs text-fg-muted hover:text-fg sm:hidden"
             >
-              Close
+              {t("common_close")}
             </button>
           </div>
         </Command>

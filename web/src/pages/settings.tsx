@@ -10,6 +10,8 @@ import {
 } from "lucide-react"
 import { useEffect, useRef } from "react"
 import { Link } from "react-router"
+import { t, tk } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { ReportingCard } from "@/components/abuse/reporting-card"
 import { ReportingNav } from "@/components/abuse/reporting-nav"
 import { ImapCard } from "@/components/abuse/imap-card"
@@ -43,7 +45,7 @@ import { SensorBadge } from "@/components/sensor-badge"
 import { SkeletonText } from "@/components/skeletons"
 import { api, queryKeys } from "@/lib/api"
 import { settingsHelpId } from "@/lib/help"
-import { formatAbsolute, formatBytes, formatNumber, plural } from "@/lib/format"
+import { formatAbsolute, formatBytes, formatNumber } from "@/lib/format"
 import {
   enrichmentFinding,
   geoAgeDays,
@@ -60,10 +62,17 @@ import { cn } from "@/lib/utils"
 
 /* --- Small pieces ------------------------------------------------------- */
 
-const SENSOR_STATE: Record<SensorState, { label: string; icon: LucideIcon; className: string }> = {
-  active: { label: "Active", icon: CircleCheck, className: "text-status-ok" },
-  quiet: { label: "Quiet", icon: CircleDashed, className: "text-fg-muted" },
-  silent: { label: "Silent", icon: TriangleAlert, className: "text-sev-warning" },
+const SENSOR_STATE: Record<
+  SensorState,
+  { labelKey: string; icon: LucideIcon; className: string }
+> = {
+  active: { labelKey: tk("settings_sensor_active"), icon: CircleCheck, className: "text-status-ok" },
+  quiet: { labelKey: tk("settings_sensor_quiet"), icon: CircleDashed, className: "text-fg-muted" },
+  silent: {
+    labelKey: tk("settings_sensor_silent"),
+    icon: TriangleAlert,
+    className: "text-sev-warning",
+  },
 }
 
 function StateLabel({
@@ -105,7 +114,7 @@ function Loading() {
 }
 
 function Failed() {
-  return <p className="text-sm text-fg-muted">This status is not available right now.</p>
+  return <p className="text-sm text-fg-muted">{t("settings_status_unavailable")}</p>
 }
 
 /* --- Sensors ------------------------------------------------------------ */
@@ -113,9 +122,9 @@ function Failed() {
 function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolean }) {
   return (
     <FindingCard
-      eyebrow="Sensors"
-      finding={data ? sensorsFinding(data.sensors) : "Checking the sensors…"}
-      detail="Active: an event in the last 15 minutes. Quiet: in the last 24 hours. Silent: nothing for longer."
+      eyebrow={t("settings_sensors_title")}
+      finding={data ? sensorsFinding(data.sensors) : t("settings_sensors_checking")}
+      detail={t("settings_sensors_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
     >
       {loading ? (
@@ -131,7 +140,7 @@ function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolea
         // own top rule (none on the first row), and the left column a rule on its right. From 2xl
         // the card is one column of the General tab, so the list goes back to one column.
         <ul
-          aria-label="Sensors"
+          aria-label={t("settings_sensors_title")}
           className="grid grid-cols-1 border-t lg:grid-cols-2 2xl:grid-cols-1"
         >
           {data.sensors.map((s) => {
@@ -142,24 +151,33 @@ function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolea
                 className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 lg:odd:border-r 2xl:odd:border-r-0 lg:[&:nth-child(2)]:border-t-0 2xl:[&:nth-child(2)]:border-t"
               >
                 <SensorBadge sensor={s.sensor} className="justify-self-start" />
-                <StateLabel {...state} />
+                <StateLabel label={t(state.labelKey)} icon={state.icon} className={state.className} />
                 <span className="col-span-3 row-start-2 text-xs text-fg-muted sm:col-span-1 sm:col-start-3 sm:row-start-1">
                   {s.last_event_at ? (
-                    <>
-                      Last event <RelativeTime iso={s.last_event_at} className="text-xs" />
-                    </>
+                    tNodes(
+                      "settings_sensor_last_event",
+                      {},
+                      { time: <RelativeTime iso={s.last_event_at} className="text-xs" /> },
+                    )
                   ) : (
-                    "No event recorded yet"
+                    t("settings_sensor_no_event")
                   )}
                 </span>
                 <Link
                   to={`/attacks?sensor=${s.sensor}`}
                   className="col-start-3 row-start-1 justify-self-end text-right text-xs text-fg-muted transition-colors hover:text-fg sm:col-start-4"
                 >
-                  <span className="text-sm font-medium text-fg">
-                    {formatNumber(s.events_last_hour)}
-                  </span>{" "}
-                  in the last hour
+                  {tNodes(
+                    "settings_sensor_last_hour",
+                    {},
+                    {
+                      count: (
+                        <span className="text-sm font-medium text-fg">
+                          {formatNumber(s.events_last_hour)}
+                        </span>
+                      ),
+                    },
+                  )}
                 </Link>
               </li>
             )
@@ -194,9 +212,12 @@ function EnrichmentCard() {
       ? "MaxMind GeoLite2"
       : e?.geoip.provider === "dbip"
         ? "DB-IP Lite"
-        : "Off"
+        : t("common_off")
   return (
-    <FindingCard eyebrow="Enrichment" finding={e ? enrichmentFinding(e) : "Checking enrichment…"}>
+    <FindingCard
+      eyebrow={t("settings_enrichment_title")}
+      finding={e ? enrichmentFinding(e) : t("settings_enrichment_checking")}
+    >
       {q.isPending ? (
         <Loading />
       ) : !e ? (
@@ -204,20 +225,20 @@ function EnrichmentCard() {
       ) : (
         <div className="space-y-5">
           <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Field label="GeoIP database">{provider}</Field>
-            <Field label="Age">
-              {age !== null ? plural(Math.round(age), "day") : "–"}
+            <Field label={t("settings_geo_database")}>{provider}</Field>
+            <Field label={t("settings_geo_age")}>
+              {age !== null ? t("settings_days", { count: Math.round(age) }) : "–"}
               {e.geoip.refresh_days ? (
                 <span className="text-fg-muted">
                   {" "}
-                  · refreshed every {e.geoip.refresh_days} days
+                  · {t("settings_geo_refreshed", { count: e.geoip.refresh_days })}
                 </span>
               ) : null}
             </Field>
             {Object.entries(e.geoip.files).map(([kind, f]) => (
               <Field
                 key={kind}
-                label={`${kind.toUpperCase()} file`}
+                label={t("settings_geo_file", { kind: kind.toUpperCase() })}
                 className="col-span-2 sm:col-span-1"
               >
                 <span className="block truncate font-mono text-xs">{f.file}</span>
@@ -246,10 +267,14 @@ function EnrichmentCard() {
 
 function guardState(g: DiskGuard): { label: string; icon: LucideIcon; className: string } {
   if (g.state === "critical")
-    return { label: "Critical", icon: OctagonAlert, className: "text-sev-severe" }
+    return { label: t("settings_guard_critical"), icon: OctagonAlert, className: "text-sev-severe" }
   if (g.state === "trimmed")
-    return { label: "Trimmed old data", icon: TriangleAlert, className: "text-sev-warning" }
-  return { label: "OK", icon: CircleCheck, className: "text-status-ok" }
+    return {
+      label: t("settings_guard_trimmed"),
+      icon: TriangleAlert,
+      className: "text-sev-warning",
+    }
+  return { label: t("settings_guard_ok"), icon: CircleCheck, className: "text-status-ok" }
 }
 
 function StorageCard({ data, loading }: { data?: SystemSettings; loading: boolean }) {
@@ -258,7 +283,10 @@ function StorageCard({ data, loading }: { data?: SystemSettings; loading: boolea
   const g = data?.disk_guard ?? null
   const ing = data?.ingest_disk ?? null
   return (
-    <FindingCard eyebrow="Storage" finding={data ? storageFinding(data) : "Checking storage…"}>
+    <FindingCard
+      eyebrow={t("settings_storage_title")}
+      finding={data ? storageFinding(data) : t("settings_storage_checking")}
+    >
       {loading ? (
         <Loading />
       ) : !data ? (
@@ -268,53 +296,62 @@ function StorageCard({ data, loading }: { data?: SystemSettings; loading: boolea
           {size !== null && max ? (
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="text-fg">Database</span>
+                <span className="text-fg">{t("settings_storage_database")}</span>
                 <span className="text-xs text-fg-muted">
-                  <span className="text-sm font-medium text-fg">{formatBytes(size)}</span> of{" "}
-                  {formatBytes(max)}
+                  {tNodes(
+                    "settings_storage_of",
+                    { max: formatBytes(max) },
+                    { size: <span className="text-sm font-medium text-fg">{formatBytes(size)}</span> },
+                  )}
                 </span>
               </div>
               <Meter
                 value={size}
                 max={max}
-                label="Database size against its ceiling"
-                valueText={`${formatBytes(size)} of ${formatBytes(max)}`}
+                label={t("settings_storage_meter")}
+                valueText={t("settings_storage_of", {
+                  size: formatBytes(size),
+                  max: formatBytes(max),
+                })}
                 tone={g?.state === "critical" ? "severe" : usageTone(size / max)}
               />
             </div>
           ) : null}
           <dl className="grid grid-cols-2 gap-4">
-            <Field label="Disk guard">
+            <Field label={t("settings_storage_guard")}>
               {g ? (
                 <StateLabel {...guardState(g)} />
               ) : (
-                <span className="text-fg-muted">Not reported</span>
+                <span className="text-fg-muted">{t("settings_storage_not_reported")}</span>
               )}
             </Field>
-            <Field label="Last trim">
+            <Field label={t("settings_storage_last_trim")}>
               {g?.last_trim_at ? (
                 <>
                   <RelativeTime iso={g.last_trim_at} className="text-sm" />
                   {g.last_trim_chunks ? (
-                    <span className="text-fg-muted"> · {plural(g.last_trim_chunks, "chunk")}</span>
+                    <span className="text-fg-muted">
+                      {" "}
+                      · {t("settings_chunks", { count: g.last_trim_chunks })}
+                    </span>
                   ) : null}
                 </>
               ) : (
-                <span className="text-fg-muted">Never needed</span>
+                <span className="text-fg-muted">{t("settings_storage_never_trimmed")}</span>
               )}
             </Field>
             {ing ? (
-              <Field label="Ingest spool" className="col-span-2">
+              <Field label={t("settings_storage_spool")} className="col-span-2">
                 <span>
                   {formatBytes(ing.size_bytes)} of {formatBytes(ing.max_bytes)}
                 </span>
                 {ing.degraded ? (
                   <span className="text-sev-warning">
                     {" "}
-                    · degraded, {plural(ing.degraded_writes, "write")} held back
+                    · {t("settings_storage_degraded", { count: ing.degraded_writes })}
                   </span>
                 ) : (
-                  <span className="text-fg-muted"> · healthy</span>
+                  <span className="text-fg-muted"> · {t("settings_storage_healthy")}</span>
                 )}
               </Field>
             ) : null}
@@ -329,8 +366,8 @@ function RetentionCard({ data, loading }: { data?: SystemSettings; loading: bool
   const r = data?.retention
   return (
     <FindingCard
-      eyebrow="Data retention"
-      finding={r ? retentionFinding(r, data.disk_guard) : "Checking retention…"}
+      eyebrow={t("settings_retention_title")}
+      finding={r ? retentionFinding(r, data.disk_guard) : t("settings_retention_checking")}
     >
       {loading ? (
         <Loading />
@@ -338,16 +375,20 @@ function RetentionCard({ data, loading }: { data?: SystemSettings; loading: bool
         <Failed />
       ) : (
         <dl className="grid grid-cols-2 gap-4">
-          <Field label="Raw events">
-            {r.raw_days ? plural(r.raw_days, "day") : "Until trimmed"}
+          <Field label={t("settings_retention_raw")}>
+            {r.raw_days
+              ? t("settings_days", { count: r.raw_days })
+              : t("settings_retention_until_trimmed")}
           </Field>
-          <Field label="Compressed after">
-            {r.compression_after_days ? plural(r.compression_after_days, "day") : "–"}
+          <Field label={t("settings_retention_compressed")}>
+            {r.compression_after_days
+              ? t("settings_days", { count: r.compression_after_days })
+              : "–"}
           </Field>
-          <Field label="Oldest stored event" className="col-span-2">
+          <Field label={t("settings_retention_oldest")} className="col-span-2">
             {r.oldest_event_at ? formatAbsolute(r.oldest_event_at) : "–"}
           </Field>
-          <Field label="Aggregates, kept forever" className="col-span-2">
+          <Field label={t("settings_retention_aggregates")} className="col-span-2">
             <span className="mt-1 flex flex-wrap gap-1.5">
               {r.aggregates.map((a) => (
                 <code
@@ -379,7 +420,7 @@ function SettingsActions() {
         <Button asChild variant="outline" size="sm" className="text-fg-muted hover:text-fg">
           <Link to="/styleguide">
             <SwatchBook aria-hidden className="size-4" strokeWidth={1.85} />
-            Styleguide
+            {t("settings_styleguide")}
           </Link>
         </Button>
       ) : null}
@@ -388,24 +429,24 @@ function SettingsActions() {
 }
 
 const TABS = [
-  { id: "general", label: "General", adminOnly: false },
-  { id: "keys", label: "Keys", adminOnly: false },
-  { id: "users", label: "Users", adminOnly: true },
-  { id: "audit", label: "Audit", adminOnly: true },
-  { id: "ports", label: "Sensors & ports", adminOnly: true },
-  { id: "alert-rules", label: "Alerts", adminOnly: false },
-  { id: "alerts", label: "Alert channels", adminOnly: false },
-  { id: "feeds", label: "Feeds", adminOnly: true },
-  { id: "reporting", label: "Reporting", adminOnly: true },
-  { id: "vpn", label: "VPN", adminOnly: true },
-  { id: "network", label: "SuckerPot network", adminOnly: false },
+  { id: "general", labelKey: tk("settings_tab_general"), adminOnly: false },
+  { id: "keys", labelKey: tk("settings_tab_keys"), adminOnly: false },
+  { id: "users", labelKey: tk("settings_tab_users"), adminOnly: true },
+  { id: "audit", labelKey: tk("settings_tab_audit"), adminOnly: true },
+  { id: "ports", labelKey: tk("settings_tab_ports"), adminOnly: true },
+  { id: "alert-rules", labelKey: tk("settings_tab_alert_rules"), adminOnly: false },
+  { id: "alerts", labelKey: tk("settings_tab_alert_channels"), adminOnly: false },
+  { id: "feeds", labelKey: tk("settings_tab_feeds"), adminOnly: true },
+  { id: "reporting", labelKey: tk("settings_tab_reporting"), adminOnly: true },
+  { id: "vpn", labelKey: tk("settings_tab_vpn"), adminOnly: true },
+  { id: "network", labelKey: tk("settings_tab_network"), adminOnly: false },
 ] as const
 
 export function SettingsPage() {
   const { canWrite } = useAuth()
-  const tabs = TABS.filter((t) => canWrite || !t.adminOnly)
+  const tabs = TABS.filter((item) => canWrite || !item.adminOnly)
   const [tabParam, setTabParam] = useUrlParam("tab")
-  const tab = tabs.find((t) => t.id === tabParam)?.id ?? "general"
+  const tab = tabs.find((x) => x.id === tabParam)?.id ?? "general"
   // The tab lives in the URL, so a section can be linked; "general" is the default and stays bare.
   const setTab = (next: string) => setTabParam(next === "general" ? null : next)
   // On phones the tab strip scrolls sideways: keep the open tab in view (e.g. ?tab=feeds).
@@ -427,11 +468,9 @@ export function SettingsPage() {
     <>
       <PageHeader
         help={settingsHelpId(tab)}
-        title="Settings"
+        title={t("settings_title")}
         description={
-          canWrite
-            ? "Sensor health, enrichment keys, users, retention and storage, one tab each."
-            : "Sensor health, enrichment, retention and storage."
+          canWrite ? t("settings_description_admin") : t("settings_description_viewer")
         }
         actions={<SettingsActions />}
       />
@@ -440,21 +479,34 @@ export function SettingsPage() {
         <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
         {canWrite && tab === "reporting" ? (
           <p>
-            Reporting settings are saved here. Only the server switches, such as{" "}
-            <code className="font-mono text-fg">ABUSE_REPORTS_ENABLED</code>, live in{" "}
-            <code className="font-mono text-fg">.env</code>.
+            {tNodes(
+              "settings_note_reporting",
+              {},
+              {
+                flag: <code className="font-mono text-fg">ABUSE_REPORTS_ENABLED</code>,
+                env: <code className="font-mono text-fg">.env</code>,
+              },
+            )}
           </p>
         ) : canWrite ? (
           <p>
-            The enrichment API keys, the users and the alert channels can be edited below.
-            Everything else lives in <code className="font-mono text-fg">.env</code>: change it
-            there and restart with <code className="font-mono text-fg">docker compose up -d</code>.
-            Every option is documented in <code className="font-mono">.env.example</code>.
+            {tNodes(
+              "settings_note_admin",
+              {},
+              {
+                env: <code className="font-mono text-fg">.env</code>,
+                command: <code className="font-mono text-fg">docker compose up -d</code>,
+                example: <code className="font-mono">.env.example</code>,
+              },
+            )}
           </p>
         ) : (
           <p>
-            You have read-only access: you can look at everything here, and an administrator changes
-            it. The server settings live in <code className="font-mono">.env</code>.
+            {tNodes(
+              "settings_note_viewer",
+              {},
+              { env: <code className="font-mono">.env</code> },
+            )}
           </p>
         )}
       </div>
@@ -463,12 +515,12 @@ export function SettingsPage() {
         <TabsList
           ref={tabsRef}
           variant="line"
-          aria-label="Settings sections"
+          aria-label={t("settings_tabs_label")}
           className="scroll-fade-x mb-2 max-w-full justify-start overflow-x-auto"
         >
-          {tabs.map((t) => (
-            <TabsTrigger key={t.id} value={t.id} className="flex-none px-3">
-              {t.label}
+          {tabs.map((item) => (
+            <TabsTrigger key={item.id} value={item.id} className="flex-none px-3">
+              {t(item.labelKey)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -517,11 +569,17 @@ export function SettingsPage() {
         <TabsContent value="alerts" className="grid grid-cols-1 gap-4">
           <ChannelsCard />
           <p className="text-sm text-fg-muted">
-            The rules, the recent alerts and the weekly reports are in the{" "}
-            <Link to={ALERTS_SETTINGS} className="text-fg underline underline-offset-4">
-              Alerts tab
-            </Link>
-            .
+            {tNodes(
+              "settings_alerts_note",
+              {},
+              {
+                link: (
+                  <Link to={ALERTS_SETTINGS} className="text-fg underline underline-offset-4">
+                    {t("settings_alerts_note_link")}
+                  </Link>
+                ),
+              },
+            )}
           </p>
         </TabsContent>
         {canWrite ? (
@@ -559,11 +617,17 @@ export function SettingsPage() {
         <TabsContent value="network" className="grid grid-cols-1 gap-4">
           <NetworkTab />
           <p className="text-sm text-fg-muted">
-            What the network sees and who takes part are on the{" "}
-            <Link to="/network" className="text-fg underline underline-offset-4">
-              SuckerPot network page
-            </Link>
-            .
+            {tNodes(
+              "settings_network_note",
+              {},
+              {
+                link: (
+                  <Link to="/network" className="text-fg underline underline-offset-4">
+                    {t("settings_network_note_link")}
+                  </Link>
+                ),
+              },
+            )}
           </p>
         </TabsContent>
       </Tabs>

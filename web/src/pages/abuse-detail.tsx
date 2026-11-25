@@ -35,6 +35,8 @@ import { SkeletonCard } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { t, tk } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { ApiError } from "@/lib/api"
 import {
   abuseApi,
@@ -52,6 +54,7 @@ import {
   KIND_HEADING,
   KINDS,
   kindLabel,
+  lowerNoun,
   nextActions,
   reviewBlocker,
   STATUS_LABEL,
@@ -64,18 +67,20 @@ import {
   withSameDayConfirm,
 } from "@/lib/abuse"
 import { MetaLine } from "@/components/meta-line"
-import { formatAbsolute, formatNumber, plural } from "@/lib/format"
+import { formatAbsolute, formatNumber } from "@/lib/format"
 import { saveBlob } from "@/lib/samples"
 
-const back = (
-  <Link
-    to="/defend/abuse"
-    className="inline-flex items-center gap-1.5 text-fg-muted transition-colors hover:text-fg"
-  >
-    <ArrowLeft aria-hidden className="size-3.5" />
-    Abuse reports
-  </Link>
-)
+function BackLink() {
+  return (
+    <Link
+      to="/defend/abuse"
+      className="inline-flex items-center gap-1.5 text-fg-muted transition-colors hover:text-fg"
+    >
+      <ArrowLeft aria-hidden className="size-3.5" />
+      {t("abuse_page_title")}
+    </Link>
+  )
+}
 
 /* --- Identity check ------------------------------------------------------------------------ */
 
@@ -83,11 +88,11 @@ function IdentityCard({ r }: { r: ReportDetail }) {
   const ok = r.guard.ok
   return (
     <FindingCard
-      eyebrow="Identity check"
+      eyebrow={t("abuse_detail_identity")}
       finding={describeGuard(r.guard, r.redaction)}
       detail={
         ok
-          ? "Runs on every view and download. It looks for anything that could point back to you."
+          ? t("abuse_detail_identity_detail")
           : undefined
       }
       className={ok ? "normal-nums" : "border-sev-warning/40 normal-nums"}
@@ -96,13 +101,13 @@ function IdentityCard({ r }: { r: ReportDetail }) {
         {ok ? (
           <>
             <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-status-ok" />
-            <span className="font-medium text-fg">Checked</span>
+            <span className="font-medium text-fg">{t("abuse_row_checked")}</span>
           </>
         ) : (
           <>
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
             <div className="space-y-2">
-              <span className="font-medium text-fg">Blocked</span>
+              <span className="font-medium text-fg">{t("abuse_row_blocked")}</span>
               <ul className="list-disc space-y-1.5 pl-5">
                 {(r.guard.codes.length > 0 ? r.guard.codes : ["unknown"]).map((c) => {
                   const { why, fix } = guardAdvice(c)
@@ -116,15 +121,20 @@ function IdentityCard({ r }: { r: ReportDetail }) {
               </ul>
               <SettingsCause />
               <p className="text-fg-muted">
-                Nothing is sent while a draft is blocked. The words the check looks for are listed
-                in{" "}
-                <Link
-                  to="/settings?tab=reporting#reporting-never"
-                  className="font-medium text-fg underline underline-offset-4"
-                >
-                  Settings, Reporting, Never in a report
-                </Link>
-                .
+                {tNodes(
+                  "abuse_detail_blocked_note",
+                  {},
+                  {
+                    link: (
+                      <Link
+                        to="/settings?tab=reporting#reporting-never"
+                        className="font-medium text-fg underline underline-offset-4"
+                      >
+                        {t("abuse_detail_blocked_link")}
+                      </Link>
+                    ),
+                  },
+                )}
               </p>
             </div>
           </>
@@ -164,15 +174,15 @@ function MessageCard({ r }: { r: ReportDetail }) {
   const m = q.data
   return (
     <FindingCard
-      eyebrow="Message"
+      eyebrow={t("send_queue_field_message")}
       finding={
         r.guard.ok
-          ? `Ready to copy into your own mailbox, addressed to ${r.recipient.mailbox ?? "no one yet"}.`
-          : "This message is held back until the identity check passes."
+          ? t("abuse_detail_message_ready", { to: r.recipient.mailbox ?? t("abuse_detail_no_one") })
+          : t("abuse_detail_message_held")
       }
       action={
         <SegmentedControl
-          label="Message format"
+          label={t("abuse_detail_format_aria")}
           value={format}
           onChange={setFormat}
           options={FORMAT_OPTIONS}
@@ -180,7 +190,7 @@ function MessageCard({ r }: { r: ReportDetail }) {
       }
     >
       {!r.guard.ok ? (
-        <p className="text-sm text-fg-muted">See the identity check above.</p>
+        <p className="text-sm text-fg-muted">{t("abuse_detail_see_check")}</p>
       ) : q.isPending ? (
         <div aria-busy className="space-y-3">
           <SkeletonCard />
@@ -188,13 +198,13 @@ function MessageCard({ r }: { r: ReportDetail }) {
       ) : q.isError ? (
         <div role="alert" className="space-y-2 text-sm text-fg-muted">
           <p className="font-medium text-fg">
-            {reasons ? "Blocked by the identity check." : "This format is not available."}
+            {reasons ? t("abuse_detail_blocked_title") : t("abuse_detail_format_unavailable")}
           </p>
           <p>
             {reasons
               ? reasons.map(guardReason).join(" ")
               : apiError?.code === "settings_incomplete"
-                ? "Set a reply contact in the Reporting settings before a message can be written. The texts around the facts are optional."
+                ? t("abuse_detail_settings_incomplete")
                 : describeAbuseError(q.error)}
           </p>
           {apiError?.code === "settings_incomplete" ? (
@@ -202,7 +212,7 @@ function MessageCard({ r }: { r: ReportDetail }) {
               to={`/settings?tab=reporting${missing.length ? `&missing=${missing.join(",")}` : ""}`}
               className="font-medium text-fg underline underline-offset-4"
             >
-              Set a reply contact in Settings
+              {t("abuse_detail_set_contact")}
             </Link>
           ) : null}
         </div>
@@ -211,12 +221,12 @@ function MessageCard({ r }: { r: ReportDetail }) {
       ) : m ? (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            <CopyField label="To" value={m.to} />
-            <CopyField label="Subject" value={m.subject} />
+            <CopyField label={t("abuse_detail_field_to")} value={m.to} />
+            <CopyField label={t("send_queue_field_subject")} value={m.subject} />
           </div>
-          <CopyField label="Body" value={m.body} multiline />
+          <CopyField label={t("abuse_detail_field_body")} value={m.body} multiline />
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-fg-muted">Attach to your message:</span>
+            <span className="text-xs text-fg-muted">{t("abuse_detail_attach")}</span>
             <Button variant="outline" size="sm" onClick={() => void save("txt", `report.txt`)}>
               report.txt
             </Button>
@@ -265,9 +275,7 @@ function XarfFiles({
   return (
     <div className="space-y-4">
       <p className="text-sm text-fg-muted">
-        {files.length === 1
-          ? "One machine-readable report, attached to the mail as xarf.json."
-          : `${plural(files.length, "machine-readable report")}, one per source, attached to the mail.`}
+        {t("abuse_detail_xarf_intro", { count: files.length, file: "xarf.json" })}
       </p>
       {files.map((f) => {
         const found = sourceOf(f.name)
@@ -291,7 +299,7 @@ function XarfFiles({
                 )
               }
             >
-              Download {f.name}
+              {t("abuse_form_kit_download", { name: f.name })}
             </Button>
           </div>
         )
@@ -312,7 +320,7 @@ function SubjectMarks({ s }: { s: ReportSubject }) {
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
       {s.outcome ? <OutcomeBadge outcome={s.outcome} className="-ml-1" /> : null}
       {s.stale ? (
-        <span title="Only a send started by hand carries it.">older than 7 days</span>
+        <span title={t("abuse_detail_stale_title")}>{t("abuse_form_kit_stale")}</span>
       ) : null}
       {s.xarf_file ? <span className="font-mono">{s.xarf_file}</span> : null}
     </span>
@@ -323,7 +331,10 @@ function SubjectMarks({ s }: { s: ReportSubject }) {
 function groupSubjects(r: ReportDetail): { kind: string | null; items: ReportSubject[] }[] {
   if (r.kind !== "digest") return [{ kind: null, items: r.subjects }]
   return KINDS.map((k) => ({
-    kind: `${KIND_HEADING[k]} (${r.subjects.filter((s) => s.kind === k).length})`,
+    kind: t("abuse_detail_group_heading", {
+      heading: KIND_HEADING[k],
+      count: r.subjects.filter((s) => s.kind === k).length,
+    }),
     items: r.subjects.filter((s) => s.kind === k),
   })).filter((g) => g.items.length > 0)
 }
@@ -332,15 +343,9 @@ function SubjectsCard({ r }: { r: ReportDetail }) {
   const groups = groupSubjects(r)
   return (
     <FindingCard
-      eyebrow="In this report"
-      finding={`${
-        r.kind === "digest"
-          ? plural(r.subjects.length, "source")
-          : r.kind === "attack_source"
-            ? plural(r.subjects.length, "address", "addresses")
-            : plural(r.subjects.length, "host")
-      } in this report.`}
-      detail="These links open the dashboard and exist only here: they are never part of the message."
+      eyebrow={t("abuse_detail_subjects")}
+      finding={t("abuse_detail_subjects_finding", { kind: r.kind, count: r.subjects.length })}
+      detail={t("abuse_detail_subjects_detail")}
       className="normal-nums"
       bodyClassName="px-0 sm:px-0 pb-0 sm:pb-0"
     >
@@ -361,11 +366,11 @@ function SubjectGroup({
   subjects: ReportSubject[]
 }) {
   return (
-    <section aria-label={heading ?? "Addresses and hosts in this report"}>
+    <section aria-label={heading ?? t("abuse_detail_subjects_aria")}>
       {heading ? (
         <h3 className="border-t px-4 pt-3 pb-1 type-subtitle text-fg sm:px-5">{heading}</h3>
       ) : null}
-      <ul aria-label="Addresses and hosts in this report" className="divide-y border-t sm:hidden">
+      <ul aria-label={t("abuse_detail_subjects_aria")} className="divide-y border-t sm:hidden">
         {subjects.map((s) => (
           <li key={`${s.subject_type}:${s.value}`} className="px-4 py-3">
             {s.subject_type === "ip" ? (
@@ -386,9 +391,9 @@ function SubjectGroup({
                   {s.network}
                 </span>
               ) : null}
-              <span>{plural(s.sessions, "session")}</span>
+              <span>{t("abuse_detail_sessions", { count: s.sessions })}</span>
               <span>
-                last <RelativeTime iso={s.last_ts} />
+                {tNodes("abuse_detail_last", {}, { time: <RelativeTime iso={s.last_ts} /> })}
               </span>
             </MetaLine>
             <div className="mt-1.5">
@@ -399,20 +404,24 @@ function SubjectGroup({
       </ul>
       <div className="overflow-x-auto sm:border-t">
         <table className="hidden w-full text-left text-sm sm:table">
-          <caption className="sr-only">Addresses and hosts in this report</caption>
+          <caption className="sr-only">{t("abuse_detail_subjects_aria")}</caption>
           <thead className="text-xs text-fg-muted">
             <tr className="border-b">
               <th scope="col" className="px-4 py-2 font-medium sm:px-5">
-                {r.kind === "attack_source" ? "Address" : r.kind === "digest" ? "Source" : "Host"}
+                {r.kind === "attack_source"
+                  ? t("abuse_form_field_address")
+                  : r.kind === "digest"
+                    ? t("abuse_detail_col_source")
+                    : t("abuse_detail_col_host")}
               </th>
               <th scope="col" className="px-2 py-2 font-medium">
-                Network
+                {t("abuse_detail_col_network")}
               </th>
               <th scope="col" className="px-2 py-2 text-right font-medium">
-                Sessions
+                {t("abuse_detail_col_sessions")}
               </th>
               <th scope="col" className="px-4 py-2 font-medium sm:px-5">
-                Last seen
+                {t("abuse_form_field_last_seen")}
               </th>
             </tr>
           </thead>
@@ -460,22 +469,26 @@ function SubjectGroup({
 
 /* --- Notes and options --------------------------------------------------------------------- */
 
-const OPTION_LABEL: { key: keyof ReportOptions; label: string; hint: string }[] = [
+const OPTION_LABEL: { key: keyof ReportOptions; labelKey: string; hintKey: string }[] = [
   {
     key: "defang",
-    label: "Defang URLs and addresses",
-    hint: "hxxp://203.0.113[.]9 instead of a live link.",
+    labelKey: tk("reporting_defang"),
+    hintKey: tk("reporting_defang_hint"),
   },
-  { key: "include_usernames", label: "Include the usernames tried", hint: "Never the passwords." },
+  {
+    key: "include_usernames",
+    labelKey: tk("reporting_usernames"),
+    hintKey: tk("reporting_usernames_hint"),
+  },
   {
     key: "show_redaction_counts",
-    label: "Add the redaction counter line",
-    hint: "How many values were masked and lines left out. Off by default.",
+    labelKey: tk("reporting_redaction"),
+    hintKey: tk("reporting_redaction_hint"),
   },
   {
     key: "include_reply_contact",
-    label: "Include the reply contact",
-    hint: "So the abuse desk can answer.",
+    labelKey: tk("reporting_include_contact"),
+    hintKey: tk("abuse_detail_contact_hint"),
   },
 ]
 
@@ -501,9 +514,12 @@ function OptionsCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetai
   const { save, error } = useReportPatch(r, onSaved)
   const minute = r.options.time_precision === "minute"
   return (
-    <FindingCard eyebrow="Options" finding="These options change what the message says.">
+    <FindingCard
+      eyebrow={t("abuse_detail_options")}
+      finding={t("abuse_detail_options_finding")}
+    >
       <fieldset className="space-y-3" disabled={!editable}>
-        <legend className="sr-only">Options</legend>
+        <legend className="sr-only">{t("abuse_detail_options")}</legend>
         <div className="flex items-start gap-3">
           <Switch
             id={`${id}-minute`}
@@ -515,10 +531,8 @@ function OptionsCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetai
             className="mt-0.5"
           />
           <label htmlFor={`${id}-minute`} className="text-sm text-fg">
-            Round times to the minute
-            <span className="block text-xs text-fg-muted">
-              Exact seconds make it easier to match flow logs, and so to recognise you.
-            </span>
+            {t("reporting_round_times")}
+            <span className="block text-xs text-fg-muted">{t("abuse_detail_round_hint")}</span>
           </label>
         </div>
         {OPTION_LABEL.map((o) => (
@@ -531,8 +545,10 @@ function OptionsCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetai
               className="mt-0.5"
             />
             <label htmlFor={`${id}-${o.key}`} className="text-sm text-fg">
-              {o.label}
-              <span className="block text-xs text-fg-muted">{o.hint}</span>
+              {t(o.labelKey)}
+              <span className="block text-xs text-fg-muted">
+                {t(o.hintKey, { example: "hxxp://203.0.113[.]9" })}
+              </span>
             </label>
           </div>
         ))}
@@ -551,10 +567,10 @@ function NotesCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetail)
   const [notes, setNotes] = useState(r.notes ?? "")
   const { save, error } = useReportPatch(r, onSaved)
   return (
-    <FindingCard eyebrow="Notes" finding="Notes stay here and are never sent.">
+    <FindingCard eyebrow={t("abuse_detail_notes")} finding={t("abuse_detail_notes_finding")}>
       <div className="space-y-2">
         <label htmlFor={id} className="text-sm font-medium text-fg">
-          Your notes
+          {t("abuse_detail_your_notes")}
         </label>
         {editable ? (
           <>
@@ -571,12 +587,12 @@ function NotesCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetail)
               disabled={save.isPending || notes === (r.notes ?? "")}
               onClick={() => save.mutate({ notes: notes.trim() === "" ? null : notes })}
             >
-              Save notes
+              {t("abuse_detail_save_notes")}
             </Button>
           </>
         ) : (
           <p id={id} className="text-sm whitespace-pre-wrap text-fg-muted">
-            {r.notes ?? "No notes."}
+            {r.notes ?? t("abuse_detail_no_notes")}
           </p>
         )}
       </div>
@@ -592,8 +608,8 @@ function NotesCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetail)
 function HistoryCard({ r }: { r: ReportDetail }) {
   return (
     <FindingCard
-      eyebrow="History"
-      finding={`Last change: ${STATUS_LABEL[r.status].toLowerCase()}.`}
+      eyebrow={t("abuse_detail_history")}
+      finding={t("abuse_detail_last_change", { status: lowerNoun(STATUS_LABEL[r.status]) })}
       bodyClassName="px-0 sm:px-0 pb-1 sm:pb-1"
     >
       <ol className="divide-y border-t">
@@ -604,11 +620,16 @@ function HistoryCard({ r }: { r: ReportDetail }) {
           >
             <span className="font-medium text-fg">
               {h.from
-                ? `${STATUS_LABEL[h.from]} to ${STATUS_LABEL[h.to]}`
-                : `${STATUS_LABEL[h.to]} written`}
+                ? t("abuse_detail_history_move", {
+                    from: STATUS_LABEL[h.from],
+                    to: STATUS_LABEL[h.to],
+                  })
+                : t("abuse_detail_history_written", { status: STATUS_LABEL[h.to] })}
             </span>
             <span className="text-fg-muted">
-              {h.actor === "ingest" ? "automatically" : `by ${h.actor}`}
+              {h.actor === "ingest"
+                ? t("abuse_detail_history_auto")
+                : t("abuse_detail_history_by", { actor: h.actor })}
             </span>
             <RelativeTime iso={h.ts} className="ml-auto" />
           </li>
@@ -665,7 +686,7 @@ function Actions({
       <div className="flex flex-wrap items-center gap-2">
         {next.includes("reviewed") ? (
           <Button size="sm" disabled={blocker !== null} onClick={() => go("reviewed")}>
-            Mark reviewed
+            {t("abuse_detail_mark_reviewed")}
           </Button>
         ) : null}
         {next.includes("sent") && !r.demo ? (
@@ -674,27 +695,27 @@ function Actions({
             variant={mode === "click" ? "outline" : "default"}
             onClick={() => setSentOpen(true)}
           >
-            Mark sent
+            {t("abuse_detail_mark_sent")}
           </Button>
         ) : null}
         {next.includes("closed") ? (
           <Button size="sm" onClick={() => go("closed")}>
-            Mark as closed
+            {t("abuse_detail_mark_closed")}
           </Button>
         ) : null}
         {next.includes("draft") ? (
           <Button size="sm" variant="outline" onClick={() => setConfirm("draft")}>
-            Reopen as draft
+            {t("abuse_detail_reopen")}
           </Button>
         ) : null}
         {canRegenerate ? (
           <Button size="sm" variant="outline" onClick={() => setConfirm("regenerate")}>
-            <RefreshCw aria-hidden /> Regenerate
+            <RefreshCw aria-hidden /> {t("abuse_detail_regenerate")}
           </Button>
         ) : null}
         {next.includes("discarded") ? (
           <Button size="sm" variant="ghost" onClick={() => setConfirm("discarded")}>
-            Discard
+            {t("abuse_detail_discard")}
           </Button>
         ) : null}
       </div>
@@ -727,14 +748,14 @@ function Actions({
                 to="/settings?tab=reporting"
                 className="font-medium text-fg underline underline-offset-4"
               >
-                Open Settings
+                {t("abuse_page_open_settings")}
               </Link>
             ) : null}
           </span>
         </p>
       ) : null}
       {r.demo ? (
-        <p className="text-sm text-fg-muted">Demo reports cannot be marked as sent.</p>
+        <p className="text-sm text-fg-muted">{t("abuse_detail_demo_no_send")}</p>
       ) : null}
       <p role="alert" className="text-sm text-fg empty:hidden">
         {error}
@@ -750,20 +771,24 @@ function Actions({
         onOpenChange={(o) => !o && setConfirm(null)}
         title={
           confirm === "discarded"
-            ? "Discard this report?"
+            ? t("abuse_detail_discard_title")
             : confirm === "draft"
-              ? "Reopen this report as a draft?"
-              : "Rebuild this draft?"
+              ? t("abuse_detail_reopen_title")
+              : t("abuse_detail_regenerate_title")
         }
         description={
           confirm === "discarded"
-            ? "It will not be sent. These addresses are reported again only if they attack again."
+            ? t("abuse_detail_discard_description")
             : confirm === "draft"
-              ? "The review is cleared, so you read the message again before it can be marked sent."
-              : "The draft is rebuilt from the latest data. A reviewed report goes back to draft."
+              ? t("abuse_detail_reopen_description")
+              : t("abuse_detail_regenerate_description")
         }
         confirmLabel={
-          confirm === "discarded" ? "Discard" : confirm === "draft" ? "Reopen" : "Regenerate"
+          confirm === "discarded"
+            ? t("abuse_detail_discard")
+            : confirm === "draft"
+              ? t("abuse_detail_reopen_confirm")
+              : t("abuse_detail_regenerate")
         }
         describe={describeAbuseError}
         run={async () => {
@@ -804,18 +829,14 @@ export function AbuseDetailPage() {
     const gone = q.error instanceof ApiError && q.error.status === 404
     return (
       <>
-        <PageHeader help="abuse-report" title="Abuse report" eyebrow={back} />
+        <PageHeader help="abuse-report" title={t("abuse_detail_title")} eyebrow={<BackLink />} />
         <EmptyState
           icon={FileSearch}
-          title={gone ? "This report does not exist" : "Could not load this report"}
-          description={
-            gone
-              ? "It may have been replaced by a newer draft, or the link is wrong."
-              : q.error.message
-          }
+          title={gone ? t("abuse_detail_gone") : t("abuse_detail_load_failed")}
+          description={gone ? t("abuse_detail_gone_description") : q.error.message}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/defend/abuse">Back to the reports</Link>
+              <Link to="/defend/abuse">{t("abuse_detail_back_to_reports")}</Link>
             </Button>
           }
         />
@@ -825,7 +846,7 @@ export function AbuseDetailPage() {
   if (!q.data) {
     return (
       <>
-        <PageHeader help="abuse-report" title="Abuse report" eyebrow={back} />
+        <PageHeader help="abuse-report" title={t("abuse_detail_title")} eyebrow={<BackLink />} />
         <div className="space-y-4" aria-busy>
           <SkeletonCard />
           <SkeletonCard />
@@ -838,7 +859,7 @@ export function AbuseDetailPage() {
     <>
       <PageHeader
         help="abuse-report"
-        eyebrow={back}
+        eyebrow={<BackLink />}
         title={r.recipient.name}
         description={<span className="normal-nums">{describeReport(r)}</span>}
         actions={
@@ -849,7 +870,7 @@ export function AbuseDetailPage() {
               blockedReason={
                 r.guard.ok
                   ? undefined
-                  : "The identity check blocked this report, so it cannot be exported."
+                  : t("abuse_detail_export_blocked")
               }
             />
           </>
@@ -862,7 +883,7 @@ export function AbuseDetailPage() {
             className="flex items-center gap-2 rounded-md border border-dashed border-border-strong px-3 py-2 text-sm text-fg"
           >
             <FlaskConical aria-hidden className="size-4 text-fg-muted" />
-            Demo data, do not send.
+            {t("abuse_detail_demo")}
           </p>
         ) : null}
         <DeskNotice
@@ -882,19 +903,21 @@ export function AbuseDetailPage() {
         ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-fg-muted">
           <span className="font-medium text-fg">{kindLabel(r.kind)}</span>
-          {r.part && r.part > 1 ? <span>part {r.part}</span> : null}
-          <span className="font-mono">{r.recipient.mailbox ?? "no mailbox yet"}</span>
+          {r.part && r.part > 1 ? <span>{t("abuse_row_part", { part: r.part })}</span> : null}
+          <span className="font-mono">{r.recipient.mailbox ?? t("abuse_page_no_mailbox")}</span>
           {r.recipient.shared_mailbox ? (
-            <span>Replies from this contact are trusted by exact address only.</span>
+            <span>{t("abuse_detail_shared_mailbox")}</span>
           ) : null}
           {r.previously_reported ? (
-            <span>Previously reported on {formatAbsolute(r.previously_reported)}</span>
+            <span>
+              {t("abuse_detail_previously", { date: formatAbsolute(r.previously_reported) })}
+            </span>
           ) : null}
         </div>
         <StatusStepper status={r.status} />
         {canWrite ? null : (
           <p className="text-sm text-fg-muted">
-            You can read everything here. Only an administrator changes a report.
+            {t("abuse_detail_read_only")}
           </p>
         )}
         <Actions r={r} onChanged={refresh} />

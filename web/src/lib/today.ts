@@ -1,7 +1,8 @@
 /** The Today page: types mirror api/api/today.py. */
 import type { OutboxItem } from "./alerts"
 import { getJson } from "./api"
-import { formatNumber, formatRelative } from "./format"
+import { tk, t } from "@/i18n"
+import { formatRelative } from "./format"
 
 export type TodayCardId = "happened" | "forms" | "campaigns" | "act" | "new_week" | "exposure"
 export type TodayItemKind =
@@ -56,14 +57,17 @@ export const todayKeys = {
   benign: ["stats", "benign"] as const,
 }
 
-/** The cards' small headings; the sentence below each one carries the finding. */
+/**
+ * The cards' small headings, as message keys (render them with t()); the sentence below each one
+ * carries the finding.
+ */
 export const CARD_TITLE: Record<TodayCardId, string> = {
-  happened: "What happened",
-  forms: "To submit by form",
-  campaigns: "New campaigns",
-  act: "Act now",
-  new_week: "New this week",
-  exposure: "Your exposure",
+  happened: tk("today_card_happened"),
+  forms: tk("today_card_forms"),
+  campaigns: tk("today_card_campaigns"),
+  act: tk("today_card_act"),
+  new_week: tk("today_card_new_week"),
+  exposure: tk("today_card_exposure"),
 }
 
 /** What needs doing first: form reports that wait on the owner, then servers to block. */
@@ -93,9 +97,13 @@ export function alertsSentence(items: readonly OutboxItem[], now = Date.now()): 
     (i) => i.state !== "suppressed" && now - Date.parse(i.created_at) < DAY_MS,
   )
   const latest = recent[0]
-  if (!latest) return "None in the last 24 hours."
+  if (!latest) return t("today_alerts_none")
   const failed = recent.filter((i) => i.state === "failed").length
-  const lost = failed ? ` (${failed} not delivered)` : ""
-  const title = latest.title ? `: ${latest.title}` : ""
-  return `${formatNumber(recent.length)} sent in the last 24 hours${lost}, the latest ${formatRelative(latest.created_at, now)}${title}.`
+  return t("today_alerts_sentence", {
+    count: recent.length,
+    failed,
+    when: formatRelative(latest.created_at, now),
+    hasTitle: latest.title ? "yes" : "no",
+    title: latest.title ?? "",
+  })
 }

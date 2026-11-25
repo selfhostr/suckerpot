@@ -1,5 +1,6 @@
 import { Download } from "lucide-react"
 import { useState } from "react"
+import { t, tNodes } from "@/i18n"
 import { AdminActionDialog } from "@/components/users/admin-action-dialog"
 import { Button } from "@/components/ui/button"
 import { saveBlob, samplesApi } from "@/lib/samples"
@@ -14,23 +15,22 @@ export function ArchiveButton({ sha256 }: { sha256: string }) {
     <>
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Download aria-hidden className="size-4" />
-        Download as archive
+        {t("samples_archive_button")}
       </Button>
       <AdminActionDialog
         open={open}
         onOpenChange={setOpen}
-        title="Download this sample"
+        title={t("samples_archive_title")}
         description={
-          <>
-            This is live malware. It comes in an encrypted zip with the password{" "}
-            <code className="font-mono text-fg">infected</code>, so antivirus tools do not open it
-            by accident. Never run it outside an isolated machine. The download is recorded in the
-            audit log.
-          </>
+          tNodes(
+            "samples_archive_description",
+            {},
+            { password: <code className="font-mono text-fg">infected</code> },
+          )
         }
-        hint="Downloads ask for your own dashboard password again."
-        confirmLabel="Download"
-        pendingLabel="Preparing…"
+        hint={t("samples_download_hint")}
+        confirmLabel={t("common_download")}
+        pendingLabel={t("samples_preparing")}
         run={async (password) => {
           const blob = await samplesApi.archive(sha256, password)
           saveBlob(blob, `${sha256}.zip`)

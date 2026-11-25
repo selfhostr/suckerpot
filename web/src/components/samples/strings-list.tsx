@@ -1,6 +1,7 @@
 import { useVirtualizer, useWindowVirtualizer } from "@tanstack/react-virtual"
 import { useLayoutEffect, useRef, useState } from "react"
 import { ExpandToggle } from "@/components/expand-toggle"
+import { t } from "@/i18n"
 
 const ROW_H = 24
 /** Rows shown before the box needs its own scrollbar (320 px). */
@@ -39,7 +40,7 @@ function CappedStrings({ strings }: { strings: readonly string[] }) {
       ref={ref}
       tabIndex={0}
       role="list"
-      aria-label="Strings found in the file"
+      aria-label={t("samples_strings_label")}
       className="scroll-fade-y max-h-80 overflow-auto outline-none"
     >
       <div className="relative w-full" style={{ height: v.getTotalSize() }}>
@@ -81,7 +82,7 @@ function FullStrings({ strings }: { strings: readonly string[] }) {
       ref={ref}
       tabIndex={0}
       role="list"
-      aria-label="Strings found in the file"
+      aria-label={t("samples_strings_label")}
       className="outline-none"
     >
       <div className="relative w-full" style={{ height: v.getTotalSize() }}>
@@ -113,7 +114,7 @@ export function StringsList({ strings }: { strings: readonly string[] }) {
         expanded={expanded}
         overflowing={strings.length > CAP_ROWS}
         onToggle={() => setExpanded((v) => !v)}
-        label="strings"
+        label={t("samples_strings_noun")}
       />
     </div>
   )

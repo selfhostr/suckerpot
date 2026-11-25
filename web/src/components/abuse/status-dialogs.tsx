@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { t } from "@/i18n"
 
 /** `datetime-local` wants "YYYY-MM-DDTHH:mm" in the browser's own time zone. */
 function localInput(d: Date): string {
@@ -46,7 +47,7 @@ function SentForm({ onOpenChange, run, describe }: Omit<DialogProps, "open">) {
   async function submit() {
     const when = new Date(value)
     if (Number.isNaN(when.getTime()) || when.getTime() > Date.now() + 60_000) {
-      setError("Pick the time you sent it: now or earlier.")
+      setError(t("abuse_dialog_sent_time_error"))
       return
     }
     setPending(true)
@@ -71,13 +72,12 @@ function SentForm({ onOpenChange, run, describe }: Omit<DialogProps, "open">) {
       }}
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Mark this report as sent</DialogTitle>
+        <DialogTitle>{t("abuse_dialog_sent_title")}</DialogTitle>
         <DialogDescription>
-          This button sends nothing. It only records that you sent the message yourself, so the same
-          addresses are not reported again for a while.
+          {t("abuse_dialog_sent_description")}
         </DialogDescription>
       </DialogHeader>
-      <Field id={id} label="Sent at" hint="Your local time. Stored in UTC.">
+      <Field id={id} label={t("abuse_dialog_sent_at")} hint={t("abuse_dialog_sent_at_hint")}>
         <Input
           id={id}
           type="datetime-local"
@@ -89,10 +89,10 @@ function SentForm({ onOpenChange, run, describe }: Omit<DialogProps, "open">) {
       <FormError id={`${id}-err`} message={error} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Mark as sent"}
+          {pending ? t("abuse_dialog_saving") : t("abuse_dialog_mark_sent")}
         </Button>
       </DialogFooter>
     </form>
@@ -148,10 +148,10 @@ export function ConfirmDialog({
         <FormError id={errId} message={error} />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common_cancel")}
           </Button>
           <Button disabled={pending} onClick={() => void go()}>
-            {pending ? "Working…" : confirmLabel}
+            {pending ? t("abuse_dialog_working") : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

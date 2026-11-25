@@ -3,9 +3,11 @@
  * contract), the defanged URL form, and the finding
  * sentences. No React in here, so everything is unit-tested.
  */
+import { t, tk } from "@/i18n"
 import type { Session, TopItem, TopResponse } from "./api"
 import { SEVERE_TAGS, type Severity } from "./severity"
-import { formatNumber, formatPercent, plural } from "./format"
+import { formatPercent } from "./format"
+import { lazyLabels } from "./t-getters"
 
 // --- API shapes (M7 contract) -------------------------------------------------
 
@@ -13,15 +15,15 @@ export type InsightKind =
   "surge" | "new_value" | "campaign" | "exploit" | "success" | "geo_shift" | "brute_force"
 
 /** Short name of each insight kind (screen readers, tooltips). */
-export const INSIGHT_KIND_LABEL: Record<InsightKind, string> = {
-  surge: "Surge",
-  new_value: "New value",
-  campaign: "Campaign",
-  exploit: "Exploit",
-  success: "Successful login",
-  geo_shift: "New origin",
-  brute_force: "Brute force",
-}
+export const INSIGHT_KIND_LABEL: Record<InsightKind, string> = lazyLabels({
+  surge: tk("trends_insight_surge"),
+  new_value: tk("trends_insight_new_value"),
+  campaign: tk("trends_insight_campaign"),
+  exploit: tk("trends_insight_exploit"),
+  success: tk("trends_insight_success"),
+  geo_shift: tk("trends_insight_geo_shift"),
+  brute_force: tk("trends_insight_brute_force"),
+})
 
 export interface Insight {
   id: string
@@ -142,54 +144,59 @@ export function describeTags(points: readonly TagPoint[], days: number): Finding
   const named = tagTotals(points).filter(([t]) => t !== "other")
   const all = tagTotals(points).reduce((a, [, n]) => a + n, 0)
   const top = named[0]
-  if (!top || all === 0) return { finding: `No tagged activity in the last ${days} days.` }
+  if (!top || all === 0) return { finding: t("trends_tags_none", { days }) }
   const [tag, n] = top
   const { first, second } = tagChange(points, tag)
-  let trend = ""
-  if (first > 0 && second >= first * 2) trend = `, at least doubling in the second half`
-  else if (second > 0 && first >= second * 2) trend = `, less than half as active lately`
-  else if (first === 0 && second > 0) trend = `, all of it in the second half of the period`
+  let trend = "none"
+  if (first > 0 && second >= first * 2) trend = "doubling"
+  else if (second > 0 && first >= second * 2) trend = "halving"
+  else if (first === 0 && second > 0) trend = "late"
   return {
-    finding: `"${tag}" is the most common tag: ${plural(n, "event")} (${formatPercent(n / all)})${trend}.`,
-    detail: `${plural(named.length, "tag")} seen over ${days} days${SEVERE_TAGS.has(tag) ? "; this one marks a payload" : ""}.`,
+    finding: t("trends_tags_top", { tag, count: n, share: formatPercent(n / all), trend }),
+    detail: t("trends_tags_detail", {
+      tags: named.length,
+      days,
+      payload: SEVERE_TAGS.has(tag) ? "yes" : "no",
+    }),
   }
 }
 
 type TopKind = "username" | "password" | "command" | "url"
-const KIND_WORD: Record<TopKind, { one: string; many: string; unit: string }> = {
-  username: { one: "username", many: "usernames", unit: "login attempts" },
-  password: { one: "password", many: "passwords", unit: "login attempts" },
-  command: { one: "command", many: "commands", unit: "commands" },
-  url: { one: "URL", many: "URLs", unit: "requests and downloads" },
-}
 
 /** `"root" was the most tried username in the last 7 days, in 42% of login attempts.` */
 export function describeTop(kind: TopKind, top: TopResponse | undefined, days: number): Finding {
-  const w = KIND_WORD[kind]
   const [first, second] = top?.items ?? []
-  if (!first) return { finding: `No ${w.many} recorded in the last ${days} days.` }
+  if (!first) return { finding: t("trends_top_none", { kind, days }) }
   const shown = first.value.length > 60 ? `${first.value.slice(0, 57)}…` : first.value
-  const tail = second
-    ? `, ahead of ${second.value.length > 40 ? "the runner-up" : `"${second.value}"`} (${formatPercent(second.share)})`
-    : ""
   return {
-    finding: `"${shown}" was the most seen ${w.one} in the last ${days} days, in ${formatPercent(first.share)} of ${w.unit}${tail}.`,
-    detail: `${formatNumber(top?.total ?? 0)} ${w.unit} in all.`,
+    finding: t("trends_top_finding", {
+      kind,
+      shown,
+      days,
+      share: formatPercent(first.share),
+      hasSecond: second ? "yes" : "no",
+      runnerUp: second && second.value.length > 40 ? "yes" : "no",
+      second: second?.value ?? "",
+      secondShare: second ? formatPercent(second.share) : "",
+    }),
+    detail: t("trends_top_detail", { kind, total: top?.total ?? 0 }),
   }
 }
 
 /** "14 usernames were never seen before this week; the most used was "admin1" (88 times)." */
 export function describeNew(field: NewField, items: readonly NewItem[], days: number): Finding {
-  const word = field === "asn" ? "networks" : field === "user_agent" ? "user agents" : `${field}s`
-  const one = field === "asn" ? "network" : field === "user_agent" ? "user agent" : field
-  const period = days === 7 ? "this week" : `in the last ${days} days`
-  if (items.length === 0)
-    return { finding: `No new ${word} ${period}: every one has been seen before.` }
+  if (items.length === 0) return { finding: t("trends_new_none_seen", { field, days }) }
   const top = [...items].sort((a, b) => b.count - a.count)[0]
-  if (!top) return { finding: `No new ${word} ${period}.` }
+  if (!top) return { finding: t("trends_new_none", { field, days }) }
   const shown = top.value.length > 50 ? `${top.value.slice(0, 47)}…` : top.value
   return {
-    finding: `${items.length === 1 ? `1 ${one} was` : `${formatNumber(items.length)} ${word} were`} never seen before ${period}; the most used is "${shown}" (${plural(top.count, "time")}).`,
+    finding: t("trends_new_finding", {
+      field,
+      days,
+      count: items.length,
+      shown,
+      times: top.count,
+    }),
   }
 }
 

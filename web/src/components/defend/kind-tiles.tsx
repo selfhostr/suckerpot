@@ -1,4 +1,5 @@
 import { Check, Globe, Hash, Link2, Network, type LucideIcon } from "lucide-react"
+import { t } from "@/i18n"
 import { AnimatedNumber } from "@/components/animated-number"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -30,7 +31,8 @@ export function KindTiles({
   onSelect: (kind: BlockKind | null) => void
 }) {
   return (
-    <div role="group" aria-label="Filter by type" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div role="group" aria-label={t("defend_tiles_filter")}
+      className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {BLOCK_KINDS.map((k) => {
         const s = summary?.kinds.find((x) => x.kind === k)
         const Icon = ICONS[k]
@@ -61,8 +63,14 @@ export function KindTiles({
             <span className="text-xs text-fg-muted">
               {s ? (
                 <>
-                  scored {LISTED_SCORE}+ · {formatNumber(s.high)} at {HIGH_SCORE}+
-                  <span className="block text-fg-subtle">{formatNumber(s.total)} seen in all</span>
+                  {t("defend_tiles_scored", {
+                    listedScore: LISTED_SCORE,
+                    high: s.high,
+                    highScore: HIGH_SCORE,
+                  })}
+                  <span className="block text-fg-subtle">
+                    {t("defend_tiles_total", { total: s.total })}
+                  </span>
                 </>
               ) : (
                 <span className="block h-8" />

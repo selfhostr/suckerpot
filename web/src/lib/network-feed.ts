@@ -8,7 +8,8 @@
  * what the ingest worker verified and stored, and the URLs are only shown, to copy.
  */
 import { getJson, type Page } from "./api"
-import { formatNumber, plural } from "./format"
+import { lazyText } from "./defend"
+import { t, tk } from "@/i18n"
 
 // --- Shapes ------------------------------------------------------------------------
 
@@ -141,47 +142,51 @@ export interface ListMeta {
 }
 
 export const LIST_META: Record<FeedListId, ListMeta> = {
-  outbound: {
-    title: "Outbound",
-    directionLabel: "Blocks traffic leaving your network",
-    purpose:
-      "Malware download hosts and command servers. If a device inside your network reaches one, it is probably infected.",
-    startHere: true,
-  },
-  inbound: {
-    title: "Inbound",
-    directionLabel: "Blocks traffic coming in",
-    purpose:
-      "Addresses that attacked several sensors. Useful in front of services you expose to the internet.",
-    startHere: false,
-  },
-  "outbound-domains": {
-    title: "Outbound domains",
-    directionLabel: "Blocks names your devices look up",
-    purpose: "The same kind of hosts, by name. For DNS filters such as Pi-hole or AdGuard Home.",
-    startHere: false,
-  },
+  outbound: lazyText(
+    {
+      title: tk("netfeed_list_outbound_title"),
+      directionLabel: tk("netfeed_list_outbound_direction"),
+      purpose: tk("netfeed_list_outbound_purpose"),
+    },
+    { startHere: true },
+  ),
+  inbound: lazyText(
+    {
+      title: tk("netfeed_list_inbound_title"),
+      directionLabel: tk("netfeed_list_inbound_direction"),
+      purpose: tk("netfeed_list_inbound_purpose"),
+    },
+    { startHere: false },
+  ),
+  "outbound-domains": lazyText(
+    {
+      title: tk("netfeed_list_domains_title"),
+      directionLabel: tk("netfeed_list_domains_direction"),
+      purpose: tk("netfeed_list_domains_purpose"),
+    },
+    { startHere: false },
+  ),
 }
 
-export const FORMAT_LABEL: Record<FeedFormat, string> = {
-  txt: "Plain text (one per line)",
-  v4: "Plain text, IPv4 only",
-  v6: "Plain text, IPv6 only",
-  nft: "nftables",
-  ipset: "ipset",
-  rsc: "MikroTik script",
-  csv: "CSV with details",
-  json: "JSON with details",
-  stix: "STIX 2.1",
-}
+export const FORMAT_LABEL: Record<FeedFormat, string> = lazyText({
+  txt: tk("netfeed_format_txt"),
+  v4: tk("netfeed_format_v4"),
+  v6: tk("netfeed_format_v6"),
+  nft: tk("netfeed_format_nft"),
+  ipset: tk("netfeed_format_ipset"),
+  rsc: tk("netfeed_format_rsc"),
+  csv: tk("netfeed_format_csv"),
+  json: tk("netfeed_format_json"),
+  stix: tk("netfeed_format_stix"),
+})
 
-export const CATEGORY_LABEL: Record<string, string> = {
-  payload_host: "Malware host",
-  c2: "Command server",
-  attack_source: "Attack source",
-  scanner: "Scanner",
-  bruteforce: "Password guessing",
-}
+export const CATEGORY_LABEL: Record<string, string> = lazyText({
+  payload_host: tk("netfeed_category_payload_host"),
+  c2: tk("netfeed_category_c2"),
+  attack_source: tk("netfeed_category_attack_source"),
+  scanner: tk("netfeed_category_scanner"),
+  bruteforce: tk("netfeed_category_bruteforce"),
+})
 
 /** Categories that mean harm done, shown with the severe marker (shape and word, not colour). */
 export const SEVERE_CATEGORIES: readonly string[] = ["payload_host", "c2"]
@@ -215,24 +220,24 @@ export function isEmptyForNow(s: FeedStatus): boolean {
   return s.state === "ok" && totalEntries(s) === 0
 }
 
-export const FEED_ERROR_TEXT: Record<string, string> = {
-  not_configured: "The address or the key of the lists is not set.",
-  egress_closed: "Outbound access is closed, so the lists could not be fetched.",
-  bad_signature: "The signature did not verify, so the new lists were refused.",
-  feed_rollback: "The lists offered were older than the ones already stored, so they were refused.",
-  feed_expired: "The lists have expired and no fresh copy has been published.",
-  feed_invalid: "The lists failed a check and were refused.",
-  too_large: "The lists were larger than allowed and were refused.",
-  unreachable: "The list server could not be reached.",
-}
+export const FEED_ERROR_TEXT: Record<string, string> = lazyText({
+  not_configured: tk("netfeed_error_not_configured"),
+  egress_closed: tk("netfeed_error_egress_closed"),
+  bad_signature: tk("netfeed_error_bad_signature"),
+  feed_rollback: tk("netfeed_error_feed_rollback"),
+  feed_expired: tk("netfeed_error_feed_expired"),
+  feed_invalid: tk("netfeed_error_feed_invalid"),
+  too_large: tk("netfeed_error_too_large"),
+  unreachable: tk("netfeed_error_unreachable"),
+})
 
 export function describeFeedError(code: string | null): string | null {
   if (!code) return null
   const known = FEED_ERROR_TEXT[code]
   if (known) return known
   return code.startsWith("http_")
-    ? `The list server answered with an error (${code.slice(5)}).`
-    : "The last fetch failed."
+    ? t("netfeed_error_http", { code: code.slice(5) })
+    : t("netfeed_error_generic")
 }
 
 /** The sentence at the top of the tab. */
@@ -240,14 +245,9 @@ export function feedSentence(s: FeedStatus): string {
   const hosts =
     (listById(s, "outbound")?.entries ?? 0) + (listById(s, "outbound-domains")?.entries ?? 0)
   const sources = listById(s, "inbound")?.entries ?? 0
-  if (hosts + sources === 0)
-    return `The community lists are empty for now: no host has been confirmed by ${MIN_CONFIRMING_SENSORS} independent sensors yet.`
+  if (hosts + sources === 0) return t("netfeed_sentence_empty", { min: MIN_CONFIRMING_SENSORS })
   const seen = s.lists.reduce((n, l) => n + l.seen_here, 0)
-  const tail =
-    seen > 0
-      ? ` ${formatNumber(seen)} of them also reached this sensor.`
-      : " None of them has reached this sensor yet."
-  return `The SuckerPot network lists ${plural(hosts, "malware and command host")} and ${plural(sources, "attack source")}, each confirmed by at least ${MIN_CONFIRMING_SENSORS} independent sensors.${tail}`
+  return t("netfeed_sentence_summary", { hosts, sources, min: MIN_CONFIRMING_SENSORS, seen })
 }
 
 export type FeedTone = "ok" | "warning"
@@ -261,45 +261,43 @@ export function feedStatusLine(
     case "ok":
       return {
         tone: "ok",
-        label: s.last_ok_at ? `Updated ${fmt(s.last_ok_at)}` : "Updated",
-        detail: s.signature === "verified" ? "Signature verified" : null,
+        label: s.last_ok_at
+          ? t("netfeed_status_updated_at", { when: fmt(s.last_ok_at) })
+          : t("netfeed_status_updated"),
+        detail: s.signature === "verified" ? t("netfeed_status_verified") : null,
       }
     case "stale":
       return {
         tone: "warning",
-        label: "Out of date",
-        detail: `${s.last_ok_at ? `No fresh copy since ${fmt(s.last_ok_at)}. ` : "No fresh copy arrived in time. "}The entries stay readable here, but this dashboard stopped serving its copy to firewalls.`,
+        label: t("netfeed_status_stale"),
+        detail: s.last_ok_at
+          ? t("netfeed_status_stale_since", { when: fmt(s.last_ok_at) })
+          : t("netfeed_status_stale_late"),
       }
     case "error":
       return {
         tone: "warning",
-        label: "Last fetch failed",
+        label: t("netfeed_status_failed"),
         detail: describeFeedError(s.error_code),
       }
     case "never":
       return {
         tone: "ok",
-        label: "Waiting for the first fetch",
-        detail: "The worker fetches the lists about once an hour.",
+        label: t("netfeed_status_never"),
+        detail: t("netfeed_status_never_detail"),
       }
     default:
-      return { tone: "ok", label: "Not fetched here", detail: null }
+      return { tone: "ok", label: t("netfeed_status_off"), detail: null }
   }
 }
 
 /** Sentence above the entries table, from the filters in the URL. */
 export function entriesFinding(f: FeedFilters): string {
-  const tier = f.tier === "high" ? "high-tier " : ""
-  const where =
-    f.list === "outbound"
-      ? "outbound"
-      : f.list === "inbound"
-        ? "inbound"
-        : f.list === "outbound-domains"
-          ? "outbound domain"
-          : "community list"
-  const here = f.seen_here ? " that also reached this sensor" : ""
-  return `Every ${tier}${where} entry${here}, newest first.`
+  return t("netfeed_entries_finding", {
+    tier: f.tier === "high" ? "high" : "any",
+    list: f.list === "outbound-domains" ? "domains" : (f.list ?? "all"),
+    seen: f.seen_here ? "yes" : "no",
+  })
 }
 
 export type FirewallApp = "opnsense" | "pfsense" | "nftables"
@@ -309,23 +307,25 @@ export function usageSteps(app: FirewallApp, url: string): string[] {
   switch (app) {
     case "opnsense":
       return [
-        "Open Firewall, then Aliases, and add an alias.",
-        "Type: URL Table (IPs). Refresh frequency: 6 hours.",
-        `Content: ${url}`,
-        "Add a Block rule on your LAN interface with this alias as the destination, above the allow rule. Turn on Log: a hit means a device inside is infected.",
+        t("netfeed_step_opnsense_open"),
+        t("netfeed_step_opnsense_type"),
+        t("netfeed_step_content", { url }),
+        t("netfeed_step_opnsense_rule"),
       ]
     case "pfsense":
       return [
-        "Open Firewall, then Aliases, then URLs, and add one.",
-        "Type: URL Table (IPs). Update frequency: 1 day.",
-        `URL: ${url}`,
-        "Add a Block rule on LAN with this alias as the destination, at the top. Turn on Log.",
+        t("netfeed_step_pfsense_open"),
+        t("netfeed_step_pfsense_type"),
+        t("netfeed_step_pfsense_url", { url }),
+        t("netfeed_step_pfsense_rule"),
       ]
     case "nftables":
       return [
-        `Fetch the file on a timer: curl -fsS -o /etc/nftables.d/suckerpot-outbound.nft ${url}`,
-        "Load it in one step: nft -f /etc/nftables.d/suckerpot-outbound.nft",
-        "The file defines the sets. Add a rule in the same table that rejects traffic to them.",
+        t("netfeed_step_nft_fetch", {
+          command: `curl -fsS -o /etc/nftables.d/suckerpot-outbound.nft ${url}`,
+        }),
+        t("netfeed_step_nft_load", { command: "nft -f /etc/nftables.d/suckerpot-outbound.nft" }),
+        t("netfeed_step_nft_rule"),
       ]
   }
 }

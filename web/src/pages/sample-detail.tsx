@@ -22,7 +22,8 @@ import { useCopy } from "@/hooks/use-copy"
 import { useExpandable } from "@/hooks/use-expandable"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { formatBytes, formatNumber, plural } from "@/lib/format"
+import { t, tNodes } from "@/i18n"
+import { formatBytes, formatNumber } from "@/lib/format"
 import {
   describeChain,
   describeKind,
@@ -47,7 +48,7 @@ function HashLine({ label, value }: { label: string; value: string }) {
       <button
         type="button"
         onClick={() => void copy(value)}
-        aria-label={copied ? `${label} copied` : `Copy ${label}`}
+        aria-label={copied ? t("sample_hash_copied", { label }) : t("sample_hash_copy", { label })}
         className="inline-flex size-7 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-hover hover:text-fg"
       >
         {copied ? (
@@ -76,16 +77,16 @@ function Chain({ sha256 }: { sha256: string }) {
   })
   return (
     <FindingCard
-      eyebrow="The chain"
+      eyebrow={t("sample_chain_eyebrow")}
       className="normal-nums"
       finding={
         q.isPending
-          ? "Following the chain…"
+          ? t("sample_chain_following")
           : q.isError || q.data.nodes.length === 0
-            ? "The chain around this file is not available."
+            ? t("sample_chain_unavailable")
             : describeChain(q.data)
       }
-      detail="From the session that asked for it, to the file, to the servers it talks to."
+      detail={t("sample_chain_detail")}
     >
       {q.isSuccess && q.data.nodes.length > 0 ? (
         <ChainSteps chain={q.data} current={sha256} />
@@ -98,12 +99,12 @@ function Origin({ d }: { d: SampleDetail }) {
   const ips = [...new Set(d.recent_sessions.map((s) => s.src_ip))]
   return (
     <FindingCard
-      eyebrow="Where it came from"
+      eyebrow={t("sample_origin_eyebrow")}
       className="normal-nums"
-      finding={`Served by ${plural(d.sources.length, "URL")} to ${plural(d.item.sessions, "session")}.`}
+      finding={t("sample_origin_finding", { urls: d.sources.length, sessions: d.item.sessions })}
       bodyClassName="px-0 sm:px-0 pb-0 sm:pb-0"
     >
-      <ul aria-label="Download URLs" className="divide-y border-t">
+      <ul aria-label={t("sample_origin_urls_label")} className="divide-y border-t">
         {d.sources.map((s) => (
           <li
             key={s.url}
@@ -118,7 +119,7 @@ function Origin({ d }: { d: SampleDetail }) {
               </Link>
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">
                 <span>
-                  {formatNumber(s.sessions)} sessions · {formatNumber(s.ips)} addresses
+                  {t("sample_origin_source_counts", { sessions: s.sessions, ips: s.ips })}
                 </span>
                 {s.sensors.map((x) => (
                   <Link key={x} to={`/attacks?sensor=${x}`} className="rounded-sm hover:opacity-80">
@@ -128,16 +129,22 @@ function Origin({ d }: { d: SampleDetail }) {
               </p>
             </div>
             <p className="text-xs text-fg-muted">
-              First fetched <RelativeTime iso={s.first_fetched} className="text-xs" /> · last{" "}
-              <RelativeTime iso={s.last_fetched} className="text-xs" />
+              {tNodes(
+                "sample_origin_fetched",
+                {},
+                {
+                  first: <RelativeTime iso={s.first_fetched} className="text-xs" />,
+                  last: <RelativeTime iso={s.last_fetched} className="text-xs" />,
+                },
+              )}
             </p>
           </li>
         ))}
       </ul>
       {ips.length > 0 ? (
         <div className="border-t px-4 py-3 sm:px-5">
-          <p className="mb-2 text-xs text-fg-muted">Addresses behind the latest sessions</p>
-          <ul aria-label="Addresses" className="flex flex-wrap gap-2">
+          <p className="mb-2 text-xs text-fg-muted">{t("sample_origin_addresses_behind")}</p>
+          <ul aria-label={t("sample_origin_addresses_label")} className="flex flex-wrap gap-2">
             {ips.map((ip) => (
               <li key={ip}>
                 <IPChip ip={ip} />
@@ -149,7 +156,7 @@ function Origin({ d }: { d: SampleDetail }) {
       {d.recent_sessions.length > 0 ? (
         <div
           role="list"
-          aria-label="Latest sessions that fetched this file"
+          aria-label={t("sample_origin_latest_label")}
           className="divide-y border-t"
         >
           {d.recent_sessions.map((s) => (
@@ -172,7 +179,7 @@ function DeobfuscatedScript({ text }: { text: string }) {
         <pre
           ref={boxRef}
           tabIndex={0}
-          aria-label="Deobfuscated script"
+          aria-label={t("sample_deob_label")}
           className={cn(
             "scroll-fade-y overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap text-fg outline-none",
             !expanded && "max-h-80",
@@ -185,7 +192,7 @@ function DeobfuscatedScript({ text }: { text: string }) {
         expanded={expanded}
         overflowing={overflowing}
         onToggle={toggle}
-        label="deobfuscated script"
+        label={t("sample_deob_noun")}
       />
     </div>
   )
@@ -207,21 +214,21 @@ export function SampleDetailPage() {
   const back = (
     <Link to="/malware" className="inline-flex items-center gap-1 hover:text-fg">
       <ArrowLeft aria-hidden className="size-3.5" />
-      All samples
+      {t("sample_all")}
     </Link>
   )
 
   if (!valid || (query.isError && query.error instanceof ApiError && query.error.status === 404)) {
     return (
       <>
-        <PageHeader help="sample" title="Sample" eyebrow={back} />
+        <PageHeader help="sample" title={t("sample_title")} eyebrow={back} />
         <EmptyState
           icon={FileSearch}
-          title="This sample is not in the collection"
-          description="It may have been removed by the retention job, or the link is wrong."
+          title={t("sample_not_found_title")}
+          description={t("sample_not_found_hint")}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/malware">Back to the samples</Link>
+              <Link to="/malware">{t("sample_back")}</Link>
             </Button>
           }
         />
@@ -231,7 +238,7 @@ export function SampleDetailPage() {
   if (query.isPending) {
     return (
       <>
-        <PageHeader help="sample" title="Sample" eyebrow={back} />
+        <PageHeader help="sample" title={t("sample_title")} eyebrow={back} />
         <div className="space-y-4" aria-busy>
           <SkeletonCard />
           <SkeletonCard />
@@ -242,14 +249,14 @@ export function SampleDetailPage() {
   if (query.isError) {
     return (
       <>
-        <PageHeader help="sample" title="Sample" eyebrow={back} />
+        <PageHeader help="sample" title={t("sample_title")} eyebrow={back} />
         <EmptyState
           icon={FileSearch}
-          title="Could not load this sample"
+          title={t("sample_error_title")}
           description={query.error.message}
           action={
             <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-              Try again
+              {t("common_try_again")}
             </Button>
           }
         />
@@ -288,15 +295,15 @@ export function SampleDetailPage() {
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-fg underline underline-offset-4"
           >
-            Look it up on VirusTotal
+            {t("sample_virustotal")}
             <ExternalLink aria-hidden className="size-3" />
-            <span className="sr-only">(opens in a new tab)</span>
+            <span className="sr-only">{t("sample_new_tab")}</span>
           </a>
         </div>
 
         <FindingCard
-          eyebrow="Hashes"
-          finding="Fingerprints of the file, for lookups and blocklists."
+          eyebrow={t("sample_hashes_eyebrow")}
+          finding={t("sample_hashes_finding")}
         >
           <dl className="divide-y">
             <HashLine label="SHA-256" value={item.sha256} />
@@ -305,17 +312,17 @@ export function SampleDetailPage() {
             {d.tlsh ? <HashLine label="TLSH" value={d.tlsh} /> : null}
           </dl>
           <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 border-t pt-4 sm:grid-cols-4">
-            <Fact label="Size">{formatBytes(item.size)}</Fact>
-            <Fact label="First seen">
+            <Fact label={t("sample_fact_size")}>{formatBytes(item.size)}</Fact>
+            <Fact label={t("campaign_meta_first_seen")}>
               <RelativeTime iso={item.first_seen} className="text-sm text-fg" />
             </Fact>
-            <Fact label="Last seen">
+            <Fact label={t("campaign_meta_last_seen")}>
               <RelativeTime iso={item.last_seen} className="text-sm text-fg" />
             </Fact>
-            <Fact label="Sessions">{formatNumber(item.sessions)}</Fact>
-            {d.packer ? <Fact label="Packer">{d.packer}</Fact> : null}
-            {d.linking ? <Fact label="Linking">{d.linking}</Fact> : null}
-            {d.endian ? <Fact label="Byte order">{d.endian}</Fact> : null}
+            <Fact label={t("campaign_meta_sessions")}>{formatNumber(item.sessions)}</Fact>
+            {d.packer ? <Fact label={t("sample_fact_packer")}>{d.packer}</Fact> : null}
+            {d.linking ? <Fact label={t("sample_fact_linking")}>{d.linking}</Fact> : null}
+            {d.endian ? <Fact label={t("sample_fact_byte_order")}>{d.endian}</Fact> : null}
           </dl>
         </FindingCard>
 
@@ -324,12 +331,12 @@ export function SampleDetailPage() {
         <Chain sha256={sha256} />
 
         <FindingCard
-          eyebrow="What it matched"
+          eyebrow={t("sample_matched_eyebrow")}
           finding={describeYara(a?.yara ?? [], item.analysis_status)}
-          detail="Detection rules read the file's bytes. The file is never run."
+          detail={t("sample_matched_detail")}
         >
           {a && a.yara.length > 0 ? (
-            <ul aria-label="Detection rules" className="space-y-2">
+            <ul aria-label={t("sample_rules_label")} className="space-y-2">
               {a.yara.map((h) => (
                 <li key={`${h.namespace}/${h.rule}`} className="flex flex-wrap items-center gap-2">
                   <TagBadge
@@ -352,8 +359,8 @@ export function SampleDetailPage() {
           ) : null}
           {d.links.length > 0 ? (
             <div className="mt-4 border-t pt-4">
-              <p className="mb-2 text-xs text-fg-muted">Addresses found inside the file</p>
-              <ul aria-label="Links found in the file" className="space-y-1.5">
+              <p className="mb-2 text-xs text-fg-muted">{t("sample_links_heading")}</p>
+              <ul aria-label={t("sample_links_label")} className="space-y-1.5">
                 {d.links.map((l) => (
                   <li
                     key={`${l.kind}:${l.value}`}
@@ -366,7 +373,7 @@ export function SampleDetailPage() {
                     >
                       {linkLabel(l)}
                     </Link>
-                    <span className="text-fg-subtle">{l.confidence} confidence</span>
+                    <span className="text-fg-subtle">{t("sample_link_confidence", { confidence: l.confidence })}</span>
                   </li>
                 ))}
               </ul>
@@ -376,17 +383,17 @@ export function SampleDetailPage() {
 
         {a?.deobfuscated ? (
           <FindingCard
-            eyebrow="Deobfuscated script"
+            eyebrow={t("sample_deob_eyebrow")}
             finding={
               a.deob_steps.length > 0
-                ? `The script hid its commands in ${plural(a.deob_steps.length, "layer")}; this is what is underneath.`
-                : "The readable form of the script."
+                ? t("sample_deob_finding_layers", { count: a.deob_steps.length })
+                : t("sample_deob_finding")
             }
-            detail="Shown as plain text. It was decoded statically and never run."
+            detail={t("sample_deob_detail")}
           >
             {a.deob_steps.length > 0 ? (
               <ol
-                aria-label="Decoding steps"
+                aria-label={t("sample_deob_steps_label")}
                 className="mb-3 list-decimal space-y-0.5 pl-5 text-xs text-fg-muted"
               >
                 {a.deob_steps.map((s, i) => (
@@ -403,10 +410,10 @@ export function SampleDetailPage() {
 
         {a && a.strings.length > 0 ? (
           <FindingCard
-            eyebrow="Strings"
+            eyebrow={t("sample_strings_eyebrow")}
             className="normal-nums"
-            finding={`${plural(a.strings.length, "readable string")} found in the file.`}
-            detail="Text the file carries, in file order. Useful to spot addresses, paths and tool names."
+            finding={t("sample_strings_finding", { count: a.strings.length })}
+            detail={t("sample_strings_detail")}
           >
             <StringsList strings={a.strings} />
           </FindingCard>

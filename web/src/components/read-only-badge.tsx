@@ -1,6 +1,7 @@
 import { Eye } from "lucide-react"
 import { useAuth } from "@/app/auth"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 /** Shown to viewers only: everything can be read, nothing can be changed. */
@@ -25,11 +26,18 @@ export function ReadOnlyBadge({
           )}
         >
           <Eye aria-hidden className="size-3.5" />
-          Read-only{short ? <span className="sr-only"> access</span> : " access"}
+          {short ? (
+            <>
+              {t("ui_read_only_short")}
+              <span className="sr-only"> {t("ui_read_only_short_sr")}</span>
+            </>
+          ) : (
+            t("ui_read_only_full")
+          )}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top">
-        You can look at everything. Only an administrator can change settings or users.
+        {t("ui_read_only_tip")}
       </TooltipContent>
     </Tooltip>
   )

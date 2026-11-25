@@ -13,6 +13,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { Logo } from "./logo"
 import { crumbsFor } from "./nav"
@@ -62,7 +63,7 @@ function Breadcrumb({ pathname }: { pathname: string }) {
   const crumbs = crumbsFor(pathname)
   if (!crumbs.length) return <div className="min-w-0 flex-1" />
   return (
-    <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
+    <nav aria-label={t("shell_breadcrumb")} className="min-w-0 flex-1">
       <ol className="flex min-w-0 items-center gap-1.5 text-sm">
         {crumbs.map((c, i) => {
           const last = i === crumbs.length - 1
@@ -119,7 +120,7 @@ export function AppShell() {
             href="#main"
             className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
           >
-            Skip to content
+            {t("shell_skip_to_content")}
           </a>
 
           {/*
@@ -147,7 +148,7 @@ export function AppShell() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Open navigation"
+                    aria-label={t("shell_open_navigation")}
                     className="size-10"
                   >
                     <Menu aria-hidden className="size-5" />
@@ -157,7 +158,7 @@ export function AppShell() {
                   <SheetTitle className="flex h-14 shrink-0 items-center px-5">
                     <Logo />
                   </SheetTitle>
-                  <SheetDescription className="sr-only">Main navigation</SheetDescription>
+                  <SheetDescription className="sr-only">{t("shell_main_navigation")}</SheetDescription>
                   <div className="min-h-0 flex-1">
                     <Sidebar variant="drawer" onNavigate={() => setOpen(false)} />
                   </div>
@@ -165,7 +166,7 @@ export function AppShell() {
               </Sheet>
               <Link
                 to="/"
-                aria-label="Today"
+                aria-label={t("nav_today")}
                 className="grid size-10 shrink-0 place-items-center rounded-md"
               >
                 <Logo withName={false} />

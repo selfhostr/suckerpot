@@ -3,6 +3,7 @@ import { Link } from "react-router"
 import { AnimatedNumber } from "@/components/animated-number"
 import { BarFill } from "@/components/bar-fill"
 import { Skeleton } from "@/components/ui/skeleton"
+import { t } from "@/i18n"
 import { useReorderMotion } from "@/hooks/use-reorder-motion"
 import { formatNumber, formatPercent } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -37,13 +38,13 @@ interface TopListProps {
 
 /** The printed share: a share that is not zero never reads as "0%". */
 function shareLabel(share: number): string {
-  return share > 0 && share < 0.005 ? "<1%" : formatPercent(share)
+  return share > 0 && share < 0.005 ? t("topl_under_one") : formatPercent(share)
 }
 
 /** Same footprint as a row: rank, label, count and share, the bar underneath. */
 function TopListSkeleton({ rows, className }: { rows: number; className?: string }) {
   return (
-    <div role="status" aria-label="Loading" className={cn("space-y-1", className)}>
+    <div role="status" aria-label={t("common_loading")} className={cn("space-y-1", className)}>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} aria-hidden className="relative flex items-center gap-3 px-2 pt-1.5 pb-2.5">
           <Skeleton className="h-2.5 w-3 shrink-0" />
@@ -65,7 +66,7 @@ export function TopList({
   items,
   loading,
   rows = 5,
-  empty = "Nothing yet.",
+  empty = t("topl_empty"),
   scale = "max",
   className,
 }: TopListProps) {
@@ -106,7 +107,11 @@ export function TopList({
             {item.href ? (
               <Link
                 to={item.href}
-                aria-label={`${item.name}: ${formatNumber(item.count)}, ${shareLabel(item.share)}. Open filtered view`}
+                aria-label={t("topl_row_label", {
+                  name: item.name,
+                  count: formatNumber(item.count),
+                  share: shareLabel(item.share),
+                })}
                 className={cn(cls, "hover:bg-surface-hover")}
               >
                 {row}

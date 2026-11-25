@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { t } from "@/i18n"
 
 interface ChangePasswordDialogProps {
   open: boolean
@@ -24,9 +25,9 @@ export function ChangePasswordDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-popover">
         <DialogHeader className="text-left">
-          <DialogTitle>Change your password</DialogTitle>
+          <DialogTitle>{t("pwd_change_title")}</DialogTitle>
           <DialogDescription>
-            You stay signed in here. Any other browser where you are signed in is signed out.
+            {t("pwd_change_description")}
           </DialogDescription>
         </DialogHeader>
         <ChangePasswordForm

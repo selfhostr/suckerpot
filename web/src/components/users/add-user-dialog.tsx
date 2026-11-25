@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode, type SyntheticEvent } from "react"
 import { Field, FormError } from "@/components/form-parts"
+import { t } from "@/i18n"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,7 +45,7 @@ function AddUserForm({
     if (pending) return
     setFormError(null)
     const found: typeof errors = validateNewUser(username, displayName)
-    if (!password) found.password = "Enter your password to confirm."
+    if (!password) found.password = t("alerts_msg_password_required")
     setErrors(found)
     if (Object.keys(found).length > 0) return
     setPending(true)
@@ -79,16 +80,15 @@ function AddUserForm({
       autoComplete="off"
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Add a user</DialogTitle>
+        <DialogTitle>{t("users_add_title")}</DialogTitle>
         <DialogDescription>
-          You get a temporary password to hand over. At the first sign-in the person chooses their
-          own.
+          {t("users_add_description")}
         </DialogDescription>
       </DialogHeader>
       <Field
         id={ids.user}
-        label="Username"
-        hint="What they type to sign in. Letters, digits, dots, dashes and underscores."
+        label={t("users_username")}
+        hint={t("users_username_hint")}
         error={errors.username}
       >
         <Input
@@ -106,7 +106,7 @@ function AddUserForm({
           className="font-mono"
         />
       </Field>
-      <Field id={ids.name} label="Name" error={errors.displayName}>
+      <Field id={ids.name} label={t("channels_name")} error={errors.displayName}>
         <Input
           id={ids.name}
           name="new-display-name"
@@ -118,10 +118,10 @@ function AddUserForm({
         />
       </Field>
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-fg">Role</span>
+        <span className="text-sm font-medium text-fg">{t("users_role")}</span>
         <SegmentedControl
           size="form"
-          label="Role"
+          label={t("users_role")}
           value={role}
           onChange={setRole}
           options={ROLE_OPTIONS}
@@ -131,8 +131,8 @@ function AddUserForm({
       </div>
       <Field
         id={ids.pass}
-        label="Your password"
-        hint="Adding a user asks for your own dashboard password again."
+        label={t("channels_password")}
+        hint={t("users_add_password_hint")}
         error={errors.password}
       >
         <Input
@@ -149,10 +149,10 @@ function AddUserForm({
       <FormError id={ids.err} message={formError} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Creating…" : "Create user"}
+          {pending ? t("users_creating") : t("users_create")}
         </Button>
       </DialogFooter>
     </form>

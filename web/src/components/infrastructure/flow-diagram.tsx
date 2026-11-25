@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
-import { formatNumber, maskIp, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { formatNumber, maskIp } from "@/lib/format"
 import {
   buildFlow,
   maskDefanged,
@@ -132,24 +133,32 @@ export function FlowDiagram({ graph, onOpenIndicator }: FlowDiagramProps) {
 
   const maxWeight = Math.max(1, ...flow.edges.map((e) => e.weight))
   const connected = active ? traced(active, flow.edges) : new Set<string>()
-  const edgeOn = (s: string, t: string) => connected.has(s) && connected.has(t)
+  const edgeOn = (a: string, b: string) => connected.has(a) && connected.has(b)
   const hover = (id: string) => ({
     onMouseEnter: () => setActive(id),
     onFocus: () => setActive(id),
     onBlur: () => setActive(null),
   })
 
-  const hiddenBits = [
-    flow.hidden.indicators > 0 ? plural(flow.hidden.indicators, "more indicator") : null,
-    flow.hidden.families > 0 ? plural(flow.hidden.families, "more family", "more families") : null,
-  ].filter(Boolean)
+  const hiddenCase =
+    flow.hidden.indicators > 0 && flow.hidden.families > 0
+      ? "both"
+      : flow.hidden.indicators > 0
+        ? "indicators"
+        : flow.hidden.families > 0
+          ? "families"
+          : "none"
 
   return (
     <figure className="m-0">
       <svg
         viewBox={`0 0 ${W} ${height}`}
         role="group"
-        aria-label={`Flow from ${plural(flow.sources.length, "source")} through ${plural(flow.indicators.length, "indicator")} to ${plural(flow.families.length, "malware family", "malware families")}`}
+        aria-label={t("infra_flow_label", {
+          sources: flow.sources.length,
+          indicators: flow.indicators.length,
+          families: flow.families.length,
+        })}
         className="h-auto w-full"
         onMouseLeave={() => setActive(null)}
       >
@@ -196,7 +205,11 @@ export function FlowDiagram({ graph, onOpenIndicator }: FlowDiagramProps) {
               key={node.id}
               role="button"
               tabIndex={0}
-              aria-label={`${label}: ${plural(node.weight, "address", "addresses")}${known ? ", known malicious" : ""}. Open details`}
+              aria-label={t("infra_flow_indicator_label", {
+                label,
+                count: node.weight,
+                known: known ? "yes" : "no",
+              })}
               onClick={() => node.indicator_id != null && onOpenIndicator(node.indicator_id)}
               onKeyDown={(ev) => {
                 if ((ev.key === "Enter" || ev.key === " ") && node.indicator_id != null) {
@@ -209,7 +222,7 @@ export function FlowDiagram({ graph, onOpenIndicator }: FlowDiagramProps) {
               opacity={dim ? 0.35 : 1}
               style={{ transition: "opacity 150ms" }}
             >
-              <title>{`${label}: open details`}</title>
+              <title>{t("infra_flow_indicator_title", { label })}</title>
               <rect
                 x={PILL_X - PILL_W / 2}
                 y={y - 12}
@@ -263,7 +276,7 @@ export function FlowDiagram({ graph, onOpenIndicator }: FlowDiagramProps) {
             key={node.id}
             role="link"
             tabIndex={0}
-            aria-label={`Show indicators of family ${node.label}`}
+            aria-label={t("infra_family_show", { name: node.label })}
             onClick={() =>
               void navigate(`/infrastructure?family=${encodeURIComponent(node.label)}`)
             }
@@ -276,7 +289,7 @@ export function FlowDiagram({ graph, onOpenIndicator }: FlowDiagramProps) {
             opacity={active !== null && !connected.has(node.id) ? 0.35 : 1}
             style={{ transition: "opacity 150ms" }}
           >
-            <title>{`${node.label}: show its indicators`}</title>
+            <title>{t("infra_flow_family_title", { name: node.label })}</title>
             <rect x={FAM_X - 8} y={y - 12} width={W - FAM_X + 8} height={24} fill="transparent" />
             <circle cx={FAM_X} cy={y} r={4} fill="var(--fg-muted)" />
             <text x={FAM_X + 12} y={y + 4} fontSize={12} fill="var(--fg)">
@@ -285,28 +298,40 @@ export function FlowDiagram({ graph, onOpenIndicator }: FlowDiagramProps) {
           </g>
         ))}
 
-        <g fontSize={10.5} fill="var(--fg-subtle)" fontWeight={500} letterSpacing="0.06em">
+        <g
+          fontSize={10.5}
+          fill="var(--fg-subtle)"
+          fontWeight={500}
+          letterSpacing="0.06em"
+          style={{ textTransform: "uppercase" }}
+        >
           <text x={SRC_X + 5} y={10} textAnchor="end">
-            ADDRESSES
+            <title>{t("infra_flow_head_sources")}</title>
+            {shorten(t("infra_flow_head_sources"), 22)}
           </text>
           <text x={PILL_X} y={10} textAnchor="middle">
-            INDICATORS · ADDRESSES USING THEM
+            <title>{t("infra_flow_head_indicators")}</title>
+            {shorten(t("infra_flow_head_indicators"), 34)}
           </text>
           <text x={FAM_X - 4} y={10}>
-            MALWARE FAMILY
+            <title>{t("infra_flow_head_families")}</title>
+            {shorten(t("infra_flow_head_families"), 26)}
           </text>
         </g>
       </svg>
       <figcaption className="mt-3 text-xs text-fg-muted">
-        Line width is the number of sessions. A red octagon marks an indicator that threat
-        intelligence knows as malicious. Point at any node to trace its paths.
+        {t("infra_flow_caption")}
         {flow.hidden.sources > 0
-          ? ` ${plural(flow.hidden.sources, "address", "addresses")} are folded into one node.`
+          ? ` ${t("infra_flow_folded", { count: flow.hidden.sources })}`
           : ""}
-        {hiddenBits.length > 0
-          ? ` Not shown: ${hiddenBits.join(" and ")}. The table lists everything.`
+        {hiddenCase !== "none"
+          ? ` ${t("infra_flow_hidden", {
+              which: hiddenCase,
+              indicators: flow.hidden.indicators,
+              families: flow.hidden.families,
+            })}`
           : ""}
-        {graph.truncated ? " The data itself was capped on the server." : ""}
+        {graph.truncated ? ` ${t("infra_flow_capped")}` : ""}
       </figcaption>
     </figure>
   )
@@ -339,7 +364,7 @@ function SourceNode({
         : {
             role: "link",
             tabIndex: 0,
-            "aria-label": `Show sessions from ${label}`,
+            "aria-label": t("infra_flow_source_label", { label }),
             onClick: onOpen,
             onKeyDown: (ev: React.KeyboardEvent) => {
               if (ev.key === "Enter") onOpen()
@@ -348,7 +373,7 @@ function SourceNode({
               "cursor-pointer outline-none [&:focus-visible>rect]:stroke-[var(--ring)] [&:focus-visible>rect]:stroke-2",
           })}
     >
-      <title>{folded ? label : `${label}: open its profile`}</title>
+      <title>{folded ? label : t("infra_flow_source_title", { label })}</title>
       <rect x={0} y={y - 12} width={SRC_X + 12} height={24} fill="transparent" rx={4} />
       <circle
         cx={SRC_X}

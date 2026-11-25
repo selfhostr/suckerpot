@@ -4,12 +4,14 @@
  * can be shared as a link and Back/Forward walk through the changes. Values that do not have the
  * shape the API accepts are dropped here, instead of failing there with a 422.
  */
+import { intlLocale, tk } from "@/i18n"
 import type { AsnItem, AttackerFilters, AttackerSort, SessionFilters } from "./api"
 import { ATTACKER_SORTS } from "./api"
 import { FLOOD_PARAM, floodKindFor, floodViewFromParam } from "./floods"
 import { countryName } from "./format"
 import { parseSensors } from "./sensors"
 import { parseInstant, parseStage } from "./story"
+import { lazyLabels, withText } from "./t-getters"
 
 // --- Value shapes (the same ones the API accepts) ------------------------------------------
 
@@ -29,7 +31,7 @@ export function parseAsn(raw: string | null | undefined): string | undefined {
   return v && ASN.test(v) ? String(Number(v)) : undefined
 }
 
-/** A country as the upper-case code the API wants, from a code or an English name. */
+/** A country as the upper-case code the API wants, from a code or a country name. */
 export function parseCountry(raw: string | null | undefined): string | undefined {
   const v = raw?.trim()
   if (!v) return undefined
@@ -45,15 +47,18 @@ const ISO_COUNTRIES =
   )
 
 let countries: { code: string; name: string }[] | null = null
-/** Every country with an ISO code, sorted by English name. */
+let countriesLocale = ""
+/** Every country with an ISO code, sorted by name in the active language. */
 export function allCountries(): { code: string; name: string }[] {
-  if (countries) return countries
+  const locale = intlLocale()
+  if (countries && countriesLocale === locale) return countries
   const out: { code: string; name: string }[] = []
   for (const code of ISO_COUNTRIES) {
     const name = countryName(code)
     if (name) out.push({ code, name })
   }
-  countries = out.sort((x, y) => x.name.localeCompare(y.name))
+  countriesLocale = locale
+  countries = out.sort((x, y) => x.name.localeCompare(y.name, locale))
   return countries
 }
 
@@ -66,13 +71,34 @@ export function parseTag(raw: string | null | undefined): string | undefined {
 // --- Sessions -------------------------------------------------------------------------------
 
 /** The fields of the sessions search box. The API matches them exactly, not as substrings. */
-export const SESSION_SEARCH_FIELDS = [
-  { param: "src_ip", label: "IP address", placeholder: "Exact address" },
-  { param: "username", label: "Username", placeholder: "Exact username" },
-  { param: "command", label: "Command", placeholder: "Exact command" },
-  { param: "url", label: "Download URL", placeholder: "Exact URL" },
+const SEARCH_FIELD_DEFS = [
+  {
+    param: "src_ip",
+    label: tk("filters_search_src_ip_label"),
+    placeholder: tk("filters_search_src_ip_placeholder"),
+  },
+  {
+    param: "username",
+    label: tk("filters_search_username_label"),
+    placeholder: tk("filters_search_username_placeholder"),
+  },
+  {
+    param: "command",
+    label: tk("filters_search_command_label"),
+    placeholder: tk("filters_search_command_placeholder"),
+  },
+  {
+    param: "url",
+    label: tk("filters_search_url_label"),
+    placeholder: tk("filters_search_url_placeholder"),
+  },
 ] as const
-export type SessionSearchParam = (typeof SESSION_SEARCH_FIELDS)[number]["param"]
+export type SessionSearchParam = (typeof SEARCH_FIELD_DEFS)[number]["param"]
+
+/** `label` and `placeholder` read through t() every time, so they follow the language. */
+export const SESSION_SEARCH_FIELDS = SEARCH_FIELD_DEFS.map((f) =>
+  withText({ ...f }, { label: f.label, placeholder: f.placeholder }),
+)
 
 /** The value to send for one search field, or undefined when it cannot be one. */
 export function cleanSearchValue(param: string, raw: string): string | undefined {
@@ -122,12 +148,12 @@ export const SESSION_PARAMS = [
 
 // --- Attackers ------------------------------------------------------------------------------
 
-export const ATTACKER_SORT_LABELS: Record<AttackerSort, string> = {
-  last_seen: "Last seen",
-  first_seen: "First seen",
-  sessions: "Sessions",
-  events: "Events",
-}
+export const ATTACKER_SORT_LABELS: Record<AttackerSort, string> = lazyLabels({
+  last_seen: tk("filters_sort_last_seen"),
+  first_seen: tk("filters_sort_first_seen"),
+  sessions: tk("filters_sort_sessions"),
+  events: tk("filters_sort_events"),
+})
 
 export interface AttackerView {
   filters: AttackerFilters
@@ -161,12 +187,15 @@ export const ATTACKER_PARAMS = ["sensor", "q", "country", "asn", "tag"] as const
 
 // --- Attacker networks ----------------------------------------------------------------------
 
-export const ASN_SORTS = [
-  { id: "sessions", label: "Sessions" },
-  { id: "ips", label: "Addresses" },
-  { id: "events", label: "Events" },
+const ASN_SORT_DEFS = [
+  { id: "sessions", label: tk("filters_sort_sessions") },
+  { id: "ips", label: tk("filters_sort_addresses") },
+  { id: "events", label: tk("filters_sort_events") },
 ] as const
-export type AsnSort = (typeof ASN_SORTS)[number]["id"]
+export type AsnSort = (typeof ASN_SORT_DEFS)[number]["id"]
+
+/** `label` reads through t() every time, so it follows the language. */
+export const ASN_SORTS = ASN_SORT_DEFS.map((o) => withText({ ...o }, { label: o.label }))
 
 export interface NetworkView {
   sort: AsnSort
@@ -209,12 +238,15 @@ export function filterNetworks(
 
 // --- Period ---------------------------------------------------------------------------------
 
-export const PERIOD_PRESETS = [
-  { id: "1h", label: "Last hour", ms: 3_600_000 },
-  { id: "24h", label: "Last 24 hours", ms: 24 * 3_600_000 },
-  { id: "7d", label: "Last 7 days", ms: 7 * 24 * 3_600_000 },
-  { id: "30d", label: "Last 30 days", ms: 30 * 24 * 3_600_000 },
+const PERIOD_PRESET_DEFS = [
+  { id: "1h", label: tk("filters_period_1h"), ms: 3_600_000 },
+  { id: "24h", label: tk("filters_period_24h"), ms: 24 * 3_600_000 },
+  { id: "7d", label: tk("filters_period_7d"), ms: 7 * 24 * 3_600_000 },
+  { id: "30d", label: tk("filters_period_30d"), ms: 30 * 24 * 3_600_000 },
 ] as const
+
+/** `label` reads through t() every time, so it follows the language. */
+export const PERIOD_PRESETS = PERIOD_PRESET_DEFS.map((p) => withText({ ...p }, { label: p.label }))
 
 /** The `since` instant of a preset, counted back from `now`. */
 export function presetSince(id: string, now = Date.now()): string | undefined {

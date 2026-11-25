@@ -3,6 +3,7 @@
  * profile, the replies and the outcome of a report, the plain-English labels and the calls.
  * Reply text is hostile input: it is shown as text only, never as HTML, and links stay inert.
  */
+import { t, tk } from "@/i18n"
 import { ApiError, getJson, sendJson, type Page } from "./api"
 
 // --- Vocabulary -------------------------------------------------------------------
@@ -19,14 +20,30 @@ export type Outcome =
   | "resolved"
 
 export const OUTCOME_LABEL: Record<Outcome, string> = {
-  none: "No answer yet",
-  unknown: "Reply not understood",
-  bounce: "Bounced",
-  auto_ack: "Automatic receipt",
-  human_reply: "Answered by a person",
-  ticket_opened: "Ticket opened",
-  rejected: "Rejected",
-  resolved: "Resolved",
+  get none() {
+    return t("outcome_label_none")
+  },
+  get unknown() {
+    return t("outcome_label_unknown")
+  },
+  get bounce() {
+    return t("outcome_label_bounce")
+  },
+  get auto_ack() {
+    return t("outcome_label_auto_ack")
+  },
+  get human_reply() {
+    return t("outcome_label_human_reply")
+  },
+  get ticket_opened() {
+    return t("outcome_label_ticket_opened")
+  },
+  get rejected() {
+    return t("outcome_label_rejected")
+  },
+  get resolved() {
+    return t("outcome_label_resolved")
+  },
 }
 
 /** Rejected and bounced read in the warning tone, never red. */
@@ -49,46 +66,60 @@ export const NO_ANSWER_DAYS = 14
 export type ReplyClass = Exclude<Outcome, "none">
 
 export const REPLY_CLASS_LABEL: Record<ReplyClass, string> = {
-  unknown: "Not understood",
-  bounce: "Bounce",
-  auto_ack: "Automatic receipt",
-  human_reply: "Person",
-  ticket_opened: "Ticket opened",
-  rejected: "Rejected",
-  resolved: "Resolved",
+  get unknown() {
+    return t("outcome_class_unknown")
+  },
+  get bounce() {
+    return t("outcome_class_bounce")
+  },
+  get auto_ack() {
+    return t("outcome_class_auto_ack")
+  },
+  get human_reply() {
+    return t("outcome_class_human_reply")
+  },
+  get ticket_opened() {
+    return t("outcome_class_ticket_opened")
+  },
+  get rejected() {
+    return t("outcome_class_rejected")
+  },
+  get resolved() {
+    return t("outcome_class_resolved")
+  },
 }
 
 /** How a reply was tied to its report; the API sends a short code. */
-export const MATCH_LABEL: Record<string, string> = {
-  token: "Reply token",
-  xarf_id: "X-ARF report id",
-  in_reply_to: "Reply header",
-  references: "Thread header",
-  sender: "Sender and subject",
-  manual: "Linked by you",
+const MATCH_LABEL: Record<string, string> = {
+  token: tk("replies_match_token"),
+  xarf_id: tk("replies_match_xarf_id"),
+  in_reply_to: tk("replies_match_in_reply_to"),
+  references: tk("replies_match_references"),
+  sender: tk("replies_match_sender"),
+  manual: tk("replies_match_manual"),
 }
 
 export const matchLabel = (code: string): string | null =>
-  code === "none" ? null : (MATCH_LABEL[code] ?? code.replaceAll("_", " "))
+  code === "none" ? null : MATCH_LABEL[code] ? t(MATCH_LABEL[code]) : code.replaceAll("_", " ")
 
 const RULE_LABEL: Record<string, string> = {
-  "bounce-dsn": "Delivery failure notice",
-  "bounce-daemon": "Mail system bounce",
-  "generic-ticket": "Found a ticket number",
-  "ticket-opened": "Found a ticket number",
-  "auto-ack": "Auto-reply header",
-  "resolved-action-taken": "Says the content was removed",
-  "not-our-customer": "Says it is not their customer",
-  "insufficient-evidence": "Asks for more evidence",
-  "form-required": "Asks to use their form",
+  "bounce-dsn": tk("replies_rule_bounce_dsn"),
+  "bounce-daemon": tk("replies_rule_bounce_daemon"),
+  "generic-ticket": tk("replies_rule_generic_ticket"),
+  "ticket-opened": tk("replies_rule_ticket_opened"),
+  "auto-ack": tk("replies_rule_auto_ack"),
+  "resolved-action-taken": tk("replies_rule_resolved_action_taken"),
+  "not-our-customer": tk("replies_rule_not_our_customer"),
+  "insufficient-evidence": tk("replies_rule_insufficient_evidence"),
+  "form-required": tk("replies_rule_form_required"),
 }
 
 /** A short human label for a rule id; an unknown id is spelled out, never shown raw. */
 export function ruleLabel(id: string): string {
   const known = RULE_LABEL[id]
-  if (known) return known
+  if (known) return t(known)
   const words = id.replace(/[^A-Za-z0-9]+/g, " ").trim()
-  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "A rule"
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : t("replies_rule_unknown")
 }
 
 // --- Shapes -----------------------------------------------------------------------
@@ -255,46 +286,44 @@ export interface RepliesStatus {
 // --- Sentences --------------------------------------------------------------------
 
 const IMAP_ERRORS: Record<string, string> = {
-  auth_failed: "The mail server refused the username or password.",
-  connect_failed: "The mail server could not be reached.",
-  tls_failed: "The secure connection to the mail server failed.",
-  folder_missing: "The folder does not exist on the mail server.",
-  move_unsupported: "This mail server cannot move messages, so replies are only marked as read.",
-  timeout: "The mail server took too long to answer.",
-  quota: "Too many checks in a short time. Wait a little and try again.",
-  gate_closed: "Outbound traffic is closed, so the mailbox cannot be reached.",
+  auth_failed: tk("imap_error_auth_failed"),
+  connect_failed: tk("imap_error_connect_failed"),
+  tls_failed: tk("imap_error_tls_failed"),
+  folder_missing: tk("imap_error_folder_missing"),
+  move_unsupported: tk("imap_error_move_unsupported"),
+  timeout: tk("imap_error_timeout"),
+  quota: tk("imap_error_quota"),
+  gate_closed: tk("imap_error_gate_closed"),
 }
 
 export function describeImapError(code: string | null): string | null {
   if (!code) return null
-  return IMAP_ERRORS[code] ?? "The mailbox check failed."
+  return t(IMAP_ERRORS[code] ?? tk("imap_error_other"))
 }
 
 /** A readable message for a failed call. */
 export function describeRepliesError(e: unknown): string {
   if (e instanceof ApiError) {
-    if (e.code === "reauth_failed") return "That password is not right."
-    if (e.code === "not_sent") return "Only a report that was sent can have an outcome."
-    if (e.code === "password_required") return "Enter the mailbox password again."
-    if (e.code === "no_address")
-      return "This reply has no sender address, so it cannot be trusted by address."
+    if (e.code === "reauth_failed") return t("replies_error_reauth_failed")
+    if (e.code === "not_sent") return t("replies_error_not_sent")
+    if (e.code === "password_required") return t("replies_error_password_required")
+    if (e.code === "no_address") return t("replies_error_no_address")
     if (e.code === "replies_disabled")
-      return "Reading replies is switched off on this server (ABUSE_REPLIES_ENABLED)."
-    if (e.code === "imap_not_configured") return "Save the mailbox settings first."
-    if (e.code === "already_queued" || e.code === "polling")
-      return "The mailbox is being read right now. Try again in a minute."
-    if (e.code === "rate_limited") return "Too many requests for the mailbox. Try again later."
-    if (e.code === "empty") return "No message was found in what you sent."
-    if (e.code === "bad_report") return "That report id is not valid."
-    if (e.code === "in_future") return "That date is in the future."
-    if (e.code === "before_sent") return "That date is before the report was sent."
-    if (e.code === "too_large") return "That message is too large (256 KiB at most)."
-    if (e.code === "not_a_message") return "That does not look like an email message."
-    if (e.status === 429) return "Too many requests. Wait a moment and try again."
-    if (e.status === 403) return "Only an administrator can do this."
+      return t("replies_error_disabled", { setting: "ABUSE_REPLIES_ENABLED" })
+    if (e.code === "imap_not_configured") return t("replies_error_not_configured")
+    if (e.code === "already_queued" || e.code === "polling") return t("replies_error_polling")
+    if (e.code === "rate_limited") return t("replies_error_rate_limited")
+    if (e.code === "empty") return t("replies_error_empty")
+    if (e.code === "bad_report") return t("replies_error_bad_report")
+    if (e.code === "in_future") return t("replies_error_in_future")
+    if (e.code === "before_sent") return t("replies_error_before_sent")
+    if (e.code === "too_large") return t("replies_error_too_large", { size: "256 KiB" })
+    if (e.code === "not_a_message") return t("replies_error_not_a_message")
+    if (e.status === 429) return t("abuse_error_too_many")
+    if (e.status === 403) return t("abuse_error_admin_only")
     if (e.status === 422 && e.message) return e.message
   }
-  return "That did not work. Check the connection and try again."
+  return t("abuse_error_generic")
 }
 
 // --- Calls ------------------------------------------------------------------------

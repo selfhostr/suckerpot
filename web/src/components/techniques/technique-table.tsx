@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react"
 import { useMemo } from "react"
 import { Link } from "react-router"
 import { STAGE_ICON } from "@/components/campaigns/stage-icons"
+import { t } from "@/i18n"
 import { Sparkline } from "@/components/sparkline"
 import { formatDay, STAGE_META, type Matrix } from "@/lib/campaigns"
 import { formatNumber } from "@/lib/format"
@@ -31,13 +32,13 @@ export function TechniqueTable({ matrix, linkSuffix = "", className }: Technique
   return (
     <div className={className}>
       <div className={cn("hidden border-b pb-2 type-column text-fg-subtle md:grid", GRID)}>
-        <span>Technique</span>
-        <span>Stage</span>
-        <span>Last {days} days</span>
-        <span>First seen</span>
-        <span className="text-right">Sessions</span>
+        <span>{t("technique_col_technique")}</span>
+        <span>{t("technique_col_stage")}</span>
+        <span>{t("technique_col_last_days", { days })}</span>
+        <span>{t("technique_col_first_seen")}</span>
+        <span className="text-right">{t("technique_col_sessions")}</span>
       </div>
-      <ul aria-label="Techniques, most sessions first">
+      <ul aria-label={t("technique_list_label")}>
         {rows.map((r, i) => {
           const Icon = STAGE_ICON[r.stage]
           const firstDay = matrix.days[r.counts.findIndex((n) => n > 0)]
@@ -53,7 +54,7 @@ export function TechniqueTable({ matrix, linkSuffix = "", className }: Technique
               <div className="flex min-w-0 items-baseline gap-2">
                 <Link
                   to={`/attacks?technique=${encodeURIComponent(r.id)}${linkSuffix}`}
-                  title={`${r.name}. Show the sessions that used it.`}
+                  title={t("technique_row_title", { name: r.name })}
                   className="min-w-0 truncate rounded-sm text-sm text-fg hover:underline hover:underline-offset-4"
                 >
                   <span className="mr-2 font-mono text-2xs text-fg-subtle">{r.id}</span>
@@ -64,7 +65,7 @@ export function TechniqueTable({ matrix, linkSuffix = "", className }: Technique
                   target="_blank"
                   rel="noreferrer noopener"
                   className="hidden size-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle hover:text-fg md:inline-flex"
-                  aria-label={`Read about ${r.id} on attack.mitre.org (opens in a new tab)`}
+                  aria-label={t("technique_row_read", { id: r.id })}
                 >
                   <ExternalLink aria-hidden className="size-3" />
                 </a>
@@ -80,19 +81,19 @@ export function TechniqueTable({ matrix, linkSuffix = "", className }: Technique
                 <Sparkline
                   values={r.counts}
                   color="var(--fg-muted)"
-                  label={`${r.id} sessions per day`}
+                  label={t("technique_row_per_day", { id: r.id })}
                   className="h-6"
                 />
               </span>
               <span className="hidden text-xs text-fg-muted tabular-nums md:block">
-                {firstDay ? formatDay(firstDay) : "None"}
+                {firstDay ? formatDay(firstDay) : t("common_none")}
               </span>
             </li>
           )
         })}
       </ul>
       <p className="mt-3 text-2xs text-fg-subtle">
-        Days are in UTC. Techniques are labelled by MITRE ATT&CK®.
+        {t("technique_footnote")}
       </p>
     </div>
   )

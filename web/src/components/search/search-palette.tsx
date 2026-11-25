@@ -9,7 +9,8 @@ import {
   useMemo,
   useState,
 } from "react"
-import { PLACEHOLDER } from "./search-palette-constants"
+import { searchPlaceholder } from "./search-palette-constants"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 interface PaletteValue {
@@ -81,7 +82,7 @@ export function SearchTrigger({
     return (
       <button
         type="button"
-        aria-label="Search"
+        aria-label={t("common_search")}
         onClick={() => setOpen(true)}
         className={cn(
           "inline-flex size-10 items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg",
@@ -96,7 +97,7 @@ export function SearchTrigger({
     <button
       type="button"
       onClick={() => setOpen(true)}
-      aria-label="Search"
+      aria-label={t("common_search")}
       aria-keyshortcuts="Control+K Meta+K"
       className={cn(
         "flex h-9 w-full items-center gap-2.5 rounded-md border bg-surface px-3 text-left text-sm text-fg-muted shadow-xs transition-colors duration-150 hover:border-border-strong hover:bg-surface-hover/60",
@@ -104,7 +105,7 @@ export function SearchTrigger({
       )}
     >
       <Search aria-hidden className="size-4 shrink-0 text-fg-subtle" />
-      <span className="min-w-0 flex-1 truncate">{PLACEHOLDER}</span>
+      <span className="min-w-0 flex-1 truncate">{searchPlaceholder()}</span>
       <kbd className="shrink-0 rounded-xs border px-1.5 font-sans text-2xs text-fg-subtle">
         {shortcut}
       </kbd>

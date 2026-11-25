@@ -5,7 +5,8 @@
  */
 
 import { ApiError, getJson, sendForBlob, type Page, type Param, type Session } from "./api"
-import { formatBytes, formatNumber, plural } from "./format"
+import { intlLocale, t, tk } from "@/i18n"
+import { formatBytes } from "./format"
 import type { Severity } from "./severity"
 import type { FetchStatus } from "./trends"
 import { UserError } from "./users"
@@ -15,28 +16,75 @@ const DAY = 86_400_000
 // --- Fetch status ----------------------------------------------------------------
 
 export const FETCH_STATUS: Record<FetchStatus, { label: string; explain: string }> = {
-  fetched: { label: "Fetched", explain: "The file was downloaded and stored for analysis." },
-  pending: { label: "Pending", explain: "Waiting for the collector to fetch it." },
-  failed: { label: "Failed", explain: "The server did not answer or refused the connection." },
-  gone: { label: "Gone", explain: "The server answered, but the file no longer exists." },
-  refused: { label: "Refused", explain: "The address was not allowed, so it was never contacted." },
+  fetched: {
+    get label() {
+      return t("samples_fetch_fetched_label")
+    },
+    get explain() {
+      return t("samples_fetch_fetched_explain")
+    },
+  },
+  pending: {
+    get label() {
+      return t("samples_fetch_pending_label")
+    },
+    get explain() {
+      return t("samples_fetch_pending_explain")
+    },
+  },
+  failed: {
+    get label() {
+      return t("samples_fetch_failed_label")
+    },
+    get explain() {
+      return t("samples_fetch_failed_explain")
+    },
+  },
+  gone: {
+    get label() {
+      return t("samples_fetch_gone_label")
+    },
+    get explain() {
+      return t("samples_fetch_gone_explain")
+    },
+  },
+  refused: {
+    get label() {
+      return t("samples_fetch_refused_label")
+    },
+    get explain() {
+      return t("samples_fetch_refused_explain")
+    },
+  },
   too_large: {
-    label: "Too large",
-    explain: "The file is bigger than the size cap, so it was dropped.",
+    get label() {
+      return t("samples_fetch_too_large_label")
+    },
+    get explain() {
+      return t("samples_fetch_too_large_explain")
+    },
   },
   unsupported: {
-    label: "Not fetched",
-    explain: "This protocol (for example TFTP) is not fetched.",
+    get label() {
+      return t("samples_fetch_unsupported_label")
+    },
+    get explain() {
+      return t("samples_fetch_unsupported_explain")
+    },
   },
   quarantine_full: {
-    label: "Quarantine full",
-    explain: "The quarantine volume is full, so nothing more is stored.",
+    get label() {
+      return t("samples_fetch_quarantine_full_label")
+    },
+    get explain() {
+      return t("samples_fetch_quarantine_full_explain")
+    },
   },
 }
 
 /** TFTP URLs are never fetched: say so with the protocol, as the design asks. */
 export function fetchStatusLabel(status: FetchStatus, url?: string): string {
-  if (status === "unsupported" && url && /^tftp:/i.test(url)) return "Not fetched (TFTP)"
+  if (status === "unsupported" && url && /^tftp:/i.test(url)) return t("samples_fetch_tftp_label")
   return FETCH_STATUS[status].label
 }
 
@@ -75,11 +123,16 @@ export type SampleOrigin = "local" | "network_verify"
 
 /** Plain-English label and explanation of a sample origin. Only the network check is flagged. */
 export const NETWORK_CHECK = {
-  label: "Network check",
+  get label() {
+    return t("samples_network_check_label")
+  },
   /** Always visible next to the label, so touch users do not need a hover. */
-  qualifier: "not seen here",
-  explain:
-    "Fetched to verify a link that other nodes in the network reported. It did not attack this node.",
+  get qualifier() {
+    return t("samples_network_check_qualifier")
+  },
+  get explain() {
+    return t("samples_network_check_explain")
+  },
 } as const
 
 export interface SampleFilters {
@@ -184,12 +237,24 @@ export function sampleKey(s: SampleItem): string {
  * a style sheet, a data document, the script of a page).
  */
 export const WEB_KIND_LABEL: Readonly<Record<string, string>> = {
-  html: "Web page",
-  svg: "Image (SVG)",
-  xml: "Data (XML)",
-  css: "Stylesheet",
-  json: "Data (JSON)",
-  javascript: "Script (web)",
+  get html() {
+    return t("samples_web_web_page")
+  },
+  get svg() {
+    return t("samples_web_svg")
+  },
+  get xml() {
+    return t("samples_web_xml")
+  },
+  get css() {
+    return t("samples_web_css")
+  },
+  get json() {
+    return t("samples_web_json")
+  },
+  get javascript() {
+    return t("samples_web_js")
+  },
 }
 
 /** The label of a web kind, or null for any other kind (including null). */
@@ -215,15 +280,15 @@ export function isPlainWeb(
 export function describeKind(s: Pick<SampleItem, "kind" | "arch" | "bits">): string {
   const web = webKindLabel(s.kind)
   if (web) return web
-  const kind = s.kind ?? "Unknown file"
+  const kind = s.kind ?? t("samples_kind_unknown")
   const arch = s.arch ? ` ${s.arch}` : ""
-  const bits = s.bits ? ` ${s.bits}-bit` : ""
+  const bits = s.bits ? ` ${t("samples_kind_bits", { bits: s.bits })}` : ""
   return `${kind}${arch}${bits}`
 }
 
 /** The family, else the plain name of a web kind, else "Unknown". */
 export function familyLabel(family: string | null, kind?: string | null): string {
-  return family ?? webKindLabel(kind) ?? "Unknown"
+  return family ?? webKindLabel(kind) ?? t("samples_family_unknown")
 }
 
 export function shortHash(sha256: string): string {
@@ -235,8 +300,7 @@ export function isBinary(kind: string | null): boolean {
 }
 
 function joinList(items: readonly string[]): string {
-  if (items.length <= 1) return items.join("")
-  return `${items.slice(0, -1).join(", ")} and ${items.at(-1) ?? ""}`
+  return new Intl.ListFormat(intlLocale(), { style: "long", type: "conjunction" }).format(items)
 }
 
 /**
@@ -248,45 +312,50 @@ export function describeSamples(
   more: boolean,
   now: number = Date.now(),
 ): string {
-  if (items.length === 0) return "No samples collected yet."
-  const lead = more ? "At least " : ""
+  if (items.length === 0) return t("samples_summary_empty")
+  const atLeast = more ? "yes" : "no"
   const web = items.filter(isPlainWeb).length
   if (web > 0 && web === items.length)
-    return `${lead}${plural(web, "sample")} collected, all ordinary web content (pages, images, style sheets), nothing to flag.`
+    return t("samples_summary_web_only", { count: web, atLeast })
   const files = items.filter((s) => !isPlainWeb(s))
   const fresh = files.filter((s) => now - Date.parse(s.first_seen) < 7 * DAY)
-  if (fresh.length === 0)
-    return `${lead}${plural(files.length, "sample")} collected, none of them new this week.`
+  if (fresh.length === 0) return t("samples_summary_none_new", { count: files.length, atLeast })
   const byFamily = new Map<string, SampleItem[]>()
   for (const s of fresh) {
     if (!s.family) continue
     byFamily.set(s.family, [...(byFamily.get(s.family) ?? []), s])
   }
   const top = [...byFamily.entries()].sort((a, b) => b[1].length - a[1].length)[0]
-  const head = `${lead}${formatNumber(fresh.length)} new ${fresh.length === 1 ? "file" : "files"} this week`
-  if (!top) return `${head}, none of them matched a known family.`
+  if (!top) return t("samples_summary_no_family", { count: fresh.length, atLeast })
   const [family, rows] = top
   const archs = [...new Set(rows.map((r) => r.arch).filter((a): a is string => Boolean(a)))]
-  const forArch = archs.length > 0 ? ` for ${joinList(archs)}` : ""
-  return `${head}, ${formatNumber(rows.length)} of them ${family} builds${forArch}.`
+  return t("samples_summary_family", {
+    count: fresh.length,
+    atLeast,
+    n: rows.length,
+    family,
+    withArch: archs.length > 0 ? "yes" : "no",
+    archs: joinList(archs),
+  })
 }
 
 /** Header sentence of a sample page. */
 export function describeSample(d: SampleDetail): string {
   const s = d.item
-  const where = plural(s.sources, "address", "addresses")
-  const served = `Served from ${where} in ${plural(s.sessions, "session")}.`
-  if (isPlainWeb(s))
-    return `Ordinary web content, ${formatBytes(s.size)}. ${served} It is kept for reference and its links are not followed.`
-  const what = s.family ? `${s.family} sample` : "Unclassified file"
-  return `${what}, ${describeKind(s)}, ${formatBytes(s.size)}. ${served}`
+  const served = t("samples_served", { sources: s.sources, sessions: s.sessions })
+  const size = formatBytes(s.size)
+  if (isPlainWeb(s)) return t("samples_describe_plain_web", { size, served })
+  const what = s.family
+    ? t("samples_describe_family", { family: s.family })
+    : t("samples_describe_unclassified")
+  return t("samples_describe_file", { what, kind: describeKind(s), size, served })
 }
 
 export function describeYara(hits: readonly YaraHit[], status: SampleStatus): string {
-  if (hits.length > 0) return `${plural(hits.length, "detection rule")} matched this file.`
-  if (status === "pending") return "The analysis has not run yet."
-  if (status === "done") return "No detection rule matched this file."
-  return "The analysis did not finish, so no rules were checked."
+  if (hits.length > 0) return t("samples_yara_matched", { count: hits.length })
+  if (status === "pending") return t("samples_yara_pending")
+  if (status === "done") return t("samples_yara_none")
+  return t("samples_yara_unfinished")
 }
 
 /** C2 values are shown with their port when there is one. */
@@ -295,10 +364,18 @@ export function linkLabel(l: SampleLink): string {
 }
 
 export const LINK_KIND_LABEL: Record<LinkKind, string> = {
-  next_url: "Next download",
-  c2_ip: "Command server (address)",
-  c2_domain: "Command server (domain)",
-  c2_url: "Command server (URL)",
+  get next_url() {
+    return t("samples_link_next_url")
+  },
+  get c2_ip() {
+    return t("samples_link_c2_ip")
+  },
+  get c2_domain() {
+    return t("samples_link_c2_domain")
+  },
+  get c2_url() {
+    return t("samples_link_c2_url")
+  },
 }
 
 /**
@@ -329,14 +406,13 @@ export function orderChain(chain: SampleChain): ChainNode[] {
 
 export function describeChain(chain: SampleChain): string {
   const count = (k: ChainNodeKind) => chain.nodes.filter((n) => n.kind === k).length
-  const parts = [
-    plural(count("session"), "session"),
-    plural(count("url"), "URL"),
-    plural(count("sample"), "file"),
-  ]
-  const c2 = count("c2")
-  if (c2 > 0) parts.push(plural(c2, "command server"))
-  return `The chain links ${joinList(parts)}.`
+  const values = {
+    sessions: count("session"),
+    urls: count("url"),
+    files: count("sample"),
+    servers: count("c2"),
+  }
+  return t(values.servers > 0 ? "samples_chain_with_c2" : "samples_chain", values)
 }
 
 // --- Egress ----------------------------------------------------------------------
@@ -361,23 +437,24 @@ export interface Egress {
 
 /** Gate reason codes, as `suckerpot_egress` and the API write them (docs/dev/design/m21.md §3.4). */
 const REASONS: Record<string, string> = {
-  no_vpn: "the VPN is not reachable",
-  tunnel_down: "the VPN tunnel is down",
-  ip_not_allowed: "the exit address is not on the allow-list",
-  ip_mismatch: "the exit address does not match what the VPN reports",
-  ip_not_global: "the exit address is not a public one",
-  no_public_ip: "the VPN did not report its exit address",
-  echo_failed: "the exit address could not be checked",
-  echo_disagree: "the exit address checks disagree",
-  check_error: "the last check failed",
-  stale: "the last check is too old",
-  not_checked: "no check has run yet",
-  no_status: "no check has run yet",
+  no_vpn: tk("samples_reason_no_vpn"),
+  tunnel_down: tk("samples_reason_tunnel_down"),
+  ip_not_allowed: tk("samples_reason_ip_not_allowed"),
+  ip_mismatch: tk("samples_reason_ip_mismatch"),
+  ip_not_global: tk("samples_reason_ip_not_global"),
+  no_public_ip: tk("samples_reason_no_public_ip"),
+  echo_failed: tk("samples_reason_echo_failed"),
+  echo_disagree: tk("samples_reason_echo_disagree"),
+  check_error: tk("samples_reason_check_error"),
+  stale: tk("samples_reason_stale"),
+  not_checked: tk("samples_reason_not_checked"),
+  no_status: tk("samples_reason_not_checked"),
 }
 
 export function egressReason(code: string | null): string {
-  if (!code) return "the gate is closed"
-  return REASONS[code] ?? code.replaceAll("_", " ")
+  if (!code) return t("samples_reason_gate_closed")
+  const key = REASONS[code]
+  return key ? t(key) : code.replaceAll("_", " ")
 }
 
 export function egressOpen(e: Egress): boolean {
@@ -385,10 +462,9 @@ export function egressOpen(e: Egress): boolean {
 }
 
 export function describeEgress(e: Egress): string {
-  if (egressOpen(e)) return "Outbound traffic leaves through the VPN."
+  if (egressOpen(e)) return t("samples_egress_open")
   const closed = e.ingest.state === "closed" ? e.ingest : e.collector
-  if (closed.reason === "tunnel_down") return "Outbound traffic is paused: the VPN tunnel is down."
-  return `Outbound traffic is paused: ${egressReason(closed.reason)}.`
+  return t("samples_egress_paused", { reason: egressReason(closed.reason) })
 }
 
 /**
@@ -407,32 +483,27 @@ export function describeCollector(
     known.every((x) => x === "unsupported")
   )
     return {
-      finding:
-        "These downloads use TFTP or FTP, which are never fetched, so only URLs are recorded.",
-      detail: "The collector fetches HTTP and HTTPS URLs only, through the VPN.",
+      finding: t("samples_collector_unsupported_finding"),
+      detail: t("samples_collector_unsupported_detail"),
     }
-  const none =
-    "nothing is downloaded from these hosts, so there are no file hashes or analyses yet."
   if (!e || e.collector.reason === "no_status" || e.collector.reason === "not_checked")
     return {
-      finding: "The sample collector is off, so only URLs are recorded.",
-      detail: `It fetches files through the VPN once COLLECTOR_ENABLED is true. Until then ${none}`,
+      finding: t("samples_collector_off_finding"),
+      detail: t("samples_collector_off_detail"),
     }
   if (e.collector.state === "closed")
     return {
-      finding: `The sample collector is paused (${egressReason(e.collector.reason)}), so only URLs are recorded.`,
-      detail: `It fetches files only through the VPN and waits while the tunnel is not safe; ${none}`,
+      finding: t("samples_collector_paused_finding", { reason: egressReason(e.collector.reason) }),
+      detail: t("samples_collector_paused_detail"),
     }
   if (known.length > 0)
     return {
-      finding: "No file has been collected yet, so only URLs are recorded.",
-      detail:
-        "The collector is working through these URLs, through the VPN. A fetched file shows its hash, which opens the analysis.",
+      finding: t("samples_collector_none_finding"),
+      detail: t("samples_collector_working_detail"),
     }
   return {
-    finding: "No file has been collected yet, so only URLs are recorded.",
-    detail:
-      "The VPN is up. If COLLECTOR_ENABLED is true, new URLs are fetched shortly and show a hash that opens the analysis.",
+    finding: t("samples_collector_none_finding"),
+    detail: t("samples_collector_up_detail"),
   }
 }
 

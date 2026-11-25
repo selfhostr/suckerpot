@@ -1,10 +1,23 @@
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
+import { intlLocale, t } from "@/i18n"
 import { fillDays, type DayPoint } from "@/lib/chart-time"
 import { formatNumber } from "@/lib/format"
 
-const dayFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-const label = (day: string) => dayFmt.format(new Date(`${day}T00:00:00Z`))
+const dayFormats = new Map<string, Intl.DateTimeFormat>()
+
+/** "Nov 12" in the active language (days are UTC dates, so the zone is fixed). */
+const label = (day: string) => {
+  const locale = intlLocale()
+  let f = dayFormats.get(locale)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", timeZone: "UTC" })
+    dayFormats.set(locale, f)
+  }
+  return f.format(new Date(`${day}T00:00:00Z`))
+}
+
+const capitalise = (word: string) => word.charAt(0).toLocaleUpperCase(intlLocale()) + word.slice(1)
 
 function Tip({
   active,
@@ -31,23 +44,24 @@ function Tip({
 export function DayBars({
   points,
   className,
-  unit = "events",
+  unit,
   days = 30,
 }: {
   points: readonly DayPoint[]
   className?: string
-  /** What a bar counts, for the tooltip and the text alternative ("sessions"). */
+  /** What a bar counts, for the tooltip and the text alternative ("sessions"). Default: events. */
   unit?: string
   /** Number of days drawn, ending today (UTC). */
   days?: number
 }) {
   const reduced = useReducedMotion()
   const data = fillDays(points, days)
+  const noun = unit ?? t("charts_unit_events")
   return (
     <div className={className}>
       <div
         role="img"
-        aria-label={`${unit.charAt(0).toUpperCase()}${unit.slice(1)} per day over the last ${data.length} days`}
+        aria-label={t("charts_day_bars_aria", { unit: capitalise(noun), count: data.length })}
         className="h-32 w-full"
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -66,7 +80,7 @@ export function DayBars({
               minTickGap={48}
             />
             <Tooltip
-              content={<Tip unit={unit} />}
+              content={<Tip unit={noun} />}
               cursor={{ fill: "var(--surface-hover)" }}
               isAnimationActive={false}
             />
@@ -81,11 +95,11 @@ export function DayBars({
         </ResponsiveContainer>
       </div>
       <table className="sr-only">
-        <caption>{`${unit.charAt(0).toUpperCase()}${unit.slice(1)} per day`}</caption>
+        <caption>{t("charts_day_bars_caption", { unit: capitalise(noun) })}</caption>
         <thead>
           <tr>
-            <th scope="col">Day</th>
-            <th scope="col">{unit.charAt(0).toUpperCase() + unit.slice(1)}</th>
+            <th scope="col">{t("charts_day_bars_day")}</th>
+            <th scope="col">{capitalise(noun)}</th>
           </tr>
         </thead>
         <tbody>

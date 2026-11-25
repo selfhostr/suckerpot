@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 interface LoadMoreProps {
@@ -46,7 +47,7 @@ export function LoadMore({
         disabled={isFetchingNextPage}
         onClick={() => void fetchNextPage()}
       >
-        {isFetchingNextPage ? "Loading…" : label}
+        {isFetchingNextPage ? t("ui_loading") : label}
       </Button>
     </div>
   )

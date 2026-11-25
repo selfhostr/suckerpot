@@ -1,3 +1,5 @@
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { RelativeTime } from "@/components/relative-time"
 import { SeverityBadge } from "@/components/severity-badge"
 import { TagBadge } from "@/components/tag-badge"
@@ -32,14 +34,18 @@ export function GuidanceCard({ item }: { item: GuidanceItem }) {
           <span>{evidenceLine(item.seen.sessions, item.seen.sources)}</span>
           {item.seen.last_seen ? (
             <span>
-              last <RelativeTime iso={item.seen.last_seen} className="text-xs" />
+              {tNodes(
+                "guidance_last_seen",
+                {},
+                { time: <RelativeTime iso={item.seen.last_seen} className="text-xs" /> },
+              )}
             </span>
           ) : null}
         </div>
       </header>
       <p className="text-sm text-pretty text-fg-muted">{item.what}</p>
-      <Checklist title="Look for this in your logs" items={item.look} />
-      <Checklist title="Fix" items={item.fix} />
+      <Checklist title={t("guidance_look")} items={item.look} />
+      <Checklist title={t("guidance_fix")} items={item.fix} />
     </article>
   )
 }

@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 /** Placeholder lines for text blocks. */
@@ -34,7 +35,7 @@ export function SkeletonRow({ className }: { className?: string }) {
 
 export function SkeletonList({ rows = 8, className }: { rows?: number; className?: string }) {
   return (
-    <div className={className} role="status" aria-label="Loading">
+    <div className={className} role="status" aria-label={t("common_loading")}>
       {Array.from({ length: rows }, (_, i) => (
         <SkeletonRow key={i} />
       ))}
@@ -73,7 +74,7 @@ export function SkeletonCard({ className }: { className?: string }) {
 /** Placeholder for a whole page while its code loads: header, KPI row, two cards. */
 export function PageSkeleton() {
   return (
-    <div role="status" aria-label="Loading page" className="animate-fade-in">
+    <div role="status" aria-label={t("ui_loading_page")} className="animate-fade-in">
       <div className="space-y-2.5 pb-6">
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-4 w-full max-w-md" />

@@ -8,6 +8,7 @@ import { SegmentedControl } from "@/components/segmented-control"
 import { NewList } from "@/components/trends/new-list"
 import { TagTable } from "@/components/trends/tag-table"
 import { TopList, type TopListItem } from "@/components/top-list"
+import { t, tk } from "@/i18n"
 import { sensorParam, useSensorFilter } from "@/hooks/use-sensor-filter"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { api, queryKeys, type TopResponse } from "@/lib/api"
@@ -25,12 +26,12 @@ const PERIODS = [7, 30] as const
 type Period = (typeof PERIODS)[number]
 
 const NEW_LABEL: Record<NewField, string> = {
-  username: "Usernames",
-  password: "Passwords",
-  command: "Commands",
-  url: "URLs",
-  asn: "Attacker networks",
-  user_agent: "User agents",
+  username: tk("trends_label_usernames"),
+  password: tk("trends_label_passwords"),
+  command: tk("trends_label_commands"),
+  url: tk("trends_label_urls"),
+  asn: tk("trends_label_networks"),
+  user_agent: tk("trends_label_user_agents"),
 }
 
 function useTrendFilters() {
@@ -68,10 +69,34 @@ function toItems(
 }
 
 const TOP_KINDS = [
-  { value: "username", label: "Usernames", eyebrow: "Usernames tried", loading: "Counting logins…", empty: "No login attempts in this period." },
-  { value: "password", label: "Passwords", eyebrow: "Passwords tried", loading: "Counting logins…", empty: "No login attempts in this period." },
-  { value: "command", label: "Commands", eyebrow: "Commands run", loading: "Reading shell history…", empty: "No commands in this period." },
-  { value: "url", label: "URLs", eyebrow: "URLs requested", loading: "Reading web requests…", empty: "No web requests in this period." },
+  {
+    value: "username",
+    label: tk("trends_label_usernames"),
+    eyebrow: tk("trends_top_username_eyebrow"),
+    loading: tk("trends_top_logins_loading"),
+    empty: tk("trends_top_logins_empty"),
+  },
+  {
+    value: "password",
+    label: tk("trends_label_passwords"),
+    eyebrow: tk("trends_top_password_eyebrow"),
+    loading: tk("trends_top_logins_loading"),
+    empty: tk("trends_top_logins_empty"),
+  },
+  {
+    value: "command",
+    label: tk("trends_label_commands"),
+    eyebrow: tk("trends_top_command_eyebrow"),
+    loading: tk("trends_top_command_loading"),
+    empty: tk("trends_top_command_empty"),
+  },
+  {
+    value: "url",
+    label: tk("trends_label_urls"),
+    eyebrow: tk("trends_top_url_eyebrow"),
+    loading: tk("trends_top_url_loading"),
+    empty: tk("trends_top_url_empty"),
+  },
 ] as const
 type TopKind = (typeof TOP_KINDS)[number]["value"]
 
@@ -96,10 +121,10 @@ function TopValuesCard({
   return (
     <FindingCard
       className="min-w-0"
-      eyebrow={`${meta.eyebrow}, ${days} days`}
+      eyebrow={t(meta.eyebrow, { days })}
       finding={
         q.isPending ? (
-          meta.loading
+          t(meta.loading)
         ) : (
           <span className="[overflow-wrap:anywhere]">{mask(f.finding)}</span>
         )
@@ -107,10 +132,10 @@ function TopValuesCard({
       detail={q.isPending ? undefined : f.detail}
       action={
         <SegmentedControl
-          label="Field"
+          label={t("trends_field_label")}
           value={kind}
           onChange={(v) => setRaw(v === "username" ? null : v)}
-          options={TOP_KINDS.map((k) => ({ value: k.value, label: k.label }))}
+          options={TOP_KINDS.map((k) => ({ value: k.value, label: t(k.label) }))}
         />
       }
     >
@@ -118,7 +143,7 @@ function TopValuesCard({
         items={toItems(q.data, kind, mask)}
         loading={q.isPending}
         rows={8}
-        empty={meta.empty}
+        empty={t(meta.empty)}
       />
     </FindingCard>
   )
@@ -143,14 +168,17 @@ export function TrendsPage() {
     <>
       <PageHeader
         help="patterns"
-        title="Patterns"
-        description={`What attackers try most in the last ${days} days, how it changes over time, and what is new.`}
+        title={t("trends_title")}
+        description={t("trends_description", { days })}
         actions={
           <SegmentedControl
-            label="Period"
+            label={t("filters_period_label")}
             value={String(days)}
             onChange={(v) => setDays(v === "7" ? null : v)}
-            options={PERIODS.map((p) => ({ value: String(p), label: `${p} days` }))}
+            options={PERIODS.map((p) => ({
+              value: String(p),
+              label: t("trends_period_days", { days: p }),
+            }))}
           />
         }
       />
@@ -164,8 +192,8 @@ export function TrendsPage() {
 
         <FindingCard
           className="min-w-0"
-          eyebrow={`Tags over time, ${days} days`}
-          finding={tags.isPending ? "Reading tags…" : tagFinding.finding}
+          eyebrow={t("trends_tags_eyebrow", { days })}
+          finding={tags.isPending ? t("trends_tags_loading") : tagFinding.finding}
           detail={tags.isPending ? undefined : tagFinding.detail}
         >
           <TagTable points={tags.data?.points} loading={tags.isPending} />
@@ -174,16 +202,16 @@ export function TrendsPage() {
 
       <FindingCard
         className="mt-4"
-        eyebrow={days === 7 ? "New this week" : `New in the last ${days} days`}
-        finding={fresh.isPending ? "Comparing with the last 90 days…" : newFinding.finding}
-        detail="Compared with the 90 days before the period. Not affected by the sensor filter."
+        eyebrow={t("trends_new_eyebrow", { days })}
+        finding={fresh.isPending ? t("trends_new_loading") : newFinding.finding}
+        detail={t("trends_new_detail")}
       >
         <div className="scroll-fade-x -mx-1 mb-3 overflow-x-auto px-1 pb-1">
           <SegmentedControl
-            label="Kind of value"
+            label={t("trends_new_kind_label")}
             value={field}
             onChange={(v) => setField(v === "username" ? null : v)}
-            options={NEW_FIELDS.map((f) => ({ value: f, label: NEW_LABEL[f] }))}
+            options={NEW_FIELDS.map((f) => ({ value: f, label: t(NEW_LABEL[f]) }))}
             className="w-max"
           />
         </div>
@@ -191,7 +219,7 @@ export function TrendsPage() {
           field={field}
           items={fresh.data?.items ?? []}
           loading={fresh.isPending}
-          empty="Nothing new: every value in this period was seen before."
+          empty={t("trends_new_empty")}
         />
       </FindingCard>
     </>

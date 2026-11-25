@@ -1,4 +1,5 @@
 import { useAuth } from "@/app/auth"
+import { t } from "@/i18n"
 import { useVersion } from "@/hooks/use-version"
 import { FindingCard } from "@/components/finding-card"
 import { RelativeTime } from "@/components/relative-time"
@@ -20,17 +21,19 @@ function Details({ v }: { v: VersionInfo }) {
   const url = safeReleaseUrl(v.release_url)
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-      <Row label="Running">
+      <Row label={t("setup_updates_running")}>
         <span className="font-mono text-xs">{v.version}</span>
         <span className="ml-2 text-xs text-fg-muted">
-          {v.build === "image" ? "release image" : "built from source"}
+          {v.build === "image" ? t("setup_updates_image") : t("setup_updates_source")}
         </span>
       </Row>
-      <Row label="Latest release">
-        {v.latest ? <span className="font-mono text-xs">{v.latest}</span> : "Not known"}
+      <Row label={t("setup_updates_latest")}>
+        {v.latest ? <span className="font-mono text-xs">{v.latest}</span> : t("setup_updates_not_known")}
       </Row>
-      <Row label="Last checked">{v.checked_at ? <RelativeTime iso={v.checked_at} /> : "Never"}</Row>
-      <Row label="Release notes">
+      <Row label={t("setup_updates_checked")}>
+        {v.checked_at ? <RelativeTime iso={v.checked_at} /> : t("setup_updates_never")}
+      </Row>
+      <Row label={t("setup_updates_notes")}>
         {url && hasUpdate(v) ? (
           <a
             href={url}
@@ -38,10 +41,10 @@ function Details({ v }: { v: VersionInfo }) {
             rel="noopener noreferrer"
             className="rounded-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            Open the release page
+            {t("setup_updates_open")}
           </a>
         ) : (
-          "Nothing new"
+          t("setup_updates_nothing_new")
         )}
       </Row>
     </dl>
@@ -55,15 +58,15 @@ export function UpdatesCard() {
   const v = q.data
   return (
     <FindingCard
-      eyebrow="Updates"
+      eyebrow={t("setup_updates_title")}
       finding={
         v
           ? describeVersion(v)
           : q.isError
-            ? "The version is not available right now."
-            : "Checking the version…"
+            ? t("setup_updates_unavailable")
+            : t("setup_updates_checking")
       }
-      detail="The check asks only whether a newer release exists. It sends no version, no identifier and nothing about your system, and it runs through the VPN."
+      detail={t("setup_updates_detail")}
     >
       {v ? (
         <div className="space-y-4">
@@ -71,14 +74,14 @@ export function UpdatesCard() {
           {canWrite && hasUpdate(v) ? (
             <CommandBox
               command="just update"
-              label="Command to update"
-              hint="Run it on the machine that hosts SuckerPot. It takes a database backup first and can be rolled back."
+              label={t("setup_updates_command_label")}
+              hint={t("setup_updates_command_hint")}
             />
           ) : null}
           {canWrite && v.check === "off" ? (
             <CommandBox
               command={setCommand("UPDATE_CHECK_ENABLED", "true")}
-              label="Command to switch the update check on"
+              label={t("setup_updates_check_label")}
             />
           ) : null}
         </div>

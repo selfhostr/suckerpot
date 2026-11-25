@@ -9,6 +9,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useCopy } from "@/hooks/use-copy"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 
 export interface Reveal {
   username: string
@@ -41,13 +43,16 @@ export function TemporaryPasswordDialog({
           <>
             <DialogHeader className="min-w-0 text-left">
               <DialogTitle>
-                {reveal.kind === "created" ? "Account created" : "Password reset"} for{" "}
-                {reveal.display_name}
+                {reveal.kind === "created"
+                  ? t("users_temp_created", { name: reveal.display_name })
+                  : t("users_temp_reset", { name: reveal.display_name })}
               </DialogTitle>
               <DialogDescription>
-                Give them this temporary password and their username{" "}
-                <code className="font-mono text-fg">{reveal.username}</code>. At the first sign-in
-                they must choose their own password.
+                {tNodes(
+                  "users_temp_description",
+                  {},
+                  { username: <code className="font-mono text-fg">{reveal.username}</code> },
+                )}
               </DialogDescription>
             </DialogHeader>
             <div className="min-w-0 space-y-3">
@@ -65,7 +70,7 @@ export function TemporaryPasswordDialog({
                   onClick={() => void copy(reveal.temporary)}
                 >
                   {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-                  {copied ? "Copied" : "Copy"}
+                  {copied ? t("common_copied") : t("common_copy")}
                 </Button>
               </div>
               <p
@@ -74,15 +79,14 @@ export function TemporaryPasswordDialog({
               >
                 <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
                 <span>
-                  <strong className="font-medium">This password is shown only once.</strong> It is
-                  not stored anywhere readable, so it cannot be shown again. Copy it now and send it
-                  over a channel you trust. If it is lost, reset the password.
+                  <strong className="font-medium">{t("users_temp_once")}</strong>{" "}
+                  {t("users_temp_once_detail")}
                 </span>
               </p>
             </div>
             <DialogFooter>
               <Button type="button" onClick={onClose}>
-                I have copied it
+                {t("users_temp_done")}
               </Button>
             </DialogFooter>
           </>

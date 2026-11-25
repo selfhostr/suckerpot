@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useVersion } from "@/hooks/use-version"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { hasUpdate } from "@/lib/version"
 import { AccountMenu } from "./account-menu"
@@ -27,20 +28,12 @@ import {
 } from "./nav"
 import { useOpenSections } from "./sidebar-state"
 import { useLiveStatus } from "./use-live-status"
-import type { LiveStatus } from "@/components/live-indicator"
 
 /** Ctrl B on Windows and Linux, ⌘B on a Mac: shown next to the fold switch. */
 function toggleHint(): string {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent)
     ? "⌘B"
     : "Ctrl B"
-}
-
-const LIVE_WORD: Record<LiveStatus, string> = {
-  live: "connected",
-  connecting: "connecting",
-  reconnecting: "reconnecting",
-  offline: "offline",
 }
 
 /**
@@ -53,7 +46,7 @@ function LiveDot({ className }: { className?: string }) {
   return (
     <span
       className={cn("inline-flex items-center", className)}
-      title={`Live feed ${LIVE_WORD[status]}`}
+      title={t("sidebar_live_title", { status })}
     >
       <span
         aria-hidden
@@ -64,7 +57,7 @@ function LiveDot({ className }: { className?: string }) {
           status === "offline" && "border border-status-off",
         )}
       />
-      <span className="sr-only">, feed {LIVE_WORD[status]}</span>
+      <span className="sr-only">{t("sidebar_live_sr", { status })}</span>
     </span>
   )
 }
@@ -75,7 +68,7 @@ function UpdateDot({ className }: { className?: string }) {
   return (
     <span className={cn("inline-flex", className)}>
       <span aria-hidden className="size-1.5 rounded-full bg-primary" />
-      <span className="sr-only">, update available</span>
+      <span className="sr-only">{t("sidebar_update_available_sr")}</span>
     </span>
   )
 }
@@ -281,10 +274,10 @@ function Foot({
   if (rail) {
     return (
       <div className="flex shrink-0 flex-col items-start gap-1 px-2 pt-2 pb-3">
-        <RailTip label="Settings">
+        <RailTip label={t("nav_settings")}>
           <Link
             to={SETTINGS_PAGE.to}
-            aria-label="Settings"
+            aria-label={t("nav_settings")}
             aria-current={settingsCurrent ? "page" : undefined}
             className={cn(RAIL_ICON, settingsCurrent && "bg-surface-hover text-fg")}
           >
@@ -292,16 +285,16 @@ function Foot({
             <UpdateDot className="absolute top-2 right-2" />
           </Link>
         </RailTip>
-        <RailTip label="Documentation">
+        <RailTip label={t("sidebar_docs")}>
           <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={RAIL_ICON}>
             <BookOpen aria-hidden strokeWidth={1.75} className="size-[1.125rem]" />
-            <span className="sr-only">Documentation (opens in a new tab)</span>
+            <span className="sr-only">{t("sidebar_docs_new_tab")}</span>
           </a>
         </RailTip>
-        <RailTip label="GitHub">
+        <RailTip label={t("sidebar_github")}>
           <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className={RAIL_ICON}>
             <GithubMark className="size-[1.0625rem]" />
-            <span className="sr-only">GitHub (opens in a new tab)</span>
+            <span className="sr-only">{t("sidebar_github_new_tab")}</span>
           </a>
         </RailTip>
         <AccountMenu variant="rail" />
@@ -312,11 +305,11 @@ function Foot({
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-t px-3 pt-2 pb-3">
       <div className="flex items-center gap-1 px-0.5">
-        <RowTip label="Settings">
+        <RowTip label={t("nav_settings")}>
           <Link
             to={SETTINGS_PAGE.to}
             onClick={onNavigate}
-            aria-label="Settings"
+            aria-label={t("nav_settings")}
             aria-current={settingsCurrent ? "page" : undefined}
             className={cn(ROW_ICON, settingsCurrent && "bg-surface-hover text-fg")}
           >
@@ -324,16 +317,16 @@ function Foot({
             <UpdateDot className="absolute top-1.5 right-1.5" />
           </Link>
         </RowTip>
-        <RowTip label="Documentation">
+        <RowTip label={t("sidebar_docs")}>
           <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={ROW_ICON}>
             <BookOpen aria-hidden strokeWidth={1.85} className="size-4" />
-            <span className="sr-only">Documentation (opens in a new tab)</span>
+            <span className="sr-only">{t("sidebar_docs_new_tab")}</span>
           </a>
         </RowTip>
-        <RowTip label="GitHub">
+        <RowTip label={t("sidebar_github")}>
           <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className={ROW_ICON}>
             <GithubMark className="size-4" />
-            <span className="sr-only">GitHub (opens in a new tab)</span>
+            <span className="sr-only">{t("sidebar_github_new_tab")}</span>
           </a>
         </RowTip>
       </div>
@@ -376,14 +369,14 @@ export function Sidebar({
           <RailTip
             label={
               <>
-                Expand sidebar <kbd className="ml-1.5 font-sans opacity-70">{hint}</kbd>
+                {t("sidebar_expand")} <kbd className="ml-1.5 font-sans opacity-70">{hint}</kbd>
               </>
             }
           >
             <button
               type="button"
               onClick={onToggle}
-              aria-label="Expand sidebar"
+              aria-label={t("sidebar_expand")}
               aria-expanded={false}
               aria-controls="sidebar"
               aria-keyshortcuts="Control+B Meta+B"
@@ -411,14 +404,14 @@ export function Sidebar({
           <RailTip
             label={
               <>
-                Collapse sidebar <kbd className="ml-1.5 font-sans opacity-70">{hint}</kbd>
+                {t("sidebar_collapse")} <kbd className="ml-1.5 font-sans opacity-70">{hint}</kbd>
               </>
             }
           >
             <button
               type="button"
               onClick={onToggle}
-              aria-label="Collapse sidebar"
+              aria-label={t("sidebar_collapse")}
               aria-expanded
               aria-controls="sidebar"
               aria-keyshortcuts="Control+B Meta+B"
@@ -432,7 +425,7 @@ export function Sidebar({
 
       {rail ? (
         <nav
-          aria-label="Main"
+          aria-label={t("sidebar_main_nav")}
           className="flex min-h-0 flex-1 flex-col items-start gap-1 overflow-y-auto px-2 pt-1"
         >
           {NAV_SECTIONS.map((s) => (
@@ -442,7 +435,7 @@ export function Sidebar({
       ) : (
         // Only the sections scroll on a short window: the foot stays in reach.
         <nav
-          aria-label="Main"
+          aria-label={t("sidebar_main_nav")}
           className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pt-1 pb-3"
         >
           {NAV_SECTIONS.map((s) => (

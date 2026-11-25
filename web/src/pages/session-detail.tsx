@@ -1,3 +1,5 @@
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { PageHelp } from "@/components/page-help"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, FileQuestion, TerminalSquare } from "lucide-react"
@@ -25,7 +27,8 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError, api, queryKeys, type SensorEvent, type Session } from "@/lib/api"
 import { connectionsOf, floodFinding, floodSpanLong, isFlood, parseAt } from "@/lib/floods"
-import { formatAbsolute, formatDuration, formatNumber, plural } from "@/lib/format"
+import { formatAbsolute, formatDuration, formatNumber } from "@/lib/format"
+import { listPlain } from "@/lib/sensors"
 import { sessionSeverity } from "@/lib/severity"
 import { cn } from "@/lib/utils"
 
@@ -60,12 +63,10 @@ const REPLAY_SENSORS = new Set(["ssh", "telnet"])
 function replayFinding(source: ReplaySource, commands: number): string {
   const seconds = source.frames.reduce((n, f) => n + f[0], 0)
   const span = formatDuration(seconds)
-  if (source.reconstructed) {
-    return `${plural(commands, "command")} rebuilt from the session log, about ${span} of activity.`
-  }
+  if (source.reconstructed) return t("session_replay_rebuilt", { count: commands, span })
   return commands
-    ? `${plural(commands, "command")} typed over ${span}, replayed here at real speed.`
-    : `${span} of terminal output, replayed here at real speed.`
+    ? t("session_replay_typed", { count: commands, span })
+    : t("session_replay_output", { span })
 }
 
 function durationOf(s: Session): string {
@@ -75,12 +76,14 @@ function durationOf(s: Session): string {
 
 function timelineFinding(s: Session): string {
   const parts: string[] = []
-  if (s.login_attempts) parts.push(plural(s.login_attempts, "login attempt"))
-  if (s.commands) parts.push(plural(s.commands, "command"))
-  if (s.downloads) parts.push(plural(s.downloads, "download attempt"))
-  if (s.http_requests) parts.push(plural(s.http_requests, "HTTP request"))
-  const what = parts.length ? parts.join(", ") : plural(s.event_count, "event")
-  return `${what} in ${durationOf(s)}.`
+  if (s.login_attempts) parts.push(t("session_timeline_logins", { count: s.login_attempts }))
+  if (s.commands) parts.push(t("session_timeline_commands", { count: s.commands }))
+  if (s.downloads) parts.push(t("session_timeline_downloads", { count: s.downloads }))
+  if (s.http_requests) parts.push(t("session_timeline_http", { count: s.http_requests }))
+  const what = parts.length
+    ? listPlain(parts)
+    : t("session_timeline_events", { count: s.event_count })
+  return t("session_timeline_finding", { what, duration: durationOf(s) })
 }
 
 /** A flood group loads its first 200 events; the timeline opens on the first few of them. */
@@ -88,8 +91,8 @@ const FLOOD_EVENTS_SHOWN = 40
 
 function floodTimelineFinding(shown: number, total: number): string {
   return shown >= total
-    ? `All ${formatNumber(total)} events of the group, in time order.`
-    : `The first ${formatNumber(shown)} of ${formatNumber(total)} events of the group, in time order.`
+    ? t("session_flood_events_all", { total })
+    : t("session_flood_events_first", { shown, total })
 }
 
 function Meta({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
@@ -135,7 +138,7 @@ export function SessionDetailPage() {
       to="/attacks"
       className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
     >
-      <ArrowLeft aria-hidden className="size-3.5" /> Attacks
+      <ArrowLeft aria-hidden className="size-3.5" /> {t("attacks_title")}
     </Link>
   )
 
@@ -146,13 +149,11 @@ export function SessionDetailPage() {
         <div className="pb-6">{back}</div>
         <EmptyState
           icon={FileQuestion}
-          title={notFound ? "Session not found" : "Could not load this session"}
-          description={
-            notFound ? "It may have been removed by the retention job." : session.error.message
-          }
+          title={notFound ? t("session_not_found") : t("session_load_error")}
+          description={notFound ? t("session_removed") : session.error.message}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/attacks">Back to attacks</Link>
+              <Link to="/attacks">{t("session_back_to_attacks")}</Link>
             </Button>
           }
         />
@@ -174,15 +175,15 @@ export function SessionDetailPage() {
               </span>
               {flood ? <FloodBadge connections={connectionsOf(s)} /> : null}
               <SeverityBadge severity={sessionSeverity(s)} />
-              {s.tags.map((t) => (
-                <TagBadge key={t} tag={t} />
+              {s.tags.map((tag) => (
+                <TagBadge key={tag} tag={tag} />
               ))}
             </div>
             {s.campaign_id ? <CampaignChip id={s.campaign_id} /> : null}
             <div className="flex items-start gap-1.5">
               <h1 className="min-w-0 type-section-title text-pretty sm:type-page-title">
                 <span className="sr-only">
-                  {flood ? "Flood group" : "Session"} {s.session_id}:{" "}
+                  {t("session_sr_title", { flood: flood ? "yes" : "no", id: s.session_id })}{" "}
                 </span>
                 <SessionStory session={s} layout="block" />
               </h1>
@@ -194,8 +195,11 @@ export function SessionDetailPage() {
                 {s.folded_from ? (
                   <>
                     {" "}
-                    The connection you opened (<span className="font-mono">{s.folded_from}</span>)
-                    is one of them.
+                    {tNodes(
+                      "session_folded_from",
+                      {},
+                      { id: <span className="font-mono">{s.folded_from}</span> },
+                    )}
                   </>
                 ) : null}
               </p>
@@ -211,11 +215,11 @@ export function SessionDetailPage() {
         // covers and the totals of the connections it stands for. The source port is always 0.
         <dl className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border bg-surface p-4 shadow-sm sm:grid-cols-3 sm:p-5 lg:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))]">
           {/* The value names the time zone, so the label does not repeat it. */}
-          <Meta label="Window">{floodSpanLong(s)}</Meta>
-          <Meta label="Connections">{formatNumber(connectionsOf(s))}</Meta>
-          <Meta label="Logins tried">{formatNumber(s.login_attempts)}</Meta>
-          <Meta label="Events">{formatNumber(s.event_count)}</Meta>
-          <Meta label="Port">
+          <Meta label={t("session_meta_window")}>{floodSpanLong(s)}</Meta>
+          <Meta label={t("session_meta_connections")}>{formatNumber(connectionsOf(s))}</Meta>
+          <Meta label={t("session_meta_logins")}>{formatNumber(s.login_attempts)}</Meta>
+          <Meta label={t("session_meta_events")}>{formatNumber(s.event_count)}</Meta>
+          <Meta label={t("session_meta_port")}>
             <span className="font-mono text-xs">{s.dst_port}</span>
           </Meta>
         </dl>
@@ -229,16 +233,18 @@ export function SessionDetailPage() {
               : "lg:grid-cols-5",
           )}
         >
-          <Meta label="Started">{formatAbsolute(s.started_at)}</Meta>
-          <Meta label="Duration">{s.ended_at ? durationOf(s) : "Still connected"}</Meta>
-          <Meta label="Events">{formatNumber(s.event_count)}</Meta>
-          {clientTool ? <Meta label="Client">{clientTool}</Meta> : null}
-          <Meta label="Ports">
+          <Meta label={t("session_meta_started")}>{formatAbsolute(s.started_at)}</Meta>
+          <Meta label={t("session_meta_duration")}>
+            {s.ended_at ? durationOf(s) : t("session_still_connected")}
+          </Meta>
+          <Meta label={t("session_meta_events")}>{formatNumber(s.event_count)}</Meta>
+          {clientTool ? <Meta label={t("session_meta_client")}>{clientTool}</Meta> : null}
+          <Meta label={t("session_meta_ports")}>
             <span className="font-mono text-xs">
               {s.src_port} → {s.dst_port}
             </span>
           </Meta>
-          <Meta label="Session ID">
+          <Meta label={t("session_meta_id")}>
             <span className="font-mono text-xs">{s.session_id}</span>
           </Meta>
         </dl>
@@ -250,19 +256,19 @@ export function SessionDetailPage() {
 
           {s && !flood && REPLAY_SENSORS.has(s.sensor) ? (
             <FindingCard
-              eyebrow="Terminal replay"
+              eyebrow={t("session_replay_eyebrow")}
               finding={
                 events.isPending
-                  ? "Loading the recording…"
+                  ? t("session_replay_loading")
                   : replay
                     ? replayFinding(replay, commandCount)
-                    : "No commands were run, so there is nothing to replay."
+                    : t("session_replay_none")
               }
             >
               {events.isPending ? (
                 <Skeleton className="h-64 w-full sm:h-80" />
               ) : events.isError ? (
-                <p className="text-sm text-fg-muted">Could not load the recording.</p>
+                <p className="text-sm text-fg-muted">{t("session_replay_error")}</p>
               ) : replay ? (
                 <Suspense fallback={<Skeleton className="h-64 w-full sm:h-80" />}>
                   <TerminalReplay source={replay} masked={masked} />
@@ -271,8 +277,8 @@ export function SessionDetailPage() {
                 <EmptyState
                   variant="bare"
                   icon={TerminalSquare}
-                  title="Nothing was typed"
-                  description="The client connected but never ran a command."
+                  title={t("session_replay_empty_title")}
+                  description={t("session_replay_empty_description")}
                   className="py-8"
                 />
               )}
@@ -280,14 +286,14 @@ export function SessionDetailPage() {
           ) : null}
 
           <FindingCard
-            eyebrow={flood ? "First events" : "Timeline"}
+            eyebrow={flood ? t("session_first_events") : t("session_timeline")}
             finding={
               !s
-                ? "Loading the timeline…"
+                ? t("session_timeline_loading")
                 : flood
                   ? events.data
                     ? floodTimelineFinding(events.data.length, s.event_count)
-                    : "Loading the first events…"
+                    : t("session_first_events_loading")
                   : timelineFinding(s)
             }
             bodyClassName="px-0 sm:px-0 pt-3 pb-2 sm:pb-2"
@@ -296,8 +302,11 @@ export function SessionDetailPage() {
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   <span>
                     {showAllEvents
-                      ? `All ${formatNumber(events.data.length)} loaded events are shown.`
-                      : `Showing the first ${FLOOD_EVENTS_SHOWN} of ${formatNumber(events.data.length)} loaded events.`}
+                      ? t("session_loaded_all", { total: events.data.length })
+                      : t("session_loaded_first", {
+                          shown: FLOOD_EVENTS_SHOWN,
+                          total: events.data.length,
+                        })}
                   </span>
                   <Button
                     variant="outline"
@@ -305,7 +314,9 @@ export function SessionDetailPage() {
                     aria-expanded={showAllEvents}
                     onClick={() => setShowAllEvents((open) => !open)}
                   >
-                    {showAllEvents ? "Show fewer" : `Show all ${formatNumber(events.data.length)}`}
+                    {showAllEvents
+                      ? t("session_show_fewer")
+                      : t("session_show_all", { total: events.data.length })}
                   </Button>
                 </div>
               ) : undefined
@@ -314,7 +325,7 @@ export function SessionDetailPage() {
             {events.isPending ? (
               <SkeletonList rows={6} />
             ) : events.isError ? (
-              <p className="px-5 py-6 text-sm text-fg-muted">Could not load events.</p>
+              <p className="px-5 py-6 text-sm text-fg-muted">{t("session_events_error")}</p>
             ) : (
               <EventTimeline
                 events={
@@ -327,7 +338,7 @@ export function SessionDetailPage() {
 
         <div className="space-y-4 self-start">
           <FindingCard
-            eyebrow="Source"
+            eyebrow={t("session_source")}
             finding={
               s ? (
                 <span className="inline-flex flex-wrap items-center gap-2">
@@ -338,24 +349,30 @@ export function SessionDetailPage() {
                 "…"
               )
             }
-            detail={s?.org ? `${s.org}${s.asn ? ` · AS${s.asn}` : ""}` : "Not enriched yet"}
+            detail={s?.org ? `${s.org}${s.asn ? ` · AS${s.asn}` : ""}` : t("session_not_enriched")}
           >
             <dl className="grid grid-cols-2 gap-4">
-              <Meta label={<Term id="abuse-score">Abuse score</Term>}>
+              <Meta label={<Term id="abuse-score">{t("session_abuse_score")}</Term>}>
                 {s?.abuse_score != null ? `${s.abuse_score} / 100` : "–"}
               </Meta>
-              <Meta label={<Term id="known-scanner">Known scanner</Term>}>
-                {s?.known_scanner == null ? "–" : s.known_scanner ? "Yes" : "No"}
+              <Meta label={<Term id="known-scanner">{t("session_known_scanner")}</Term>}>
+                {s?.known_scanner == null
+                  ? "–"
+                  : s.known_scanner
+                    ? t("common_yes")
+                    : t("common_no")}
               </Meta>
             </dl>
             {s ? (
               <div className="mt-4 flex flex-col gap-2">
                 <Button asChild variant="outline" size="sm" className="w-full">
-                  <Link to={`/attackers/${encodeURIComponent(s.src_ip)}`}>Attacker profile</Link>
+                  <Link to={`/attackers/${encodeURIComponent(s.src_ip)}`}>
+                    {t("session_attacker_profile")}
+                  </Link>
                 </Button>
                 <Button asChild variant="ghost" size="sm" className="w-full">
                   <Link to={`/attacks?src_ip=${encodeURIComponent(s.src_ip)}`}>
-                    All sessions from this address
+                    {t("session_all_from_address")}
                   </Link>
                 </Button>
               </div>

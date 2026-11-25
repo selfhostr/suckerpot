@@ -4,7 +4,7 @@ import { Link } from "react-router"
 import { FindingCard } from "@/components/finding-card"
 import { Button } from "@/components/ui/button"
 import { AdminActionDialog } from "@/components/users/admin-action-dialog"
-import { plural } from "@/lib/format"
+import { t, tNodes } from "@/i18n"
 import {
   BUNDLE_MAX,
   describeBundle,
@@ -23,10 +23,10 @@ export function BundleToggle({ sha256, compact = false }: { sha256: string; comp
   const inBundle = list.includes(sha256)
   const full = !inBundle && list.length >= BUNDLE_MAX
   const label = inBundle
-    ? "Remove from sample bundle"
+    ? t("samples_bundle_remove")
     : full
-      ? `Sample bundle is full (${BUNDLE_MAX})`
-      : "Add to sample bundle"
+      ? t("samples_bundle_full_max", { max: BUNDLE_MAX })
+      : t("samples_bundle_add")
   const toggle = () => (inBundle ? sampleBundle.remove(sha256) : sampleBundle.add(sha256))
   const Icon = inBundle ? PackageCheck : PackagePlus
   if (compact)
@@ -55,7 +55,11 @@ export function BundleToggle({ sha256, compact = false }: { sha256: string; comp
       onClick={toggle}
     >
       <Icon aria-hidden className="size-4" />
-      {inBundle ? "In sample bundle" : full ? "Sample bundle is full" : "Add to sample bundle"}
+      {inBundle
+        ? t("samples_bundle_in")
+        : full
+          ? t("samples_bundle_is_full")
+          : t("samples_bundle_add")}
     </Button>
   )
 }
@@ -72,18 +76,18 @@ export function BundleCard({ className }: { className?: string }) {
   return (
     <FindingCard
       className={className}
-      eyebrow="Sample bundle"
+      eyebrow={t("samples_bundle_eyebrow")}
       finding={describeBundle(list.length)}
-      detail="One encrypted zip for a public malware repository. Nothing is uploaded from here: you upload the file yourself."
+      detail={t("samples_bundle_detail")}
       action={
         list.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={() => setOpen(true)}>
               <Download aria-hidden className="size-4" />
-              Download bundle
+              {t("samples_bundle_download")}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => sampleBundle.clear()}>
-              Clear
+              {t("common_clear")}
             </Button>
           </div>
         ) : undefined
@@ -92,17 +96,21 @@ export function BundleCard({ className }: { className?: string }) {
     >
       {excluded.length > 0 ? (
         <p role="status" className="border-t px-4 py-3 text-sm text-fg-muted sm:px-5">
-          The identity check left {plural(excluded.length, "sample")} out of the last download,
-          because {excluded.length === 1 ? "it contains" : "they contain"} something that points
-          back to you:{" "}
-          <span className="font-mono text-xs text-fg">
-            {excluded.map((s) => `${shortHash(s)}…`).join(", ")}
-          </span>
-          .
+          {tNodes(
+            "samples_bundle_excluded",
+            { count: excluded.length },
+            {
+              hashes: (
+                <span className="font-mono text-xs text-fg">
+                  {excluded.map((s) => `${shortHash(s)}…`).join(", ")}
+                </span>
+              ),
+            },
+          )}
         </p>
       ) : null}
       {list.length > 0 ? (
-        <ul className="divide-y border-t" aria-label="Samples in the bundle">
+        <ul className="divide-y border-t" aria-label={t("samples_bundle_list_label")}>
           {list.map((sha) => (
             <li key={sha} className="flex items-center justify-between gap-3 px-4 py-2 sm:px-5">
               <Link
@@ -116,7 +124,7 @@ export function BundleCard({ className }: { className?: string }) {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label={`Remove ${shortHash(sha)} from the bundle`}
+                aria-label={t("samples_bundle_remove_one", { hash: shortHash(sha) })}
                 onClick={() => sampleBundle.remove(sha)}
               >
                 <X aria-hidden />
@@ -128,20 +136,20 @@ export function BundleCard({ className }: { className?: string }) {
       <AdminActionDialog
         open={open}
         onOpenChange={setOpen}
-        title="Download the sample bundle"
+        title={t("samples_bundle_dialog_title")}
         description={
-          <>
-            {plural(list.length, "live malware sample")} in one encrypted zip with the password{" "}
-            <code className="font-mono text-fg">infected</code>, the usual convention of public
-            malware repositories, so antivirus tools do not open it by accident. A{" "}
-            <code className="font-mono text-fg">hashes.csv</code> lists every file. Samples that
-            contain something pointing back to you are left out. The download is recorded in the
-            audit log.
-          </>
+          tNodes(
+            "samples_bundle_dialog_description",
+            { count: list.length },
+            {
+              password: <code className="font-mono text-fg">infected</code>,
+              file: <code className="font-mono text-fg">hashes.csv</code>,
+            },
+          )
         }
-        hint="Downloads ask for your own dashboard password again."
-        confirmLabel="Download"
-        pendingLabel="Preparing…"
+        hint={t("samples_download_hint")}
+        confirmLabel={t("common_download")}
+        pendingLabel={t("samples_preparing")}
         run={async (password) => {
           const r = await downloadBundle(list, password)
           saveBlob(r.blob, r.filename)

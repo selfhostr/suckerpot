@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { CircleCheck, CircleOff, Hourglass, ShieldAlert, type LucideIcon } from "lucide-react"
 import { FindingCard } from "@/components/finding-card"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { RelativeTime } from "@/components/relative-time"
 import { SensorBadge } from "@/components/sensor-badge"
 import { SkeletonText } from "@/components/skeletons"
@@ -30,7 +32,11 @@ export function PortStatus({ item }: { item: PortItem }) {
         {PORT_STATE_LABEL[item.state]}
         {item.state === "receiving" && item.last_event_at ? (
           <span className="block text-xs text-fg-muted">
-            last connection <RelativeTime iso={item.last_event_at} />
+            {tNodes(
+              "setup_port_last_connection",
+              {},
+              { time: <RelativeTime iso={item.last_event_at} /> },
+            )}
           </span>
         ) : null}
       </span>
@@ -51,12 +57,12 @@ export function PortsTable({ items }: { items: readonly PortItem[] }) {
           GRID,
         )}
       >
-        <span>Sensor</span>
-        <span>Open on your router</span>
-        <span>Forward to this machine&apos;s port</span>
-        <span>Status</span>
+        <span>{t("setup_ports_col_sensor")}</span>
+        <span>{t("setup_ports_col_router")}</span>
+        <span>{t("setup_ports_col_forward")}</span>
+        <span>{t("setup_ports_col_status")}</span>
       </div>
-      <ul aria-label="Sensor ports" className="divide-y border-t">
+      <ul aria-label={t("setup_ports_list_label")} className="divide-y border-t">
         {items.map((i) => (
           <li
             key={i.sensor}
@@ -71,11 +77,11 @@ export function PortsTable({ items }: { items: readonly PortItem[] }) {
               <PortStatus item={i} />
             </span>
             <span className="col-span-2 text-sm sm:col-span-1 sm:col-start-2 sm:row-start-1">
-              <span className="text-xs text-fg-muted sm:hidden">Open on your router: </span>
+              <span className="text-xs text-fg-muted sm:hidden">{t("setup_ports_router_inline")} </span>
               <span className="font-mono tabular-nums">{describePort(i)}</span>
             </span>
             <span className="col-span-2 text-sm sm:col-span-1 sm:col-start-3 sm:row-start-1">
-              <span className="text-xs text-fg-muted sm:hidden">Forward to this machine: </span>
+              <span className="text-xs text-fg-muted sm:hidden">{t("setup_ports_forward_inline")} </span>
               <span className="font-mono tabular-nums">{i.host_port}</span>
               <span className="ml-2 font-mono text-2xs text-fg-subtle">{i.env_var}</span>
             </span>
@@ -99,10 +105,13 @@ export function NeverForward({ dashboardPort }: { dashboardPort: number }) {
       <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
       <p className="text-pretty">
         <span className="font-medium">
-          Never forward port <span className="font-mono tabular-nums">{dashboardPort}</span>.
+          {tNodes(
+            "setup_never_forward",
+            {},
+            { port: <span className="font-mono tabular-nums">{dashboardPort}</span> },
+          )}
         </span>{" "}
-        It is this dashboard, and it stays on your local network. Do not forward your admin SSH port
-        either, and do not use a DMZ: it forwards every port, the dashboard&apos;s included.
+        {t("setup_never_forward_why")}
       </p>
     </div>
   )
@@ -113,21 +122,24 @@ export function PortsNotes() {
   return (
     <ul className="list-disc space-y-1 pl-4 text-xs text-fg-muted">
       <li>
-        If your router&apos;s WAN address is in{" "}
-        <span className="font-mono tabular-nums">100.64.0.0/10</span> (CGNAT), forwarding cannot
-        work: ask your provider for a public address. Step-by-step help is in{" "}
-        <code className="font-mono">docs/deployment.md</code>.
+        {tNodes(
+          "setup_ports_cgnat",
+          {},
+          {
+            range: <span className="font-mono tabular-nums">100.64.0.0/10</span>,
+            doc: <code className="font-mono">docs/deployment.md</code>,
+          },
+        )}
       </li>
       <li>
-        SuckerPot never learns your public address. A sensor shows as receiving once a first visitor
-        arrives, which usually takes a few minutes.
+        {t("setup_ports_note_receiving")}
       </li>
     </ul>
   )
 }
 
 /** One card: the finding, the rule, the table, the notes. Shared by the setup step and Settings. */
-export function PortsCard({ eyebrow = "Sensors and ports" }: { eyebrow?: string }) {
+export function PortsCard({ eyebrow }: { eyebrow?: string }) {
   const q = useQuery({
     queryKey: wizardKeys.ports,
     queryFn: wizardApi.ports,
@@ -135,15 +147,15 @@ export function PortsCard({ eyebrow = "Sensors and ports" }: { eyebrow?: string 
   })
   return (
     <FindingCard
-      eyebrow={eyebrow}
+      eyebrow={eyebrow ?? t("setup_ports_card_title")}
       finding={
         q.data
           ? describePorts(q.data.items)
           : q.isError
-            ? "The port list is not available right now."
-            : "Checking the sensors…"
+            ? t("setup_ports_unavailable")
+            : t("setup_sensors_checking")
       }
-      detail="On your router, forward each port under “Open on your router” to the port next to it on this machine. Sensors that are off need nothing. The status is live: a sensor turns to receiving as soon as someone connects."
+      detail={t("setup_ports_detail")}
       bodyClassName="px-0 sm:px-0 pt-4 pb-0 sm:pb-0"
       footer={q.data ? <PortsNotes /> : null}
     >

@@ -13,7 +13,8 @@ import { SeverityBadge } from "@/components/severity-badge"
 import { SkeletonCard, SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { ApiError } from "@/lib/api"
-import { formatNumber, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { formatNumber } from "@/lib/format"
 import { describeScript, nextStep, scriptKeys, scriptsApi } from "@/lib/scripts"
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -35,20 +36,23 @@ function SessionsCard({ id }: { id: number }) {
   const rows = query.data?.pages.flatMap((p) => p.items) ?? []
   return (
     <FindingCard
-      eyebrow="Sessions"
+      eyebrow={t("scripts_sessions_eyebrow")}
       finding={
         query.isPending
-          ? "Loading the sessions that ran this script."
+          ? t("scripts_sessions_loading")
           : rows.length === 0
-            ? "The sessions that ran this script are no longer stored."
-            : `Most recent ${plural(rows.length, "session")} that ran it${query.hasNextPage ? " (more below)" : ""}.`
+            ? t("scripts_sessions_none")
+            : t("scripts_sessions_recent", {
+                count: rows.length,
+                more: query.hasNextPage ? "yes" : "no",
+              })
       }
       bodyClassName="px-0 pt-3 sm:px-0 pb-0 sm:pb-0"
     >
       {query.isPending ? (
         <SkeletonList rows={3} />
       ) : (
-        <div role="list" aria-label="Sessions that ran this script" className="divide-y border-t">
+        <div role="list" aria-label={t("scripts_sessions_list_label")} className="divide-y border-t">
           {rows.map((s) => (
             <div key={s.session_id} role="listitem">
               <SessionRow session={s} />
@@ -60,7 +64,7 @@ function SessionsCard({ id }: { id: number }) {
         hasNextPage={query.hasNextPage}
         isFetchingNextPage={query.isFetchingNextPage}
         fetchNextPage={query.fetchNextPage}
-        label="Show more sessions"
+        label={t("scripts_sessions_more")}
       />
     </FindingCard>
   )
@@ -79,21 +83,21 @@ export function ScriptDetailPage() {
   const back = (
     <Link to="/scripts" className="inline-flex items-center gap-1 hover:text-fg">
       <ArrowLeft aria-hidden className="size-3.5" />
-      All scripts
+      {t("scripts_all")}
     </Link>
   )
 
   if (!valid || (query.isError && query.error instanceof ApiError && query.error.status === 404)) {
     return (
       <>
-        <PageHeader help="script" title="Script" eyebrow={back} />
+        <PageHeader help="script" title={t("scripts_detail_title")} eyebrow={back} />
         <EmptyState
           icon={FileCode2}
-          title="This script is not in the library"
-          description="It may have been removed by the retention job, or the link is wrong."
+          title={t("scripts_not_found_title")}
+          description={t("scripts_not_found_hint")}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/scripts">Back to the library</Link>
+              <Link to="/scripts">{t("scripts_back_to_library")}</Link>
             </Button>
           }
         />
@@ -103,7 +107,7 @@ export function ScriptDetailPage() {
   if (query.isPending) {
     return (
       <>
-        <PageHeader help="script" title="Script" eyebrow={back} />
+        <PageHeader help="script" title={t("scripts_detail_title")} eyebrow={back} />
         <div className="space-y-4" aria-busy>
           <SkeletonCard />
           <SkeletonCard />
@@ -114,14 +118,14 @@ export function ScriptDetailPage() {
   if (query.isError) {
     return (
       <>
-        <PageHeader help="script" title="Script" eyebrow={back} />
+        <PageHeader help="script" title={t("scripts_detail_title")} eyebrow={back} />
         <EmptyState
           icon={FileCode2}
-          title="Could not load this script"
+          title={t("scripts_detail_error_title")}
           description={query.error.message}
           action={
             <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-              Try again
+              {t("common_try_again")}
             </Button>
           }
         />
@@ -135,7 +139,7 @@ export function ScriptDetailPage() {
     <>
       <PageHeader
         help="script"
-        title={`Script ${item.id}`}
+        title={t("scripts_detail_heading", { id: item.id })}
         eyebrow={back}
         description={<span className="normal-nums">{describeScript(item, item.summary)}</span>}
       />
@@ -157,22 +161,22 @@ export function ScriptDetailPage() {
               to={`/campaigns/${d.campaign.id}`}
               className="rounded-sm border border-border-strong px-2 py-1 text-fg-muted normal-nums transition-colors hover:border-fg-subtle hover:text-fg"
             >
-              Campaign: {d.campaign.name}
+              {t("scripts_row_campaign", { name: d.campaign.name })}
             </Link>
           ) : null}
         </div>
 
         <FindingCard
-          eyebrow="Line by line"
+          eyebrow={t("scripts_lines_eyebrow")}
           className="normal-nums"
           finding={
             d.lines.length === 0
-              ? "No explanation is stored for this script yet."
-              : "What each command does, in plain words."
+              ? t("scripts_lines_none")
+              : t("scripts_lines_finding")
           }
           detail={
             d.unexplained > 0
-              ? `${plural(d.unexplained, "line")} not in the built-in explanation base yet.`
+              ? t("scripts_lines_unexplained", { count: d.unexplained })
               : undefined
           }
         >
@@ -182,7 +186,7 @@ export function ScriptDetailPage() {
               <p className="mt-4 flex items-start gap-2 rounded-md bg-surface-hover/50 px-3 py-2.5 text-sm text-fg-muted">
                 <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  <span className="font-medium text-fg">What to do: </span>
+                  <span className="font-medium text-fg">{t("scripts_what_to_do")} </span>
                   {nextStep(d.lines)}
                 </span>
               </p>
@@ -192,20 +196,20 @@ export function ScriptDetailPage() {
 
         {d.techniques_detail.length > 0 ? (
           <FindingCard
-            eyebrow="Techniques"
+            eyebrow={t("campaign_techniques_label")}
             className="normal-nums"
-            finding={`It uses ${plural(d.techniques_detail.length, "known attacker technique")}.`}
-            detail="Names from the MITRE ATT&CK catalogue. Select one to find other scripts that use it."
+            finding={t("scripts_techniques_finding", { count: d.techniques_detail.length })}
+            detail={t("scripts_techniques_detail")}
           >
-            <ul className="flex flex-wrap gap-2" aria-label="Techniques">
-              {d.techniques_detail.map((t) => (
-                <li key={t.id}>
+            <ul className="flex flex-wrap gap-2" aria-label={t("campaign_techniques_label")}>
+              {d.techniques_detail.map((tech) => (
+                <li key={tech.id}>
                   <Link
-                    to={`/scripts?technique=${encodeURIComponent(t.id)}`}
+                    to={`/scripts?technique=${encodeURIComponent(tech.id)}`}
                     className="inline-flex items-center gap-1.5 rounded-sm border border-border-strong px-2 py-1 text-xs text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
                   >
-                    <span className="font-mono">{t.id}</span>
-                    {t.name}
+                    <span className="font-mono">{tech.id}</span>
+                    {tech.name}
                   </Link>
                 </li>
               ))}
@@ -213,17 +217,17 @@ export function ScriptDetailPage() {
           </FindingCard>
         ) : null}
 
-        <FindingCard eyebrow="Facts" finding="When and how often it was seen.">
+        <FindingCard eyebrow={t("scripts_facts_eyebrow")} finding={t("scripts_facts_finding")}>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-            <Fact label="First seen">
+            <Fact label={t("campaign_meta_first_seen")}>
               <RelativeTime iso={item.first_seen} className="text-sm text-fg" />
             </Fact>
-            <Fact label="Last seen">
+            <Fact label={t("campaign_meta_last_seen")}>
               <RelativeTime iso={item.last_seen} className="text-sm text-fg" />
             </Fact>
-            <Fact label="Sessions">{formatNumber(item.sessions)}</Fact>
-            <Fact label="Addresses">{formatNumber(item.sources)}</Fact>
-            <Fact label="Fingerprint">
+            <Fact label={t("campaign_meta_sessions")}>{formatNumber(item.sessions)}</Fact>
+            <Fact label={t("campaign_meta_addresses")}>{formatNumber(item.sources)}</Fact>
+            <Fact label={t("scripts_fact_fingerprint")}>
               <span className="font-mono text-xs" title={item.fingerprint}>
                 {item.fingerprint.slice(0, 12)}
               </span>

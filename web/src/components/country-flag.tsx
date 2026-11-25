@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { t } from "@/i18n"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { countryName } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -57,7 +58,7 @@ export function CountryFlag({
   const name = countryName(code)
   const url = useFlagUrl(code)
   const loading = url === undefined
-  const label = name ?? (code ? code.toUpperCase() : "Unknown country")
+  const label = name ?? (code ? code.toUpperCase() : t("sessions_unknown_country"))
 
   const flag = loading ? (
     <span

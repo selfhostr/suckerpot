@@ -27,12 +27,13 @@ import {
   describeAbuseError,
   describeReports,
   LIST_STATUSES,
+  lowerNoun,
   TAB_LABEL,
   type ListStatus,
   type ReportItem,
   type WaitingRecipient,
 } from "@/lib/abuse"
-import { plural } from "@/lib/format"
+import { t } from "@/i18n"
 import { describeRepliesToCheck } from "@/lib/results-sentences"
 
 interface Group {
@@ -74,7 +75,9 @@ function ProviderGroup({ g }: { g: Group }) {
         <h2 id={`prov-${g.id}`} className="type-card-title text-fg">
           {g.name}
         </h2>
-        <span className="font-mono text-xs text-fg-muted">{g.mailbox ?? "no mailbox yet"}</span>
+        <span className="font-mono text-xs text-fg-muted">
+          {g.mailbox ?? t("abuse_page_no_mailbox")}
+        </span>
         <span className="flex flex-wrap gap-1.5">
           {g.asns.map((a) => (
             <Link
@@ -112,7 +115,7 @@ function MailboxForm({ w, onDone }: { w: WaitingRecipient; onDone: () => void })
       onSubmit={(e) => {
         e.preventDefault()
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.trim())) {
-          setError("Enter a full mailbox such as abuse@example.net.")
+          setError(t("abuse_page_mailbox_invalid", { example: "abuse@example.net" }))
           return
         }
         setError(null)
@@ -120,7 +123,7 @@ function MailboxForm({ w, onDone }: { w: WaitingRecipient; onDone: () => void })
       }}
     >
       <label htmlFor={id} className="sr-only">
-        Abuse mailbox for {w.name}
+        {t("abuse_page_mailbox_label", { name: w.name })}
       </label>
       <Input
         id={id}
@@ -132,7 +135,7 @@ function MailboxForm({ w, onDone }: { w: WaitingRecipient; onDone: () => void })
         className="w-56 font-mono"
       />
       <Button type="submit" size="sm" variant="outline" disabled={save.isPending}>
-        Add mailbox
+        {t("abuse_page_add_mailbox")}
       </Button>
       <p role="alert" className="w-full text-xs text-fg empty:hidden">
         {error}
@@ -150,10 +153,10 @@ function NoContact() {
   const total = list.reduce((n, w) => n + w.subject_count, 0)
   return (
     <FindingCard
-      eyebrow="No contact found"
-      finding={`${plural(total, "address", "addresses")} in ${plural(list.length, "network")} cannot be reported yet: no abuse mailbox was found.`}
+      eyebrow={t("abuse_page_no_contact")}
+      finding={t("abuse_page_no_contact_finding", { addresses: total, networks: list.length })}
       detail={
-        canWrite ? "Add a mailbox by hand and the draft is written on the next run." : undefined
+        canWrite ? t("abuse_page_no_contact_detail") : undefined
       }
       bodyClassName="px-0 sm:px-0 pb-1 sm:pb-1"
     >
@@ -167,7 +170,7 @@ function NoContact() {
               <span className="block text-sm font-medium text-fg">{w.name}</span>
               <span className="block text-xs text-fg-muted">
                 {w.asns.map((a) => `AS${a.asn}`).join(", ")} ·{" "}
-                {plural(w.subject_count, "address", "addresses")}
+                {t("abuse_form_item_addresses", { count: w.subject_count })}
               </span>
             </span>
             {canWrite ? (
@@ -216,7 +219,7 @@ export function AbusePage() {
     <>
       <PageHeader
         help="abuse"
-        title="Abuse reports"
+        title={t("abuse_page_title")}
         description={
           <span className="normal-nums">
             {describeReports(st.data, {
@@ -231,7 +234,7 @@ export function AbusePage() {
             {canWrite ? (
               <Button variant="outline" size="sm" asChild>
                 <Link to="/settings?tab=reporting">
-                  <Settings2 aria-hidden /> Reporting settings
+                  <Settings2 aria-hidden /> {t("abuse_page_settings")}
                 </Link>
               </Button>
             ) : null}
@@ -242,12 +245,12 @@ export function AbusePage() {
       {blocked ? (
         <EmptyState
           icon={MailWarning}
-          title="Reports are not available yet"
+          title={t("abuse_page_unavailable")}
           description={blocked}
           action={
             canWrite ? (
               <Button asChild variant="outline" size="sm">
-                <Link to="/settings?tab=reporting">Open Settings</Link>
+                <Link to="/settings?tab=reporting">{t("abuse_page_open_settings")}</Link>
               </Button>
             ) : undefined
           }
@@ -266,7 +269,7 @@ export function AbusePage() {
             to="/defend/abuse?status=replies"
             className="font-medium underline underline-offset-4"
           >
-            Check the replies
+            {t("abuse_page_check_replies")}
           </Link>
         </p>
       ) : null}
@@ -277,7 +280,7 @@ export function AbusePage() {
       >
         <TabsList
           variant="line"
-          aria-label="Report status"
+          aria-label={t("abuse_stepper_aria")}
           className="scroll-fade-x mb-4 max-w-full justify-start overflow-x-auto"
         >
           {/* Workflow order: review drafts, send, check replies, then the archive. */}
@@ -291,7 +294,7 @@ export function AbusePage() {
           ))}
           {canWrite ? (
             <TabsTrigger value="queue" className="flex-none px-3">
-              To send
+              {t("send_queue_eyebrow")}
               {queue.data ? (
                 <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">
                   {queue.data.items.length}
@@ -301,7 +304,7 @@ export function AbusePage() {
           ) : null}
           {canWrite ? (
             <TabsTrigger value="forms" className="flex-none px-3">
-              To submit by form
+              {t("abuse_form_queue_eyebrow")}
               {forms.data ? (
                 <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">
                   {forms.data.items.length}
@@ -311,7 +314,7 @@ export function AbusePage() {
           ) : null}
           {canWrite && repliesToCheck > 0 ? (
             <TabsTrigger value="replies" className="flex-none px-3">
-              Replies to check
+              {t("replies_to_check_aria")}
               <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">{repliesToCheck}</span>
             </TabsTrigger>
           ) : null}
@@ -342,11 +345,11 @@ export function AbusePage() {
           ) : list.isError ? (
             <EmptyState
               icon={MailWarning}
-              title="Could not load the reports"
+              title={t("abuse_page_load_failed")}
               description={describeAbuseError(list.error)}
               action={
                 <Button variant="outline" size="sm" onClick={() => void list.refetch()}>
-                  Try again
+                  {t("common_try_again")}
                 </Button>
               }
             />
@@ -354,11 +357,9 @@ export function AbusePage() {
             blocked ? null : (
               <EmptyState
                 icon={MailWarning}
-                title={`No ${TAB_LABEL[status].toLowerCase()} reports`}
+                title={t("abuse_page_empty_title", { status: lowerNoun(TAB_LABEL[status]) })}
                 description={
-                  status === "draft"
-                    ? "A draft appears when a source crosses the thresholds and a mailbox is found."
-                    : "Nothing here yet."
+                  status === "draft" ? t("abuse_page_empty_draft") : t("abuse_page_empty_other")
                 }
               />
             )
@@ -369,7 +370,7 @@ export function AbusePage() {
             hasNextPage={list.hasNextPage}
             isFetchingNextPage={list.isFetchingNextPage}
             fetchNextPage={list.fetchNextPage}
-            label="Show more"
+            label={t("common_show_more")}
           />
           {status === "draft" ? <NoContact /> : null}
         </div>

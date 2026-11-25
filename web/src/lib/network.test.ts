@@ -10,7 +10,7 @@ import {
   formatDay,
   impactFinding,
   memberName,
-  NEVER_SHARED,
+  neverShared,
   targetsFinding,
   toNetworkError,
   validatePseudonym,
@@ -39,13 +39,13 @@ describe("consent", () => {
   })
 
   it("says what is never shared, including credentials and exact times", () => {
-    const text = NEVER_SHARED.join(" ").toLowerCase()
+    const text = neverShared().join(" ").toLowerCase()
     for (const word of ["passwords", "commands", "ports", "exact times", "your own address"])
       expect(text).toContain(word)
   })
 
   it("never names the old product", () => {
-    const all = JSON.stringify([CONSENTS, NEVER_SHARED])
+    const all = JSON.stringify([CONSENTS, neverShared()])
     expect(all).not.toMatch(/suckerpot/i)
   })
 })

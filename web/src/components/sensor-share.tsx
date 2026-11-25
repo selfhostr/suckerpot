@@ -1,11 +1,13 @@
 import type { CSSProperties } from "react"
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import type { Sensor } from "@/lib/api"
 import { formatNumber, formatPercent } from "@/lib/format"
 import {
   FAMILY_META,
   SENSOR_FAMILIES,
   SENSOR_META,
+  listPlain,
   sensorsHref,
   type SensorFamily,
 } from "@/lib/sensors"
@@ -49,9 +51,11 @@ export function SensorShare({ shares, className }: SensorShareProps) {
       <div
         className="relative h-2.5 w-full overflow-hidden rounded-full bg-surface-hover"
         role="img"
-        aria-label={families
-          .map((f) => `${FAMILY_META[f.id].label} ${formatNumber(f.value)}`)
-          .join(", ")}
+        aria-label={listPlain(
+          families.map((f) =>
+            t("sensorshare_item", { label: FAMILY_META[f.id].label, value: formatNumber(f.value) }),
+          ),
+        )}
       >
         {total
           ? segments(families, total).map(({ id, start, share }) => (
@@ -95,7 +99,7 @@ export function SensorShare({ shares, className }: SensorShareProps) {
                 <span className="mt-0.5 truncate text-2xs text-fg-subtle">
                   {active.length
                     ? active.map((s) => SENSOR_META[s].label).join(" · ")
-                    : "No traffic"}
+                    : t("sensorshare_no_traffic")}
                 </span>
               </Link>
             </li>

@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from "react"
 import { Link } from "react-router"
 import { SegmentedControl } from "@/components/segmented-control"
-import { formatCompact, formatNumber, plural } from "@/lib/format"
+import { t, tk } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
+import { formatCompact, formatNumber } from "@/lib/format"
 import { FAMILY_META, SENSOR_FAMILIES, SENSOR_META, SENSORS } from "@/lib/sensors"
 import { bucketMs, hhmm, withWindow, type TimelineBucket } from "@/lib/story"
 import { cn } from "@/lib/utils"
@@ -13,8 +15,8 @@ const LABEL_EVERY = 6
 export type HourSplit = "family" | "sensor"
 
 const SPLITS = [
-  { value: "family", label: "Families" },
-  { value: "sensor", label: "Sensors" },
+  { value: "family", labelKey: tk("charts_hourly_families") },
+  { value: "sensor", labelKey: tk("charts_hourly_sensors") },
 ] as const
 
 interface Series {
@@ -129,16 +131,16 @@ export function HourlyActivity({
     <figure className={cn("flex min-h-0 flex-col", className)}>
       <figcaption className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <span className="flex items-center gap-3">
-          <span className="type-eyebrow text-fg-muted">Visits per hour</span>
+          <span className="type-eyebrow text-fg-muted">{t("charts_hourly_title")}</span>
           <SegmentedControl
-            label="Stack the hours by"
+            label={t("charts_hourly_stack_by")}
             value={split}
             onChange={setSplit}
-            options={SPLITS}
+            options={SPLITS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
           />
         </span>
         {/* The key: in family mode, the same swatches as the map's stats strip. */}
-        <ul aria-label="Key" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <ul aria-label={t("charts_hourly_key")} className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {series.map((s) => (
             <li key={s.key} className="flex items-center gap-1.5 text-xs text-fg-muted">
               <span aria-hidden className="size-2 rounded-xs" style={{ backgroundColor: s.fill }} />
@@ -150,23 +152,23 @@ export function HourlyActivity({
 
       <div className={cn("relative mt-3 min-h-16 flex-1 pl-9", plotClassName)}>
         {/* Grid: zero, half and the top, hairlines behind the columns. */}
-        {[1, 0.5, 0].map((t) => (
+        {[1, 0.5, 0].map((frac) => (
           <div
-            key={t}
+            key={frac}
             aria-hidden
             className="pointer-events-none absolute inset-x-0 flex translate-y-1/2 items-center"
-            style={{ bottom: `${t * 100}%` }}
+            style={{ bottom: `${frac * 100}%` }}
           >
             <span className="w-9 pr-2 text-right text-2xs leading-none text-fg-subtle tabular-nums">
-              {t === 0 ? "0" : formatCompact(max * t)}
+              {frac === 0 ? "0" : formatCompact(max * frac)}
             </span>
-            <span className={cn("h-px flex-1", t === 0 ? "bg-border-strong" : "bg-border")} />
+            <span className={cn("h-px flex-1", frac === 0 ? "bg-border-strong" : "bg-border")} />
           </div>
         ))}
 
         <div
           role="group"
-          aria-label="Visits per hour, last 24 hours"
+          aria-label={t("charts_hourly_aria")}
           className="relative flex h-full items-stretch"
           onPointerLeave={() => setActive(null)}
         >
@@ -178,7 +180,11 @@ export function HourlyActivity({
               }}
               to={c.href}
               tabIndex={i === focusable ? 0 : -1}
-              aria-label={`${hhmm(c.start)} to ${hhmm(c.end)}: ${plural(c.total, "visit")}. Open these visits`}
+              aria-label={t("charts_hourly_column_aria", {
+                from: hhmm(c.start),
+                to: hhmm(c.end),
+                count: c.total,
+              })}
               onPointerEnter={() => setActive(i)}
               onFocus={() => setActive(i)}
               onKeyDown={(e) => {
@@ -226,13 +232,20 @@ export function HourlyActivity({
             }
           >
             <p className="font-medium text-fg">
-              {hhmm(shownCol.start)} to {hhmm(shownCol.end)}
+              {t("charts_hourly_range", { from: hhmm(shownCol.start), to: hhmm(shownCol.end) })}
             </p>
             <p className="mt-0.5 text-fg-muted">
-              <span className="font-medium text-fg tabular-nums">
-                {formatNumber(shownCol.total)}
-              </span>{" "}
-              {shownCol.total === 1 ? "visit" : "visits"}
+              {tNodes(
+                "charts_hourly_visits",
+                { count: shownCol.total },
+                {
+                  total: (
+                    <span className="font-medium text-fg tabular-nums">
+                      {formatNumber(shownCol.total)}
+                    </span>
+                  ),
+                },
+              )}
             </p>
             <ul className="mt-1.5 space-y-0.5">
               {series
@@ -273,11 +286,11 @@ export function HourlyActivity({
       {/* A table's height ignores `height: 1px`, so the visually hidden box wraps it. */}
       <div className="sr-only">
         <table>
-          <caption>Visits per hour, last 24 hours</caption>
+          <caption>{t("charts_hourly_aria")}</caption>
           <thead>
             <tr>
-              <th scope="col">Hour</th>
-              <th scope="col">All visits</th>
+              <th scope="col">{t("charts_hourly_col_hour")}</th>
+              <th scope="col">{t("charts_hourly_col_all")}</th>
               {series.map((s) => (
                 <th key={s.key} scope="col">
                   {s.label}
@@ -289,7 +302,7 @@ export function HourlyActivity({
             {columns.map((c) => (
               <tr key={c.start}>
                 <th scope="row">
-                  {hhmm(c.start)} to {hhmm(c.end)}
+                  {t("charts_hourly_range", { from: hhmm(c.start), to: hhmm(c.end) })}
                 </th>
                 <td>{formatNumber(c.total)}</td>
                 {series.map((s) => (

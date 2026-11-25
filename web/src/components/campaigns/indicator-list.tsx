@@ -2,7 +2,8 @@ import { Check, Copy } from "lucide-react"
 import { useIpMask } from "@/app/ip-mask"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useCopy } from "@/hooks/use-copy"
-import { maskIpsInText, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { maskIpsInText } from "@/lib/format"
 import { KEY_KIND_LABEL, type CampaignIndicator } from "@/lib/campaigns"
 
 function CopyButton({ text, label }: { text: string; label: string }) {
@@ -14,7 +15,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
           type="button"
           onClick={() => void copy(text)}
           className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors duration-150 hover:bg-surface-raised hover:text-fg"
-          aria-label={copied ? "Copied" : label}
+          aria-label={copied ? t("common_copied") : label}
         >
           {copied ? (
             <Check aria-hidden className="size-3.5" />
@@ -23,7 +24,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">{copied ? "Copied" : label}</TooltipContent>
+      <TooltipContent side="top">{copied ? t("common_copied") : label}</TooltipContent>
     </Tooltip>
   )
 }
@@ -35,7 +36,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 export function IndicatorList({ items }: { items: readonly CampaignIndicator[] }) {
   const { masked } = useIpMask()
   return (
-    <ul className="divide-y" aria-label="What ties the campaign together">
+    <ul className="divide-y" aria-label={t("campaign_indicators_label")}>
       {items.map((i) => {
         const long = i.value.length > 40
         // Mask the raw value first, then defang it: a defanged address would slip past the mask.
@@ -55,11 +56,11 @@ export function IndicatorList({ items }: { items: readonly CampaignIndicator[] }
                 {KEY_KIND_LABEL[i.kind]}
                 <span className="text-fg-subtle">
                   {" "}
-                  · {plural(i.sources, "address", "addresses")}
+                  · {t("campaign_indicator_sources", { count: i.sources })}
                 </span>
                 {i.confidence === "low" ? (
                   <span className="ml-2 rounded-sm border border-border-strong px-1.5 py-px text-2xs text-fg-muted">
-                    Low confidence: one source
+                    {t("campaign_indicator_low_confidence")}
                   </span>
                 ) : null}
               </p>
@@ -73,7 +74,7 @@ export function IndicatorList({ items }: { items: readonly CampaignIndicator[] }
             {masked ? null : (
               <CopyButton
                 text={i.defanged}
-                label={`Copy ${KEY_KIND_LABEL[i.kind].toLowerCase()}`}
+                label={t("campaign_indicator_copy", { kind: KEY_KIND_LABEL[i.kind].toLowerCase() })}
               />
             )}
           </li>

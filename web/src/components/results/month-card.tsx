@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { formatNumber } from "@/lib/format"
 import { resultKeys, resultsApi } from "@/lib/results"
 import { describeSentOverTime, monthComparison } from "@/lib/results-sentences"
+import { t } from "@/i18n"
 
 /**
  * "This month against last month": one figure for how many reports went out, in place of a bar
@@ -19,8 +20,8 @@ export function MonthCard() {
   const m = monthComparison(points, now)
   return (
     <FindingCard
-      eyebrow="Reports sent by month"
-      finding={q.data ? describeSentOverTime(points, now) : "Counting the reports you sent…"}
+      eyebrow={t("results_month_eyebrow")}
+      finding={q.data ? describeSentOverTime(points, now) : t("results_month_loading")}
     >
       {q.isPending ? (
         <Skeleton className="h-16 w-full" />
@@ -28,7 +29,7 @@ export function MonthCard() {
         <dl className="flex items-end gap-x-8 gap-y-2">
           <div className="space-y-1">
             <dt className="text-xs text-fg-muted">
-              {m.running ? `${m.month} so far` : m.month}
+              {m.running ? t("results_month_so_far", { month: m.month }) : m.month}
             </dt>
             <dd className="type-kpi text-fg tabular-nums">{formatNumber(m.sent)}</dd>
           </div>

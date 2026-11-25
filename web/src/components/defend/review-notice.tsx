@@ -1,4 +1,5 @@
 import { TriangleAlert } from "lucide-react"
+import { t } from "@/i18n"
 
 /** Always visible on the Detections page: these rules are a starting point, not a verdict. */
 export function ReviewNotice() {
@@ -10,12 +11,10 @@ export function ReviewNotice() {
       <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
       <div className="space-y-1">
         <h2 id="review-notice-title" className="type-subtitle text-fg">
-          Review before deploying
+          {t("defend_review_title")}
         </h2>
         <p className="text-sm text-fg-muted">
-          These rules come from traffic aimed at our decoys, not from your network. They can match
-          harmless activity, such as your own scanners or tests. Try each one in log-only mode
-          first, and read what it catches before you let it block anything.
+          {t("defend_review_body")}
         </p>
       </div>
     </aside>

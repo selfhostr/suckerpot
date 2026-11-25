@@ -1,6 +1,7 @@
 import { X } from "lucide-react"
 import { useSearchParams } from "react-router"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 export interface FilterChipDef {
@@ -70,7 +71,7 @@ export function FilterBar({
             type="button"
             onClick={() => remove([c.param, ...(c.alsoRemove ?? [])])}
             className="ml-0.5 inline-flex size-6 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-hover hover:text-fg"
-            aria-label={`Remove ${c.label} filter`}
+            aria-label={t("ui_remove_filter", { label: c.label })}
           >
             <X aria-hidden className="size-3.5" />
           </button>
@@ -85,7 +86,7 @@ export function FilterBar({
             remove([...chips.flatMap((c) => [c.param, ...(c.alsoRemove ?? [])]), ...alsoClears])
           }
         >
-          Clear all
+          {t("ui_clear_all")}
         </Button>
       ) : null}
       {trailing ? <div className="sm:ml-auto">{trailing}</div> : null}

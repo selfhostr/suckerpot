@@ -15,6 +15,7 @@ import {
 import { useState } from "react"
 import { useAuth } from "@/app/auth"
 import { FindingCard } from "@/components/finding-card"
+import { t } from "@/i18n"
 import { SkeletonText } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import {
@@ -96,7 +97,7 @@ function ChannelRow({
       await fn()
       onChanged()
     } catch (e) {
-      onError(e instanceof Error ? e.message : "The change could not be saved.")
+      onError(e instanceof Error ? e.message : t("alerts_msg_network"))
     } finally {
       setBusy(false)
     }
@@ -117,8 +118,8 @@ function ChannelRow({
         </p>
         <p className="text-xs text-fg-muted">
           {channel.mask_ips
-            ? "Attacker IP addresses are partly hidden in messages."
-            : "Attacker IP addresses are shown in messages (made harmless, not clickable)."}
+            ? t("channels_ips_hidden")
+            : t("channels_ips_shown")}
         </p>
         <TestLine channel={channel} />
       </div>
@@ -128,7 +129,10 @@ function ChannelRow({
           checked={channel.enabled}
           disabled={!writable || busy}
           onCheckedChange={(enabled) => void act(() => updateChannel(channel.id, { enabled }))}
-          aria-label={`${channel.name} is ${channel.enabled ? "on" : "off"}`}
+          aria-label={t("channels_switch_label", {
+            name: channel.name,
+            state: channel.enabled ? "on" : "off",
+          })}
         />
         {writable ? (
           <>
@@ -136,15 +140,19 @@ function ChannelRow({
               variant="outline"
               size="sm"
               disabled={busy || queued || !alertsOn}
-              title={alertsOn ? undefined : "Alerts are switched off on this server"}
+              title={alertsOn ? undefined : t("channels_alerts_off_title")}
               onClick={() => void act(() => requestChannelTest(channel.id))}
             >
               <Send aria-hidden />
-              {queued ? "Sending…" : "Send test"}
+              {queued ? t("channels_sending") : t("channels_send_test")}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${channel.name}`}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t("channels_actions_label", { name: channel.name })}
+                >
                   <Ellipsis aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
@@ -154,16 +162,16 @@ function ChannelRow({
                     void act(() => updateChannel(channel.id, { mask_ips: !channel.mask_ips }))
                   }
                 >
-                  {channel.mask_ips ? "Show full IP addresses" : "Hide the end of IP addresses"}
+                  {channel.mask_ips ? t("channels_show_ips") : t("channels_hide_ips")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setChanging(true)}>
                   <KeyRound aria-hidden />
-                  Change address…
+                  {t("channels_change_address")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={() => setRemoving(true)}>
                   <Trash2 aria-hidden />
-                  Delete…
+                  {t("channels_delete_menu")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -179,15 +187,14 @@ function ChannelRow({
       <Dialog open={removing} onOpenChange={setRemoving}>
         <DialogContent className="bg-popover">
           <DialogHeader className="text-left">
-            <DialogTitle>Delete “{channel.name}”?</DialogTitle>
+            <DialogTitle>{t("channels_delete_title", { name: channel.name })}</DialogTitle>
             <DialogDescription>
-              Alerts stop going there and the stored address is erased. Rules that only used this
-              channel are switched off.
+              {t("channels_delete_description")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRemoving(false)}>
-              Cancel
+              {t("common_cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -199,7 +206,7 @@ function ChannelRow({
                 })
               }
             >
-              Delete channel
+              {t("channels_delete_confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -232,12 +239,12 @@ export function ChannelsCard() {
 
   return (
     <FindingCard
-      eyebrow="Alert channels"
-      finding={list ? channelsFinding(status.data, list) : "Checking the alert channels…"}
+      eyebrow={t("setup_alerts_title")}
+      finding={list ? channelsFinding(status.data, list) : t("setup_alerts_checking")}
       detail={
         status.data && !status.data.alerts.smtp_configured
-          ? "E-mail needs SMTP settings in .env before it can send. Discord and Teams work without."
-          : "Messages are sent by the server, never by your browser. At most 10 a minute and 100 a day per channel."
+          ? t("channels_detail_smtp")
+          : t("channels_detail")
       }
       action={
         canWrite && editing ? (
@@ -246,7 +253,7 @@ export function ChannelsCard() {
             trigger={
               <Button size="sm">
                 <Plus aria-hidden />
-                Add channel
+                {t("channels_add_submit")}
               </Button>
             }
           />
@@ -260,7 +267,7 @@ export function ChannelsCard() {
         </div>
       ) : !list ? (
         <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">
-          The channels are not available right now.
+          {t("channels_unavailable")}
         </p>
       ) : (
         <>
@@ -276,11 +283,10 @@ export function ChannelsCard() {
           ) : null}
           {list.length === 0 ? (
             <p className="border-t px-4 py-6 text-sm text-fg-muted sm:px-5">
-              No channel yet.{" "}
-              {canWrite ? "Add one to receive alerts." : "An administrator can add one."}
+              {canWrite ? t("channels_empty_admin") : t("channels_empty_viewer")}
             </p>
           ) : (
-            <ul aria-label="Alert channels" className="divide-y border-t">
+            <ul aria-label={t("setup_alerts_title")} className="divide-y border-t">
               {list.map((c) => (
                 <ChannelRow
                   key={c.id}

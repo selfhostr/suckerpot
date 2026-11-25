@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 /** The "Expand / Collapse" button under a capped box of raw text (see `useExpandable`). */
@@ -25,11 +26,13 @@ export function ExpandToggle({
       size="sm"
       onClick={onToggle}
       aria-expanded={expanded}
-      aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}
+      aria-label={
+        expanded ? t("ui_collapse_named", { label }) : t("ui_expand_named", { label })
+      }
       className={cn("text-fg-muted", className)}
     >
       <Icon aria-hidden />
-      {expanded ? "Collapse" : "Expand"}
+      {expanded ? t("ui_collapse") : t("ui_expand")}
     </Button>
   )
 }

@@ -14,17 +14,18 @@ import { useCopy } from "@/hooks/use-copy"
 import { formatNumber } from "@/lib/format"
 import { formatDay, networkApi, networkKeys, type NetworkSubmission } from "@/lib/network"
 import { cn } from "@/lib/utils"
+import { t } from "@/i18n"
 
-function countsText(s: NetworkSubmission): string {
+function summaryText(s: NetworkSubmission): string {
   const parts = Object.entries(s.counts)
     .filter(([, n]) => n > 0)
     .map(([k, n]) => `${formatNumber(n)} ${k}`)
-  return parts.length ? parts.join(", ") : "nothing to send"
-}
-
-function droppedText(s: NetworkSubmission): string | null {
-  const total = Object.values(s.dropped).reduce((a, b) => a + b, 0)
-  return total > 0 ? `${formatNumber(total)} left out by the privacy check or the size cap` : null
+  const dropped = Object.values(s.dropped).reduce((a, b) => a + b, 0)
+  return t("network_sent_summary", {
+    counts: parts.length ? parts.join(", ") : t("network_sent_nothing_to_send"),
+    hasDropped: dropped > 0 ? "yes" : "no",
+    dropped,
+  })
 }
 
 function Payload({ day }: { day: string }) {
@@ -34,22 +35,22 @@ function Payload({ day }: { day: string }) {
   })
   const { copied, copy } = useCopy()
   if (q.isPending) return <SkeletonText lines={6} />
-  if (!q.data) return <p className="text-sm text-fg-muted">This batch is no longer stored.</p>
+  if (!q.data) return <p className="text-sm text-fg-muted">{t("network_sent_not_stored")}</p>
   const text = JSON.stringify(q.data.payload, null, 2)
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-fg-muted">
-          The exact data that was sent for {formatDay(day, true)}.
+          {t("network_sent_exact", { date: formatDay(day, true) })}
         </p>
         <Button size="sm" variant="outline" onClick={() => void copy(text)}>
           {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("common_copied") : t("common_copy")}
         </Button>
       </div>
       <pre
         tabIndex={0}
-        aria-label={`Data sent for ${day}`}
+        aria-label={t("network_sent_payload_label", { day })}
         className="max-h-[60vh] overflow-auto rounded-md border bg-bg p-3 font-mono text-xs leading-5 text-fg focus-visible:ring-2 focus-visible:ring-ring"
       >
         {text}
@@ -81,9 +82,9 @@ export function SentDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle>What was sent</SheetTitle>
+          <SheetTitle>{t("network_sent_title")}</SheetTitle>
           <SheetDescription>
-            One batch a day, kept here for 7 days. Nothing else leaves this system.
+            {t("network_sent_description")}
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-5 px-4 pb-6">
@@ -91,10 +92,10 @@ export function SentDrawer({
             <SkeletonText lines={4} />
           ) : items.length === 0 ? (
             <p className="text-sm text-fg-muted">
-              Nothing has been sent yet. The first batch goes out after a full day has ended.
+              {t("network_sent_empty")}
             </p>
           ) : (
-            <ul aria-label="Sent batches" className="divide-y rounded-md border">
+            <ul aria-label={t("network_sent_list_label")} className="divide-y rounded-md border">
               {items.map((s) => (
                 <li key={s.day}>
                   <button
@@ -110,15 +111,14 @@ export function SentDrawer({
                       {formatDay(s.day, true)}
                       <span className="ml-2 text-xs font-normal text-fg-muted">
                         {s.status === "sent"
-                          ? "Sent"
+                          ? t("network_sent_status_sent")
                           : s.status === "failed"
-                            ? "Failed"
-                            : "Skipped"}
+                            ? t("network_sent_status_failed")
+                            : t("network_sent_status_skipped")}
                       </span>
                     </span>
                     <span className="text-xs text-fg-muted">
-                      {countsText(s)}
-                      {droppedText(s) ? `; ${droppedText(s)}` : ""}
+                      {summaryText(s)}
                     </span>
                   </button>
                 </li>

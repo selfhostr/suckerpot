@@ -20,6 +20,8 @@ import {
 import { useMemo, useState } from "react"
 import { useAuth } from "@/app/auth"
 import { FindingCard } from "@/components/finding-card"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { RelativeTime } from "@/components/relative-time"
 import { SegmentedControl } from "@/components/segmented-control"
 import { SkeletonText } from "@/components/skeletons"
@@ -70,7 +72,7 @@ function RoleBadge({ user }: { user: UserItem }) {
   return (
     <Badge variant="outline" className={cn(admin ? "text-fg" : "text-fg-muted")}>
       <Icon aria-hidden className="size-3" />
-      {user.is_owner ? "Owner" : ROLE_LABEL[user.role]}
+      {user.is_owner ? t("users_owner") : ROLE_LABEL[user.role]}
     </Badge>
   )
 }
@@ -96,9 +98,9 @@ interface Pending {
 function RoleField({ value, onChange }: { value: Role; onChange: (role: Role) => void }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-fg">Role</span>
+      <span className="text-sm font-medium text-fg">{t("users_role")}</span>
       <SegmentedControl
-        label="Role"
+        label={t("users_role")}
         value={value}
         onChange={onChange}
         options={ROLE_OPTIONS}
@@ -135,12 +137,12 @@ function ActionDialog({
       return (
         <AdminActionDialog
           {...common}
-          title={`Change the role of ${name}`}
-          description="They are signed out and sign in again with the new role."
-          confirmLabel="Change role"
-          pendingLabel="Saving…"
+          title={t("users_action_role_title", { name })}
+          description={t("users_action_role_description")}
+          confirmLabel={t("users_action_role_confirm")}
+          pendingLabel={t("setup_saving")}
           run={(password) => updateUser(id, { role }, password)}
-          validate={() => (role === user.role ? "That is already their role." : null)}
+          validate={() => (role === user.role ? t("users_action_role_same") : null)}
         >
           <RoleField value={role} onChange={setRole} />
         </AdminActionDialog>
@@ -149,10 +151,10 @@ function ActionDialog({
       return (
         <AdminActionDialog
           {...common}
-          title={`Disable ${name}`}
-          description="They are signed out now and cannot sign in until you enable the account again."
-          confirmLabel="Disable"
-          pendingLabel="Disabling…"
+          title={t("users_action_disable_title", { name })}
+          description={t("users_action_disable_description")}
+          confirmLabel={t("users_action_disable")}
+          pendingLabel={t("users_action_disabling")}
           run={(password) => updateUser(id, { disabled: true }, password)}
         />
       )
@@ -160,10 +162,10 @@ function ActionDialog({
       return (
         <AdminActionDialog
           {...common}
-          title={`Enable ${name}`}
-          description="They can sign in again with their current password."
-          confirmLabel="Enable"
-          pendingLabel="Enabling…"
+          title={t("users_action_enable_title", { name })}
+          description={t("users_action_enable_description")}
+          confirmLabel={t("users_action_enable")}
+          pendingLabel={t("users_action_enabling")}
           run={(password) => updateUser(id, { disabled: false }, password)}
         />
       )
@@ -171,10 +173,10 @@ function ActionDialog({
       return (
         <AdminActionDialog
           {...common}
-          title={`Reset the password of ${name}`}
-          description="They are signed out. You get a new temporary password to hand over, and they must choose their own at the next sign-in."
-          confirmLabel="Reset password"
-          pendingLabel="Resetting…"
+          title={t("users_action_reset_title", { name })}
+          description={t("users_action_reset_description")}
+          confirmLabel={t("users_action_reset")}
+          pendingLabel={t("users_action_resetting")}
           run={async (password) => {
             const { temporary } = await resetUserPassword(id, password)
             onReveal({
@@ -190,10 +192,10 @@ function ActionDialog({
       return (
         <AdminActionDialog
           {...common}
-          title={`Unlock ${name}`}
-          description="The account was locked after too many wrong passwords. Unlocking lets them try again now."
-          confirmLabel="Unlock"
-          pendingLabel="Unlocking…"
+          title={t("users_action_unlock_title", { name })}
+          description={t("users_action_unlock_description")}
+          confirmLabel={t("users_action_unlock")}
+          pendingLabel={t("users_action_unlocking")}
           run={(password) => unlockUser(id, password)}
         />
       )
@@ -201,10 +203,10 @@ function ActionDialog({
       return (
         <AdminActionDialog
           {...common}
-          title={`Sign ${name} out everywhere`}
-          description="Every browser where they are signed in is signed out at once. Their password stays the same."
-          confirmLabel="Sign out everywhere"
-          pendingLabel="Signing out…"
+          title={t("users_action_revoke_title", { name })}
+          description={t("users_action_revoke_description")}
+          confirmLabel={t("users_action_revoke")}
+          pendingLabel={t("users_action_revoking")}
           run={(password) => revokeUserSessions(id, password)}
         />
       )
@@ -212,10 +214,10 @@ function ActionDialog({
       return (
         <AdminActionDialog
           {...common}
-          title={`Delete ${name}`}
-          description="The account is removed for good and they are signed out now. Entries about them stay in the audit log."
-          confirmLabel="Delete user"
-          pendingLabel="Deleting…"
+          title={t("users_action_delete_title", { name })}
+          description={t("users_action_delete_description")}
+          confirmLabel={t("users_action_delete")}
+          pendingLabel={t("users_action_deleting")}
           run={(password) => deleteUser(id, password)}
         />
       )
@@ -235,7 +237,11 @@ function RowActions({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${user.username}`}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("channels_actions_label", { name: user.username })}
+        >
           <Ellipsis aria-hidden />
         </Button>
       </DropdownMenuTrigger>
@@ -243,44 +249,44 @@ function RowActions({
         {isYou ? (
           <>
             <DropdownMenuLabel className="text-xs font-normal text-fg-muted">
-              This is you. Change your own password from the account menu.
+              {t("users_you_note")}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
           </>
         ) : null}
         <DropdownMenuItem disabled={isYou} onSelect={() => onPick("role")}>
           <UserCog aria-hidden />
-          Change role
+          {t("users_action_role_confirm")}
         </DropdownMenuItem>
         {state === "disabled" ? (
           <DropdownMenuItem onSelect={() => onPick("enable")}>
             <UserCheck aria-hidden />
-            Enable
+            {t("users_action_enable")}
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem disabled={isYou} onSelect={() => onPick("disable")}>
             <Ban aria-hidden />
-            Disable
+            {t("users_action_disable")}
           </DropdownMenuItem>
         )}
         {state === "locked" ? (
           <DropdownMenuItem onSelect={() => onPick("unlock")}>
             <LockOpen aria-hidden />
-            Unlock
+            {t("users_action_unlock")}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem disabled={isYou} onSelect={() => onPick("reset")}>
           <KeyRound aria-hidden />
-          Reset password
+          {t("users_action_reset")}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onPick("revoke")}>
           <LogOut aria-hidden />
-          Sign out everywhere
+          {t("users_action_revoke")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={isYou} onSelect={() => onPick("delete")}>
           <Trash2 aria-hidden />
-          Delete user
+          {t("users_action_delete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -306,7 +312,7 @@ function UserRow({
           )}
         >
           <span className="truncate">{user.display_name}</span>
-          {isYou ? <span className="text-xs font-normal text-fg-muted">(you)</span> : null}
+          {isYou ? <span className="text-xs font-normal text-fg-muted">{t("users_you")}</span> : null}
         </p>
         <p className="truncate font-mono text-xs text-fg-muted">{user.username}</p>
       </div>
@@ -316,23 +322,30 @@ function UserRow({
         </span>
         <span className="lg:col-start-3 lg:row-start-1">
           {user.is_owner ? (
-            <span className="text-xs text-fg-muted">Set in .env</span>
+            <span className="text-xs text-fg-muted">{t("users_set_in_env")}</span>
           ) : (
             <StateLabel user={user} />
           )}
         </span>
         <span className="text-xs text-fg-muted lg:col-start-4 lg:row-start-1">
           {user.last_login_at ? (
-            <>
-              Last sign-in <RelativeTime iso={user.last_login_at} className="text-xs" />
-            </>
+            tNodes(
+              "users_last_signin",
+              {},
+              { time: <RelativeTime iso={user.last_login_at} className="text-xs" /> },
+            )
           ) : (
-            "Never signed in"
+            t("users_never_signed_in")
           )}
           {user.created_at ? (
             <>
               {" "}
-              · added <RelativeTime iso={user.created_at} className="text-xs" />
+              ·{" "}
+              {tNodes(
+                "users_added",
+                {},
+                { time: <RelativeTime iso={user.created_at} className="text-xs" /> },
+              )}
             </>
           ) : null}
         </span>
@@ -372,9 +385,9 @@ export function UsersCard() {
   return (
     <>
       <FindingCard
-        eyebrow="Users"
-        finding={list ? usersFinding(list) : "Checking who can sign in…"}
-        detail="The owner is set in .env and always an administrator. Everyone else is managed here."
+        eyebrow={t("settings_tab_users")}
+        finding={list ? usersFinding(list) : t("users_checking")}
+        detail={t("users_detail")}
         action={
           <AddUserDialog
             onCreated={(r) => {
@@ -384,7 +397,7 @@ export function UsersCard() {
             trigger={
               <Button size="sm">
                 <UserPlus aria-hidden />
-                Add user
+                {t("users_add")}
               </Button>
             }
           />
@@ -397,11 +410,11 @@ export function UsersCard() {
           </div>
         ) : !list ? (
           <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">
-            The users are not available right now.
+            {t("users_unavailable")}
           </p>
         ) : (
           <>
-            <ul aria-label="Users" className="divide-y border-t">
+            <ul aria-label={t("settings_tab_users")} className="divide-y border-t">
               {rows.map((u) => (
                 <UserRow
                   key={u.id ?? "owner"}
@@ -415,7 +428,7 @@ export function UsersCard() {
               hasNextPage={q.hasNextPage}
               isFetchingNextPage={q.isFetchingNextPage}
               fetchNextPage={q.fetchNextPage}
-              label="Show more users"
+              label={t("users_show_more")}
               className="border-t"
             />
           </>

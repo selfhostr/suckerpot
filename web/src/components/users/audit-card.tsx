@@ -3,6 +3,7 @@ import { LoadMore } from "@/components/load-more"
 import { useEffect, useMemo, useState } from "react"
 import { FindingCard } from "@/components/finding-card"
 import { IPChip } from "@/components/ip-chip"
+import { t } from "@/i18n"
 import { RelativeTime } from "@/components/relative-time"
 import { SegmentedControl } from "@/components/segmented-control"
 import { SkeletonText } from "@/components/skeletons"
@@ -21,12 +22,16 @@ import {
 const GROUP_VALUES = AUDIT_GROUPS.map((g) => g.value) as readonly string[]
 
 function finding(entries: AuditEntry[] | undefined, filtered: boolean): string {
-  if (!entries) return "Checking the audit log…"
+  if (!entries) return t("users_audit_checking")
   const first = entries[0]
-  if (!first) return filtered ? "Nothing matches these filters." : "Nothing has been recorded yet."
+  if (!first) return filtered ? t("users_audit_no_match") : t("users_audit_empty")
   return filtered
-    ? `${entries.length}${entries.length >= 25 ? "+" : ""} matching entries, the latest by ${auditActorLabel(first)}.`
-    : `Latest entry: ${auditActorLabel(first)} ${describeAudit(first)}.`
+    ? t("users_audit_matching", {
+        count: entries.length,
+        more: entries.length >= 25 ? "yes" : "no",
+        actor: auditActorLabel(first),
+      })
+    : t("users_audit_latest", { actor: auditActorLabel(first), description: describeAudit(first) })
 }
 
 /** Administrators only: who did what, newest first. Entries are kept for a year. */
@@ -40,8 +45,8 @@ export function AuditCard() {
   // The URL is the source of truth; the box keeps what is being typed and writes it after a pause.
   useEffect(() => {
     if (typed.trim() === actor) return
-    const t = setTimeout(() => setActorParam(typed.trim() || null), 350)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setActorParam(typed.trim() || null), 350)
+    return () => clearTimeout(timer)
   }, [typed, actor, setActorParam])
 
   const filters = useMemo(
@@ -58,25 +63,25 @@ export function AuditCard() {
 
   return (
     <FindingCard
-      eyebrow="Audit log"
+      eyebrow={t("users_audit_title")}
       finding={
         q.isError
-          ? "The audit log is not available right now."
+          ? t("users_audit_unavailable")
           : finding(entries, !!(actor || group))
       }
-      detail="Every change to users and keys, and every sign-in. Entries are kept for one year and never hold a password."
+      detail={t("users_audit_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
     >
       <div className="flex flex-wrap items-center gap-3 px-4 pb-3 sm:px-5">
         <SegmentedControl
-          label="Kind of entry"
+          label={t("users_audit_kind")}
           value={group}
           onChange={(v) => setGroupParam(v || null)}
           options={AUDIT_GROUPS.map((g) => ({ value: g.value, label: g.label }))}
         />
         <Input
-          aria-label="Filter by actor"
-          placeholder="Filter by name"
+          aria-label={t("users_audit_filter_label")}
+          placeholder={t("users_audit_filter_placeholder")}
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
           autoComplete="off"
@@ -91,7 +96,7 @@ export function AuditCard() {
         </div>
       ) : entries ? (
         <>
-          <ul aria-label="Audit log" className="divide-y border-t">
+          <ul aria-label={t("users_audit_title")} className="divide-y border-t">
             {entries.map((e) => (
               <li
                 key={e.id}
@@ -99,15 +104,15 @@ export function AuditCard() {
               >
                 <p className="col-span-2 text-sm text-fg lg:col-span-1 lg:col-start-2 lg:row-start-1">
                   {isSystemActor(e) ? (
-                    <span className="font-medium" title="Done automatically by SuckerPot">
-                      System
+                    <span className="font-medium" title={t("users_audit_system_title")}>
+                      {t("users_audit_system")}
                     </span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => setActorParam(e.actor)}
                       className="font-medium underline-offset-4 hover:underline"
-                      title="Show only this actor"
+                      title={t("users_audit_only_actor")}
                     >
                       {e.actor}
                     </button>
@@ -134,7 +139,7 @@ export function AuditCard() {
             ))}
             {entries.length === 0 ? (
               <li className="px-4 py-6 text-center text-sm text-fg-muted sm:px-5">
-                No entries match.
+                {t("users_audit_none")}
               </li>
             ) : null}
           </ul>
@@ -142,7 +147,7 @@ export function AuditCard() {
             hasNextPage={q.hasNextPage}
             isFetchingNextPage={q.isFetchingNextPage}
             fetchNextPage={q.fetchNextPage}
-            label="Show older entries"
+            label={t("users_audit_older")}
             className="border-t"
           />
         </>

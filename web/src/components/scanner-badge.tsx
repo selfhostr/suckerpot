@@ -1,4 +1,5 @@
 import { ScanSearch } from "lucide-react"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 /**
@@ -16,14 +17,14 @@ export function ScannerBadge({
 }) {
   return (
     <span
-      title={name ? `Known research scanner: ${name}` : "Known research scanner"}
+      title={name ? t("scanner_badge_title_named", { name }) : t("scanner_badge_title")}
       className={cn(
         "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm border border-dashed border-border-strong px-2 text-xs font-medium text-fg-muted",
         className,
       )}
     >
       <ScanSearch aria-hidden className="size-3.5" strokeWidth={2} />
-      {short ? "Scanner" : "Research scanner"}
+      {short ? t("scanner_badge_short") : t("scanner_badge_long")}
     </span>
   )
 }

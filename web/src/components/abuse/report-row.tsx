@@ -3,6 +3,7 @@ import { Link } from "react-router"
 import { OutcomeBadge } from "@/components/results/badges"
 import { RelativeTime } from "@/components/relative-time"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { t } from "@/i18n"
 import { browserTimeZone, formatWindow } from "@/lib/format"
 import {
   describeBlockedRow,
@@ -17,12 +18,12 @@ export function GuardState({ ok }: { ok: boolean }) {
   return ok ? (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg-muted">
       <CircleCheck aria-hidden className="size-3.5 text-status-ok" />
-      Checked
+      {t("abuse_row_checked")}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg">
       <TriangleAlert aria-hidden className="size-3.5 text-sev-warning" />
-      Blocked
+      {t("abuse_row_blocked")}
     </span>
   )
 }
@@ -40,7 +41,7 @@ export function ReportRow({ r }: { r: ReportItem }) {
         <span className="flex items-center gap-2">
           <span className="text-xs font-medium text-fg-muted">{kindLabel(r.kind)}</span>
           {r.part && r.part > 1 ? (
-            <span className="text-xs text-fg-muted">part {r.part}</span>
+            <span className="text-xs text-fg-muted">{t("abuse_row_part", { part: r.part })}</span>
           ) : null}
         </span>
         <span className="order-3 col-span-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted sm:order-none sm:col-span-1">
@@ -53,13 +54,15 @@ export function ReportRow({ r }: { r: ReportItem }) {
               </time>
             </TooltipTrigger>
             <TooltipContent side="top">
-              {r.window_start} to {r.window_end}
-              <span className="ml-1.5 text-fg-subtle">UTC, shown in {browserTimeZone()}</span>
+              {t("abuse_row_window", { start: r.window_start, end: r.window_end })}
+              <span className="ml-1.5 text-fg-subtle">
+                {t("abuse_row_window_zone", { zone: browserTimeZone() })}
+              </span>
             </TooltipContent>
           </Tooltip>
           {r.demo ? (
             <span className="inline-flex items-center gap-1 text-xs">
-              <FlaskConical aria-hidden className="size-3" /> Demo
+              <FlaskConical aria-hidden className="size-3" /> {t("abuse_row_demo")}
             </span>
           ) : null}
           {r.outcome ? <OutcomeBadge outcome={r.outcome.effective} className="-ml-1" /> : null}

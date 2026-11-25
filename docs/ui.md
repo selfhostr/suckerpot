@@ -228,6 +228,12 @@ README and documentation screenshots must use demo data only, even with the mask
 - Text colours are checked for WCAG AA contrast in both themes by an automated test.
 - There are no custom keyboard shortcuts yet.
 
+## Language
+
+The dashboard comes in nine languages: English, French, German, Spanish, Italian, Portuguese (Portugal), Portuguese (Brazil), Russian and Simplified Chinese. On the first visit it follows the order of your browser's languages and falls back to English when none of them is one of the nine. To change it, open the profile menu at the foot of the sidebar and pick **Language**: the list shows each language by its own name. The choice is kept in this browser (`localStorage`, key `suckerpot.locale`) and also sets the page language for screen readers. Numbers, dates and times follow the language you picked, and the times still show in the browser's time zone.
+
+What is not translated: the product and sensor names, commands, ports, file names, code, MITRE ATT&CK ids and technique names, and everything that comes from the server or from the traffic itself (credentials, shell commands, CVE descriptions, error messages returned by the API, the text of an abuse report that is sent to a provider). The documentation stays in English, and so does the developer-only styleguide.
+
 ## Terminal replay safety
 
 ```{admonition} Status

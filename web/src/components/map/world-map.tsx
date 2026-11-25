@@ -2,8 +2,10 @@ import { House, Minus, Plus } from "lucide-react"
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import type { LiveEvent } from "@/lib/api"
-import { countryName, formatNumber, plural } from "@/lib/format"
+import { countryName, formatNumber } from "@/lib/format"
 import { FAMILY_META, SENSOR_META } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 import {
@@ -250,8 +252,8 @@ export const WorldMap = memo(function WorldMap({
       }
       const from = view ?? to
       const start = performance.now()
-      const step = (t: number) => {
-        const k = Math.min(1, (t - start) / 520)
+      const step = (now: number) => {
+        const k = Math.min(1, (now - start) / 520)
         const e = 1 - (1 - k) ** 3
         setView({
           cx: from.cx + (to.cx - from.cx) * e,
@@ -388,7 +390,7 @@ export const WorldMap = memo(function WorldMap({
   useEffect(() => {
     const timers = dashTimers.current
     return () => {
-      for (const t of timers) clearTimeout(t)
+      for (const timer of timers) clearTimeout(timer)
     }
   }, [])
   useEffect(() => {
@@ -409,11 +411,11 @@ export const WorldMap = memo(function WorldMap({
       })
     if (!fresh.length) return
     setDashes((d) => [...d, ...fresh].slice(-MAX_DASHES))
-    const t = setTimeout(() => {
-      dashTimers.current.delete(t)
+    const timer = setTimeout(() => {
+      dashTimers.current.delete(timer)
       setDashes((d) => d.filter((x) => !fresh.some((f) => f.key === x.key)))
     }, DASH_MS)
-    dashTimers.current.add(t)
+    dashTimers.current.add(timer)
   }, [events, animate, paused, activity.sources])
 
   // Hovered or keyboard-focused dot (local), else the highlight asked for from outside.
@@ -501,7 +503,7 @@ export const WorldMap = memo(function WorldMap({
   }
 
   const open = (s: Source) => void navigate(`/attacks?country=${s.country}`)
-  const homeName = homeLabel ?? "Home"
+  const homeName = homeLabel ?? t("map_home")
   const homeLabelW = 26 + homeName.length * 6.6
 
   return (
@@ -514,7 +516,7 @@ export const WorldMap = memo(function WorldMap({
       tabIndex={0}
       role="group"
       aria-roledescription="map"
-      aria-label={`Map of attack origins in the last 15 minutes, with arcs landing on ${homeLabel ?? "the sensors"}. Arrow keys pan, plus and minus zoom, E shows Europe, 0 the world.`}
+      aria-label={t("map_aria", { home: homeLabel ?? t("map_home_sensors") })}
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -538,7 +540,7 @@ export const WorldMap = memo(function WorldMap({
             type="button"
             className="absolute size-7 -translate-x-1/2 -translate-y-1/2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
             style={{ left: p.x, top: p.y }}
-            aria-label={`${name}: ${plural(s.events, "event")} from ${plural(s.ips, "address", "addresses")}. Open these attacks.`}
+            aria-label={t("map_source_aria", { name, events: s.events, ips: s.ips })}
             onPointerEnter={() => enter(s.country)}
             onPointerLeave={() => leave(s.country)}
             onFocus={() => enter(s.country)}
@@ -647,14 +649,14 @@ export const WorldMap = memo(function WorldMap({
                   preset === p ? "bg-surface-hover text-fg" : "text-fg-muted hover:text-fg",
                 )}
               >
-                {p === "europe" ? "Europe" : "World"}
+                {p === "europe" ? t("map_preset_europe") : t("map_preset_world")}
               </button>
             ))}
           </div>
           <div className="flex rounded-md border bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur-sm">
             <button
               type="button"
-              aria-label="Zoom in"
+              aria-label={t("map_zoom_in")}
               onClick={() => zoomBy(0.7)}
               className="flex size-6 items-center justify-center rounded-sm text-fg-muted hover:text-fg"
             >
@@ -662,7 +664,7 @@ export const WorldMap = memo(function WorldMap({
             </button>
             <button
               type="button"
-              aria-label="Zoom out"
+              aria-label={t("map_zoom_out")}
               onClick={() => zoomBy(1 / 0.7)}
               className="flex size-6 items-center justify-center rounded-sm text-fg-muted hover:text-fg"
             >
@@ -703,13 +705,21 @@ function SourceTooltip({
     >
       <p className="font-medium text-fg">
         {name}
-        <span className="font-normal text-fg-subtle"> · last 15 min</span>
+        <span className="font-normal text-fg-subtle"> · {t("map_tooltip_window")}</span>
       </p>
       <p className="mt-1 text-fg-muted">
-        <span className="font-medium text-fg tabular-nums">{formatNumber(source.events)}</span>{" "}
-        {source.events === 1 ? "event" : "events"} from{" "}
-        <span className="font-medium text-fg tabular-nums">{formatNumber(source.ips)}</span>{" "}
-        {source.ips === 1 ? "address" : "addresses"}
+        {tNodes(
+          "map_tooltip_counts",
+          { events: source.events, ips: source.ips },
+          {
+            eventsN: (
+              <span className="font-medium text-fg tabular-nums">{formatNumber(source.events)}</span>
+            ),
+            ipsN: (
+              <span className="font-medium text-fg tabular-nums">{formatNumber(source.ips)}</span>
+            ),
+          },
+        )}
       </p>
       <p className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-fg-muted">
         {source.sensors.map((s) => {
@@ -722,7 +732,7 @@ function SourceTooltip({
           )
         })}
       </p>
-      <p className="mt-1.5 text-fg-subtle">Click to open these attacks</p>
+      <p className="mt-1.5 text-fg-subtle">{t("map_tooltip_open")}</p>
     </div>
   )
 }

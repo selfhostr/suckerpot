@@ -5,6 +5,8 @@ import { useAuth } from "@/app/auth"
 import { useSendMode } from "@/components/abuse/send-hooks"
 import { ConfirmDialog } from "@/components/abuse/status-dialogs"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { abuseKeys, withSameDayConfirm } from "@/lib/abuse"
 import {
   describeRequest,
@@ -84,24 +86,28 @@ export function SendControl({
       {canSend ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant={primary ? "default" : "outline"} onClick={() => setOpen(true)}>
-            <Send aria-hidden /> Send now
+            <Send aria-hidden /> {t("send_now")}
           </Button>
         </div>
       ) : null}
       {actions ? (
         <div className="flex flex-wrap items-center gap-2">
-          {canSend ? <span className="text-sm text-fg-muted">Or send it yourself:</span> : null}
+          {canSend ? <span className="text-sm text-fg-muted">{t("send_or_yourself")}</span> : null}
           {actions}
         </div>
       ) : null}
       {at ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
           <span>
-            Sending at <span className="tabular-nums">{formatClock(at)}</span>
+            {tNodes(
+              "send_control_sending_at",
+              {},
+              { time: <span className="tabular-nums">{formatClock(at)}</span> },
+            )}
           </span>
           <span aria-hidden>·</span>
           <Button size="sm" variant="outline" onClick={() => void cancel()}>
-            Cancel
+            {t("common_cancel")}
           </Button>
         </p>
       ) : null}
@@ -119,9 +125,9 @@ export function SendControl({
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
-        title="Send this report now?"
-        description={`The message goes to ${recipient} from your SMTP account, through the VPN. It cannot be recalled once sent.`}
-        confirmLabel="Send now"
+        title={t("send_confirm_title")}
+        description={t("send_confirm_description", { recipient })}
+        confirmLabel={t("send_now")}
         describe={describeSendError}
         run={async () => {
           // A provider gets one mail a day: a second one today asks first.

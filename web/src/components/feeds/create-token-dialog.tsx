@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { useId, useRef, useState, type SyntheticEvent } from "react"
 import { Field, FormError } from "@/components/form-parts"
+import { t } from "@/i18n"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
 import {
@@ -67,10 +68,10 @@ function CreateForm({
     if (pending) return
     setFormError(null)
     const found: typeof errors = {}
-    if (!name.trim()) found.name = "Give the token a name, for example the firewall it is for."
-    else if (name.trim().length > 64) found.name = "Use at most 64 characters."
-    if (kinds.length === 0) found.kinds = "Choose at least one list."
-    if (!password) found.password = "Enter your password to confirm."
+    if (!name.trim()) found.name = t("feeds_create_error_name")
+    else if (name.trim().length > 64) found.name = t("users_error_name_long")
+    if (kinds.length === 0) found.kinds = t("feeds_create_error_kinds")
+    if (!password) found.password = t("alerts_msg_password_required")
     setErrors(found)
     if (Object.keys(found).length > 0) return
     setPending(true)
@@ -109,14 +110,13 @@ function CreateForm({
       autoComplete="off"
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Create a feed token</DialogTitle>
+        <DialogTitle>{t("feeds_create_title")}</DialogTitle>
         <DialogDescription>
-          The token is shown once, right after you create it. It is stored only as a hash, so it
-          cannot be shown again.
+          {t("feeds_create_description")}
         </DialogDescription>
       </DialogHeader>
 
-      <Field id={ids.name} label="Name" error={errors.name}>
+      <Field id={ids.name} label={t("channels_name")} error={errors.name}>
         <Input
           id={ids.name}
           value={name}
@@ -124,14 +124,14 @@ function CreateForm({
           autoFocus
           autoComplete="off"
           maxLength={64}
-          placeholder="Edge firewall"
+          placeholder={t("feeds_create_name_placeholder")}
           aria-invalid={errors.name ? true : undefined}
           aria-describedby={errors.name ? `${ids.name}-error` : undefined}
         />
       </Field>
 
       <fieldset className="flex flex-col gap-1.5" aria-describedby={`${ids.kinds}-error`}>
-        <legend className="mb-1.5 text-sm font-medium text-fg">Lists it can read</legend>
+        <legend className="mb-1.5 text-sm font-medium text-fg">{t("feeds_create_lists")}</legend>
         <div className="grid grid-cols-2 gap-2">
           {TOKEN_KINDS.map((k) => (
             <label
@@ -159,10 +159,10 @@ function CreateForm({
       </fieldset>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-fg">Minimum score</span>
+        <span className="text-sm font-medium text-fg">{t("feeds_create_min_score")}</span>
         <SegmentedControl
           size="form"
-          label="Minimum score"
+          label={t("feeds_create_min_score")}
           value={String(minScore)}
           onChange={(v) => setMinScore(Number(v))}
           options={SCORE_OPTIONS}
@@ -181,18 +181,16 @@ function CreateForm({
           className="mt-0.5"
         />
         <label htmlFor={ids.benign} className="space-y-0.5 text-sm text-fg">
-          Include research scanners
-          <span className="block text-xs text-fg-muted">
-            Off by default: they probe everyone and are rarely worth blocking.
-          </span>
+          {t("feeds_create_benign")}
+          <span className="block text-xs text-fg-muted">{t("feeds_create_benign_hint")}</span>
         </label>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-fg">Expires</span>
+        <span className="text-sm font-medium text-fg">{t("feeds_create_expires")}</span>
         <SegmentedControl
           size="form"
-          label="Expires"
+          label={t("feeds_create_expires")}
           value={expiry}
           onChange={setExpiry}
           options={EXPIRY_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
@@ -202,8 +200,8 @@ function CreateForm({
 
       <Field
         id={ids.pass}
-        label="Your password"
-        hint="Creating a token asks for your dashboard password again."
+        label={t("channels_password")}
+        hint={t("feeds_create_password_hint")}
         error={errors.password}
       >
         <Input
@@ -223,10 +221,10 @@ function CreateForm({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Creating…" : "Create token"}
+          {pending ? t("users_creating") : t("feeds_create")}
         </Button>
       </DialogFooter>
     </form>

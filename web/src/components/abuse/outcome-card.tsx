@@ -20,7 +20,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { abuseKeys, type ReportDetail } from "@/lib/abuse"
-import { plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import {
   describeRepliesError,
   MANUAL_OUTCOMES,
@@ -72,9 +73,9 @@ function SetOutcomeDialog({
     onError: (e) =>
       setError(
         e instanceof Error && e.message === "time"
-          ? "Pick a time that is now or earlier."
+          ? t("outcome_error_time")
           : e instanceof Error && e.message === "early"
-            ? "That is before the report was sent."
+            ? t("outcome_error_early")
             : describeRepliesError(e),
       ),
   })
@@ -91,14 +92,13 @@ function SetOutcomeDialog({
           }}
         >
           <DialogHeader className="text-left">
-            <DialogTitle>Set the outcome</DialogTitle>
+            <DialogTitle>{t("outcome_dialog_title")}</DialogTitle>
             <DialogDescription>
-              Use this when the answer reached you some other way. It replaces the automatic outcome
-              until you go back to automatic.
+              {t("outcome_dialog_description")}
             </DialogDescription>
           </DialogHeader>
           <fieldset className="space-y-1.5">
-            <legend className="text-sm font-medium text-fg">What happened</legend>
+            <legend className="text-sm font-medium text-fg">{t("outcome_what_happened")}</legend>
             {MANUAL_OUTCOMES.map((o) => (
               <label key={o} className="flex items-center gap-2.5 text-sm text-fg">
                 <input
@@ -109,14 +109,14 @@ function SetOutcomeDialog({
                   onChange={() => setOutcome(o)}
                   className="size-4 accent-current"
                 />
-                {o === "none" ? "No answer" : OUTCOME_LABEL[o]}
+                {o === "none" ? t("outcome_no_answer") : OUTCOME_LABEL[o]}
               </label>
             ))}
           </fieldset>
           <Field
             id={`${id}-at`}
-            label="When"
-            hint="Your local time. Not before the report was sent."
+            label={t("outcome_when")}
+            hint={t("outcome_when_hint")}
           >
             <Input
               id={`${id}-at`}
@@ -126,7 +126,7 @@ function SetOutcomeDialog({
               onChange={(e) => setAt(e.target.value)}
             />
           </Field>
-          <Field id={`${id}-note`} label="Note" optional>
+          <Field id={`${id}-note`} label={t("outcome_note")} optional>
             <Textarea
               id={`${id}-note`}
               rows={3}
@@ -140,10 +140,10 @@ function SetOutcomeDialog({
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common_cancel")}
             </Button>
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending ? "Saving…" : "Save outcome"}
+              {save.isPending ? t("outcome_saving") : t("outcome_save")}
             </Button>
           </DialogFooter>
         </form>
@@ -174,18 +174,18 @@ export function OutcomeCard({ r }: { r: ReportDetail }) {
   const old = r.sent_at !== null && now - Date.parse(r.sent_at) >= NO_ANSWER_DAYS * 86_400_000
   return (
     <FindingCard
-      eyebrow="Outcome"
+      eyebrow={t("outcome_eyebrow")}
       finding={describeOutcome(o, r.sent_at)}
       detail={
         canWrite && r.reply_token
-          ? `Replies are matched with the code ${r.reply_token} that the report carries.`
+          ? t("outcome_token_detail", { token: r.reply_token })
           : undefined
       }
       action={
         canWrite ? (
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setSetting(true)}>
-              Set outcome
+              {t("outcome_set")}
             </Button>
             {o?.manual ? (
               <Button
@@ -194,7 +194,7 @@ export function OutcomeCard({ r }: { r: ReportDetail }) {
                 disabled={clear.isPending}
                 onClick={() => clear.mutate()}
               >
-                Back to automatic
+                {t("outcome_back_to_automatic")}
               </Button>
             ) : null}
           </div>
@@ -207,22 +207,19 @@ export function OutcomeCard({ r }: { r: ReportDetail }) {
         <OutcomeBadge outcome={effective} noAnswer={old} />
         {o?.manual ? (
           <span className="text-xs text-fg-muted">
-            Set by you
-            {o.manual_at ? (
-              <>
-                {" "}
-                <RelativeTime iso={o.manual_at} />
-              </>
-            ) : null}
-            {o.note ? `: ${o.note}` : "."}
+            {tNodes(
+              "outcome_set_by_you",
+              { hasTime: o.manual_at ? "yes" : "no", hasNote: o.note ? "yes" : "no", note: o.note },
+              o.manual_at ? { time: <RelativeTime iso={o.manual_at} /> } : {},
+            )}
           </span>
         ) : o && o.reply_count > 0 ? (
           <span className="text-xs text-fg-muted">
-            Worked out from {plural(o.reply_count, "reply", "replies")}.
+            {t("outcome_worked_out", { count: o.reply_count })}
           </span>
         ) : null}
         {o?.needs_review ? (
-          <span className="text-xs text-fg-muted">Some replies need a look before they count.</span>
+          <span className="text-xs text-fg-muted">{t("outcome_needs_review")}</span>
         ) : null}
       </div>
       <p role="alert" className="px-4 pb-3 text-sm text-fg empty:hidden sm:px-5">
@@ -230,11 +227,15 @@ export function OutcomeCard({ r }: { r: ReportDetail }) {
       </p>
       <div className="flex items-center justify-between gap-3 border-t px-4 py-3 sm:px-5">
         <h4 className="type-subtitle text-fg">
-          Replies <span className="text-fg-subtle tabular-nums">{replies.length}</span>
+          {tNodes(
+            "outcome_replies_heading",
+            {},
+            { count: <span className="text-fg-subtle tabular-nums">{replies.length}</span> },
+          )}
         </h4>
         {canWrite ? (
           <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
-            <Plus aria-hidden /> Add a reply
+            <Plus aria-hidden /> {t("outcome_add_reply")}
           </Button>
         ) : null}
       </div>

@@ -1,2 +1,6 @@
+import { t } from "@/i18n"
+
 /** Short enough to fit a 390 px phone; the help text under it names every kind. */
-export const PLACEHOLDER = "Search addresses, CVEs, hashes, domains"
+export function searchPlaceholder(): string {
+  return t("search_placeholder")
+}

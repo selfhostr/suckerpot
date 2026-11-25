@@ -1,5 +1,6 @@
 import { Eye, HandHelping } from "lucide-react"
 import { useIpMask } from "@/app/ip-mask"
+import { t } from "@/i18n"
 import { CopyButton } from "@/components/defend/copy-button"
 import { IPChip } from "@/components/ip-chip"
 import { TagBadge } from "@/components/tag-badge"
@@ -23,7 +24,9 @@ function Value({ entry }: { entry: FeedEntry }) {
       <span title={shown} className="min-w-0 truncate font-mono text-xs text-fg">
         {shown}
       </span>
-      {masked ? null : <CopyButton text={entry.value} label={`Copy ${entry.value}`} />}
+      {masked ? null : (
+        <CopyButton text={entry.value} label={t("defend_copy_named", { name: entry.value })} />
+      )}
     </span>
   )
 }
@@ -43,7 +46,7 @@ function CategoryBadge({ category }: { category: string }) {
         <span aria-hidden className="size-1.5 rotate-45 rounded-[1px] bg-sev-severe" />
       ) : null}
       {categoryLabel(category)}
-      {severe ? <span className="sr-only"> (severe)</span> : null}
+      {severe ? <span className="sr-only"> {t("nfeed_severe")}</span> : null}
     </li>
   )
 }
@@ -54,22 +57,22 @@ export function EntryRow({ entry }: { entry: FeedEntry }) {
       <div className="min-w-0 space-y-1">
         <Value entry={entry} />
         <p className="text-2xs text-fg-subtle">
-          {entry.tier === "high" ? "High tier" : "Standard tier"}
-          {entry.family ? ` · IPv${entry.family}` : " · Host name"}
+          {entry.tier === "high" ? t("nfeed_tier_high") : t("nfeed_tier_standard")}
+          {entry.family ? ` · IPv${entry.family}` : ` · ${t("nfeed_host_name")}`}
           {entry.families.length > 0 ? ` · ${entry.families.join(", ")}` : ""}
         </p>
       </div>
       <div className="min-w-0 space-y-1.5">
-        <ul aria-label="Categories" className="flex flex-wrap gap-1.5">
+        <ul aria-label={t("nfeed_categories")} className="flex flex-wrap gap-1.5">
           {entry.categories.map((c) => (
             <CategoryBadge key={c} category={c} />
           ))}
         </ul>
         {entry.tags.length > 0 ? (
-          <ul aria-label="Tags" className="flex flex-wrap gap-1.5">
-            {entry.tags.map((t) => (
-              <li key={t}>
-                <TagBadge tag={t} />
+          <ul aria-label={t("nfeed_tags")} className="flex flex-wrap gap-1.5">
+            {entry.tags.map((tag) => (
+              <li key={tag}>
+                <TagBadge tag={tag} />
               </li>
             ))}
           </ul>
@@ -77,15 +80,15 @@ export function EntryRow({ entry }: { entry: FeedEntry }) {
       </div>
       <dl className="grid grid-cols-3 gap-x-3 text-2xs text-fg-muted md:grid-cols-1 md:gap-y-0.5">
         <div className="md:flex md:gap-1.5">
-          <dt className="text-fg-subtle md:w-14">First seen</dt>
+          <dt className="text-fg-subtle md:w-14">{t("nfeed_first_seen")}</dt>
           <dd className="tabular-nums">{formatDay(entry.first_seen)}</dd>
         </div>
         <div className="md:flex md:gap-1.5">
-          <dt className="text-fg-subtle md:w-14">Last seen</dt>
+          <dt className="text-fg-subtle md:w-14">{t("nfeed_last_seen")}</dt>
           <dd className="tabular-nums">{formatDay(entry.last_seen)}</dd>
         </div>
         <div className="md:flex md:gap-1.5">
-          <dt className="text-fg-subtle md:w-14">Expires</dt>
+          <dt className="text-fg-subtle md:w-14">{t("nfeed_expires")}</dt>
           <dd className="tabular-nums">{formatDay(entry.expires)}</dd>
         </div>
       </dl>
@@ -93,13 +96,13 @@ export function EntryRow({ entry }: { entry: FeedEntry }) {
         {entry.seen_here ? (
           <Badge variant="outline" className="text-fg">
             <Eye aria-hidden />
-            Seen here
+            {t("nfeed_seen_here")}
           </Badge>
         ) : null}
         {entry.helped ? (
           <Badge variant="outline" className="text-fg">
             <HandHelping aria-hidden />
-            You helped
+            {t("nfeed_you_helped")}
           </Badge>
         ) : null}
       </div>

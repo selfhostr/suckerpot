@@ -1,6 +1,7 @@
 import { Check, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCopy } from "@/hooks/use-copy"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 /**
@@ -34,15 +35,15 @@ export function CommandBox({
           size="sm"
           variant="outline"
           onClick={() => void copy(command)}
-          aria-label={`Copy: ${command}`}
+          aria-label={t("setup_command_copy_label", { command })}
           className="shrink-0"
         >
           {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("common_copied") : t("common_copy")}
         </Button>
       </div>
       <span role="status" className="sr-only">
-        {copied ? "Command copied" : ""}
+        {copied ? t("setup_command_copied") : ""}
       </span>
       {hint ? <p className="text-xs text-fg-muted">{hint}</p> : null}
     </div>

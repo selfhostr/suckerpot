@@ -4,7 +4,7 @@
  * with. No React in here, so everything is unit-tested.
  */
 import type { Severity } from "./severity"
-import { formatNumber, plural } from "./format"
+import { intlLocale, t } from "@/i18n"
 import type { Sensor } from "./sensors"
 
 export type CampaignStatus = "active" | "quiet" | "merged"
@@ -51,12 +51,54 @@ export const STAGES = [
 export type Stage = (typeof STAGES)[number]
 
 export const STAGE_META: Record<Stage, { label: string; question: string }> = {
-  recon: { label: "Looking around", question: "What did they check first?" },
-  access: { label: "Getting in", question: "How did they get in?" },
-  execution: { label: "Running code", question: "What did they run?" },
-  persistence: { label: "Staying in", question: "How did they try to stay?" },
-  tool_transfer: { label: "Bringing tools", question: "What did they bring along?" },
-  objective: { label: "The goal", question: "What did they want?" },
+  recon: {
+    get label() {
+      return t("stage_recon_label")
+    },
+    get question() {
+      return t("stage_recon_question")
+    },
+  },
+  access: {
+    get label() {
+      return t("stage_access_label")
+    },
+    get question() {
+      return t("stage_access_question")
+    },
+  },
+  execution: {
+    get label() {
+      return t("stage_execution_label")
+    },
+    get question() {
+      return t("stage_execution_question")
+    },
+  },
+  persistence: {
+    get label() {
+      return t("stage_persistence_label")
+    },
+    get question() {
+      return t("stage_persistence_question")
+    },
+  },
+  tool_transfer: {
+    get label() {
+      return t("stage_tool_transfer_label")
+    },
+    get question() {
+      return t("stage_tool_transfer_question")
+    },
+  },
+  objective: {
+    get label() {
+      return t("stage_objective_label")
+    },
+    get question() {
+      return t("stage_objective_question")
+    },
+  },
 }
 
 export function isStage(value: string): value is Stage {
@@ -126,12 +168,24 @@ export interface CampaignIndicator {
 }
 
 export const KEY_KIND_LABEL: Record<CampaignKeyKind, string> = {
-  payload_host: "Payload server",
-  hash: "File hash",
-  family: "Malware family",
-  script: "Script fingerprint",
-  exploit: "Exploit fingerprint",
-  credlist: "Password list fingerprint",
+  get payload_host() {
+    return t("campaigns_key_payload_host")
+  },
+  get hash() {
+    return t("campaigns_key_hash")
+  },
+  get family() {
+    return t("campaigns_key_family")
+  },
+  get script() {
+    return t("campaigns_key_script")
+  },
+  get exploit() {
+    return t("campaigns_key_exploit")
+  },
+  get credlist() {
+    return t("campaigns_key_credlist")
+  },
 }
 
 export interface TechniqueItem {
@@ -172,10 +226,34 @@ export interface Matrix {
 // --- sentences --------------------------------------------------------------------------------
 
 export const CAMPAIGN_WINDOWS = [
-  { value: "7", label: "7 days", days: 7 },
-  { value: "30", label: "30 days", days: 30 },
-  { value: "90", label: "90 days", days: 90 },
-  { value: "all", label: "All time", days: 0 },
+  {
+    value: "7",
+    get label() {
+      return t("campaigns_window_7")
+    },
+    days: 7,
+  },
+  {
+    value: "30",
+    get label() {
+      return t("campaigns_window_30")
+    },
+    days: 30,
+  },
+  {
+    value: "90",
+    get label() {
+      return t("campaigns_window_90")
+    },
+    days: 90,
+  },
+  {
+    value: "all",
+    get label() {
+      return t("campaigns_window_all")
+    },
+    days: 0,
+  },
 ] as const
 
 export function windowDays(value: string | null, fallback = 30): number {
@@ -183,48 +261,67 @@ export function windowDays(value: string | null, fallback = 30): number {
   return found ? found.days : fallback
 }
 
-export function windowPhrase(days: number): string {
-  return days === 0 ? "on record" : `in the last ${days} days`
-}
-
 /** The one sentence a campaigns page opens with. */
 export function describeCampaigns(
   items: readonly Campaign[],
   opts: { days: number; more: boolean },
 ): string {
-  const when = windowPhrase(opts.days)
-  if (items.length === 0) return `No campaigns ${when}.`
-  const n = `${formatNumber(items.length)}${opts.more ? "+" : ""}`
+  const window = opts.days === 0 ? "record" : "days"
+  if (items.length === 0) return t("campaigns_summary_none", { window, days: opts.days })
   const active = items.filter((c) => c.status === "active").length
-  const noun = items.length === 1 && !opts.more ? "campaign" : "campaigns"
-  const lead = `${n} ${noun} ${when}`
-  if (active === 0) return `${lead}, all quiet now.`
-  return `${lead}, ${active === items.length && !opts.more ? "all" : formatNumber(active)} still active.`
+  const values = {
+    window,
+    days: opts.days,
+    count: items.length,
+    more: opts.more ? "yes" : "no",
+    active,
+  }
+  if (active === 0) return t("campaigns_summary_quiet", values)
+  if (active === items.length && !opts.more) return t("campaigns_summary_all_active", values)
+  return t("campaigns_summary_some_active", values)
 }
 
 /** "87 sessions from 23 addresses in 6 countries". */
 export function describeScale(c: Pick<Campaign, "sessions" | "sources" | "countries">): string {
-  const where =
-    c.countries.length > 0 ? ` in ${plural(c.countries.length, "country", "countries")}` : ""
-  return `${plural(c.sessions, "session")} from ${plural(c.sources, "address", "addresses")}${where}`
+  const values = { sessions: c.sessions, sources: c.sources, countries: c.countries.length }
+  return t(c.countries.length > 0 ? "campaigns_scale" : "campaigns_scale_no_country", values)
 }
 
 /** The playbook in one line: stage labels joined with arrows. */
 export function stageTrailText(stages: readonly string[]): string {
   const labels = STAGES.filter((s) => stages.includes(s)).map((s) => STAGE_META[s].label)
-  return labels.length ? labels.join(" → ") : "No stages recorded"
+  return labels.length ? labels.join(" → ") : t("campaigns_no_stages")
 }
 
 export function statusLabel(status: CampaignStatus): string {
-  return status === "active" ? "Active" : status === "quiet" ? "Quiet" : "Merged"
+  if (status === "active") return t("campaigns_status_active")
+  return status === "quiet" ? t("campaigns_status_quiet") : t("campaigns_status_merged")
 }
 
 // --- the techniques table -------------------------------------------------------------------
 
 export const TECHNIQUE_WINDOWS = [
-  { value: "7", label: "7 days", days: 7 },
-  { value: "30", label: "30 days", days: 30 },
-  { value: "90", label: "90 days", days: 90 },
+  {
+    value: "7",
+    get label() {
+      return t("campaigns_window_7")
+    },
+    days: 7,
+  },
+  {
+    value: "30",
+    get label() {
+      return t("campaigns_window_30")
+    },
+    days: 30,
+  },
+  {
+    value: "90",
+    get label() {
+      return t("campaigns_window_90")
+    },
+    days: 90,
+  },
 ] as const
 
 export function techniqueDays(value: string | null): number {
@@ -234,15 +331,20 @@ export function techniqueDays(value: string | null): number {
 export function describeMatrix(matrix: Matrix, catalogue: number | null): string {
   const used = matrix.rows.length
   const days = matrix.days.length
-  if (used === 0) return `No techniques were seen in the last ${days} days.`
+  if (used === 0) return t("campaigns_matrix_none", { days })
   const top = [...matrix.rows].sort((a, b) => b.total_sessions - a.total_sessions)[0]
-  const of = catalogue ? ` of the ${catalogue} we watch for` : ""
-  const lead = `Attackers used ${plural(used, "technique")}${of} in the last ${days} days`
-  return top ? `${lead}. Most often they ${top.plain}.` : `${lead}.`
+  return t("campaigns_matrix_summary", {
+    used,
+    days,
+    catalogue: catalogue ?? 0,
+    withCatalogue: catalogue ? "yes" : "no",
+    withTop: top ? "yes" : "no",
+    plain: top?.plain ?? "",
+  })
 }
 
 export function formatDay(day: string): string {
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(intlLocale(), {
     month: "short",
     day: "numeric",
     timeZone: "UTC",
@@ -272,9 +374,9 @@ export function dailyFromHourly(
 export function stageReach(stages: readonly string[]): string {
   const seen = STAGES.filter((s) => stages.includes(s))
   const last = seen.at(-1)
-  if (!last) return "No stages recorded"
+  if (!last) return t("campaigns_no_stages")
   const name = STAGE_META[last].label.toLowerCase()
-  return seen.length === 1 ? `1 stage: ${name}` : `${seen.length} stages, up to ${name}`
+  return t("campaigns_stage_reach", { count: seen.length, name })
 }
 
 /** Consecutive identical lines become one line with a count ("whoami" four times: "× 4"). */

@@ -1,15 +1,22 @@
 import { Laptop, Moon, Sun } from "lucide-react"
 import { useTheme, type ThemePreference } from "@/app/theme"
 import { SegmentedControl } from "@/components/segmented-control"
+import { t, tk } from "@/i18n"
+import { withText } from "@/lib/utils"
 
 const OPTIONS = [
-  { value: "dark", ariaLabel: "Dark theme", label: <Moon aria-hidden className="size-3.5" /> },
-  { value: "light", ariaLabel: "Light theme", label: <Sun aria-hidden className="size-3.5" /> },
-  {
-    value: "system",
-    ariaLabel: "Follow system theme",
-    label: <Laptop aria-hidden className="size-3.5" />,
-  },
+  withText(
+    { ariaLabel: tk("ui_theme_dark") },
+    { value: "dark" as const, label: <Moon aria-hidden className="size-3.5" /> },
+  ),
+  withText(
+    { ariaLabel: tk("ui_theme_light") },
+    { value: "light" as const, label: <Sun aria-hidden className="size-3.5" /> },
+  ),
+  withText(
+    { ariaLabel: tk("ui_theme_system") },
+    { value: "system" as const, label: <Laptop aria-hidden className="size-3.5" /> },
+  ),
 ] as const satisfies readonly {
   value: ThemePreference
   ariaLabel: string
@@ -20,7 +27,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   const { preference, setPreference } = useTheme()
   return (
     <SegmentedControl
-      label="Theme"
+      label={t("ui_theme")}
       size="icon"
       value={preference}
       onChange={setPreference}

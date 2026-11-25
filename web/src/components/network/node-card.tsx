@@ -19,6 +19,7 @@ import {
 import { LeaveDialog } from "./leave-dialog"
 import { ProfileDialog } from "./profile-dialog"
 import { SentDrawer } from "./sent-drawer"
+import { t } from "@/i18n"
 
 function Field({
   label,
@@ -54,18 +55,18 @@ export function NodeCard({ status: s }: { status: NetworkStatus }) {
   const error = describeNetworkError(s.last_error_code)
   return (
     <FindingCard
-      eyebrow="Your node"
+      eyebrow={t("network_node_eyebrow")}
       finding={
         s.pseudonym
-          ? `You are in the network as ${s.pseudonym}.`
-          : `You are in the network as Node ${s.fingerprint ?? ""}.`
+          ? t("network_node_finding_named", { name: s.pseudonym })
+          : t("network_node_finding_fingerprint", { fingerprint: s.fingerprint ?? "" })
       }
-      detail="Other members see only this name and, if you chose to show it, your country. Never an address."
+      detail={t("network_node_detail")}
       action={
         canWrite ? (
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
             <Pencil aria-hidden />
-            Edit
+            {t("common_edit")}
           </Button>
         ) : null
       }
@@ -81,27 +82,29 @@ export function NodeCard({ status: s }: { status: NetworkStatus }) {
           </p>
         ) : null}
         <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Node number">
+          <Field label={t("network_node_field_number")}>
             <span className="font-mono text-xs">{s.fingerprint ?? "–"}</span>
           </Field>
-          <Field label="Pseudonym">
-            {s.pseudonym ?? <span className="text-fg-muted">None</span>}
+          <Field label={t("network_node_field_pseudonym")}>
+            {s.pseudonym ?? <span className="text-fg-muted">{t("common_none")}</span>}
           </Field>
-          <Field label="Country">
+          <Field label={t("network_node_field_country")}>
             {s.country ? (
               <span className="inline-flex items-center gap-2">
                 <CountryFlag code={s.country} showName />
                 <span className="text-xs text-fg-muted">
-                  {s.show_country ? "shown to members" : "not shown"}
+                  {s.show_country
+                    ? t("network_node_country_shown")
+                    : t("network_node_country_hidden")}
                 </span>
               </span>
             ) : (
-              <span className="text-fg-muted">None</span>
+              <span className="text-fg-muted">{t("common_none")}</span>
             )}
           </Field>
-          <Field label="Member since">{formatDay(s.enrolled_day, true)}</Field>
-          <Field label="Eligibility">{eligibilityText(s)}</Field>
-          <Field label="Standing">
+          <Field label={t("network_node_field_since")}>{formatDay(s.enrolled_day, true)}</Field>
+          <Field label={t("network_node_field_eligibility")}>{eligibilityText(s)}</Field>
+          <Field label={t("network_node_field_standing")}>
             {standing ? (
               <>
                 <span className="font-medium">{standing.label}</span>
@@ -111,7 +114,7 @@ export function NodeCard({ status: s }: { status: NetworkStatus }) {
               "–"
             )}
           </Field>
-          <Field label="Last batch" className="sm:col-span-2 lg:col-span-3">
+          <Field label={t("network_node_field_last_batch")} className="sm:col-span-2 lg:col-span-3">
             {s.last_submit_day ? (
               <>
                 {formatDay(s.last_submit_day, true)}
@@ -127,7 +130,7 @@ export function NodeCard({ status: s }: { status: NetworkStatus }) {
                 ) : null}
               </>
             ) : (
-              <span className="text-fg-muted">Nothing sent yet</span>
+              <span className="text-fg-muted">{t("network_node_nothing_sent")}</span>
             )}
           </Field>
         </dl>
@@ -135,7 +138,7 @@ export function NodeCard({ status: s }: { status: NetworkStatus }) {
           {canWrite ? (
             <Button variant="outline" size="sm" onClick={() => setSent(true)}>
               <FileJson aria-hidden />
-              See exactly what was sent
+              {t("network_node_see_sent")}
             </Button>
           ) : null}
           {canWrite ? (
@@ -147,10 +150,10 @@ export function NodeCard({ status: s }: { status: NetworkStatus }) {
               className="ml-auto"
             >
               <LogOut aria-hidden />
-              Leave the network
+              {t("network_leave_button")}
             </Button>
           ) : (
-            <p className="text-xs text-fg-muted">Only an administrator can change this.</p>
+            <p className="text-xs text-fg-muted">{t("network_message_forbidden")}</p>
           )}
         </div>
       </div>

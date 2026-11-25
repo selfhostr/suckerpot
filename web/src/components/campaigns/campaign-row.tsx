@@ -6,6 +6,7 @@ import { SeverityBadge } from "@/components/severity-badge"
 import { StageTrail } from "@/components/campaigns/stage-trail"
 import { CountryFlag } from "@/components/country-flag"
 import { describeScale, statusLabel, type Campaign } from "@/lib/campaigns"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 /** The grid shared by the list header and its rows (desktop). */
@@ -51,7 +52,7 @@ export function CampaignRow({
         to={`/campaigns/${c.id}`}
         onClick={(e) => markSubject(`campaign:${c.id}`, e)}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
-        aria-label={`${c.name}: ${describeScale(c)}`}
+        aria-label={t("campaign_row_link_label", { name: c.name, scale: describeScale(c) })}
       />
       <div className="min-w-0 space-y-1">
         <div className="flex min-w-0 items-center gap-2">

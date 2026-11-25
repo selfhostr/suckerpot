@@ -5,13 +5,15 @@ import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
 import { CopyField } from "@/components/abuse/copy-field"
 import { Button } from "@/components/ui/button"
+import { t, tk } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { abuseApi, describeAbuseError, safeFormUrl, type Recipient } from "@/lib/abuse"
 import { reducedFormUrl, SUGGEST_URL, suggestionText } from "@/lib/abuse-forms"
 
 const FORM_SOURCE: Record<string, string> = {
-  reply: "A reply from the desk said so.",
-  directory: "The shared directory of abuse forms says so.",
-  manual: "You chose it.",
+  reply: tk("abuse_desk_source_reply"),
+  directory: tk("abuse_desk_source_directory"),
+  manual: tk("abuse_desk_source_manual"),
 }
 
 /**
@@ -39,22 +41,18 @@ function Suggest({
   return (
     <details className="group rounded-md border px-3 py-2">
       <summary className="cursor-pointer text-fg-muted hover:text-fg">
-        Suggest for the shared directory
+        {t("abuse_desk_suggest_summary")}
       </summary>
       <div className="mt-2 space-y-2">
         <p className="text-xs text-fg-muted">
-          Other nodes can use this form once a maintainer has checked it on the provider&apos;s own
-          website. Copy the text and post it as an issue. Posting from your personal account links
-          that account to reporting this provider.
+          {t("abuse_desk_suggest_explain")}
         </p>
         {shortened ? (
           <p className="text-xs text-fg">
-            Only the provider&apos;s site is in the text: the link from the reply could hold a
-            ticket number, a token or your address. Find the form page on the provider&apos;s own
-            site and add its address to the issue yourself.
+            {t("abuse_desk_suggest_shortened")}
           </p>
         ) : null}
-        <CopyField label="Suggestion" value={text} multiline />
+        <CopyField label={t("abuse_desk_suggestion")} value={text} multiline />
         <a
           href={SUGGEST_URL}
           target="_blank"
@@ -62,7 +60,7 @@ function Suggest({
           referrerPolicy="no-referrer"
           className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
         >
-          Open a new issue
+          {t("abuse_desk_new_issue")}
           <ExternalLink aria-hidden className="size-3" />
         </a>
       </div>
@@ -94,6 +92,7 @@ export function DeskNotice({
     onError: (e) => setError(describeAbuseError(e)),
   })
   const form = recipient.form_only ?? false
+  const formSource = FORM_SOURCE[recipient.form_source ?? "reply"]
   const dead = recipient.undeliverable ?? false
   // A desk that reads mail but suggests its form: a hint, shown only when it is not form-only.
   const preferred = !form && (recipient.form_preferred ?? false)
@@ -111,11 +110,18 @@ export function DeskNotice({
       {form ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>
-            This desk only accepts its web form. Automatic sending skips it, and its reports wait in{" "}
-            <Link to="/defend/abuse?status=forms" className="underline underline-offset-2">
-              To submit by form
-            </Link>
-            . {FORM_SOURCE[recipient.form_source ?? "reply"] ?? ""}
+            {tNodes(
+              "abuse_desk_form_only",
+              {},
+              {
+                queue: (
+                  <Link to="/defend/abuse?status=forms" className="underline underline-offset-2">
+                    {t("abuse_desk_queue_link")}
+                  </Link>
+                ),
+              },
+            )}{" "}
+            {formSource ? t(formSource) : null}
           </span>
           {link ? (
             <a
@@ -125,7 +131,7 @@ export function DeskNotice({
               referrerPolicy="no-referrer"
               className="inline-flex items-center gap-1 underline underline-offset-2"
             >
-              Open the form
+              {t("abuse_desk_open_form")}
               <ExternalLink aria-hidden className="size-3.5" />
             </a>
           ) : null}
@@ -134,8 +140,11 @@ export function DeskNotice({
           ) : null}
           {plain ? (
             <span className="block w-full text-xs text-fg-muted">
-              Form address from the reply, not opened as a link (check it before you use it):{" "}
-              <span className="font-mono break-all">{plain}</span>
+              {tNodes(
+                "abuse_desk_form_address",
+                {},
+                { address: <span className="font-mono break-all">{plain}</span> },
+              )}
             </span>
           ) : null}
           {canWrite ? (
@@ -145,7 +154,7 @@ export function DeskNotice({
               disabled={clear.isPending}
               onClick={() => clear.mutate("form_only")}
             >
-              Clear this flag
+              {t("abuse_desk_clear_flag")}
             </Button>
           ) : null}
         </p>
@@ -155,7 +164,7 @@ export function DeskNotice({
       ) : null}
       {preferred ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span>This provider also has a web form; mail still works.</span>
+          <span>{t("abuse_desk_preferred")}</span>
           {link ? (
             <a
               href={link}
@@ -164,7 +173,7 @@ export function DeskNotice({
               referrerPolicy="no-referrer"
               className="inline-flex items-center gap-1 underline underline-offset-2"
             >
-              Open the form
+              {t("abuse_desk_open_form")}
               <ExternalLink aria-hidden className="size-3.5" />
             </a>
           ) : null}
@@ -173,8 +182,11 @@ export function DeskNotice({
           ) : null}
           {plain ? (
             <span className="block w-full text-xs text-fg-muted">
-              Form address from the reply, not opened as a link (check it before you use it):{" "}
-              <span className="font-mono break-all">{plain}</span>
+              {tNodes(
+                "abuse_desk_form_address",
+                {},
+                { address: <span className="font-mono break-all">{plain}</span> },
+              )}
             </span>
           ) : null}
         </p>
@@ -182,8 +194,7 @@ export function DeskNotice({
       {dead ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>
-            Mail to this address bounced for good. Automatic sending skips it. Type another address,
-            or clear the flag if the address works again.
+            {t("abuse_desk_bounced")}
           </span>
           {canWrite ? (
             <Button
@@ -192,7 +203,7 @@ export function DeskNotice({
               disabled={clear.isPending}
               onClick={() => clear.mutate("undeliverable")}
             >
-              Clear this flag
+              {t("abuse_desk_clear_flag")}
             </Button>
           ) : null}
         </p>

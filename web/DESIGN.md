@@ -141,6 +141,16 @@ Motion explains a change; it never decorates. Calm and precise: slow to start, f
 - **Long runs fold.** Repeated login attempts or HTTP requests in a timeline collapse into "Show 89 more login attempts · 2 min 9 s". Commands never fold: they are the story.
 - **Empty and loading states** keep the final layout (skeletons have the same footprint) and say what is missing and what to do.
 
+## Language (i18n)
+
+- **Nine locales**, one flat string file each in `src/i18n/locales/` (`en`, `fr`, `de`, `es`, `it`, `pt`, `pt-BR`, `ru`, `zh-Hans`). `en.json` is the source: a missing key falls back to English, and a test fails when a locale has a key that `en.json` lacks, when a key used in the code is not in `en.json`, or when a translation changes the `{placeholders}` of the English message.
+- **i18next with ICU messages** (`i18next-icu`): `t("today_header_sessions", { count })` with `{count, plural, one {# session} other {# sessions}}`. Keys are snake_case, `<area>_<component>_<meaning>`, always a string literal at the call site. Data tables hold `tk("key")` and render with `t()`. Never call `t()` at module scope: the routed tree is remounted when the language changes.
+- **One key is one whole sentence.** Never join translated fragments, never put markup in a message. A sentence with a link or a `<code>` takes a `{placeholder}` and `tNodes()` fills it with the node.
+- **Not translated**: product and sensor names, commands, ports, file names, code, MITRE ids, and anything that comes from the server or the traffic. The charter rules apply in every language: plain words, no em dash, no emoji, warnings at full strength.
+- **Numbers and dates** go through `lib/format.ts` (`formatNumber`, `formatRelative`, `formatAbsolute`...), which use the active locale (`pt` is formatted as pt-PT); tabular figures stay on. Use `intlLocale()` when an `Intl` formatter is built elsewhere.
+- **Text grows.** German and Russian run about 40 percent longer than English. No fixed widths on buttons, tabs, badges or table headers that hold text; flex children that carry text get `min-w-0` and wrap or truncate. Check a change in `de` and `ru` at 1920 and 390 px.
+- **Choosing**: the first visit reads `navigator.languages`, an explicit choice is kept in `localStorage`, and the selector is one item in the profile menu (`app/account-menu.tsx`) that opens the nine languages by their own names. `<html lang>` follows.
+
 ## Screenshot mode
 
 "Mask IP addresses" in the account menu (the profile block at the foot of the sidebar), or `?mask=1` / `?mask=0` on any URL (persisted per browser), masks every address: `203.0.113.42` becomes `203.0.x.x`, and IPv4 addresses inside free text (URLs, commands, live summaries, the IP filter chip and page headlines) are masked the same way. Copy buttons are hidden while masked. Use it for any screenshot of real data.

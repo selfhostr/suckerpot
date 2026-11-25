@@ -1,5 +1,5 @@
 /** Probable command-and-control addresses (read-only): types, wording and the page sentence. */
-import { plural } from "./format"
+import { t } from "@/i18n"
 import { safeReference } from "./infrastructure"
 
 export type C2Confidence = "high" | "medium"
@@ -32,8 +32,12 @@ export interface C2Page {
 }
 
 export const C2_CONFIDENCE_LABELS: Record<C2Confidence, string> = {
-  high: "Reported as C2 by ThreatFox",
-  medium: "Seen contacted in a VirusTotal sandbox",
+  get high() {
+    return t("c2_confidence_high")
+  },
+  get medium() {
+    return t("c2_confidence_medium")
+  },
 }
 
 /** Only the https links to the intel services are ever shown. */
@@ -47,11 +51,12 @@ export function referenceLabel(url: string): string {
 
 /** The sentence the section opens with. */
 export function describeC2(items: readonly C2Address[], more: boolean): string {
-  if (items.length === 0) return "No control server is known for the malware dropped here yet."
+  if (items.length === 0) return t("c2_describe_none")
   const single = items.length === 1 && !more
   const high = items.filter((i) => i.confidence === "high").length
-  const base = `${items.length}${more ? "+" : ""} ${single ? "address is" : "addresses are"} probably the ${single ? "control server" : "control servers"} of malware dropped on your decoys.`
-  return high > 0
-    ? `${base} ${plural(high, "was", "were")} reported as C2 by ThreatFox. Block them.`
-    : `${base} Block them.`
+  return t("c2_describe", {
+    shown: `${items.length}${more ? "+" : ""}`,
+    single: single ? "yes" : "no",
+    high,
+  })
 }

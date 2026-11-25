@@ -1,4 +1,5 @@
 import { Check, Copy } from "lucide-react"
+import { t } from "@/i18n"
 import { Button } from "@/components/ui/button"
 import { useCopy } from "@/hooks/use-copy"
 
@@ -25,11 +26,11 @@ export function CopyButton({
       variant={variant}
       size={size ?? (children ? "sm" : "icon-sm")}
       onClick={() => void copy(text)}
-      aria-label={children ? undefined : copied ? "Copied" : label}
+      aria-label={children ? undefined : copied ? t("common_copied") : label}
       className="text-fg-muted hover:text-fg"
     >
       <Icon aria-hidden />
-      {children ? (copied ? "Copied" : children) : null}
+      {children ? (copied ? t("common_copied") : children) : null}
     </Button>
   )
 }

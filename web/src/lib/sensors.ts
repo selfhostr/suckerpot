@@ -23,6 +23,8 @@ import {
   SquareTerminal,
   type LucideIcon,
 } from "lucide-react"
+import { intlLocale, t, tk } from "@/i18n"
+import { withText } from "./t-getters"
 
 /** Registry order: family by family, busiest-first inside a family. Charts stack in this order. */
 export const SENSORS = [
@@ -126,7 +128,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   ssh: {
     label: "SSH",
     noun: "SSH",
-    description: "OpenSSH server with a fake shell",
+    description: tk("sensor_ssh_description"),
     icon: SquareTerminal,
     family: "shell",
     port: 22,
@@ -136,7 +138,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   telnet: {
     label: "Telnet",
     noun: "Telnet",
-    description: "BusyBox-style IoT login",
+    description: tk("sensor_telnet_description"),
     icon: Router,
     family: "shell",
     port: 23,
@@ -146,7 +148,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   adb: {
     label: "ADB",
     noun: "ADB",
-    description: "Android debug bridge of a TV box",
+    description: tk("sensor_adb_description"),
     icon: Smartphone,
     family: "shell",
     port: 5555,
@@ -154,9 +156,9 @@ const DEFS: Record<Sensor, SensorDef> = {
     credential: "login",
   },
   web: {
-    label: "Web",
+    label: tk("sensor_web_label"),
     noun: "HTTP",
-    description: "Apache + PHP application",
+    description: tk("sensor_web_description"),
     icon: Globe,
     family: "web",
     port: 80,
@@ -166,7 +168,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   docker: {
     label: "Docker",
     noun: "Docker API",
-    description: "Unauthenticated Docker Engine API",
+    description: tk("sensor_docker_description"),
     icon: Container,
     family: "web",
     port: 2375,
@@ -176,7 +178,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   redis: {
     label: "Redis",
     noun: "Redis",
-    description: "Open Redis server",
+    description: tk("sensor_redis_description"),
     icon: DatabaseZap,
     family: "data",
     port: 6379,
@@ -186,7 +188,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   mysql: {
     label: "MySQL",
     noun: "MySQL",
-    description: "MySQL server with a weak root",
+    description: tk("sensor_mysql_description"),
     icon: Database,
     family: "data",
     port: 3306,
@@ -196,7 +198,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   mssql: {
     label: "MSSQL",
     noun: "SQL Server",
-    description: "Microsoft SQL Server (TDS)",
+    description: tk("sensor_mssql_description"),
     icon: Server,
     family: "data",
     port: 1433,
@@ -206,7 +208,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   rdp: {
     label: "RDP",
     noun: "RDP",
-    description: "Windows Remote Desktop",
+    description: tk("sensor_rdp_description"),
     icon: Monitor,
     family: "windows",
     port: 3389,
@@ -216,7 +218,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   smb: {
     label: "SMB",
     noun: "SMB",
-    description: "Windows file sharing (SMB)",
+    description: tk("sensor_smb_description"),
     icon: FolderOpen,
     family: "windows",
     port: 445,
@@ -226,7 +228,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   sip: {
     label: "SIP",
     noun: "SIP",
-    description: "VoIP phone system (SIP)",
+    description: tk("sensor_sip_description"),
     icon: Phone,
     family: "windows",
     port: 5060,
@@ -236,7 +238,7 @@ const DEFS: Record<Sensor, SensorDef> = {
   synology: {
     label: "Synology",
     noun: "Synology NAS",
-    description: "Unpatched Synology DSM web interface",
+    description: tk("sensor_synology_description"),
     icon: HardDrive,
     family: "web",
     port: 5000,
@@ -268,40 +270,52 @@ function byKey<K extends string, V>(keys: readonly K[], make: (key: K) => V): Re
   return out
 }
 
+/** `label` and `description` read through t() every time, so they follow the language. */
 export const SENSOR_META: Record<Sensor, SensorMeta> = byKey(SENSORS, (id) => {
   const def = DEFS[id]
-  return { id, ...def, ...FAMILY_STYLE[def.family], shadeVar: SHADE_VAR[id] }
+  return withText(
+    { id, ...def, ...FAMILY_STYLE[def.family], shadeVar: SHADE_VAR[id] },
+    id === "web"
+      ? { label: def.label, description: def.description }
+      : { description: def.description },
+  )
 })
 
-const FAMILY_TEXT: Record<SensorFamily, Pick<FamilyMeta, "label" | "noun" | "description">> = {
+const FAMILY_TEXT: Record<SensorFamily, { label: string; noun: string; description: string }> = {
   shell: {
-    label: "Remote shells",
-    noun: "remote shells",
-    description: "Log in, get a prompt, run commands",
+    label: tk("sensor_family_shell_label"),
+    noun: tk("sensor_family_shell_noun"),
+    description: tk("sensor_family_shell_description"),
   },
   web: {
-    label: "Web & APIs",
-    noun: "web and API sensors",
-    description: "HTTP requests, exposed APIs and admin portals",
+    label: tk("sensor_family_web_label"),
+    noun: tk("sensor_family_web_noun"),
+    description: tk("sensor_family_web_description"),
   },
   data: {
-    label: "Databases",
-    noun: "databases",
-    description: "Open data stores and SQL servers",
+    label: tk("sensor_family_data_label"),
+    noun: tk("sensor_family_data_noun"),
+    description: tk("sensor_family_data_description"),
   },
   windows: {
-    label: "Windows & VoIP",
-    noun: "Windows and VoIP sensors",
-    description: "Desktop, file sharing and phone systems",
+    label: tk("sensor_family_windows_label"),
+    noun: tk("sensor_family_windows_noun"),
+    description: tk("sensor_family_windows_description"),
   },
 }
 
-export const FAMILY_META: Record<SensorFamily, FamilyMeta> = byKey(SENSOR_FAMILIES, (id) => ({
-  id,
-  ...FAMILY_TEXT[id],
-  ...FAMILY_STYLE[id],
-  sensors: SENSORS.filter((s) => DEFS[s].family === id),
-}))
+/** `label`, `noun` and `description` read through t() every time, so they follow the language. */
+export const FAMILY_META: Record<SensorFamily, FamilyMeta> = byKey(SENSOR_FAMILIES, (id) =>
+  withText(
+    {
+      id,
+      ...FAMILY_TEXT[id],
+      ...FAMILY_STYLE[id],
+      sensors: SENSORS.filter((s) => DEFS[s].family === id),
+    },
+    FAMILY_TEXT[id],
+  ),
+)
 
 export function sensorMeta(sensor: string): SensorMeta | null {
   return isSensor(sensor) ? SENSOR_META[sensor] : null
@@ -343,9 +357,20 @@ export function exactFamily(sensors: readonly Sensor[]): SensorFamily | null {
   return null
 }
 
-function joinAnd(parts: readonly string[]): string {
+/** "A, B and C" in the active language ("A, B and C" in English, no Oxford comma). */
+export function listAnd(parts: readonly string[]): string {
   if (parts.length <= 1) return parts.join("")
-  return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1) ?? ""}`
+  const locale = intlLocale()
+  return new Intl.ListFormat(locale === "en" ? "en-GB" : locale, {
+    style: "long",
+    type: "conjunction",
+  }).format(parts)
+}
+
+/** "A, B, C" in the active language (a plain run of clauses, no "and"). */
+export function listPlain(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts.join("")
+  return new Intl.ListFormat(intlLocale(), { style: "long", type: "unit" }).format(parts)
 }
 
 /**
@@ -353,18 +378,18 @@ function joinAnd(parts: readonly string[]): string {
  * "Remote shells" (a whole family) or "5 sensors".
  */
 export function sensorSetLabel(sensors: readonly Sensor[]): string {
-  if (sensors.length === 0 || sensors.length === SENSORS.length) return "All sensors"
+  if (sensors.length === 0 || sensors.length === SENSORS.length) return t("sensors_set_all")
   const family = sensors.length > 1 ? exactFamily(sensors) : null
   if (family) return FAMILY_META[family].label
-  if (sensors.length <= 3) return joinAnd(sensors.map((s) => SENSOR_META[s].label))
-  return `${sensors.length} sensors`
+  if (sensors.length <= 3) return listAnd(sensors.map((s) => SENSOR_META[s].label))
+  return t("sensors_set_count", { count: sensors.length })
 }
 
 /** The same, for the middle of a sentence: "SSH and Telnet", "the remote shells", "5 sensors". */
 export function sensorSetPhrase(sensors: readonly Sensor[]): string {
-  if (sensors.length === 0 || sensors.length === SENSORS.length) return "every sensor"
+  if (sensors.length === 0 || sensors.length === SENSORS.length) return t("sensors_phrase_all")
   const family = sensors.length > 1 ? exactFamily(sensors) : null
-  if (family) return `the ${FAMILY_META[family].noun}`
+  if (family) return t("sensors_phrase_family", { noun: FAMILY_META[family].noun })
   return sensorSetLabel(sensors)
 }
 

@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state"
 import { FindingCard } from "@/components/finding-card"
 import { SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { describeAbuseError } from "@/lib/abuse"
 import {
   describeFormItem,
@@ -47,7 +48,7 @@ function Card({
           </span>
         </span>
         <Button size="sm" variant={open ? "ghost" : "outline"} onClick={onToggle}>
-          {open ? "Close the kit" : "Open the kit"}
+          {open ? t("abuse_form_queue_close_kit") : t("abuse_form_queue_open_kit")}
         </Button>
       </header>
       {open ? (
@@ -74,11 +75,11 @@ export function FormQueue() {
     return (
       <EmptyState
         icon={Info}
-        title="Could not load the form queue"
+        title={t("abuse_form_queue_load_failed")}
         description={describeAbuseError(q.error)}
         action={
           <Button variant="outline" size="sm" onClick={() => void q.refetch()}>
-            Try again
+            {t("common_try_again")}
           </Button>
         }
       />
@@ -88,23 +89,24 @@ export function FormQueue() {
     return (
       <EmptyState
         icon={CircleCheck}
-        title={done > 0 ? "All submitted" : "Nothing to submit by form"}
+        title={done > 0 ? t("abuse_form_queue_all_done") : t("abuse_form_queue_nothing")}
         description={
           done > 0
-            ? `You recorded ${done} ${done === 1 ? "submission" : "submissions"} in this session.`
-            : (q.data.missing.length > 0
-                ? "Set a reply contact in the Reporting settings first. "
-                : "") +
-              "A provider appears here when its desk takes reports only through a web form: a reply said so, the shared directory knows it, or you chose it on a report."
+            ? t("abuse_form_queue_recorded", { count: done })
+            : t("abuse_form_queue_empty_explain", {
+                needContact: q.data.missing.length > 0 ? "yes" : "no",
+              })
         }
       />
     )
   return (
     <div className="space-y-4 normal-nums">
-      <FindingCard eyebrow="To submit by form" finding={describeFormQueue(items.length)}>
+      <FindingCard
+        eyebrow={t("abuse_form_queue_eyebrow")}
+        finding={describeFormQueue(items.length)}
+      >
         <p className="text-sm text-fg-muted">
-          Open a kit, open the form, paste each field, then press Submitted. A submitted report
-          counts as sent, like a mail.
+          {t("abuse_form_queue_howto")}
         </p>
       </FindingCard>
       {items.map((item) => (

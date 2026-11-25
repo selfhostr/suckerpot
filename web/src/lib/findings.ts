@@ -2,9 +2,10 @@
  * Plain-English finding sentences for the Overview cards. Every function is
  * pure (data in, text out) so the wording is unit-tested.
  */
+import { t } from "@/i18n"
 import { SENSORS, type Sensor, type TimePoint, type TopItem, type TopResponse } from "./api"
-import { countryName, formatNumber, formatPercent, plural } from "./format"
-import { FAMILY_META, SENSOR_FAMILIES, SENSOR_META, sumByFamily } from "./sensors"
+import { countryName, formatPercent } from "./format"
+import { FAMILY_META, SENSOR_FAMILIES, SENSOR_META, listAnd, sumByFamily } from "./sensors"
 
 export interface Finding {
   finding: string
@@ -47,7 +48,7 @@ export function describeActivity(
 ): Finding {
   const totals = sumBySensor(points, "events")
   const total = SENSORS.reduce((n, s) => n + totals[s], 0)
-  if (total === 0) return { finding: "No events in the last 24 hours." }
+  if (total === 0) return { finding: t("findings_activity_none") }
 
   const families = sumByFamily(totals)
   const family = [...SENSOR_FAMILIES].sort((a, b) => families[b] - families[a])[0] ?? "shell"
@@ -62,21 +63,34 @@ export function describeActivity(
   if (solo) {
     finding =
       share >= 0.995
-        ? `Every event in the last 24 hours hit the ${label} sensor.`
-        : `${label} drew ${formatPercent(share)} of all events in the last 24 hours.`
+        ? t("findings_activity_all_one", { label })
+        : t("findings_activity_share_one", { label, share: formatPercent(share) })
   } else {
     finding =
       famShare >= 0.995
-        ? `Every event in the last 24 hours hit the ${fam.noun}, led by ${label} (${formatPercent(share)}).`
-        : `${fam.label} drew ${formatPercent(famShare)} of all events in the last 24 hours, led by ${label} (${formatPercent(share)}).`
+        ? t("findings_activity_all_family", {
+            noun: fam.noun,
+            label,
+            share: formatPercent(share),
+          })
+        : t("findings_activity_share_family", {
+            family: fam.label,
+            famShare: formatPercent(famShare),
+            label,
+            share: formatPercent(share),
+          })
   }
   const peak = points.reduce<TimePoint | null>(
     (best, p) => (best === null || pointTotal(p) > pointTotal(best) ? p : best),
     null,
   )
   const detail = peak
-    ? `${formatNumber(total)} events in all. Busiest hour: ${formatPeak(peak.ts)}, with ${plural(pointTotal(peak), "event")}.`
-    : `${formatNumber(total)} events in all.`
+    ? t("findings_activity_detail_peak", {
+        total,
+        hour: formatPeak(peak.ts),
+        count: pointTotal(peak),
+      })
+    : t("findings_activity_detail", { total })
   return { finding, detail }
 }
 
@@ -92,14 +106,16 @@ function named(item: TopItem): string {
 export function describeCountries(top: TopResponse | undefined): Finding {
   const items = (top?.items ?? []).filter((i) => i.value)
   const [first, second, third] = items
-  if (!first) return { finding: "No country data yet." }
+  if (!first) return { finding: t("findings_countries_none") }
   const rest = [second, third]
     .filter((i): i is TopItem => Boolean(i))
     .map((i) => `${named(i)} (${pct(i)})`)
-  const lead = `${named(first)} led with ${pct(first)} of sessions`
+  const values = { country: named(first), share: pct(first), rest: listAnd(rest) }
   return {
-    finding: rest.length ? `${lead}, ahead of ${rest.join(" and ")}.` : `${lead}.`,
-    detail: `${formatNumber(top?.total ?? 0)} sessions with a known origin.`,
+    finding: rest.length
+      ? t("findings_countries_lead_ahead", values)
+      : t("findings_countries_lead", values),
+    detail: t("findings_countries_detail", { total: top?.total ?? 0 }),
   }
 }
 
@@ -109,11 +125,17 @@ export function describeCredential(
   top: TopResponse | undefined,
 ): Finding {
   const [first, second] = top?.items ?? []
-  if (!first) return { finding: `No ${field}s tried yet.` }
-  const tail = second ? `, ahead of "${second.value}" (${pct(second)})` : ""
+  if (!first) return { finding: t("findings_credential_none", { field }) }
   return {
-    finding: `"${first.value}" was the most tried ${field}, in ${pct(first)} of login attempts${tail}.`,
-    detail: `${formatNumber(top?.total ?? 0)} login attempts.`,
+    finding: t("findings_credential_top", {
+      field,
+      first: first.value,
+      share: pct(first),
+      hasSecond: second ? "yes" : "no",
+      second: second?.value ?? "",
+      secondShare: second ? pct(second) : "",
+    }),
+    detail: t("findings_credential_detail", { total: top?.total ?? 0 }),
   }
 }
 
@@ -128,8 +150,13 @@ export function describeTimeline(
     (best, p) => (best === null || p.events > best.events ? p : best),
     null,
   )
-  if (!peak) return { finding: `No activity in the last ${window} days.` }
+  if (!peak) return { finding: t("findings_timeline_none", { window }) }
   return {
-    finding: `Active on ${active.length} of the last ${window} days, busiest on ${formatDay(peak.day)} with ${plural(peak.events, "event")}.`,
+    finding: t("findings_timeline_busiest", {
+      active: active.length,
+      window,
+      day: formatDay(peak.day),
+      events: peak.events,
+    }),
   }
 }

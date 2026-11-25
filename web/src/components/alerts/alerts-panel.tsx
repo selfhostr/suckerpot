@@ -3,18 +3,16 @@ import { Link } from "react-router"
 import { OutboxCard } from "@/components/alerts/outbox-card"
 import { ReportsCard } from "@/components/alerts/reports-card"
 import { RulesCard, WatchedCvesCard } from "@/components/alerts/rules-card"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { alertKeys, alertsApi } from "@/lib/alerts"
-import { plural } from "@/lib/format"
 
 /** What the tab says right now, in one sentence. */
 function sentence(enabledRules: number | null, channels: number | null, off: boolean): string {
-  if (off)
-    return "Alerts are switched off on this server, so nothing is sent until they are enabled."
-  if (enabledRules === null || channels === null)
-    return "Get a message when something that matters happens, and one report every Monday."
-  if (enabledRules === 0)
-    return "Nothing is sent yet. Switch on the alerts you care about and choose where they go."
-  return `${plural(enabledRules, "alert")} ${enabledRules === 1 ? "is" : "are"} on, sent to ${plural(channels, "channel")}.`
+  if (off) return t("alerts_panel_off")
+  if (enabledRules === null || channels === null) return t("alerts_panel_intro")
+  if (enabledRules === 0) return t("alerts_panel_none")
+  return t("alerts_panel_summary", { alerts: enabledRules, channels })
 }
 
 /**
@@ -32,12 +30,17 @@ export function AlertsPanel() {
   return (
     <div className="grid grid-cols-1 gap-4 normal-nums">
       <p className="type-lede text-pretty text-fg-muted">
-        {sentence(enabled, used, status.data ? !status.data.alerts.enabled : false)} Where they go
-        is set under{" "}
-        <Link to="/settings?tab=alerts" className="text-fg underline underline-offset-4">
-          Alert channels
-        </Link>
-        .
+        {tNodes(
+          "alerts_panel_lede",
+          { summary: sentence(enabled, used, status.data ? !status.data.alerts.enabled : false) },
+          {
+            link: (
+              <Link to="/settings?tab=alerts" className="text-fg underline underline-offset-4">
+                {t("settings_tab_alert_channels")}
+              </Link>
+            ),
+          },
+        )}
       </p>
       <RulesCard />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

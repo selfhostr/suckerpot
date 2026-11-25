@@ -13,7 +13,8 @@ import { PageHeader } from "@/components/page-header"
 import { SegmentedControl } from "@/components/segmented-control"
 import { StatTile } from "@/components/stat-tile"
 import { Button } from "@/components/ui/button"
-import { formatNumber, formatPercent } from "@/lib/format"
+import { t, tk } from "@/i18n"
+import { formatPercent } from "@/lib/format"
 import {
   CHANNEL_LABEL,
   resultKeys,
@@ -26,24 +27,29 @@ import { describeTakedownHeader, describeTtd, longDelay, shortDelay } from "@/li
 import { cn } from "@/lib/utils"
 
 /** Filters that arrive from links elsewhere (a target page, the takedown tiles). */
-const FILTER_CHIPS: FilterChipDef[] = [
+const filterChips = (): FilterChipDef[] => [
   {
     param: "kind",
-    label: "Kind",
-    render: (v) => (v === "url" ? "URLs" : v === "host" ? "Hosts" : v),
+    label: t("results_filter_kind"),
+    render: (v) =>
+      v === "url"
+        ? t("results_targets_role_urls")
+        : v === "host"
+          ? t("results_targets_role_hosts")
+          : v,
   },
-  { param: "provider", label: "Provider" },
+  { param: "provider", label: t("results_filter_provider") },
   {
     param: "channel",
-    label: "Channel",
+    label: t("results_filter_channel"),
     render: (v) => (v in CHANNEL_LABEL ? CHANNEL_LABEL[v as Channel] : v),
   },
 ]
 
 const PERIODS = [
-  { value: "30", label: "30 days" },
-  { value: "90", label: "90 days" },
-  { value: "365", label: "1 year" },
+  { value: "30", labelKey: tk("results_period_30") },
+  { value: "90", labelKey: tk("results_period_90") },
+  { value: "365", labelKey: tk("results_period_365") },
 ] as const
 
 const DEFAULT_DAYS = 90
@@ -134,37 +140,37 @@ export function ResultsPage() {
     <>
       <PageHeader
         help="abuse-results"
-        title="Results"
+        title={t("results_title")}
         description={
           <span className="normal-nums">
             {summary.isError
-              ? "The results could not be loaded."
+              ? t("results_load_error")
               : describeTakedownHeader(s, since)}
           </span>
         }
         actions={
           <SegmentedControl
-            label="Period"
+            label={t("results_period_label")}
             value={presetOf(sinceParam)}
             onChange={(v) =>
               setParam("since", v === String(DEFAULT_DAYS) ? null : daysAgo(Number(v)))
             }
-            options={PERIODS}
+            options={PERIODS.map((p) => ({ value: p.value, label: t(p.labelKey) }))}
             className="scroll-fade-x max-w-full overflow-x-auto"
           />
         }
       />
 
-      {active.length > 0 ? <FilterBar className="mb-4" chips={FILTER_CHIPS} /> : null}
+      {active.length > 0 ? <FilterBar className="mb-4" chips={filterChips()} /> : null}
 
       {nothing ? (
         <EmptyState
           icon={ChartNoAxesCombined}
-          title="No report sent yet"
-          description="Results appear here once you send one."
+          title={t("results_empty_title")}
+          description={t("results_empty_description")}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/defend/abuse">Open the reports</Link>
+              <Link to="/defend/abuse">{t("results_open_reports")}</Link>
             </Button>
           }
         />
@@ -182,61 +188,71 @@ export function ResultsPage() {
           >
             <StatTile
               variant="figure"
-              label="Reports sent"
+              label={t("results_tile_sent")}
               value={totals?.sent}
               loading={!totals}
-              hint={totals ? `${formatNumber(totals.no_answer)} without an answer` : undefined}
+              hint={totals ? t("results_tile_sent_hint", { count: totals.no_answer }) : undefined}
               href="/defend/abuse?status=sent"
             />
             <StatTile
               variant="figure"
-              label="Answered"
+              label={t("results_tile_answered")}
               value={totals?.answered}
               loading={!totals}
               hint={
                 totals && totals.eligible > 0
-                  ? `${formatPercent(totals.answered / totals.eligible)} of reports sent 3+ days ago`
-                  : "Reports are counted after 3 days"
+                  ? t("results_tile_answered_hint", {
+                      percent: formatPercent(totals.answered / totals.eligible),
+                    })
+                  : t("results_tile_answered_hint_none")
               }
             />
             <StatTile
               variant="figure"
-              label="Half answered within"
+              label={t("results_tile_half")}
               value={totals?.first_reply_p50_s ?? 0}
               loading={!totals}
-              format={(n) => (totals?.first_reply_p50_s == null ? "none yet" : longDelay(n))}
-              hint="From the time you sent the report"
+              format={(n) =>
+                totals?.first_reply_p50_s == null ? t("results_none_yet") : longDelay(n)
+              }
+              hint={t("results_tile_half_hint")}
             />
             <StatTile
               variant="figure"
-              label="Nine in ten within"
+              label={t("results_tile_nine")}
               value={totals?.first_reply_p90_s ?? 0}
               loading={!totals}
-              format={(n) => (totals?.first_reply_p90_s == null ? "none yet" : longDelay(n))}
-              hint="The slowest tenth takes longer"
+              format={(n) =>
+                totals?.first_reply_p90_s == null ? t("results_none_yet") : longDelay(n)
+              }
+              hint={t("results_tile_nine_hint")}
             />
             <StatTile
               variant="figure"
-              label="Median time to resolve"
+              label={t("results_tile_resolve")}
               value={totals?.resolved_p50_s ?? 0}
               loading={!totals}
-              format={(n) => (totals?.resolved_p50_s == null ? "none yet" : longDelay(n))}
-              hint={`${formatNumber(totals?.by_outcome.resolved ?? 0)} said they acted`}
+              format={(n) =>
+                totals?.resolved_p50_s == null ? t("results_none_yet") : longDelay(n)
+              }
+              hint={t("results_tile_resolve_hint", { count: totals?.by_outcome.resolved ?? 0 })}
             />
             {tracking ? (
               <>
                 <StatTile
                   variant="figure"
-                  label="Taken down within 48 h"
+                  label={t("results_tile_down")}
                   value={s.urls.down_48h}
-                  hint={`of ${formatNumber(s.urls.eligible_48h)} reported URLs`}
+                  hint={t("results_tile_down_hint", { count: s.urls.eligible_48h })}
                 />
                 <StatTile
                   variant="figure"
-                  label="Median time to takedown"
+                  label={t("results_tile_ttd")}
                   value={s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? s.urls.ttd_p50_s : 0}
                   format={(n) =>
-                    s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? shortDelay(n) : "n/a"
+                    s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5
+                      ? shortDelay(n)
+                      : t("results_na")
                   }
                   hint={describeTtd(s.urls)}
                 />

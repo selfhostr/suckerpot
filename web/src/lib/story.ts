@@ -15,11 +15,12 @@ import {
   UserCheck,
   type LucideIcon,
 } from "lucide-react"
+import { intlLocale, t, tk } from "@/i18n"
 import { getJson } from "./api"
-import { formatNumber, plural } from "./format"
 import type { TermId } from "./glossary"
 import { SENSORS, sensorMeta } from "./sensors"
 import { EXPLOIT_TAGS, type Severity } from "./severity"
+import { withText } from "./t-getters"
 
 export const STAGES = ["looked", "guessed", "got_in", "commands", "download", "exploit"] as const
 export type Stage = (typeof STAGES)[number]
@@ -133,48 +134,59 @@ export interface StageMeta {
   term?: TermId
 }
 
-export const STAGE_META: Record<Stage, StageMeta> = {
+const STAGE_BASE: Record<Stage, StageMeta> = {
   looked: {
-    label: "Only looked",
-    sentence: "Knocked on the door, looked around and left without trying anything.",
+    label: tk("story_stage_looked_label"),
+    sentence: tk("story_stage_looked_sentence"),
     cssVar: "var(--fg-subtle)",
     icon: Eye,
     term: "scanner",
   },
   guessed: {
-    label: "Guessed passwords",
-    sentence: "Tried passwords one after another, but none of them worked.",
+    label: tk("story_stage_guessed_label"),
+    sentence: tk("story_stage_guessed_sentence"),
     cssVar: "var(--fg-muted)",
     icon: KeyRound,
     term: "brute-force",
   },
   got_in: {
-    label: "Got in",
-    sentence: "A password worked, so it got inside the decoy system, then did nothing more.",
+    label: tk("story_stage_got_in_label"),
+    sentence: tk("story_stage_got_in_sentence"),
     cssVar: "var(--sev-warning)",
     icon: UserCheck,
   },
   commands: {
-    label: "Ran commands",
-    sentence: "Once inside, it typed commands to look around or take control.",
+    label: tk("story_stage_commands_label"),
+    sentence: tk("story_stage_commands_sentence"),
     cssVar: "var(--sev-warning)",
     icon: SquareTerminal,
   },
   download: {
-    label: "Tried to install something",
-    sentence: "Tried to download a program onto the machine, usually malware.",
+    label: tk("story_stage_download_label"),
+    sentence: tk("story_stage_download_sentence"),
     cssVar: "var(--sev-severe)",
     icon: Download,
     term: "malware",
   },
   exploit: {
-    label: "Sent an exploit",
-    sentence: "Sent a booby-trapped request to abuse a known flaw in the software.",
+    label: tk("story_stage_exploit_label"),
+    sentence: tk("story_stage_exploit_sentence"),
     cssVar: "var(--sev-severe)",
     icon: Bug,
     term: "exploit",
   },
 }
+
+/** `label` and `sentence` read through t() every time, so they follow the language. */
+export const STAGE_META: Record<Stage, StageMeta> = Object.fromEntries(
+  STAGES.map((stage) => [
+    stage,
+    withText(STAGE_BASE[stage], {
+      label: STAGE_BASE[stage].label,
+      sentence: STAGE_BASE[stage].sentence,
+    }),
+  ]),
+) as Record<Stage, StageMeta>
 
 export function isStage(v: string): v is Stage {
   return (STAGES as readonly string[]).includes(v)
@@ -336,15 +348,14 @@ export function linkHref(source: FlowNode, target: FlowNode): string {
 }
 
 /** The finding that opens the flow card. Numbers only; the API's headline carries the story. */
-export function flowFinding(t: StoryTotals): string {
-  if (t.sessions === 0) return "Nothing knocked on your doors."
-  const stopped = Math.max(0, t.sessions - t.got_in - t.exploits)
-  const share = Math.round((stopped / t.sessions) * 100)
-  const worst =
-    t.downloads + t.exploits > 0
-      ? ` ${formatNumber(t.downloads + t.exploits)} went further: they tried to install something or sent an exploit.`
-      : ""
-  return `${share}% of visits never got past the door.${t.got_in > 0 ? ` ${formatNumber(t.got_in)} guessed a password and got in.` : ""}${worst}`
+export function flowFinding(t_: StoryTotals): string {
+  if (t_.sessions === 0) return t("story_flow_finding_none")
+  const stopped = Math.max(0, t_.sessions - t_.got_in - t_.exploits)
+  return t("story_flow_finding", {
+    share: Math.round((stopped / t_.sessions) * 100),
+    gotIn: t_.got_in,
+    worse: t_.downloads + t_.exploits,
+  })
 }
 
 // --- Time window -------------------------------------------------------------------------
@@ -380,27 +391,30 @@ export function windowLabel(
   until: string | undefined,
   now = Date.now(),
 ) {
-  if (since && until) return `Between ${hhmm(since)} and ${hhmm(until)}`
+  if (since && until) return t("story_window_between", { from: hhmm(since), to: hhmm(until) })
   if (since) {
     const hours = Math.round((now - Date.parse(since)) / 3_600_000)
-    if (hours >= 48 && hours <= 168 && hours % 24 === 0) return `Last ${plural(hours / 24, "day")}`
-    if (hours >= 1 && hours <= 168) return `Last ${plural(hours, "hour")}`
-    return `Since ${hhmm(since)}`
+    if (hours >= 48 && hours <= 168 && hours % 24 === 0)
+      return t("story_window_last_days", { count: hours / 24 })
+    if (hours >= 1 && hours <= 168) return t("story_window_last_hours", { count: hours })
+    return t("story_window_since", { time: hhmm(since) })
   }
-  return until ? `Before ${hhmm(until)}` : ""
+  return until ? t("story_window_before", { time: hhmm(until) }) : ""
 }
 
 // --- Timeline -----------------------------------------------------------------------------
 
-const clockFmt = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-})
+const clockFormats = new Map<string, Intl.DateTimeFormat>()
 
 /** "14:00" in the browser's time zone. */
 export function hhmm(d: string | Date): string {
-  return clockFmt.format(typeof d === "string" ? new Date(d) : d)
+  const locale = intlLocale()
+  let fmt = clockFormats.get(locale)
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    clockFormats.set(locale, fmt)
+  }
+  return fmt.format(typeof d === "string" ? new Date(d) : d)
 }
 
 /** Length of one bucket in ms: from the first two starts, one hour when unknown. */
@@ -429,14 +443,13 @@ export function busiestBucket(timeline: readonly TimelineBucket[]): number {
 export function bucketSentence(bucket: TimelineBucket, ms: number): string {
   const from = hhmm(bucket.start)
   const to = hhmm(new Date(Date.parse(bucket.start) + ms))
-  if (bucket.sessions === 0) return `Between ${from} and ${to}, nothing knocked on your doors.`
+  if (bucket.sessions === 0) return t("story_bucket_empty", { from, to })
   const top = Object.entries(bucket.by_door).sort((a, b) => b[1] - a[1])[0]
-  const door = top ? (sensorMeta(top[0])?.noun ?? top[0]) : null
-  const bits = [
-    `Between ${from} and ${to}, ${plural(bucket.sessions, "visit")} came in${door ? `, mostly to ${door}` : ""}.`,
-  ]
-  if (bucket.severe > 0) {
-    bits.push(`${formatNumber(bucket.severe)} tried to install something or sent an exploit.`)
-  }
-  return bits.join(" ")
+  return t("story_bucket_sentence", {
+    from,
+    to,
+    sessions: bucket.sessions,
+    door: top ? (sensorMeta(top[0])?.noun ?? top[0]) : "none",
+    severe: bucket.severe,
+  })
 }

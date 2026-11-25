@@ -1,6 +1,7 @@
 import { Check, Copy } from "lucide-react"
 import { Link } from "react-router"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { t } from "@/i18n"
 import { useIpMask } from "@/app/ip-mask"
 import { subjectProps } from "@/app/view-transitions"
 import { useCopy } from "@/hooks/use-copy"
@@ -50,7 +51,9 @@ export function IPChip({
           to={to}
           {...(subject ? subjectProps(subject) : null)}
           className="truncate rounded-sm px-1.5 transition-colors duration-150 hover:text-fg hover:underline hover:decoration-fg-subtle hover:underline-offset-4"
-          aria-label={masked ? "Masked address, show sessions" : `Show sessions from ${ip}`}
+          aria-label={
+            masked ? t("ipchip_masked_link") : t("ipchip_link", { ip })
+          }
         >
           {shown}
         </Link>
@@ -74,7 +77,7 @@ export function IPChip({
                 variant === "ghost" &&
                   "opacity-0 group-hover/ip:opacity-100 group-hover/row:opacity-100 pointer-coarse:hidden",
               )}
-              aria-label={copied ? "Copied" : `Copy ${ip}`}
+              aria-label={copied ? t("common_copied") : t("ipchip_copy", { ip })}
             >
               {copied ? (
                 <Check aria-hidden className="size-3" />
@@ -83,7 +86,7 @@ export function IPChip({
               )}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top">{copied ? "Copied" : "Copy address"}</TooltipContent>
+          <TooltipContent side="top">{copied ? t("common_copied") : t("ipchip_copy_tip")}</TooltipContent>
         </Tooltip>
       ) : null}
     </span>

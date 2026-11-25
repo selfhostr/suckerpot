@@ -1,4 +1,4 @@
-import { ChevronsUpDown, KeyRound, Laptop, LogOut, Moon, Sun } from "lucide-react"
+import { ChevronsUpDown, KeyRound, Languages, Laptop, LogOut, Moon, Sun } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
@@ -7,21 +7,44 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { LOCALES, currentLocale, isLocaleCode, setLocale, t, tk } from "@/i18n"
 import { useAuth } from "./auth"
 import { useIpMask } from "./ip-mask"
 import { useTheme, type ThemePreference } from "./theme"
 
 /** One item cycles the theme, light → dark → system, and shows the one in use. */
-const THEMES: Record<ThemePreference, { label: string; icon: typeof Moon; next: ThemePreference }> =
-  {
-    light: { label: "Light", icon: Sun, next: "dark" },
-    dark: { label: "Dark", icon: Moon, next: "system" },
-    system: { label: "System", icon: Laptop, next: "light" },
-  }
+const THEMES: Record<
+  ThemePreference,
+  { label: string; labelLower: string; icon: typeof Moon; next: ThemePreference }
+> = {
+  light: {
+    label: tk("account_theme_light"),
+    labelLower: tk("account_theme_light_lower"),
+    icon: Sun,
+    next: "dark",
+  },
+  dark: {
+    label: tk("account_theme_dark"),
+    labelLower: tk("account_theme_dark_lower"),
+    icon: Moon,
+    next: "system",
+  },
+  system: {
+    label: tk("account_theme_system"),
+    labelLower: tk("account_theme_system_lower"),
+    icon: Laptop,
+    next: "light",
+  },
+}
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -64,8 +87,10 @@ export function AccountMenu({
   const { masked, setMasked } = useIpMask()
   const [changing, setChanging] = useState(false)
   if (!user) return null
-  const label = `Account menu for ${user.display_name}`
+  const label = t("account_menu_label", { name: user.display_name })
   const theme = THEMES[preference]
+  const locale = currentLocale()
+  const localeName = LOCALES.find((l) => l.code === locale)?.name ?? locale
 
   const trigger =
     variant === "rail" ? (
@@ -120,23 +145,46 @@ export function AccountMenu({
             }}
           >
             <theme.icon aria-hidden />
-            <span className="flex-1">Theme</span>
-            <span className="text-xs text-fg-subtle">{theme.label}</span>
-            <span className="sr-only">, switches to {THEMES[theme.next].label.toLowerCase()}</span>
+            <span className="min-w-0 flex-1">{t("account_theme")}</span>
+            <span className="text-xs text-fg-subtle">{t(theme.label)}</span>
+            <span className="sr-only">
+              {t("account_theme_switches_to", { theme: t(THEMES[theme.next].labelLower) })}
+            </span>
           </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Languages aria-hidden />
+              <span className="min-w-0 flex-1">{t("account_language")}</span>
+              <span className="truncate text-xs text-fg-subtle">{localeName}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent collisionPadding={8}>
+              <DropdownMenuRadioGroup
+                value={locale}
+                onValueChange={(code) => {
+                  if (isLocaleCode(code)) void setLocale(code, true)
+                }}
+              >
+                {LOCALES.map((l) => (
+                  <DropdownMenuRadioItem key={l.code} value={l.code} lang={l.code}>
+                    {l.name}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuCheckboxItem
             checked={masked}
             onCheckedChange={setMasked}
             onSelect={(e) => e.preventDefault()}
           >
-            Mask IP addresses
-            <span className="sr-only"> (screenshot mode)</span>
+            {t("account_mask_ips")}
+            <span className="sr-only"> {t("account_mask_ips_hint")}</span>
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           {user.is_owner ? null : (
             <DropdownMenuItem onSelect={() => setChanging(true)}>
               <KeyRound aria-hidden />
-              Change password
+              {t("account_change_password")}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem
@@ -145,7 +193,7 @@ export function AccountMenu({
             }}
           >
             <LogOut aria-hidden />
-            Sign out
+            {t("account_sign_out")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

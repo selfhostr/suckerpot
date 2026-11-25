@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { Pause, Play, Radio, SearchX, WifiOff } from "lucide-react"
 import { Link } from "react-router"
+import { intlLocale, t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { useScannerFilter } from "@/app/scanner-filter"
 import { AnimatedNumber } from "@/components/animated-number"
 import { HourlyActivity } from "@/components/charts/hourly-activity"
@@ -22,11 +24,18 @@ import { cn } from "@/lib/utils"
 
 const HOURS = 24
 
-const time = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-})
+const timeFormats = new Map<string, Intl.DateTimeFormat>()
+
+/** "14:02" in the browser's time zone, in the active language. */
+function formatTime(iso: string): string {
+  const locale = intlLocale()
+  let f = timeFormats.get(locale)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    timeFormats.set(locale, f)
+  }
+  return f.format(new Date(iso))
+}
 
 /**
  * On desktop the page fills the window and never scrolls: the shell's header (3.5 rem) and top
@@ -74,23 +83,23 @@ function DayCard({
   sensors: readonly string[]
   className?: string
 }) {
-  const t = story?.totals
+  const totals = story?.totals
   const hrefOf = (key: string) => story?.flow.nodes.find((n) => n.id === `stage:${key}`)?.href
   return (
     <Card
       role="region"
-      aria-label="Last 24 hours"
+      aria-label={t("today_day_aria")}
       className={cn("min-h-0 gap-4 overflow-hidden p-4 sm:p-5", className)}
     >
       {error ? (
         <div className="flex h-full flex-col items-start justify-center gap-3">
-          <p className="text-sm text-fg-muted">The numbers of the day could not be loaded.</p>
+          <p className="text-sm text-fg-muted">{t("today_day_error")}</p>
           <Button variant="outline" size="sm" onClick={onRetry}>
-            Try again
+            {t("common_try_again")}
           </Button>
         </div>
-      ) : !story || !t ? (
-        <div role="status" aria-label="Loading" className="flex h-full flex-col gap-4">
+      ) : !story || !totals ? (
+        <div role="status" aria-label={t("common_loading")} className="flex h-full flex-col gap-4">
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-5">
             {Array.from({ length: 5 }, (_, i) => (
               <Skeleton key={i} className="h-13" />
@@ -103,17 +112,33 @@ function DayCard({
           <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
             <div className="grid flex-1 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5">
               <Figure
-                label="Visits"
-                value={t.sessions}
+                label={t("today_figure_visits")}
+                value={totals.sessions}
                 href={withWindow("/attacks", windowSince(story.as_of, story.hours))}
               />
-              <Figure label="Machines" value={t.sources} href="/attackers" />
-              <Figure label="Countries" value={t.countries} />
-              <Figure label="Got in" value={t.got_in} href={hrefOf("got_in")} />
-              <Figure label="Tried to install" value={t.downloads} href={hrefOf("download")} />
+              <Figure
+                label={t("today_figure_machines")}
+                value={totals.sources}
+                href="/attackers"
+              />
+              <Figure label={t("today_figure_countries")} value={totals.countries} />
+              <Figure
+                label={t("today_figure_got_in")}
+                value={totals.got_in}
+                href={hrefOf("got_in")}
+              />
+              <Figure
+                label={t("today_figure_tried_install")}
+                value={totals.downloads}
+                href={hrefOf("download")}
+              />
             </div>
             <p className="pt-1 text-xs text-fg-subtle max-sm:w-full">
-              Updated <time dateTime={story.as_of}>{time.format(new Date(story.as_of))}</time>
+              {tNodes(
+                "today_updated",
+                {},
+                { time: <time dateTime={story.as_of}>{formatTime(story.as_of)}</time> },
+              )}
             </p>
           </div>
           <HourlyActivity
@@ -166,36 +191,34 @@ export function TodayPage() {
   const { sensors, paused, setPaused } = live
 
   const placeholder = live.connecting ? (
-    <div role="status" aria-label="Loading" className="flex gap-2 max-sm:flex-col max-sm:p-4">
+    <div role="status" aria-label={t("common_loading")} className="flex gap-2 max-sm:flex-col max-sm:p-4">
       {Array.from({ length: 4 }, (_, i) => (
         <Skeleton key={i} className="h-9 w-[300px] max-w-full shrink-0 rounded-md" />
       ))}
     </div>
   ) : live.down ? (
     <TickerNote icon={WifiOff}>
-      The live feed is unreachable. The dashboard keeps trying in the background.
+      {t("today_ticker_down")}
     </TickerNote>
   ) : live.waiting ? (
     <TickerNote icon={Radio}>
-      Nothing has arrived yet. New events appear here the moment a sensor records them.
+      {t("today_ticker_waiting")}
     </TickerNote>
   ) : live.ticker.length === 0 ? (
     <TickerNote icon={SearchX}>
-      {sensors.length === 1
-        ? "No events from this sensor yet."
-        : "No events from these sensors yet."}{" "}
+      {sensors.length === 1 ? t("today_ticker_empty_one") : t("today_ticker_empty_many")}{" "}
       <span className="max-sm:hidden">
-        Nothing from {sensorSetPhrase(sensors)} is in the live buffer.
+        {t("today_ticker_buffer", { sensors: sensorSetPhrase(sensors) })}
       </span>{" "}
       <Link to="/" className="font-medium text-fg underline-offset-4 hover:underline">
-        Show all sensors
+        {t("today_ticker_show_all")}
       </Link>
     </TickerNote>
   ) : undefined
 
   const headline = story.data
     ? story.data.totals.sessions === 0
-      ? "A quiet day: nobody knocked on your decoy servers in the last 24 hours."
+      ? t("today_quiet_day")
       : story.data.headline
     : null
 
@@ -203,7 +226,7 @@ export function TodayPage() {
     <div className={BOARD}>
       <PageHeader
         help="today"
-        title="Today"
+        title={t("today_title")}
         className="pb-0 lg:col-span-2"
         description={
           headline ? (
@@ -212,7 +235,7 @@ export function TodayPage() {
               terms={["botnet", "brute-force", "exploit", "malware", "research-scanner"]}
             />
           ) : story.isError ? (
-            "The live map keeps running while the summary of the day is unavailable."
+            t("today_summary_error")
           ) : (
             <span aria-hidden className="skeleton block h-5 w-[min(36rem,80vw)] rounded-md" />
           )
@@ -227,7 +250,7 @@ export function TodayPage() {
               onClick={() => setPaused((p) => !p)}
             >
               {paused ? <Play aria-hidden /> : <Pause aria-hidden />}
-              {paused ? "Resume" : "Pause"}
+              {paused ? t("today_resume") : t("today_pause")}
             </Button>
           </>
         }

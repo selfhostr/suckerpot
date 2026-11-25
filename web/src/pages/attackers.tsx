@@ -13,6 +13,8 @@ import { RelativeTime } from "@/components/relative-time"
 import { SkeletonList, SkeletonRow } from "@/components/skeletons"
 import { StickyFilters } from "@/components/sticky-filters"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { useUrlParam } from "@/hooks/use-url-param"
 import {
   api,
@@ -21,10 +23,9 @@ import {
   type AsnItem,
   type AttackerFilters,
 } from "@/lib/api"
-import { countryName, formatNumber, plural } from "@/lib/format"
+import { countryName, formatNumber } from "@/lib/format"
 import {
   ATTACKER_PARAMS,
-  ATTACKER_SORT_LABELS,
   clearParams,
   filterNetworks,
   NETWORK_PARAMS,
@@ -81,14 +82,14 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
             ATTACKER_GRID,
           )}
         >
-          <span>IP address</span>
-          <span>Country</span>
-          <span className="hidden 2xl:block">Network</span>
-          <span>What it did</span>
-          <span className="text-right">Sensors and tags</span>
-          <span className="text-right">Sessions</span>
-          <span className="hidden text-right 2xl:block">Events</span>
-          <span className="text-right">Last seen</span>
+          <span>{t("attackers_col_ip")}</span>
+          <span>{t("attackers_col_country")}</span>
+          <span className="hidden 2xl:block">{t("attackers_col_network")}</span>
+          <span>{t("attackers_col_what")}</span>
+          <span className="text-right">{t("attackers_col_sensors_tags")}</span>
+          <span className="text-right">{t("attackers_col_sessions")}</span>
+          <span className="hidden text-right 2xl:block">{t("attackers_col_events")}</span>
+          <span className="text-right">{t("attackers_col_last_seen")}</span>
         </div>
         {query.isPending ? (
           <SkeletonList rows={10} />
@@ -96,11 +97,11 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load attackers"
+            title={t("attackers_error_title")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -108,15 +109,15 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
           <EmptyState
             variant="bare"
             icon={Users}
-            title="No attackers match these filters"
-            description="Try other filters or a shorter IP prefix, or clear them to see every attacker."
+            title={t("attackers_empty_title")}
+            description={t("attackers_empty_description")}
             action={
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setParams((p) => clearParams(p, ATTACKER_PARAMS))}
               >
-                Clear all
+                {t("filters_clear_all")}
               </Button>
             }
           />
@@ -124,7 +125,7 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
           <div
             ref={listRef}
             role="list"
-            aria-label="Attackers"
+            aria-label={t("attackers_list_label")}
             aria-busy={isFetchingNextPage}
             className="relative w-full"
             style={{ height: virtualizer.getTotalSize() }}
@@ -151,7 +152,7 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
       </div>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {plural(rows.length, "attacker")}
+          {t("attackers_end_of_list", { count: rows.length })}
         </p>
       ) : null}
     </>
@@ -181,12 +182,12 @@ function AsnList() {
             grid,
           )}
         >
-          <span>Network</span>
-          <span>Country</span>
-          <span className="text-right">Addresses</span>
-          <span className="text-right">Sessions</span>
-          <span className="text-right">Events</span>
-          <span className="text-right">Last seen</span>
+          <span>{t("attackers_col_network")}</span>
+          <span>{t("attackers_col_country")}</span>
+          <span className="text-right">{t("attackers_col_addresses")}</span>
+          <span className="text-right">{t("attackers_col_sessions")}</span>
+          <span className="text-right">{t("attackers_col_events")}</span>
+          <span className="text-right">{t("attackers_col_last_seen")}</span>
         </div>
         {q.isPending ? (
           <SkeletonList rows={8} />
@@ -194,11 +195,11 @@ function AsnList() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load networks"
+            title={t("attackers_networks_error_title")}
             description={q.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void q.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -206,11 +207,15 @@ function AsnList() {
           <EmptyState
             variant="bare"
             icon={Network}
-            title={filtered || view.since ? "No networks match these filters" : "No networks yet"}
+            title={
+              filtered || view.since
+                ? t("attackers_networks_empty_filtered_title")
+                : t("attackers_networks_empty_title")
+            }
             description={
               filtered || view.since
-                ? "Try other filters, or clear them to see every network."
-                : "Networks appear once GeoIP and ASN enrichment has run on incoming events."
+                ? t("attackers_networks_empty_filtered_description")
+                : t("attackers_networks_empty_description")
             }
             action={
               filtered || view.since ? (
@@ -219,13 +224,13 @@ function AsnList() {
                   size="sm"
                   onClick={() => setParams((p) => clearParams(p, NETWORK_PARAMS))}
                 >
-                  Clear all
+                  {t("filters_clear_all")}
                 </Button>
               ) : undefined
             }
           />
         ) : (
-          <ul aria-label="Attacker networks">
+          <ul aria-label={t("attackers_networks_list_label")}>
             {items.map((n: AsnItem, i) => (
               <li key={n.asn} className={cn(i > 0 && "border-t")}>
                 <Link
@@ -237,18 +242,22 @@ function AsnList() {
                 >
                   <span className="col-span-3 flex min-w-0 items-baseline gap-2.5 md:col-span-1">
                     <span className="shrink-0 font-mono text-xs text-fg-muted">AS{n.asn}</span>
-                    <span className="text-sm text-fg">{n.org ?? "Unknown network"}</span>
+                    <span className="text-sm text-fg">{n.org ?? t("filters_network_unknown")}</span>
                   </span>
                   <span className="col-span-3 text-xs text-fg-muted md:col-span-1">
                     {n.country ? (
                       <CountryFlag code={n.country} showName />
                     ) : (
-                      <span className="text-fg-subtle">Unknown</span>
+                      <span className="text-fg-subtle">{t("common_unknown")}</span>
                     )}
                   </span>
-                  <Metric label="Addresses" value={n.ips} />
-                  <Metric label="Sessions" value={n.sessions} />
-                  <Metric label="Events" value={n.events} className="hidden md:block" />
+                  <Metric label={t("attackers_metric_addresses")} value={n.ips} />
+                  <Metric label={t("attackers_metric_sessions")} value={n.sessions} />
+                  <Metric
+                    label={t("attackers_metric_events")}
+                    value={n.events}
+                    className="hidden md:block"
+                  />
                   <span className="hidden justify-self-end md:block">
                     <RelativeTime iso={n.last_seen} className="text-xs" />
                   </span>
@@ -260,10 +269,12 @@ function AsnList() {
       </div>
       {q.isSuccess && items.length > 0 ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          {filtered
-            ? `${plural(items.length, "network")} match${items.length === 1 ? "es" : ""}`
-            : plural(items.length, "network")}
-          {complete ? "" : ` among the ${ASN_LIMIT} busiest`}
+          {t("attackers_networks_count", {
+            count: items.length,
+            filtered: filtered ? "yes" : "no",
+            complete: complete ? "yes" : "no",
+            limit: ASN_LIMIT,
+          })}
         </p>
       ) : null}
     </>
@@ -274,7 +285,7 @@ function Metric({ label, value, className }: { label: string; value: number; cla
   return (
     <span className={cn("text-sm text-fg tabular-nums md:text-right", className)}>
       {formatNumber(value)}
-      <span className="ml-1 text-xs text-fg-subtle md:hidden">{label.toLowerCase()}</span>
+      <span className="ml-1 text-xs text-fg-subtle md:hidden">{label}</span>
     </span>
   )
 }
@@ -303,22 +314,21 @@ function AttackersView({ asns }: { asns: boolean }) {
 
   const summaryCountry = filters.country ? (countryName(filters.country) ?? filters.country) : null
   const ascending = order === "asc"
-  const description = asns ? (
-    <>
-      Hosting providers and networks (<Term id="asn">ASN</Term>) the attacks come from. Open one to
-      see its addresses.
-    </>
-  ) : summaryCountry ? (
-    `Addresses from ${summaryCountry}, ${ascending ? "lowest" : "highest"} ${ATTACKER_SORT_LABELS[sort].toLowerCase()} first.`
-  ) : (
-    "Every address that touched a sensor, with the story of what it did."
-  )
+  const description = asns
+    ? tNodes("attackers_networks_description", {}, { asn: <Term id="asn">ASN</Term> })
+    : summaryCountry
+      ? t("attackers_description_country", {
+          country: summaryCountry,
+          order: ascending ? "asc" : "desc",
+          sort,
+        })
+      : t("attackers_description")
 
   return (
     <>
       <PageHeader
         help={asns ? "networks" : "attackers"}
-        title={asns ? "Attacker networks" : "Attackers"}
+        title={asns ? t("attackers_networks_title") : t("attackers_title")}
         description={description}
       />
 

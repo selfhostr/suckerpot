@@ -1,4 +1,5 @@
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { Sparkline } from "@/components/sparkline"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatNumber } from "@/lib/format"
@@ -10,11 +11,11 @@ const MAX_ROWS = 10
 
 /** "+120%", "-45%", "New" (nothing in the first half) or "No change". Never coloured. */
 export function describeChange(first: number, second: number): string {
-  if (first === 0 && second === 0) return "None"
-  if (first === 0) return "New"
+  if (first === 0 && second === 0) return t("trends_change_none")
+  if (first === 0) return t("trends_change_new")
   const pct = Math.round(((second - first) / first) * 100)
-  if (pct === 0) return "No change"
-  return `${pct > 0 ? "+" : "−"}${formatNumber(Math.abs(pct))}%`
+  if (pct === 0) return t("trends_change_same")
+  return t("trends_change_pct", { direction: pct > 0 ? "up" : "down", value: Math.abs(pct) })
 }
 
 interface TagTableProps {
@@ -34,13 +35,13 @@ export function TagTable({ points, loading, className }: TagTableProps) {
   const totals = tagTotals(pts)
   if (totals.length === 0)
     return (
-      <p className="py-8 text-center text-sm text-fg-muted">No tagged events in this period.</p>
+      <p className="py-8 text-center text-sm text-fg-muted">{t("trends_tags_empty")}</p>
     )
   // "other" always last.
-  const named = totals.filter(([t]) => t !== "other").slice(0, MAX_ROWS)
-  const other = totals.find(([t]) => t === "other")
+  const named = totals.filter(([name]) => name !== "other").slice(0, MAX_ROWS)
+  const other = totals.find(([name]) => name === "other")
   const rows = other ? [...named, other] : named
-  const highlight = named.find(([t]) => isSevereTag(t))?.[0] ?? null
+  const highlight = named.find(([name]) => isSevereTag(name))?.[0] ?? null
   return (
     <div className={cn("-mx-1", className)}>
       <div
@@ -49,17 +50,14 @@ export function TagTable({ points, loading, className }: TagTableProps) {
           GRID,
         )}
       >
-        <span>Tag</span>
-        <span className="hidden sm:block">Per day</span>
-        <span className="text-right">Events</span>
-        <span
-          className="text-right"
-          title="The second half of the period against the first half"
-        >
-          Change
+        <span>{t("filters_tag_label")}</span>
+        <span className="hidden sm:block">{t("trends_tags_col_per_day")}</span>
+        <span className="text-right">{t("trends_tags_col_events")}</span>
+        <span className="text-right" title={t("trends_tags_col_change_title")}>
+          {t("trends_tags_col_change")}
         </span>
       </div>
-      <ul aria-label="Tags">
+      <ul aria-label={t("trends_tags_list_label")}>
         {rows.map(([tag, total], i) => {
           const { first, second } = tagChange(pts, tag)
           const severe = isSevereTag(tag)
@@ -75,13 +73,13 @@ export function TagTable({ points, loading, className }: TagTableProps) {
                   )}
                 />
                 <span className="truncate font-mono text-xs text-fg">{tag}</span>
-                {severe ? <span className="sr-only">(severe)</span> : null}
+                {severe ? <span className="sr-only">{t("tag_level", { level: "severe" })}</span> : null}
               </span>
               <span className="hidden sm:block">
                 <Sparkline
                   values={pts.map((p) => p.tags[tag] ?? 0)}
                   color={tag === highlight ? "var(--sev-severe)" : "var(--fg-muted)"}
-                  label={`${tag} events per day`}
+                  label={t("trends_tag_per_day", { tag })}
                   className="h-6"
                 />
               </span>

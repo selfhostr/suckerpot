@@ -14,7 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { abuseApi, abuseKeys } from "@/lib/abuse"
+import { t } from "@/i18n"
+import { abuseApi, abuseKeys, lowerNoun } from "@/lib/abuse"
 import {
   describeRepliesError,
   matchLabel,
@@ -30,12 +31,12 @@ export function VerifiedMark({ verified }: { verified: boolean }) {
   return verified ? (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg-muted">
       <CircleCheck aria-hidden className="size-3.5 text-status-ok" />
-      Verified
+      {t("replies_verified")}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg">
       <CircleAlert aria-hidden className="size-3.5 text-sev-warning" />
-      Check it
+      {t("replies_check_it")}
     </span>
   )
 }
@@ -45,29 +46,32 @@ export function VerifiedMark({ verified }: { verified: boolean }) {
  * monospace block: never HTML, never a link. Administrators see the address and the excerpt.
  */
 export function ReplyView({ r, actions }: { r: Reply; actions?: React.ReactNode }) {
+  const match = matchLabel(r.match_method)
   return (
     <li className="space-y-2 px-4 py-3 sm:px-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <OutcomeBadge outcome={r.classification} />
         <VerifiedMark verified={r.verified} />
         <span className="font-mono text-xs text-fg-muted">
-          {r.from_address ?? r.from_domain ?? "unknown sender"}
+          {r.from_address ?? r.from_domain ?? t("replies_unknown_sender")}
         </span>
         <RelativeTime iso={r.received_at} className="ml-auto text-xs" />
       </div>
       <p className="text-xs text-fg-muted" title={r.rule_id ?? undefined}>
-        {r.classification_source === "manual"
-          ? "Classified by you."
-          : r.rule_id
-            ? `${ruleLabel(r.rule_id)}.`
-            : "No rule matched."}
-        {matchLabel(r.match_method)
-          ? ` Linked by: ${matchLabel(r.match_method)?.toLowerCase()}.`
-          : ""}
-        {r.ticket_id ? ` Ticket ${r.ticket_id}.` : ""}
+        {[
+          r.classification_source === "manual"
+            ? t("replies_classified_by_you")
+            : r.rule_id
+              ? t("replies_rule_found", { rule: ruleLabel(r.rule_id) })
+              : t("replies_no_rule"),
+          match ? t("replies_linked_by", { how: lowerNoun(match) }) : null,
+          r.ticket_id ? t("replies_ticket", { id: r.ticket_id }) : null,
+        ]
+          .filter(Boolean)
+          .join(" ")}
       </p>
       {r.excerpt_purged ? (
-        <p className="text-xs text-fg-subtle">The text was deleted after its retention period.</p>
+        <p className="text-xs text-fg-subtle">{t("replies_purged")}</p>
       ) : r.excerpt ? (
         <div className="overflow-hidden rounded-md border bg-bg">
           <pre className="scroll-fade-y max-h-40 overflow-auto px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap text-fg-muted">
@@ -85,11 +89,11 @@ export function RepliesList({ replies }: { replies: readonly Reply[] }) {
   if (replies.length === 0)
     return (
       <p className="border-t px-4 py-4 text-sm text-fg-muted sm:px-5">
-        No reply stored for this report yet.
+        {t("replies_none_stored")}
       </p>
     )
   return (
-    <ul className="divide-y border-t" aria-label="Replies">
+    <ul className="divide-y border-t" aria-label={t("replies_list_aria")}>
       {replies.map((r) => (
         <ReplyView key={r.id} r={r} />
       ))}
@@ -107,7 +111,7 @@ function LinkMenu({ reply, onLinked }: { reply: Reply; onLinked: (msg: string) =
     mutationFn: (report: string) => repliesApi.patch(reply.id, { report, verified: true }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["abuse"] })
-      onLinked("Linked to the report.")
+      onLinked(t("replies_linked"))
     },
     onError: (e) => onLinked(describeRepliesError(e)),
   })
@@ -115,12 +119,12 @@ function LinkMenu({ reply, onLinked }: { reply: Reply; onLinked: (msg: string) =
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" disabled={link.isPending}>
-          <Link2 aria-hidden /> Link to report
+          <Link2 aria-hidden /> {t("replies_link_to_report")}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 w-72 overflow-y-auto">
         {(sent.data?.items ?? []).length === 0 ? (
-          <p className="px-2 py-1.5 text-xs text-fg-muted">No sent report to link to.</p>
+          <p className="px-2 py-1.5 text-xs text-fg-muted">{t("replies_no_sent_report")}</p>
         ) : (
           (sent.data?.items ?? []).map((rep) => (
             <DropdownMenuItem key={rep.public_id} onSelect={() => link.mutate(rep.public_id)}>
@@ -163,13 +167,13 @@ export function RepliesToCheck() {
     return (
       <EmptyState
         icon={Inbox}
-        title="Nothing to check"
-        description="Every reply is linked to a report and verified."
+        title={t("replies_nothing_to_check")}
+        description={t("replies_all_verified")}
       />
     )
   return (
     <section
-      aria-label="Replies to check"
+      aria-label={t("replies_to_check_aria")}
       className="overflow-hidden rounded-lg border bg-surface shadow-sm"
     >
       <ul className="divide-y">
@@ -182,7 +186,7 @@ export function RepliesToCheck() {
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {r.report ? (
                     <Button variant="ghost" size="sm" asChild>
-                      <Link to={`/defend/abuse/${r.report}`}>Open the report</Link>
+                      <Link to={`/defend/abuse/${r.report}`}>{t("replies_open_report")}</Link>
                     </Button>
                   ) : (
                     <LinkMenu reply={r} onLinked={setNotice} />
@@ -195,7 +199,7 @@ export function RepliesToCheck() {
                         disabled={patch.isPending}
                         onClick={() => patch.mutate({ id: r.id, trust: false })}
                       >
-                        Confirm
+                        {t("common_confirm")}
                       </Button>
                       <Button
                         variant="outline"
@@ -203,7 +207,7 @@ export function RepliesToCheck() {
                         disabled={patch.isPending}
                         onClick={() => patch.mutate({ id: r.id, trust: true })}
                       >
-                        Trust this sender
+                        {t("replies_trust_sender")}
                       </Button>
                     </>
                   ) : null}

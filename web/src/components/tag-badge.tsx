@@ -1,4 +1,5 @@
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { tagSeverity } from "@/lib/severity"
 import { cn } from "@/lib/utils"
 
@@ -39,7 +40,7 @@ export function TagBadge({ tag, href, className }: TagBadgeProps) {
         </svg>
       ) : null}
       {tag}
-      {level ? <span className="sr-only"> ({level})</span> : null}
+      {level ? <span className="sr-only"> {t("tag_level", { level })}</span> : null}
     </>
   )
   return to ? (

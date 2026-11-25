@@ -4,6 +4,8 @@ import { useId, useState, type SyntheticEvent } from "react"
 import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
 import { FindingCard } from "@/components/finding-card"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { SegmentedControl } from "@/components/segmented-control"
 import { SkeletonText } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
@@ -39,9 +41,13 @@ export function ChannelPicker({
   onChange: (ids: number[]) => void
 }) {
   return (
-    <div role="group" aria-label="Send to" className="flex flex-wrap items-center gap-1.5">
+    <div
+      role="group"
+      aria-label={t("rules_send_to")}
+      className="flex flex-wrap items-center gap-1.5"
+    >
       <span aria-hidden className="mr-1 text-xs text-fg-subtle">
-        Send to
+        {t("rules_send_to")}
       </span>
       {channels.map((c) => {
         const on = selected.includes(c.id)
@@ -51,7 +57,7 @@ export function ChannelPicker({
             type="button"
             disabled={disabled || !c.enabled}
             aria-pressed={on}
-            title={c.enabled ? undefined : "This channel is switched off"}
+            title={c.enabled ? undefined : t("rules_channel_off")}
             onClick={() => onChange(on ? selected.filter((i) => i !== c.id) : [...selected, c.id])}
             className={cn(
               "inline-flex h-(--control-sm) items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors duration-150",
@@ -108,7 +114,7 @@ function RuleRow({
       })
       onChanged()
     } catch (e) {
-      onError(e instanceof Error ? e.message : "The change could not be saved.")
+      onError(e instanceof Error ? e.message : t("alerts_msg_network"))
     } finally {
       setBusy(false)
     }
@@ -146,10 +152,10 @@ function RuleRow({
           {info.kind !== "weekly_report" && info.kind !== "malware_drop" ? (
             <div className="flex items-center gap-2">
               <span aria-hidden className="text-xs text-fg-subtle">
-                Severity
+                {t("rules_severity")}
               </span>
               <SegmentedControl
-                label={`Severity for ${info.title}`}
+                label={t("rules_severity_for", { title: info.title })}
                 value={rule.min_severity === "notice" ? "info" : rule.min_severity}
                 onChange={(min_severity: Severity) => void save({ min_severity })}
                 options={SEVERITY_OPTIONS}
@@ -178,9 +184,9 @@ export function RulesCard() {
 
   return (
     <FindingCard
-      eyebrow="What sends an alert"
-      finding={ready ? rulesFinding(rules.data, channels.data) : "Checking the alert rules…"}
-      detail="Every alert is off until you switch it on. IP addresses are hidden by default and links to attacker servers are made harmless."
+      eyebrow={t("rules_title")}
+      finding={ready ? rulesFinding(rules.data, channels.data) : t("rules_checking")}
+      detail={t("rules_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
     >
       {rules.isPending || channels.isPending ? (
@@ -189,17 +195,26 @@ export function RulesCard() {
         </div>
       ) : !ready ? (
         <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">
-          The rules are not available right now.
+          {t("rules_unavailable")}
         </p>
       ) : (
         <>
           {channels.data.length === 0 ? (
             <p className="border-t px-4 py-3 text-sm text-fg-muted sm:px-5">
-              Add a channel first in{" "}
-              <Link to="/settings?tab=alerts" className="text-fg underline underline-offset-2">
-                Settings, Alert channels
-              </Link>
-              .
+              {tNodes(
+                "rules_add_channel_first",
+                {},
+                {
+                  link: (
+                    <Link
+                      to="/settings?tab=alerts"
+                      className="text-fg underline underline-offset-2"
+                    >
+                      {t("rules_settings_channels_link")}
+                    </Link>
+                  ),
+                },
+              )}
             </p>
           ) : null}
           {error ? (
@@ -207,7 +222,7 @@ export function RulesCard() {
               {error}
             </p>
           ) : null}
-          <ul aria-label="Alert rules" className="divide-y border-t">
+          <ul aria-label={t("rules_list_label")} className="divide-y border-t">
             {RULES.map((info) => {
               const rule = rules.data.find((r) => r.kind === info.kind)
               return rule ? (
@@ -245,7 +260,7 @@ export function WatchedCvesCard() {
       setProblem(null)
       void client.invalidateQueries({ queryKey: alertKeys.watched })
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : "The change could not be saved.")
+      setProblem(e instanceof Error ? e.message : t("alerts_msg_network"))
     }
   }
 
@@ -253,7 +268,7 @@ export function WatchedCvesCard() {
     event.preventDefault()
     const id = value.trim().toUpperCase()
     if (!CVE_PATTERN.test(id)) {
-      setProblem("Enter a CVE number such as CVE-2026-12345.")
+      setProblem(t("rules_cve_invalid"))
       return
     }
     setValue("")
@@ -262,22 +277,22 @@ export function WatchedCvesCard() {
 
   return (
     <FindingCard
-      eyebrow="Watched vulnerabilities"
+      eyebrow={t("rules_watched_title")}
       finding={
         !list
-          ? "Checking the watch list…"
+          ? t("rules_watched_checking")
           : list.length === 0
-            ? "No vulnerability on the watch list."
-            : `You are watching ${list.length} ${list.length === 1 ? "vulnerability" : "vulnerabilities"}.`
+            ? t("rules_watched_none")
+            : t("rules_watched_count", { count: list.length })
       }
-      detail="When attackers try one of these against the honeypot, the “watched vulnerability” alert fires (once a day per CVE)."
+      detail={t("rules_watched_detail")}
     >
       {q.isPending ? (
         <SkeletonText lines={2} className="py-1" />
       ) : (
         <div className="space-y-3">
           {list && list.length > 0 ? (
-            <ul aria-label="Watched CVEs" className="flex flex-wrap gap-2">
+            <ul aria-label={t("rules_watched_list_label")} className="flex flex-wrap gap-2">
               {list.map((c) => (
                 <li
                   key={c.cve_id}
@@ -290,7 +305,7 @@ export function WatchedCvesCard() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Stop watching ${c.cve_id}`}
+                      aria-label={t("rules_unwatch_label", { id: c.cve_id })}
                       onClick={() => void run(() => unwatchCve(c.cve_id))}
                     >
                       <X aria-hidden />
@@ -304,7 +319,7 @@ export function WatchedCvesCard() {
             <form onSubmit={add} className="flex max-w-md items-start gap-2" noValidate>
               <div className="min-w-0 flex-1 space-y-1">
                 <label htmlFor={inputId} className="sr-only">
-                  CVE number
+                  {t("rules_cve_label")}
                 </label>
                 <Input
                   id={inputId}
@@ -324,7 +339,7 @@ export function WatchedCvesCard() {
               </div>
               <Button type="submit" variant="outline">
                 <Plus aria-hidden />
-                Watch
+                {t("rules_watch")}
               </Button>
             </form>
           ) : null}

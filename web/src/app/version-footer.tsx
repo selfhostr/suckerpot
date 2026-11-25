@@ -1,5 +1,6 @@
 import { Link } from "react-router"
 import { useVersion } from "@/hooks/use-version"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { hasUpdate } from "@/lib/version"
 
@@ -22,14 +23,22 @@ export function VersionFooter({ className }: { className?: string }) {
         className,
       )}
     >
-      {MOCK ? <span>Mock data: nothing here is real traffic.</span> : null}
+      {MOCK ? <span>{t("shell_mock_notice")}</span> : null}
       {version ? (
         <Link
           to="/settings"
           title={
             update
-              ? `SuckerPot ${version.version}, ${version.latest} is available`
-              : `SuckerPot ${version.version}${version.commit ? `, commit ${version.commit}` : ""}`
+              ? t("shell_version_update_title", {
+                  version: version.version,
+                  latest: version.latest,
+                })
+              : version.commit
+                ? t("shell_version_commit_title", {
+                    version: version.version,
+                    commit: version.commit,
+                  })
+                : t("shell_version_title", { version: version.version })
           }
           className="inline-flex items-center gap-1.5 rounded-sm font-medium tabular-nums transition-colors duration-150 hover:text-fg-muted focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
         >
@@ -37,7 +46,7 @@ export function VersionFooter({ className }: { className?: string }) {
           <span>
             <span className="sr-only">SuckerPot </span>
             {version.version}
-            {update ? <span className="sr-only">, update available</span> : null}
+            {update ? <span className="sr-only">{t("sidebar_update_available_sr")}</span> : null}
           </span>
         </Link>
       ) : null}

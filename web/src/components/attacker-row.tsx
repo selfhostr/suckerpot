@@ -1,4 +1,5 @@
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { useIpMask } from "@/app/ip-mask"
 import { markSubject } from "@/app/view-transitions"
 import { CountryFlag } from "@/components/country-flag"
@@ -87,7 +88,7 @@ export function AttackerRow({
         ) : (
           <>
             <CountryFlag code={null} />
-            <span>Unknown</span>
+            <span>{t("common_unknown")}</span>
           </>
         )}
       </div>
@@ -100,16 +101,20 @@ export function AttackerRow({
             title={`AS${a.asn}`}
           >
             <span className="block font-mono text-2xs text-fg-subtle">AS{a.asn}</span>
-            {a.org ?? "Unknown network"}
+            {a.org ?? t("filters_network_unknown")}
           </Link>
         ) : (
-          "Unknown network"
+          t("filters_network_unknown")
         )}
       </div>
 
       <div className="flex min-w-0 items-start gap-2.5 md:items-center">
         <p className="min-w-0 text-sm text-fg">
-          {origin ? <span className="text-fg-muted md:hidden">{origin} — </span> : null}
+          {origin ? (
+            <span className="text-fg-muted md:hidden">
+              {t("attackers_row_origin_prefix", { origin })}{" "}
+            </span>
+          ) : null}
           <span className="md:first-letter:uppercase">{describeAttacker(a)}</span>
         </p>
       </div>
@@ -126,11 +131,11 @@ export function AttackerRow({
             +{a.sensors.length - 3}
           </span>
         ) : null}
-        {a.tags.slice(0, 2).map((t) => (
+        {a.tags.slice(0, 2).map((tag) => (
           <TagBadge
-            key={t}
-            tag={t}
-            href={`/attackers?tag=${encodeURIComponent(t)}`}
+            key={tag}
+            tag={tag}
+            href={`/attackers?tag=${encodeURIComponent(tag)}`}
             className="z-10"
           />
         ))}

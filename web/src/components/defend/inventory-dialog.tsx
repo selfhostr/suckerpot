@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { ChevronDown } from "lucide-react"
 import { useId, useState, type SyntheticEvent } from "react"
+import { t } from "@/i18n"
 import { Field, FormError } from "@/components/form-parts"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
@@ -88,14 +89,15 @@ function InventoryForm({
       noValidate
     >
       <DialogHeader className="text-left">
-        <DialogTitle>{item ? "Edit this service" : "Add a service you run"}</DialogTitle>
+        <DialogTitle>
+          {item ? t("inventory_dialog_edit_title") : t("inventory_dialog_add_title")}
+        </DialogTitle>
         <DialogDescription>
-          This list is only compared with what our own decoys recorded. Nothing is scanned and
-          nothing is contacted.
+          {t("inventory_dialog_description")}
         </DialogDescription>
       </DialogHeader>
 
-      <Field id={ids.name} label="Name" error={nameError ?? undefined}>
+      <Field id={ids.name} label={t("inventory_field_name")} error={nameError ?? undefined}>
         <Input
           id={ids.name}
           value={name}
@@ -103,7 +105,7 @@ function InventoryForm({
           autoFocus
           autoComplete="off"
           maxLength={80}
-          placeholder="Jump host"
+          placeholder={t("inventory_name_placeholder")}
           aria-invalid={nameError ? true : undefined}
           aria-describedby={nameError ? `${ids.name}-error` : undefined}
         />
@@ -111,8 +113,8 @@ function InventoryForm({
 
       <Field
         id={ids.service}
-        label="Kind of service"
-        hint="It is compared with what the decoy of the same kind recorded."
+        label={t("inventory_field_service")}
+        hint={t("inventory_field_service_hint")}
       >
         <div className="relative">
           <select
@@ -136,7 +138,7 @@ function InventoryForm({
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field id={ids.product} label="Product (optional)">
+        <Field id={ids.product} label={t("inventory_field_product")}>
           <Input
             id={ids.product}
             value={product}
@@ -146,7 +148,7 @@ function InventoryForm({
             placeholder={example?.product}
           />
         </Field>
-        <Field id={ids.version} label="Version (optional)">
+        <Field id={ids.version} label={t("inventory_field_version")}>
           <Input
             id={ids.version}
             value={version}
@@ -159,10 +161,10 @@ function InventoryForm({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-fg">Who can reach it</span>
+        <span className="text-sm font-medium text-fg">{t("inventory_field_reach")}</span>
         <SegmentedControl
           size="form"
-          label="Who can reach it"
+          label={t("inventory_field_reach")}
           value={exposure}
           onChange={setExposure}
           options={EXPOSURE_OPTIONS}
@@ -170,7 +172,7 @@ function InventoryForm({
         />
       </div>
 
-      <Field id={ids.notes} label="Notes (optional)">
+      <Field id={ids.notes} label={t("inventory_field_notes")}>
         <Input
           id={ids.notes}
           value={notes}
@@ -184,10 +186,10 @@ function InventoryForm({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : item ? "Save changes" : "Add service"}
+          {pending ? t("inventory_saving") : item ? t("inventory_save") : t("inventory_add")}
         </Button>
       </DialogFooter>
     </form>

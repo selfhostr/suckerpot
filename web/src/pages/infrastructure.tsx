@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { api, queryKeys } from "@/lib/api"
-import { formatNumber, plural } from "@/lib/format"
+import { t, tk } from "@/i18n"
 import {
   describeInfrastructure,
   exportHref,
@@ -31,24 +31,24 @@ import { cn } from "@/lib/utils"
 const PAGE_SIZE = 50
 
 const TYPE_OPTIONS = [
-  { value: "all", label: "All" },
-  { value: "domain", label: "Domains" },
-  { value: "ip", label: "IPs" },
-  { value: "url", label: "URLs" },
-  { value: "hash", label: "Hashes" },
+  { value: "all", labelKey: tk("common_all") },
+  { value: "domain", labelKey: tk("infra_filter_type_domains") },
+  { value: "ip", labelKey: tk("infra_filter_type_ips") },
+  { value: "url", labelKey: tk("infra_filter_type_urls") },
+  { value: "hash", labelKey: tk("infra_filter_type_hashes") },
 ] as const
 
 const ROLE_OPTIONS = [
-  { value: "all", label: "Any role" },
-  { value: "download_host", label: "Payload sources" },
-  { value: "contacted_host", label: "Contacted" },
-  { value: "hash", label: "File hashes" },
+  { value: "all", labelKey: tk("infra_filter_role_any") },
+  { value: "download_host", labelKey: tk("infra_filter_role_download_host") },
+  { value: "contacted_host", labelKey: tk("infra_filter_role_contacted_host") },
+  { value: "hash", labelKey: tk("infra_filter_role_hash") },
 ] as const
 
 const KNOWN_OPTIONS = [
-  { value: "all", label: "Any verdict" },
-  { value: "true", label: "Known malicious" },
-  { value: "false", label: "Not known" },
+  { value: "all", labelKey: tk("infra_filter_known_any") },
+  { value: "true", labelKey: tk("infra_filter_known_true") },
+  { value: "false", labelKey: tk("infra_filter_known_false") },
 ] as const
 
 /** Substring search: typing updates the URL after a short pause. */
@@ -80,8 +80,8 @@ function IndicatorSearch() {
         autoComplete="off"
         spellCheck={false}
         maxLength={128}
-        placeholder="Search URLs and hosts, e.g. bins/x86"
-        aria-label="Search indicators"
+        placeholder={t("infra_search_placeholder")}
+        aria-label={t("infra_search_label")}
         size="sm"
         className="pl-8 font-mono"
       />
@@ -128,13 +128,13 @@ export function InfrastructurePage() {
   const finding = graph.data ? describeInfrastructure(graph.data.summary, hours) : null
   const headline = graph.data
     ? graph.data.summary.indicators === 0
-      ? "Nothing recorded yet."
-      : `${plural(graph.data.summary.indicators, "indicator")} from ${plural(
-          graph.data.summary.sources,
-          "address",
-          "addresses",
-        )} ${windowPhrase(hours)}.`
-    : "URLs, hosts and file hashes attackers used."
+      ? t("infra_headline_none")
+      : t("infra_headline", {
+          indicators: graph.data.summary.indicators,
+          sources: graph.data.summary.sources,
+          when: windowPhrase(hours),
+        })
+    : t("infra_headline_loading")
 
   const listRef = useRef<HTMLDivElement>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -175,7 +175,7 @@ export function InfrastructurePage() {
           <a
             href={exportHref(f, filters)}
             download
-            aria-label={`Download ${f === "csv" ? "CSV" : "STIX 2.1 bundle"} of the indicators matching the filters`}
+            aria-label={t("infra_export_label", { format: f })}
           >
             <Download aria-hidden />
             {f === "csv" ? "CSV" : "STIX 2.1"}
@@ -189,7 +189,7 @@ export function InfrastructurePage() {
     <>
       <PageHeader
         help="infrastructure"
-        title="Hosts & URLs"
+        title={t("infra_title")}
         description={headline}
         actions={exportButtons}
       />
@@ -203,13 +203,13 @@ export function InfrastructurePage() {
       >
         <FindingCard
           className="min-w-0"
-          eyebrow="Hosts, URLs and malware families"
-          finding={finding?.finding ?? "Reading the infrastructure…"}
+          eyebrow={t("infra_eyebrow")}
+          finding={finding?.finding ?? t("infra_loading")}
           detail={finding?.detail}
           action={
             <div className="flex flex-wrap items-center gap-2">
               <SegmentedControl
-                label="Time window"
+                label={t("infra_window_label")}
                 value={String(hours)}
                 onChange={(v) => setWin(v === "168" ? null : v)}
                 options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
@@ -221,24 +221,24 @@ export function InfrastructurePage() {
                 onClick={() => setDiagram(showDiagram ? null : "1")}
               >
                 <Workflow aria-hidden />
-                {showDiagram ? "Hide diagram" : "Show diagram"}
+                {showDiagram ? t("infra_diagram_hide") : t("infra_diagram_show")}
               </Button>
             </div>
           }
         >
           {!showDiagram ? null : graph.isPending ? (
-            <div role="status" aria-label="Loading" className="space-y-3">
+            <div role="status" aria-label={t("common_loading")} className="space-y-3">
               <Skeleton className="h-64 w-full" />
             </div>
           ) : graph.isError ? (
             <EmptyState
               variant="bare"
               icon={SearchX}
-              title="Could not load the infrastructure"
+              title={t("infra_error_graph")}
               description={graph.error.message}
               action={
                 <Button variant="outline" size="sm" onClick={() => void graph.refetch()}>
-                  Try again
+                  {t("common_try_again")}
                 </Button>
               }
             />
@@ -246,8 +246,8 @@ export function InfrastructurePage() {
             <EmptyState
               variant="bare"
               icon={Network}
-              title="No infrastructure to draw yet"
-              description="When a session downloads a file or names a host, it appears here with the addresses that used it."
+              title={t("infra_graph_empty_title")}
+              description={t("infra_graph_empty_description")}
             />
           ) : (
             <>
@@ -257,7 +257,7 @@ export function InfrastructurePage() {
               <div className="md:hidden">
                 <FlowList graph={graph.data} onOpenIndicator={open} />
                 <p className="mt-3 text-xs text-fg-muted">
-                  The diagram needs a wider screen. The table below lists every indicator.
+                  {t("infra_diagram_narrow")}
                 </p>
               </div>
             </>
@@ -269,46 +269,50 @@ export function InfrastructurePage() {
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 space-y-1">
-          <h2 className="type-section-title text-fg">Indicators</h2>
+          <h2 className="type-section-title text-fg">{t("infra_indicators_title")}</h2>
           <p className="max-w-2xl type-lede text-fg-muted">
             {range === "all"
-              ? "Every indicator on record, most recently seen first."
-              : `Seen in the last ${WINDOWS.find((w) => w.hours === hours)?.label ?? `${Math.round(hours / 24)} days`}, the same window as the sentence above.`}
+              ? t("infra_indicators_all")
+              : t("infra_indicators_window", {
+                  window:
+                    WINDOWS.find((w) => w.hours === hours)?.label ??
+                    t("infra_days", { count: Math.round(hours / 24) }),
+                })}
           </p>
         </div>
         <SegmentedControl
-          label="Table time range"
+          label={t("infra_range_label")}
           value={range === "all" ? "all" : "window"}
           onChange={(v) => setRange(v === "all" ? "all" : null)}
           options={[
-            { value: "window", label: "Time window" },
-            { value: "all", label: "All time" },
+            { value: "window", label: t("infra_range_window") },
+            { value: "all", label: t("infra_range_all") },
           ]}
         />
       </div>
 
       <FilterBar
         className="mb-4"
-        chips={[{ param: "family", label: "Family" }]}
+        chips={[{ param: "family", label: t("infra_filter_family") }]}
         alsoClears={["type", "role", "known", "q", "range"]}
       >
         <SegmentedControl
-          label="Indicator type"
+          label={t("infra_filter_type_label")}
           value={type ?? "all"}
           onChange={(v) => setType(v === "all" ? null : v)}
-          options={TYPE_OPTIONS}
+          options={TYPE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
         />
         <SegmentedControl
-          label="Role"
+          label={t("infra_filter_role_label")}
           value={role ?? "all"}
           onChange={(v) => setRole(v === "all" ? null : v)}
-          options={ROLE_OPTIONS}
+          options={ROLE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
         />
         <SegmentedControl
-          label="Verdict"
+          label={t("infra_filter_known_label")}
           value={known ?? "all"}
           onChange={(v) => setKnown(v === "all" ? null : v)}
-          options={KNOWN_OPTIONS}
+          options={KNOWN_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
         />
         <IndicatorSearch />
       </FilterBar>
@@ -320,13 +324,13 @@ export function InfrastructurePage() {
             INDICATOR_GRID,
           )}
         >
-          <span>Indicator</span>
-          <span>Threat intelligence</span>
-          <span>Family</span>
-          <span className="text-right">Addresses</span>
-          <span className="text-right">Sightings</span>
-          <span className="text-right">Last seen</span>
-          <span className="sr-only">Copy</span>
+          <span className="truncate">{t("infra_col_indicator")}</span>
+          <span className="truncate">{t("infra_col_intel")}</span>
+          <span className="truncate">{t("infra_col_family")}</span>
+          <span className="truncate text-right">{t("infra_col_addresses")}</span>
+          <span className="truncate text-right">{t("infra_col_sightings")}</span>
+          <span className="truncate text-right">{t("infra_col_last_seen")}</span>
+          <span className="sr-only">{t("common_copy")}</span>
         </div>
         {query.isPending ? (
           <SkeletonList rows={8} />
@@ -334,11 +338,11 @@ export function InfrastructurePage() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load indicators"
+            title={t("infra_error_indicators")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -346,18 +350,18 @@ export function InfrastructurePage() {
           <EmptyState
             variant="bare"
             icon={Network}
-            title={filtered ? "No indicators match" : "No indicators yet"}
+            title={filtered ? t("infra_empty_filtered_title") : t("infra_empty_title")}
             description={
               filtered
-                ? "Try another type or a shorter search, or clear the filters."
-                : "Indicators are extracted from downloads, commands and requests as they are recorded."
+                ? t("infra_empty_filtered_description")
+                : t("infra_empty_description")
             }
           />
         ) : (
           <div
             ref={listRef}
             role="list"
-            aria-label="Indicators"
+            aria-label={t("infra_indicators_title")}
             aria-busy={isFetchingNextPage}
             className="relative w-full"
             style={{ height: virtualizer.getTotalSize() }}
@@ -384,12 +388,11 @@ export function InfrastructurePage() {
       </div>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {formatNumber(rows.length)} indicators
+          {t("infra_end_of_list", { count: rows.length })}
         </p>
       ) : null}
       <p className="mt-4 text-xs text-fg-subtle">
-        Passive view: indicators were only observed. Nothing here is fetched, opened or reported.
-        Exports hold up to 5,000 indicators matching the filters.
+        {t("infra_passive_note")}
       </p>
 
       <IndicatorDrawer id={openNumber} onClose={() => setOpenId(null)} onSelect={open} />

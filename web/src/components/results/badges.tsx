@@ -12,12 +12,12 @@ import {
   Bot,
   type LucideIcon,
 } from "lucide-react"
+import { t, tk } from "@/i18n"
 import { OUTCOME_LABEL, type Outcome } from "@/lib/replies"
 import type { TargetRole, TargetState } from "@/lib/results"
 import { cn } from "@/lib/utils"
 
 interface Meta {
-  label: string
   icon: LucideIcon
   className: string
   iconClass?: string
@@ -27,15 +27,14 @@ const NEUTRAL = "text-fg-muted"
 const WARN = "text-sev-warning tint-warning"
 
 const OUTCOME_META: Record<Outcome, Meta> = {
-  none: { label: OUTCOME_LABEL.none, icon: CircleDashed, className: NEUTRAL },
-  unknown: { label: OUTCOME_LABEL.unknown, icon: CircleHelp, className: NEUTRAL },
-  bounce: { label: OUTCOME_LABEL.bounce, icon: MailX, className: WARN },
-  auto_ack: { label: OUTCOME_LABEL.auto_ack, icon: Bot, className: NEUTRAL },
-  human_reply: { label: OUTCOME_LABEL.human_reply, icon: UserRound, className: "text-fg" },
-  ticket_opened: { label: OUTCOME_LABEL.ticket_opened, icon: Ticket, className: "text-fg" },
-  rejected: { label: OUTCOME_LABEL.rejected, icon: CircleX, className: WARN },
+  none: { icon: CircleDashed, className: NEUTRAL },
+  unknown: { icon: CircleHelp, className: NEUTRAL },
+  bounce: { icon: MailX, className: WARN },
+  auto_ack: { icon: Bot, className: NEUTRAL },
+  human_reply: { icon: UserRound, className: "text-fg" },
+  ticket_opened: { icon: Ticket, className: "text-fg" },
+  rejected: { icon: CircleX, className: WARN },
   resolved: {
-    label: OUTCOME_LABEL.resolved,
     icon: CircleCheck,
     className: "text-fg",
     iconClass: "text-status-ok",
@@ -52,11 +51,12 @@ interface OutcomeBadgeProps {
 /** What a report led to, as icon plus word. Warning tone for rejected and bounced, never red. */
 export function OutcomeBadge({ outcome, noAnswer = false, className }: OutcomeBadgeProps) {
   const m = OUTCOME_META[outcome]
-  const label = noAnswer && outcome === "none" ? "No answer" : m.label
+  const label =
+    noAnswer && outcome === "none" ? t("results_outcome_no_answer") : OUTCOME_LABEL[outcome]
   return (
     <span
       className={cn(
-        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm px-1 text-xs font-medium whitespace-nowrap",
+        "inline-flex min-h-(--chip) items-center gap-1.5 rounded-sm px-1 text-xs font-medium",
         m.className,
         className,
       )}
@@ -68,16 +68,16 @@ export function OutcomeBadge({ outcome, noAnswer = false, className }: OutcomeBa
 }
 
 const PAYLOAD_WORD: Record<TargetState, string> = {
-  up: "Still serving",
-  down: "Down",
-  changed: "Serving a new file",
-  unknown: "Unknown",
+  up: tk("results_state_payload_up"),
+  down: tk("results_state_payload_down"),
+  changed: tk("results_state_payload_changed"),
+  unknown: tk("common_unknown"),
 }
 const ADDRESS_WORD: Record<TargetState, string> = {
-  up: "Active",
-  down: "Quiet",
-  changed: "Changed",
-  unknown: "Unknown",
+  up: tk("results_state_address_up"),
+  down: tk("results_state_address_down"),
+  changed: tk("results_state_address_changed"),
+  unknown: tk("common_unknown"),
 }
 
 interface StateBadgeProps {
@@ -92,7 +92,7 @@ interface StateBadgeProps {
  */
 export function TargetStateBadge({ state, role, className }: StateBadgeProps) {
   const address = role === "attack_source" || role === "c2"
-  const word = (address ? ADDRESS_WORD : PAYLOAD_WORD)[state]
+  const word = t((address ? ADDRESS_WORD : PAYLOAD_WORD)[state])
   const severe = (state === "up" || state === "changed") && !address
   const Icon: LucideIcon =
     state === "down"
@@ -115,7 +115,7 @@ export function TargetStateBadge({ state, role, className }: StateBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm px-1 text-xs font-medium whitespace-nowrap text-fg",
+        "inline-flex min-h-(--chip) items-center gap-1.5 rounded-sm px-1 text-xs font-medium text-fg",
         className,
       )}
     >
@@ -125,7 +125,7 @@ export function TargetStateBadge({ state, role, className }: StateBadgeProps) {
         strokeWidth={2.25}
       />
       {word}
-      {severe ? <span className="sr-only"> (severe: malware is still served)</span> : null}
+      {severe ? <span className="sr-only"> {t("results_state_severe")}</span> : null}
     </span>
   )
 }

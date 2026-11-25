@@ -9,10 +9,11 @@ import { SkeletonText } from "@/components/skeletons"
 import { AdminActionDialog } from "@/components/users/admin-action-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { intlLocale, t } from "@/i18n"
 import { abuseKeys } from "@/lib/abuse"
 import {
-  AUTO_WARNING,
-  CAP_HINT,
+  autoWarning,
+  capHint,
   CAP_RANGE,
   describeRequest,
   describeSendError,
@@ -34,14 +35,15 @@ import { UserError } from "@/lib/users"
 type Action = "save" | "test" | "remove"
 
 function finding(c: SmtpConfig): string {
-  if (!c.configured) return "SuckerPot does not send reports. Set up SMTP to let it."
-  if (c.mode === "off")
-    return "Sending is off. Reports are copied or opened from the To send queue."
-  if (c.mode === "click") return "Reports are sent only when you click Send now."
-  return `Ready reports are sent automatically after ${c.auto_hold_minutes} minutes.`
+  if (!c.configured) return t("sending_finding_unconfigured")
+  if (c.mode === "off") return t("sending_finding_off")
+  if (c.mode === "click") return t("sending_finding_click")
+  return t("sending_finding_auto", { minutes: c.auto_hold_minutes })
 }
 
-const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
+/** The start of a sentence goes mid-sentence: lower case it, except in German (nouns). */
+const lowerFirst = (s: string) =>
+  intlLocale().startsWith("de") ? s : s.charAt(0).toLowerCase() + s.slice(1)
 
 function toForm(c: SmtpConfig): SmtpForm {
   return {
@@ -103,17 +105,17 @@ function SendingForm({
   const save = useMutation({ mutationFn: (pw: string) => sendApi.saveSmtp(f, pw) })
 
   function validate(): string | null {
-    if (!f.host.trim()) return "Enter the mail server name, such as smtp.example.net."
+    if (!f.host.trim()) return t("sending_invalid_host", { example: "smtp.example.net" })
     if (!Number.isInteger(f.port) || f.port < 1 || f.port > 65535)
-      return "The port must be a number from 1 to 65535."
+      return t("imap_invalid_port")
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.from_address.trim()))
-      return "Enter the from address as a full mailbox."
-    if (!initial.password_set && !f.password) return "Enter the SMTP password or token."
+      return t("sending_invalid_from")
+    if (!initial.password_set && !f.password) return t("sending_invalid_password")
     if (f.mode === "auto") {
       if (f.auto_hold_minutes < HOLD_RANGE.min || f.auto_hold_minutes > HOLD_RANGE.max)
-        return `The waiting time must be between ${HOLD_RANGE.min} and ${HOLD_RANGE.max} minutes.`
+        return t("sending_invalid_hold", { min: HOLD_RANGE.min, max: HOLD_RANGE.max })
       if (f.daily_cap < CAP_RANGE.min || f.daily_cap > CAP_RANGE.max)
-        return `The daily limit must be between ${CAP_RANGE.min} and ${CAP_RANGE.max}.`
+        return t("sending_invalid_cap", { min: CAP_RANGE.min, max: CAP_RANGE.max })
     }
     return null
   }
@@ -125,7 +127,7 @@ function SendingForm({
       <div className="space-y-2.5">
         <SegmentedControl
           size="form"
-          label="Sending mode"
+          label={t("sending_mode_aria")}
           value={f.mode}
           onChange={(v) => set("mode", v)}
           options={MODE_OPTIONS.map((o) => ({
@@ -133,12 +135,15 @@ function SendingForm({
             disabled: o.value !== "off" && !initial.configured,
           }))}
         />
-        {initial.configured ? null : <p className="text-sm text-fg-muted">Set up SMTP first.</p>}
+        {initial.configured ? null : (
+          <p className="text-sm text-fg-muted">{t("sending_setup_first")}</p>
+        )}
         <p className="text-sm text-fg-muted">{MODE_EXPLANATION[f.mode]}</p>
         {f.mode !== initial.mode ? (
           <p role="status" className="text-sm text-fg-muted">
-            Not saved yet. Save to switch to{" "}
-            {MODE_OPTIONS.find((o) => o.value === f.mode)?.label ?? f.mode}.
+            {t("sending_mode_unsaved", {
+              mode: MODE_OPTIONS.find((o) => o.value === f.mode)?.label ?? f.mode,
+            })}
           </p>
         ) : null}
         {f.mode === "auto" ? (
@@ -147,7 +152,7 @@ function SendingForm({
             className="flex items-start gap-2.5 rounded-md border border-border-strong bg-surface-raised px-3 py-2.5 text-sm text-fg"
           >
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
-            {AUTO_WARNING}
+            {autoWarning()}
           </p>
         ) : null}
       </div>
@@ -173,26 +178,24 @@ function SendingForm({
               setF((p) => ({ ...p, ...PROTON_PRESET }))
             }}
           >
-            Proton (paid plan, custom domain)
+            {t("sending_proton")}
           </Button>
           <span className="text-xs text-fg-muted">
-            Fills the server, port and security. The password is an SMTP token from Proton&apos;s
-            settings.
+            {t("sending_proton_hint")}
           </span>
         </div>
         {preset ? (
           <p role="note" className="flex items-start gap-2 text-sm text-fg-muted">
             <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
-            The password is an SMTP token created in Proton&apos;s settings, not your login
-            password. The username is the address that owns the token.
+            {t("sending_proton_note")}
           </p>
         ) : null}
         <p className="text-sm text-fg-muted">
-          Free Proton addresses have no SMTP: use the To send queue.
+          {t("sending_free_proton")}
         </p>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Field id={ids.host} label="Server" hint="A name, not an address.">
+          <Field id={ids.host} label={t("imap_server")} hint={t("imap_server_hint")}>
             <Input
               id={ids.host}
               maxLength={253}
@@ -204,7 +207,7 @@ function SendingForm({
             />
           </Field>
           <div className="grid grid-cols-[6rem_1fr] gap-4">
-            <Field id={ids.port} label="Port">
+            <Field id={ids.port} label={t("imap_port")}>
               <Input
                 id={ids.port}
                 inputMode="numeric"
@@ -214,10 +217,10 @@ function SendingForm({
               />
             </Field>
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-fg">Security</span>
+              <span className="text-sm font-medium text-fg">{t("imap_security")}</span>
               <SegmentedControl
                 size="form"
-                label="Security"
+                label={t("imap_security")}
                 value={f.security}
                 onChange={(v) => set("security", v)}
                 options={[
@@ -226,10 +229,10 @@ function SendingForm({
                 ]}
                 className="self-start"
               />
-              <p className="text-xs text-fg-muted">Plain text is not offered.</p>
+              <p className="text-xs text-fg-muted">{t("imap_security_hint")}</p>
             </div>
           </div>
-          <Field id={ids.user} label="Username">
+          <Field id={ids.user} label={t("imap_username")}>
             <Input
               id={ids.user}
               maxLength={254}
@@ -240,11 +243,9 @@ function SendingForm({
           </Field>
           <Field
             id={ids.pass}
-            label="Password or token"
+            label={t("sending_password")}
             hint={
-              initial.password_set
-                ? "Set. Leave empty to keep it; type a new one to replace it. It is never shown again."
-                : "Stored encrypted. It is never shown again."
+              initial.password_set ? t("sending_password_hint_set") : t("imap_password_hint_new")
             }
           >
             <Input
@@ -258,8 +259,8 @@ function SendingForm({
           </Field>
           <Field
             id={ids.from}
-            label="From address"
-            hint="Checked against the identity guard, like every report."
+            label={t("sending_from_address")}
+            hint={t("sending_from_address_hint")}
           >
             <Input
               id={ids.from}
@@ -271,7 +272,7 @@ function SendingForm({
               onChange={(e) => set("from_address", e.target.value.trim())}
             />
           </Field>
-          <Field id={ids.name} label="From name" hint="Optional. Empty by default.">
+          <Field id={ids.name} label={t("sending_from_name")} hint={t("sending_from_name_hint")}>
             <Input
               id={ids.name}
               maxLength={100}
@@ -284,8 +285,12 @@ function SendingForm({
             <>
               <Field
                 id={ids.hold}
-                label="Waiting time (minutes)"
-                hint={`${HOLD_RANGE.min} to ${HOLD_RANGE.max}. Time to cancel before a report leaves. ${CAP_HINT}`}
+                label={t("sending_hold")}
+                hint={t("sending_hold_hint", {
+                  min: HOLD_RANGE.min,
+                  max: HOLD_RANGE.max,
+                  cap: capHint(),
+                })}
               >
                 <Input
                   id={ids.hold}
@@ -298,8 +303,12 @@ function SendingForm({
               </Field>
               <Field
                 id={ids.cap}
-                label="Daily limit"
-                hint={`${CAP_RANGE.min} to ${CAP_RANGE.max} automatic sends per UTC day. ${CAP_HINT}`}
+                label={t("sending_cap")}
+                hint={t("sending_cap_hint", {
+                  min: CAP_RANGE.min,
+                  max: CAP_RANGE.max,
+                  cap: capHint(),
+                })}
               >
                 <Input
                   id={ids.cap}
@@ -321,15 +330,15 @@ function SendingForm({
         </p>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit">Save sending settings</Button>
+          <Button type="submit">{t("sending_save")}</Button>
           <UnsavedHint show={unsaved} />
           {initial.configured ? (
             <>
               <Button type="button" variant="outline" onClick={() => setAction("test")}>
-                Send a test
+                {t("sending_test")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setAction("remove")}>
-                Remove SMTP
+                {t("sending_remove")}
               </Button>
             </>
           ) : null}
@@ -337,8 +346,10 @@ function SendingForm({
         {initial.configured ? (
           <p className="text-sm text-fg-muted">
             {initial.last_test
-              ? `Last test to the from address: ${lowerFirst(describeRequest(initial.last_test) ?? "")}`
-              : "No test sent yet. A test is a short neutral message to the from address."}
+              ? t("sending_last_test", {
+                  result: lowerFirst(describeRequest(initial.last_test) ?? ""),
+                })
+              : t("sending_no_test")}
           </p>
         ) : null}
         <p role="alert" className="text-sm text-fg empty:hidden">
@@ -354,7 +365,7 @@ function SendingForm({
         onClose={() => setAction(null)}
         onSave={async (pw) => {
           await reauth(() => save.mutateAsync(pw))
-          setSaved("Saved.")
+          setSaved(t("sending_saved"))
           markSaved(f)
           refresh()
         }}
@@ -387,35 +398,37 @@ function Dialogs({
   onRemove: (pw: string) => Promise<void>
   from: string
 }): ReactNode {
-  const hint = "Changing the sending settings asks for your own dashboard password again."
+  const hint = t("sending_dialog_hint")
   const base = { hint, onOpenChange: (o: boolean) => !o && onClose(), onDone: () => undefined }
   return (
     <>
       <AdminActionDialog
         {...base}
         open={action === "save"}
-        title="Save the sending settings?"
-        description="The mail server password is stored encrypted and never shown again."
-        confirmLabel="Save"
-        pendingLabel="Saving…"
+        title={t("sending_save_title")}
+        description={t("sending_save_description")}
+        confirmLabel={t("common_save")}
+        pendingLabel={t("sending_saving")}
         run={onSave}
       />
       <AdminActionDialog
         {...base}
         open={action === "test"}
-        title="Send a test message?"
-        description={`A short neutral message goes to ${from || "the from address"}, through the VPN, using the saved settings.`}
-        confirmLabel="Send test"
-        pendingLabel="Sending…"
+        title={t("sending_test_title")}
+        description={t("sending_test_description", {
+          to: from || t("sending_from_address_fallback"),
+        })}
+        confirmLabel={t("sending_test_confirm")}
+        pendingLabel={t("sending_test_pending")}
         run={onTest}
       />
       <AdminActionDialog
         {...base}
         open={action === "remove"}
-        title="Remove the SMTP settings?"
-        description="The server details and the stored password are deleted and sending goes back to Off. Reports are not affected."
-        confirmLabel="Remove"
-        pendingLabel="Removing…"
+        title={t("sending_remove_title")}
+        description={t("sending_remove_description")}
+        confirmLabel={t("common_remove")}
+        pendingLabel={t("sending_removing")}
         run={onRemove}
       />
     </>
@@ -434,17 +447,17 @@ export function SendingCard() {
   })
   return (
     <FindingCard
-      eyebrow="Sending"
+      eyebrow={t("sending_eyebrow")}
       finding={
         q.isPending
-          ? "Loading the sending settings…"
+          ? t("sending_loading")
           : q.isError
-            ? "The sending settings could not be loaded."
+            ? t("sending_load_failed")
             : formMode && formMode !== q.data.mode
-              ? `Saved: ${finding(q.data)}`
+              ? t("sending_saved_finding", { finding: finding(q.data) })
               : finding(q.data)
       }
-      detail="Optional. SuckerPot sends a report only if you set up SMTP and choose a sending mode."
+      detail={t("sending_detail")}
     >
       {q.isPending ? (
         <SkeletonText lines={4} />

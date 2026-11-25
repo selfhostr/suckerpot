@@ -4,6 +4,8 @@ import { ExpandToggle } from "@/components/expand-toggle"
 import { Button } from "@/components/ui/button"
 import { useCopy } from "@/hooks/use-copy"
 import { useExpandable } from "@/hooks/use-expandable"
+import { t } from "@/i18n"
+import { lowerNoun } from "@/lib/abuse"
 import { maskIpsInText } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -27,16 +29,20 @@ export function CopyField({ label, value, multiline = false, className }: CopyFi
   return (
     <div className={cn("min-w-0 space-y-1.5", className)}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-fg-muted">{label}</span>
+        <span className="min-w-0 text-xs font-medium text-fg-muted">{label}</span>
         {masked ? null : (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => void copy(value)}
-            aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
+            aria-label={
+              copied
+                ? t("abuse_copy_field_copied_aria", { label })
+                : t("abuse_copy_field_copy_aria", { label: lowerNoun(label) })
+            }
           >
             {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-            <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
+            <span aria-live="polite">{copied ? t("common_copied") : t("common_copy")}</span>
           </Button>
         )}
       </div>
@@ -59,7 +65,7 @@ export function CopyField({ label, value, multiline = false, className }: CopyFi
           expanded={expanded}
           overflowing={overflowing}
           onToggle={toggle}
-          label={label.toLowerCase()}
+          label={lowerNoun(label)}
         />
       ) : null}
     </div>

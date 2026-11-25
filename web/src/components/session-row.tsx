@@ -1,4 +1,5 @@
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { markSubject, subjectProps } from "@/app/view-transitions"
 import { CountryFlag } from "@/components/country-flag"
 import { FloodBadge } from "@/components/flood-badge"
@@ -92,7 +93,10 @@ export function SessionRow({
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
         aria-label={
           flood
-            ? `${describeSessionText(session)}, between ${floodSpan(session)}`
+            ? t("sessions_row_flood_label", {
+                story: describeSessionText(session),
+                span: floodSpan(session),
+              })
             : describeSessionText(session)
         }
       />
@@ -183,7 +187,7 @@ function DesktopLine({
               <span title={session.org ?? undefined}>
                 {session.country
                   ? (countryName(session.country) ?? session.country)
-                  : "Unknown country"}
+                  : t("sessions_unknown_country")}
               </span>
             </span>
           </div>
@@ -211,10 +215,10 @@ function DesktopLine({
         {session.benign ? <ScannerBadge name={session.scanner_name} className="z-10" /> : null}
         {/* The scanner badge already says it: the rules engine's "scanner" tag would repeat it. */}
         {/* A flood row keeps its room for the story: its tags are one click away on its page. */}
-        {(flood ? [] : session.benign ? session.tags.filter((t) => t !== "scanner") : session.tags)
+        {(flood ? [] : session.benign ? session.tags.filter((tag) => tag !== "scanner") : session.tags)
           .slice(0, 2)
-          .map((t) => (
-            <TagBadge key={t} tag={t} className="z-10" />
+          .map((tag) => (
+            <TagBadge key={tag} tag={tag} className="z-10" />
           ))}
         {flagged ? <SeverityBadge severity={severity} iconOnly className="z-10" /> : null}
       </div>

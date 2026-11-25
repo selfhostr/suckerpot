@@ -1,5 +1,6 @@
 import { AnimatedNumber } from "@/components/animated-number"
 import { useSensorFilter } from "@/hooks/use-sensor-filter"
+import { t } from "@/i18n"
 import type { SensorCounts } from "@/lib/api"
 import { formatNumber } from "@/lib/format"
 import {
@@ -47,7 +48,7 @@ export function FamilyStrip({ bySensor, layout = "overlay", className }: FamilyS
   const overlay = layout === "overlay"
   return (
     <section
-      aria-label="Events in the last minute"
+      aria-label={t("family_strip_aria")}
       className={cn(
         overlay
           ? "flex items-center gap-1 rounded-md border bg-surface-raised/90 p-1 shadow-sm backdrop-blur-sm"
@@ -69,7 +70,7 @@ export function FamilyStrip({ bySensor, layout = "overlay", className }: FamilyS
         ) : (
           <span className="font-semibold text-fg-subtle">–</span>
         )}
-        <span className="text-xs whitespace-nowrap text-fg-muted">events / min</span>
+        <span className="text-xs whitespace-nowrap text-fg-muted">{t("family_strip_unit")}</span>
       </p>
       <ul className="contents">
         {SENSOR_FAMILIES.map((f) => {
@@ -81,7 +82,11 @@ export function FamilyStrip({ bySensor, layout = "overlay", className }: FamilyS
               <button
                 type="button"
                 aria-pressed={only === f}
-                aria-label={`${fam.label}: ${formatNumber(n)} events in the last minute. ${only === f ? "Show every sensor" : "Show only this family"}`}
+                aria-label={t("family_strip_button_aria", {
+                  label: fam.label,
+                  count: n,
+                  only: only === f ? "yes" : "no",
+                })}
                 onClick={() => toggle(f)}
                 className={cn(
                   "flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-2 text-xs transition-colors duration-150 hover:bg-surface-hover",

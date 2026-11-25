@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit"
 import { Terminal } from "@xterm/xterm"
 import { Info, Pause, Play, RotateCcw, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useReducer, useRef } from "react"
+import { t } from "@/i18n"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -156,13 +157,13 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
           {source.reconstructed ? (
             <Badge variant="outline" className="gap-1.5 font-normal text-fg-muted">
               <Wand2 aria-hidden className="size-3" />
-              Reconstructed from commands
+              {t("replay_reconstructed")}
             </Badge>
           ) : null}
           {source.truncated ? (
             <p role="note" className="inline-flex items-center gap-1.5">
               <Info aria-hidden className="size-3.5 shrink-0" />
-              Replay truncated: earlier output was not kept.
+              {t("replay_truncated")}
             </p>
           ) : null}
         </div>
@@ -170,7 +171,7 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
 
       <div
         role="group"
-        aria-label="Terminal replay. Space plays or pauses. Left and right arrow keys skip five seconds."
+        aria-label={t("replay_group_label")}
         tabIndex={0}
         onKeyDownCapture={onKeyDown}
         className="overflow-x-auto rounded-md border border-[#23252a] p-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -178,7 +179,7 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
       >
         <div ref={hostRef} className="h-64 w-full sm:h-80" />
         <p className="sr-only">
-          The commands of this session are listed in the timeline below as text.
+          {t("replay_sr_note")}
         </p>
       </div>
 
@@ -188,7 +189,7 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
             type="button"
             size="icon"
             variant="outline"
-            aria-label={playing ? "Pause" : atEnd ? "Replay" : "Play"}
+            aria-label={playing ? t("replay_pause") : atEnd ? t("replay_replay") : t("replay_play")}
             onClick={() => engine.toggle()}
           >
             {playing ? (
@@ -203,7 +204,7 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
             type="button"
             size="icon"
             variant="ghost"
-            aria-label="Restart"
+            aria-label={t("replay_restart")}
             onClick={() => engine.restart()}
           >
             <RotateCcw aria-hidden />
@@ -216,7 +217,7 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <SegmentedControl
-            label="Playback speed"
+            label={t("replay_speed")}
             value={String(engine.speed)}
             onChange={(v) => engine.setSpeed(Number(v))}
             options={SPEEDS.map((s) => ({ value: String(s), label: `${s}×` }))}
@@ -224,12 +225,12 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
           <Toggle
             pressed={engine.skipIdle}
             onPressedChange={(on) => engine.setSkipIdle(on)}
-            aria-label="Skip idle time"
+            aria-label={t("replay_skip_idle_label")}
             className={cn(
               "h-8 rounded-md border px-3 text-xs font-medium text-fg-muted data-[state=on]:border-border-strong data-[state=on]:bg-surface-raised data-[state=on]:text-fg",
             )}
           >
-            Skip idle
+            {t("replay_skip_idle")}
           </Toggle>
         </div>
 
@@ -242,8 +243,11 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
           onValueChange={([v]) => {
             if (v !== undefined) engine.seek(v)
           }}
-          thumbLabel="Replay position"
-          thumbValueText={`${formatClockTime(position)} of ${formatClockTime(duration)}`}
+          thumbLabel={t("replay_position")}
+          thumbValueText={t("replay_position_value", {
+            position: formatClockTime(position),
+            duration: formatClockTime(duration),
+          })}
         />
       </div>
     </div>

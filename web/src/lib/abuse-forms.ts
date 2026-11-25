@@ -6,9 +6,12 @@
  */
 import { getJson, sendJson } from "./api"
 import type { GuardResult, Recipient, ReportKind } from "./abuse"
-import { plural } from "./format"
+import { intlLocale, t } from "@/i18n"
 
-/** Shown at the top of every kit, always: a browser does not go through the node's VPN. */
+/**
+ * The warning the server puts at the top of every kit (English, as served). The page falls back
+ * to the translated `abuse_form_browser_warning` when the kit carries none.
+ */
 export const BROWSER_WARNING =
   "The provider sees the address of the browser that submits the form. Open it through your VPN or the Tor Browser."
 
@@ -141,12 +144,24 @@ export function formLinkHref(link: FormLink): string | null {
 
 /** The Monday (UTC) of the ISO week of a time, as YYYY-MM-DD, or null. */
 export function mondayOf(iso: string): string | null {
-  const t = Date.parse(iso)
-  if (Number.isNaN(t)) return null
-  const d = new Date(t)
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return null
+  const d = new Date(ms)
   d.setUTCHours(0, 0, 0, 0)
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7))
   return d.toISOString().slice(0, 10)
+}
+
+/** "16 Nov 2026" (day first in English) from the Monday of an ISO week, or null. */
+function weekDay(week: string | null | undefined): string | null {
+  if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(week)) return null
+  const locale = intlLocale()
+  return new Date(`${week}T00:00:00Z`).toLocaleDateString(locale === "en" ? "en-GB" : locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  })
 }
 
 /**
@@ -158,44 +173,37 @@ export function weekSpanLabel(windowStart: string, windowEnd: string): string {
   const last = mondayOf(windowEnd)
   if (!first || !last) return weekLabel(last ?? first)
   if (first === last) return weekLabel(first)
-  return `Weeks of ${weekLabel(first).slice("Week of ".length)} to ${weekLabel(last).slice("Week of ".length)}`
+  return t("abuse_form_weeks_of", { from: weekDay(first), to: weekDay(last) })
 }
 
 /** "Week of 16 Nov 2026" from the Monday of an ISO week. */
 export function weekLabel(week: string | null | undefined): string {
-  if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(week)) return "This week"
-  const d = new Date(`${week}T00:00:00Z`)
-  const day = d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  })
-  return `Week of ${day}`
+  const day = weekDay(week)
+  return day ? t("abuse_form_week_of", { day }) : t("abuse_form_this_week")
 }
 
 /** The sentence over the queue. */
 export function describeFormQueue(n: number): string {
-  if (n === 0) return "Nothing to submit by form."
-  return `${plural(n, "provider week", "provider weeks")} to submit through the provider's web form.`
+  if (n === 0) return t("abuse_form_queue_empty")
+  return t("abuse_form_queue_count", { count: n })
 }
 
 /** The sentence on a queue card. */
 export function describeFormItem(item: FormQueueItem): string {
-  const parts = [plural(item.subject_count, "address", "addresses")]
-  if (item.stale_count > 0) parts.push(`${item.stale_count} older than 7 days`)
-  return parts.join(", ")
+  const addresses = t("abuse_form_item_addresses", { count: item.subject_count })
+  if (item.stale_count > 0)
+    return t("abuse_form_item_with_stale", { addresses, stale: item.stale_count })
+  return addresses
 }
 
 /** The label of a link: the directory is reviewed, a reply is a hint. */
 export function linkLabel(link: FormLink): string {
   if (link.origin === "directory") {
-    const checked = link.checked_on ? `, checked ${link.checked_on}` : ""
-    return link.stale
-      ? `From the shared directory${checked} (last checked over a year ago)`
-      : `From the shared directory${checked}`
+    const checked = link.checked_on ?? "none"
+    if (link.stale) return t("abuse_form_link_directory_stale", { checked })
+    return t("abuse_form_link_directory", { checked })
   }
-  return "From a reply: check the address before you open it"
+  return t("abuse_form_link_reply")
 }
 
 /** The source references of the ticked addresses. */

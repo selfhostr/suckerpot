@@ -4,6 +4,8 @@ import { useScannerFilter } from "@/app/scanner-filter"
 import { Term } from "@/components/term"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { scannerCaption } from "@/lib/scanner-caption"
 import { todayApi, todayKeys } from "@/lib/today"
 import { cn } from "@/lib/utils"
@@ -30,13 +32,18 @@ export function ScannerToggle({
     refetchInterval: 60_000,
   })
   const caption = scannerCaption(hide, count.data?.sessions)
+  const hideLabel = tNodes(
+    "scanner_toggle_label",
+    {},
+    { term: <Term id="research-scanner">{t("scanner_toggle_term")}</Term> },
+  )
   if (inline) {
     // The header form: label and switch only. The count sits in the switch's tooltip and its
     // accessible description, so the header stays quiet; the phone drawer prints it in full.
     return (
       <div className={cn("flex items-center gap-2.5", className)}>
-        <label htmlFor={id} className="text-xs whitespace-nowrap text-fg-muted">
-          Hide <Term id="research-scanner">research scanners</Term>
+        <label htmlFor={id} className="text-xs text-fg-muted">
+          {hideLabel}
         </label>
         <Tooltip>
           {/* A wrapper as the trigger: the tooltip's own data-state must not replace the switch's. */}
@@ -65,7 +72,7 @@ export function ScannerToggle({
     <div className={cn("flex flex-col gap-1", className)}>
       <div className="flex items-center justify-between gap-2">
         <label htmlFor={id} className="text-xs text-fg-muted">
-          Hide <Term id="research-scanner">research scanners</Term>
+          {hideLabel}
         </label>
         <Switch
           id={id}

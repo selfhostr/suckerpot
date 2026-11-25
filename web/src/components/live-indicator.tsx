@@ -1,12 +1,13 @@
+import { t, tk } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 export type LiveStatus = "live" | "connecting" | "reconnecting" | "offline"
 
 const LABEL: Record<LiveStatus, string> = {
-  live: "Live",
-  connecting: "Connecting",
-  reconnecting: "Reconnecting",
-  offline: "Offline",
+  live: tk("live_status_live"),
+  connecting: tk("live_status_connecting"),
+  reconnecting: tk("live_status_reconnecting"),
+  offline: tk("live_status_offline"),
 }
 
 /** A small, calm status dot. The ring pulses slowly only while live. */
@@ -41,7 +42,7 @@ export function LiveIndicator({
           )}
         />
       </span>
-      <span className="font-medium text-fg">{LABEL[status]}</span>
+      <span className="font-medium text-fg">{t(LABEL[status])}</span>
       {detail ? <span className="truncate">{detail}</span> : null}
     </span>
   )

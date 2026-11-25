@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router"
 import { CopyButton } from "@/components/defend/copy-button"
+import { t } from "@/i18n"
 import { SegmentedControl } from "@/components/segmented-control"
 import {
   Sheet,
@@ -38,15 +39,14 @@ export function FirewallStepsSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle>Keep a firewall up to date</SheetTitle>
+          <SheetTitle>{t("firewall_sheet_title")}</SheetTitle>
           <SheetDescription>
-            Your firewall fetches the list of {KIND_META[kind].phrase} once a day from a feed, so it
-            stays current without a new download.
+            {t("firewall_sheet_description", { kinds: KIND_META[kind].phrase })}
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-4 px-4 pb-6">
           <SegmentedControl
-            label="Firewall"
+            label={t("firewall_sheet_firewall")}
             value={firewall}
             onChange={setFirewall}
             options={(["opnsense", "pfsense"] as const).map((f) => ({
@@ -55,7 +55,7 @@ export function FirewallStepsSheet({
             }))}
           />
           <ol
-            aria-label={`${FIREWALL_LABEL[firewall]} steps`}
+            aria-label={t("firewall_sheet_steps", { firewall: FIREWALL_LABEL[firewall] })}
             className="list-decimal space-y-2 pl-5 text-sm text-pretty text-fg-muted marker:text-fg-subtle"
           >
             {steps.map((s) => (
@@ -68,15 +68,15 @@ export function FirewallStepsSheet({
             <CopyButton
               variant="outline"
               text={instructionsText(firewall, feed)}
-              label="Copy firewall instructions"
+              label={t("firewall_sheet_copy")}
             >
-              Copy firewall instructions
+              {t("firewall_sheet_copy")}
             </CopyButton>
             <Link
               to="/settings?tab=feeds"
               className="text-sm text-fg underline underline-offset-4 hover:text-fg-muted"
             >
-              Create a feed token in Settings
+              {t("firewall_sheet_token")}
             </Link>
           </div>
         </div>

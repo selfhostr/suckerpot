@@ -1,6 +1,7 @@
 import { CircleHelp } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { HELP, type HelpId } from "@/lib/help"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 /** The "?" next to a page title: what the page shows, where its data comes from, what to try. */
@@ -11,7 +12,7 @@ export function PageHelp({ id, className }: { id: HelpId; className?: string }) 
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`About this page: ${text.title}`}
+          aria-label={t("page_help_about", { title: text.title })}
           className={cn(
             "inline-grid size-6 shrink-0 place-items-center rounded-md text-fg-subtle transition-colors duration-150 hover:bg-surface-hover/60 hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
             className,

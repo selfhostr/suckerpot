@@ -11,6 +11,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import {
   describeKeyError,
   KEY_MESSAGES,
@@ -53,7 +55,7 @@ function SetKeyForm({ provider, onDone, onCancel, replacing }: FormProps & { rep
     setPasswordError(null)
     if (Object.keys(errors).length > 0) return
     if (!password) {
-      setPasswordError("Enter your password to confirm.")
+      setPasswordError(t("alerts_msg_password_required"))
       passRef.current?.focus()
       return
     }
@@ -88,19 +90,20 @@ function SetKeyForm({ provider, onDone, onCancel, replacing }: FormProps & { rep
     >
       <DialogHeader className="text-left">
         <DialogTitle>
-          {replacing ? "Replace" : "Set"} the {name} key
+          {replacing
+            ? t("providerkeys_dialog_replace_title", { name })
+            : t("providerkeys_dialog_set_title", { name })}
         </DialogTitle>
         <DialogDescription>
-          The key is encrypted before it is stored and is never shown again, only its last four
-          characters. {replacing ? "It replaces the current key." : null}
+          {t("providerkeys_dialog_description", { replacing: replacing ? "yes" : "no" })}
         </DialogDescription>
       </DialogHeader>
 
       {provider === "maxmind" ? (
         <Field
           id={ids.account}
-          label="Account ID"
-          hint="The number shown in your MaxMind account."
+          label={t("providerkeys_account_id")}
+          hint={t("providerkeys_account_id_hint")}
           error={fieldErrors.accountId}
         >
           <Input
@@ -123,7 +126,7 @@ function SetKeyForm({ provider, onDone, onCancel, replacing }: FormProps & { rep
 
       <Field
         id={ids.key}
-        label={provider === "maxmind" ? "Licence key" : "API key"}
+        label={provider === "maxmind" ? t("providerkeys_licence_key") : t("providerkeys_api_key")}
         error={fieldErrors.key}
       >
         <Input
@@ -147,8 +150,8 @@ function SetKeyForm({ provider, onDone, onCancel, replacing }: FormProps & { rep
 
       <Field
         id={ids.pass}
-        label="Your password"
-        hint="Changing a key asks for your dashboard password again."
+        label={t("channels_password")}
+        hint={t("providerkeys_password_hint")}
         error={passwordError ?? undefined}
       >
         <Input
@@ -168,10 +171,10 @@ function SetKeyForm({ provider, onDone, onCancel, replacing }: FormProps & { rep
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Save key"}
+          {pending ? t("setup_saving") : t("providerkeys_save")}
         </Button>
       </DialogFooter>
     </form>
@@ -191,7 +194,7 @@ function RemoveKeyForm({ provider, onDone, onCancel }: FormProps) {
     setPasswordError(null)
     setFormError(null)
     if (!password) {
-      setPasswordError("Enter your password to confirm.")
+      setPasswordError(t("alerts_msg_password_required"))
       return
     }
     setPending(true)
@@ -218,16 +221,19 @@ function RemoveKeyForm({ provider, onDone, onCancel }: FormProps) {
       noValidate
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Remove the {name} key</DialogTitle>
+        <DialogTitle>{t("providerkeys_remove_title", { name })}</DialogTitle>
         <DialogDescription>
-          The key stored in Settings is deleted. If <code className="font-mono">.env</code> also has
-          a key for {name}, that one is used again.
+          {tNodes(
+            "providerkeys_remove_description",
+            { name },
+            { env: <code className="font-mono">.env</code> },
+          )}
         </DialogDescription>
       </DialogHeader>
       <Field
         id={ids.pass}
-        label="Your password"
-        hint="Changing a key asks for your dashboard password again."
+        label={t("channels_password")}
+        hint={t("providerkeys_password_hint")}
         error={passwordError ?? undefined}
       >
         <Input
@@ -245,10 +251,10 @@ function RemoveKeyForm({ provider, onDone, onCancel }: FormProps) {
       <FormError id={ids.err} message={formError} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Removing…" : "Remove key"}
+          {pending ? t("vpn_removing") : t("providerkeys_remove")}
         </Button>
       </DialogFooter>
     </form>

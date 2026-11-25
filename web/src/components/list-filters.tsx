@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { intlLocale, t } from "@/i18n"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { api, ASN_LIMIT, queryKeys } from "@/lib/api"
 import { countryName } from "@/lib/format"
@@ -109,9 +110,9 @@ export function ChoiceFilter({
   custom,
   show,
   searchable = true,
-  placeholder = "Search…",
-  any = "Any",
-  emptyText = "Nothing matches.",
+  placeholder = t("filters_choice_placeholder"),
+  any = t("filters_choice_any"),
+  emptyText = t("filters_choice_empty"),
   alsoRemove = [],
 }: ChoiceFilterProps) {
   const [params, setParams] = useSearchParams()
@@ -169,7 +170,7 @@ export function ChoiceFilter({
               value={query}
               onValueChange={setQuery}
               placeholder={placeholder}
-              aria-label={`Find a ${label.toLowerCase()}`}
+              aria-label={t("filters_choice_find", { label })}
             />
           ) : null}
           <CommandList label={label} className="max-h-[min(22rem,60dvh)]">
@@ -231,7 +232,7 @@ export function CountryFilter() {
   )
   return (
     <ChoiceFilter
-      label="Country"
+      label={t("filters_country_label")}
       param="country"
       options={seen}
       search={(q) => {
@@ -245,9 +246,9 @@ export function CountryFilter() {
         return code ? flagOption(code) : undefined
       }}
       show={(v) => <CountryFlag code={v} showName className="text-fg" />}
-      placeholder="Country name or code"
-      any="Any country"
-      emptyText="No country matches."
+      placeholder={t("filters_country_placeholder")}
+      any={t("filters_country_any")}
+      emptyText={t("filters_country_empty")}
     />
   )
 }
@@ -265,13 +266,13 @@ export function NetworkFilter() {
     node: (
       <>
         <span className="shrink-0 font-mono text-fg-muted">AS{n.asn}</span>
-        <span className="truncate">{n.org ?? "Unknown network"}</span>
+        <span className="truncate">{n.org ?? t("filters_network_unknown")}</span>
       </>
     ),
   })
   return (
     <ChoiceFilter
-      label="Network"
+      label={t("filters_network_label")}
       param="asn"
       options={items.slice(0, 30).map(toOption)}
       search={(q) => {
@@ -287,9 +288,9 @@ export function NetworkFilter() {
           : undefined
       }}
       show={(v) => <span className="font-mono">AS{v}</span>}
-      placeholder="AS number or network name"
-      any="Any network"
-      emptyText="No network matches."
+      placeholder={t("filters_network_placeholder")}
+      any={t("filters_network_any")}
+      emptyText={t("filters_network_empty")}
     />
   )
 }
@@ -309,7 +310,7 @@ export function TagFilter() {
   const options = (top.data?.items ?? []).map((i) => toOption(i.value, String(i.count)))
   return (
     <ChoiceFilter
-      label="Tag"
+      label={t("filters_tag_label")}
       param="tag"
       options={options}
       search={(q) => options.filter((o) => o.value.includes(q.toLowerCase()))}
@@ -318,9 +319,9 @@ export function TagFilter() {
         return tag ? toOption(tag) : undefined
       }}
       show={(v) => <span className="font-mono">{v}</span>}
-      placeholder="Tag, e.g. mirai"
-      any="Any tag"
-      emptyText="No tag matches."
+      placeholder={t("filters_tag_placeholder")}
+      any={t("filters_tag_any")}
+      emptyText={t("filters_tag_empty")}
     />
   )
 }
@@ -342,11 +343,11 @@ export function OutcomeFilter() {
   })
   return (
     <ChoiceFilter
-      label="Outcome"
+      label={t("filters_outcome_label")}
       param="stage"
       options={options}
       searchable={false}
-      any="Any outcome"
+      any={t("filters_outcome_any")}
     />
   )
 }
@@ -361,14 +362,19 @@ export function PeriodFilter({ sinceOnly = false }: { sinceOnly?: boolean }) {
   const [open, setOpen] = useState(false)
   const write = (patch: Record<string, string | null>) =>
     setParams((prev) => patchParams(prev, patch), { preventScrollReset: true })
-  const label = since || until ? windowLabel(since, until) : "Any time"
-  const dateTitle = (iso: string | undefined) => (iso ? new Date(iso).toLocaleString() : "")
+  const label = since || until ? windowLabel(since, until) : t("filters_period_any")
+  const dateTitle = (iso: string | undefined) =>
+    iso ? new Date(iso).toLocaleString(intlLocale()) : ""
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Trigger label="Period" active={since !== undefined || until !== undefined} value={label} />
+      <Trigger
+        label={t("filters_period_label")}
+        active={since !== undefined || until !== undefined}
+        value={label}
+      />
       <PopoverContent align="start" className="w-[min(18rem,calc(100vw-2rem))] p-3">
-        <div role="group" aria-label="Period presets" className="grid grid-cols-2 gap-1.5">
+        <div role="group" aria-label={t("filters_period_presets")} className="grid grid-cols-2 gap-1.5">
           {PERIOD_PRESETS.map((p) => (
             <Button
               key={p.id}
@@ -386,7 +392,7 @@ export function PeriodFilter({ sinceOnly = false }: { sinceOnly?: boolean }) {
         {sinceOnly ? null : (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <label className="grid gap-1 text-xs text-fg-muted">
-              From
+              {t("filters_period_from")}
               <Input
                 type="date"
                 value={toDateInput(since)}
@@ -398,7 +404,7 @@ export function PeriodFilter({ sinceOnly = false }: { sinceOnly?: boolean }) {
               />
             </label>
             <label className="grid gap-1 text-xs text-fg-muted">
-              To (included)
+              {t("filters_period_to")}
               <Input
                 type="date"
                 value={toDateInput(until, true)}
@@ -419,7 +425,7 @@ export function PeriodFilter({ sinceOnly = false }: { sinceOnly?: boolean }) {
             }}
             className="mt-3 text-xs font-medium text-fg-muted transition-colors hover:text-fg"
           >
-            Any time
+            {t("filters_period_any")}
           </button>
         ) : null}
       </PopoverContent>
@@ -492,7 +498,7 @@ export function SearchFilter({
     <div className={cn("flex w-[85%] shrink-0 items-center gap-1.5 sm:w-auto", className)}>
       {live ? null : (
         <Select value={field} onValueChange={setField}>
-          <SelectTrigger size="sm" aria-label="Search in" className="shrink-0">
+          <SelectTrigger size="sm" aria-label={t("filters_search_in")} className="shrink-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -523,7 +529,7 @@ export function SearchFilter({
           spellCheck={false}
           maxLength={256}
           placeholder={meta.placeholder}
-          aria-label={live ? meta.label : `Search ${meta.label.toLowerCase()}`}
+          aria-label={live ? meta.label : t("filters_choice_find", { label: meta.label })}
           aria-invalid={bad || undefined}
           size="sm"
           className="pl-8 font-mono"
@@ -554,10 +560,10 @@ export function SortFilter({
   return (
     <div className="flex items-center gap-1.5">
       <span aria-hidden className="text-xs text-fg-muted">
-        Sort by
+        {t("filters_sort_by")}
       </span>
       <Select value={sort} onValueChange={(v) => write({ sort: v === defaultSort ? null : v })}>
-        <SelectTrigger size="sm" aria-label="Sort by">
+        <SelectTrigger size="sm" aria-label={t("filters_sort_by")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -575,10 +581,10 @@ export function SortFilter({
           onClick={() => write({ order: asc ? null : "asc" })}
           aria-label={
             asc
-              ? "Oldest or lowest first. Switch to highest first"
-              : "Newest or highest first. Switch to lowest first"
+              ? t("filters_sort_to_highest")
+              : t("filters_sort_to_lowest")
           }
-          title={asc ? "Lowest first" : "Highest first"}
+          title={asc ? t("filters_sort_lowest_first") : t("filters_sort_highest_first")}
         >
           {asc ? (
             <ArrowUp aria-hidden className="size-3.5" />

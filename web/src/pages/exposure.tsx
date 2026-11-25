@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, SearchX, ServerCog, ShieldQuestion } from "lucide-react"
 import { useState } from "react"
 import { useAuth } from "@/app/auth"
+import { t } from "@/i18n"
 import { PeriodSwitch } from "@/components/defend/period-switch"
 import { Checks, ExposureCard } from "@/components/defend/exposure-card"
 import { InventoryDialog } from "@/components/defend/inventory-dialog"
@@ -20,7 +21,6 @@ import {
   serviceLabel,
   type InventoryItem,
 } from "@/lib/defend"
-import { plural } from "@/lib/format"
 
 type DialogState = { item: InventoryItem | null; preset: string | null } | null
 
@@ -44,7 +44,7 @@ export function ExposurePage() {
     <>
       <PageHeader
         help="exposure"
-        title="Your exposure"
+        title={t("exposure_title")}
         description={exposureSentence(r, days)}
         actions={
           <>
@@ -52,7 +52,7 @@ export function ExposurePage() {
             {canWrite ? (
               <Button size="sm" onClick={() => setDialog({ item: null, preset: null })}>
                 <Plus aria-hidden />
-                Add a service
+                {t("exposure_add")}
               </Button>
             ) : null}
           </>
@@ -62,8 +62,7 @@ export function ExposurePage() {
       <div className="mb-6 flex items-start gap-2.5 rounded-lg border border-dashed px-4 py-3 text-sm text-fg-muted">
         <ShieldQuestion aria-hidden className="mt-0.5 size-4 shrink-0" />
         <p>
-          The list of services you run is only compared with our own recorded data. Nothing is
-          scanned, nothing is contacted, and nothing you type leaves this server.
+          {t("exposure_privacy")}
         </p>
       </div>
 
@@ -79,11 +78,11 @@ export function ExposurePage() {
       ) : report.isError || !r ? (
         <EmptyState
           icon={SearchX}
-          title="Could not load the exposure check"
-          description="The server did not answer. Try again in a moment."
+          title={t("exposure_load_error")}
+          description={t("exposure_load_error_hint")}
           action={
             <Button variant="outline" size="sm" onClick={() => void report.refetch()}>
-              Try again
+              {t("common_try_again")}
             </Button>
           }
         />
@@ -92,19 +91,19 @@ export function ExposurePage() {
           {r.services.length === 0 ? (
             <EmptyState
               icon={ServerCog}
-              title="You have not listed any service yet"
-              description="Add the services you run, such as a jump host or a web app, and see how often that kind of service was attacked on our decoys."
+              title={t("exposure_empty_title")}
+              description={t("exposure_empty_description")}
               action={
                 canWrite ? (
                   <Button onClick={() => setDialog({ item: null, preset: null })}>
                     <Plus aria-hidden />
-                    Add a service
+                    {t("exposure_add")}
                   </Button>
                 ) : undefined
               }
             />
           ) : (
-            <ul aria-label="Your services" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <ul aria-label={t("exposure_services")} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {r.services.map((s) => (
                 <li key={s.item.id} className="flex *:w-full">
                   <ExposureCard
@@ -121,11 +120,10 @@ export function ExposurePage() {
           {r.unlisted.length > 0 ? (
             <section aria-labelledby="unlisted" className="mt-10">
               <h2 id="unlisted" className="type-section-title text-fg">
-                Attacked but not in your list
+                {t("exposure_unlisted_title")}
               </h2>
               <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
-                Attackers went after {plural(r.unlisted.length, "kind")} of service you did not tell
-                us about. If you run any of them, add them to see the full picture.
+                {t("exposure_unlisted_description", { count: r.unlisted.length })}
               </p>
               <ul className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {r.unlisted.map((u) => (
@@ -137,8 +135,11 @@ export function ExposurePage() {
                       <div className="space-y-1.5">
                         <SensorBadge sensor={u.service} />
                         <p className="text-sm text-fg">
-                          {plural(u.sessions, "session")} from {plural(u.sources, "source")} in the
-                          last {plural(days, "day")}
+                          {t("exposure_unlisted_evidence", {
+                            sessions: u.sessions,
+                            sources: u.sources,
+                            days,
+                          })}
                         </p>
                       </div>
                       {canWrite ? (
@@ -148,11 +149,11 @@ export function ExposurePage() {
                           onClick={() => setDialog({ item: null, preset: u.service })}
                         >
                           <Plus aria-hidden />
-                          Add {serviceLabel(u.service)} to my list
+                          {t("exposure_unlisted_add", { service: serviceLabel(u.service) })}
                         </Button>
                       ) : null}
                     </div>
-                    <Checks checks={u.checks} title="If you run this, check" />
+                    <Checks checks={u.checks} title={t("exposure_unlisted_check")} />
                   </li>
                 ))}
               </ul>

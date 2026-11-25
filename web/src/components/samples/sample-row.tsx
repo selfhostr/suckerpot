@@ -1,6 +1,7 @@
 import { Globe } from "lucide-react"
 import type { ReactNode } from "react"
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { RelativeTime } from "@/components/relative-time"
 import { Badge } from "@/components/ui/badge"
 import { SeverityBadge } from "@/components/severity-badge"
@@ -39,7 +40,11 @@ export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNo
     >
       <Link
         to={to}
-        aria-label={`${what}, ${formatBytes(item.size)}, hash ${shortHash(item.sha256)}`}
+        aria-label={t("samples_row_label", {
+          what,
+          size: formatBytes(item.size),
+          hash: shortHash(item.sha256),
+        })}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
       />
       <div className="min-w-0 space-y-1">
@@ -85,11 +90,11 @@ export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNo
         <span>{formatBytes(item.size)}</span>
         <span>
           <span className="text-fg">{formatNumber(item.sources)}</span>{" "}
-          {item.sources === 1 ? "URL" : "URLs"}
+          {t("samples_row_urls_unit", { count: item.sources })}
         </span>
         <span>
           <span className="text-fg">{formatNumber(item.sessions)}</span>{" "}
-          {item.sessions === 1 ? "session" : "sessions"}
+          {t("samples_row_sessions_unit", { count: item.sessions })}
         </span>
         {action ? <span className="relative z-10 -my-1.5 ml-auto">{action}</span> : null}
       </p>

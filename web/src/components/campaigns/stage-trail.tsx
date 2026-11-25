@@ -1,5 +1,6 @@
 import { STAGE_ICON } from "@/components/campaigns/stage-icons"
-import { STAGES, STAGE_META, stageReach, stageTrailText } from "@/lib/campaigns"
+import { t } from "@/i18n"
+import { STAGES, STAGE_META, stageReach, stageTrailText, type Stage } from "@/lib/campaigns"
 import { cn } from "@/lib/utils"
 
 interface StageTrailProps {
@@ -14,13 +15,19 @@ interface StageTrailProps {
   className?: string
 }
 
+function stageState(stage: Stage, seen: boolean): string {
+  return t(seen ? "campaign_stage_seen" : "campaign_stage_not_seen", {
+    stage: STAGE_META[stage].label,
+  })
+}
+
 /**
  * The playbook at a glance, always in story order, so rows line up and can be compared. Seen and
  * not seen differ by shape (an icon in a box against a dot or a dashed ring) and by words, never
  * by colour, and stages never get a hue. Slots fade in one after the other.
  */
 export function StageTrail({ stages, variant = "compact", className }: StageTrailProps) {
-  const label = `Stages: ${stageTrailText(stages)}`
+  const label = t("campaign_stages_label", { stages: stageTrailText(stages) })
   if (variant === "steps") {
     return (
       <ol aria-label={label} className={cn("relative grid grid-cols-6 gap-1", className)}>
@@ -55,8 +62,8 @@ export function StageTrail({ stages, variant = "compact", className }: StageTrai
                   on ? "font-medium text-fg" : "text-fg-subtle",
                 )}
               >
-                {STAGE_META[stage].label}
-                <span className="sr-only">{on ? " (seen)" : " (not seen)"}</span>
+                <span aria-hidden>{STAGE_META[stage].label}</span>
+                <span className="sr-only">{stageState(stage, on)}</span>
               </span>
             </li>
           )
@@ -73,7 +80,7 @@ export function StageTrail({ stages, variant = "compact", className }: StageTrai
           return (
             <li
               key={stage}
-              title={`${STAGE_META[stage].label}${on ? "" : " (not seen)"}`}
+              title={on ? STAGE_META[stage].label : stageState(stage, false)}
               style={{ animationDelay: `${i * 45}ms` }}
               className={cn(
                 "flex size-5 shrink-0 animate-fade-in items-center justify-center rounded-sm",
@@ -86,8 +93,7 @@ export function StageTrail({ stages, variant = "compact", className }: StageTrai
                 <span aria-hidden className="size-1 rounded-full bg-fg-subtle" />
               )}
               <span className="sr-only">
-                {STAGE_META[stage].label}
-                {on ? " (seen)" : " (not seen)"}
+                {stageState(stage, on)}
               </span>
             </li>
           )

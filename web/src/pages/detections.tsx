@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/page-header"
 import { SegmentedControl } from "@/components/segmented-control"
 import { SkeletonCard, SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { usePeriod } from "@/hooks/use-period"
 import { useUrlParam } from "@/hooks/use-url-param"
 import {
@@ -21,7 +22,6 @@ import {
   RULE_KINDS,
   type RuleKind,
 } from "@/lib/defend"
-import { formatNumber, plural } from "@/lib/format"
 
 const PAGE_SIZE = 10
 
@@ -54,14 +54,14 @@ export function DetectionsPage() {
     <>
       <PageHeader
         help="detections"
-        title="Detections"
+        title={t("detections_title")}
         description={detectionsSentence(total, days)}
       />
       <ReviewNotice />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SegmentedControl
-          label="Rule format"
+          label={t("detections_format_label")}
           value={kind}
           onChange={(v) => setKindParam(v === "sigma" ? null : v)}
           options={RULE_KINDS.map((k) => ({ value: k, label: RULE_KIND_META[k].label }))}
@@ -71,7 +71,7 @@ export function DetectionsPage() {
         <Button asChild variant="outline" size="sm" className="sm:ml-auto">
           <a href={detectionsExportUrl(kind, days)} download>
             <Download aria-hidden />
-            Download all as {meta.ext}
+            {t("detections_download", { ext: meta.ext })}
           </a>
         </Button>
       </div>
@@ -81,23 +81,23 @@ export function DetectionsPage() {
       ) : rules.isError ? (
         <EmptyState
           icon={SearchX}
-          title="Could not load the rules"
+          title={t("detections_error_title")}
           description={rules.error.message}
           action={
             <Button variant="outline" size="sm" onClick={() => void rules.refetch()}>
-              Try again
+              {t("common_try_again")}
             </Button>
           }
         />
       ) : list.length === 0 ? (
         <EmptyState
           icon={FileSearch}
-          title="No rules for this period"
-          description="A rule is written only when several different sources did the same thing. Try a longer period."
+          title={t("detections_empty_title")}
+          description={t("detections_empty_description")}
         />
       ) : (
         <>
-          <ul aria-label={`${meta.label} rules`} className="flex flex-col gap-3">
+          <ul aria-label={t("detections_list_label", { format: meta.label })} className="flex flex-col gap-3">
             {list.map((rule) => (
               <RuleCard key={rule.id} rule={rule} />
             ))}
@@ -107,10 +107,10 @@ export function DetectionsPage() {
               hasNextPage={rules.hasNextPage}
               isFetchingNextPage={rules.isFetchingNextPage}
               fetchNextPage={rules.fetchNextPage}
-              label="Load more rules"
+              label={t("detections_load_more")}
             />
             <p className="text-xs text-fg-subtle">
-              Showing {formatNumber(list.length)} of {plural(total ?? list.length, "rule")}
+              {t("detections_showing", { shown: list.length, total: total ?? list.length })}
             </p>
           </div>
         </>
@@ -118,14 +118,14 @@ export function DetectionsPage() {
 
       <section aria-labelledby="company-check" className="mt-12">
         <h2 id="company-check" className="type-section-title text-fg">
-          Check this at your company
+          {t("detections_company_title")}
         </h2>
         <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
           {guidance.data
             ? guidance.data.items.length === 0
-              ? `Nothing in the last ${plural(days, "day")} calls for a check yet.`
-              : `${plural(guidance.data.items.length, "behaviour")} seen in the last ${plural(days, "day")}, with what to look for in your own logs and how to fix it.`
-            : "What attackers did to our decoys, and what to look for in your own logs."}
+              ? t("detections_company_none", { days })
+              : t("detections_company_seen", { count: guidance.data.items.length, days })
+            : t("detections_company_intro")}
         </p>
         <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {guidance.isPending ? (

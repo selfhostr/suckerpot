@@ -1,6 +1,8 @@
 import { CircleCheck, ListChecks, Rss, TriangleAlert } from "lucide-react"
 import { useState } from "react"
 import { useAuth } from "@/app/auth"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { EmptyState } from "@/components/empty-state"
 import { SkeletonCard, SkeletonText } from "@/components/skeletons"
 import { Term } from "@/components/term"
@@ -11,6 +13,7 @@ import {
   feedStatusLine,
   isEmptyForNow,
   LIST_META,
+  MIN_CONFIRMING_SENSORS,
   type FeedList,
 } from "@/lib/network-feed"
 import { EntriesCard } from "./entries-card"
@@ -53,11 +56,11 @@ export function NetworkFeedTab() {
     return (
       <EmptyState
         icon={TriangleAlert}
-        title="The community lists are not available"
+        title={t("nfeed_unavailable")}
         description={q.error.message}
         action={
           <Button variant="outline" size="sm" onClick={() => void q.refetch()}>
-            Try again
+            {t("common_try_again")}
           </Button>
         }
       />
@@ -97,15 +100,20 @@ export function NetworkFeedTab() {
             {line.detail ? <span>{line.detail}</span> : null}
           </p>
           <p className="text-sm text-fg-muted">
-            Built only from network consensus: an entry needs at least 5 independent sensors (its{" "}
-            <Term id="k-support">k-support</Term>). The <Term id="high-tier">high tier</Term> is the
-            safest part to block automatically. Using these lists is optional and needs no account;
-            an <Term id="outbound-list">outbound list</Term> is the best place to start.
+            {tNodes(
+              "nfeed_consensus",
+              { min: MIN_CONFIRMING_SENSORS },
+              {
+                ksupport: <Term id="k-support">{t("nfeed_term_k_support")}</Term>,
+                highTier: <Term id="high-tier">{t("nfeed_term_high_tier")}</Term>,
+                outbound: <Term id="outbound-list">{t("nfeed_term_outbound_list")}</Term>,
+              },
+            )}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setHowTo(true)}>
           <ListChecks aria-hidden />
-          How to use
+          {t("nfeed_how_to_use")}
         </Button>
       </div>
 
@@ -113,8 +121,8 @@ export function NetworkFeedTab() {
         <EmptyState
           className="mt-6"
           icon={Rss}
-          title="Nothing to block yet"
-          description="The lists grow as more members join the network. You can already add an address below to your firewall: it picks up new entries on its own as they appear."
+          title={t("nfeed_empty_title")}
+          description={t("nfeed_empty_description")}
         />
       ) : null}
 

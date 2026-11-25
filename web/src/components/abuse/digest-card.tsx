@@ -4,6 +4,7 @@ import { Field } from "@/components/form-parts"
 import { FindingCard } from "@/components/finding-card"
 import { SkeletonText } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -16,9 +17,6 @@ import {
   type DigestSettings,
 } from "@/lib/abuse"
 import { browserTimeZone } from "@/lib/format"
-
-export const DIGEST_EXPLANATION =
-  "A provider gets at most one mail a day, at this hour, with all its sources. A digest holds at most 100 sources: the rest goes in a second part 2 hours later, at most 3 parts a day. The daily limit counts mails, not sources."
 
 function DigestForm({ initial }: { initial: DigestSettings }) {
   const qc = useQueryClient()
@@ -47,7 +45,7 @@ function DigestForm({ initial }: { initial: DigestSettings }) {
     }
     const minute = localToUtcMinute(hour)
     if (minute === null) {
-      setError("Pick an hour, such as 07:40.")
+      setError(t("digest_hour_invalid", { example: "07:40" }))
       return
     }
     save.mutate({ enabled, minute })
@@ -73,19 +71,17 @@ function DigestForm({ initial }: { initial: DigestSettings }) {
           className="mt-0.5"
         />
         <label htmlFor={ids.on} className="text-sm text-fg">
-          One mail per provider per day
-          <span className="block text-xs text-fg-muted">
-            Off sends each report after the waiting time, as before.
-          </span>
+          {t("digest_toggle")}
+          <span className="block text-xs text-fg-muted">{t("digest_toggle_hint")}</span>
         </label>
       </div>
       <Field
         id={ids.hour}
-        label="Digest hour"
+        label={t("digest_hour_label")}
         hint={
           noSmtp
-            ? "Set up SMTP above first: the hour belongs to the sending settings."
-            : `Your local time (${browserTimeZone()}). Stored in UTC.`
+            ? t("digest_hour_hint_no_smtp")
+            : t("digest_hour_hint", { zone: browserTimeZone() })
         }
       >
         <Input
@@ -100,14 +96,16 @@ function DigestForm({ initial }: { initial: DigestSettings }) {
           }}
         />
       </Field>
-      <p className="text-sm text-fg-muted">{DIGEST_EXPLANATION}</p>
+      <p className="text-sm text-fg-muted">
+        {t("digest_explanation", { max: 100, hours: 2, parts: 3 })}
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={save.isPending}>
-          Save
+          {t("common_save")}
         </Button>
         {saved ? (
           <span role="status" className="text-sm text-fg-muted">
-            Saved.
+            {t("digest_saved")}
           </span>
         ) : null}
       </div>
@@ -123,17 +121,17 @@ export function DigestCard() {
   const q = useQuery({ queryKey: digestKeys.digest, queryFn: digestApi.get })
   return (
     <FindingCard
-      eyebrow="Daily digest"
+      eyebrow={t("digest_eyebrow")}
       finding={
         q.isPending
-          ? "Loading the digest settings…"
+          ? t("digest_loading")
           : q.isError
-            ? "The digest settings could not be loaded."
+            ? t("digest_load_failed")
             : q.data.enabled
               ? q.data.minute === null
-                ? "Each provider gets one mail a day once SMTP is set up."
-                : `Each provider gets one mail a day, at ${utcMinuteToLocal(q.data.minute)} your time.`
-              : "Daily digests are off: each report goes after the waiting time."
+                ? t("digest_finding_no_smtp")
+                : t("digest_finding_at", { time: utcMinuteToLocal(q.data.minute) })
+              : t("digest_finding_off")
       }
     >
       {q.isPending ? (

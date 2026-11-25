@@ -6,6 +6,7 @@ import { outcomeIsWarning } from "@/lib/replies"
 import { ANSWER_ROWS, type OutcomesResponse } from "@/lib/results"
 import { describeAnswers } from "@/lib/results-sentences"
 import { OutcomeBadge } from "./badges"
+import { t } from "@/i18n"
 
 /** "Did anyone answer?": one bar per outcome. Rejected and bounced take the warning tone. */
 export function AnswersCard({ data }: { data: OutcomesResponse | undefined }) {
@@ -13,15 +14,17 @@ export function AnswersCard({ data }: { data: OutcomesResponse | undefined }) {
   const max = Math.max(1, ...ANSWER_ROWS.map((o) => totals?.by_outcome[o] ?? 0))
   return (
     <FindingCard
-      eyebrow="Did anyone answer?"
+      eyebrow={t("results_answers_eyebrow")}
       finding={
-        data ? describeAnswers(data.totals, data.groups) : "Reading the answers to your reports…"
+        data ? describeAnswers(data.totals, data.groups) : t("results_answers_loading")
       }
       detail={
         totals && totals.eligible > 0
-          ? `${formatNumber(totals.answered)} of ${formatNumber(totals.eligible)} reports sent at least 3 days ago got an answer (${formatPercent(
-              totals.answered / totals.eligible,
-            )}). Younger reports are not counted yet.`
+          ? t("results_answers_detail", {
+              answered: totals.answered,
+              count: totals.eligible,
+              percent: formatPercent(totals.answered / totals.eligible),
+            })
           : undefined
       }
     >

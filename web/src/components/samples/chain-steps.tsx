@@ -1,5 +1,6 @@
 import { Bug, FileCode2, Radio, SquareTerminal, Download, type LucideIcon } from "lucide-react"
 import { Link } from "react-router"
+import { t, tk } from "@/i18n"
 import {
   orderChain,
   shortHash,
@@ -18,10 +19,10 @@ const ICON: Record<ChainNodeKind, LucideIcon> = {
 }
 
 const KIND_LABEL: Record<ChainNodeKind, string> = {
-  session: "Session",
-  url: "Download URL",
-  sample: "File",
-  c2: "Command server",
+  session: tk("samples_chain_session"),
+  url: tk("samples_chain_url"),
+  sample: tk("samples_chain_file"),
+  c2: tk("samples_chain_c2"),
 }
 
 function NodeLabel({ node, current }: { node: ChainNode; current: string }) {
@@ -36,7 +37,7 @@ function NodeLabel({ node, current }: { node: ChainNode; current: string }) {
     if (node.sha256 === current)
       return (
         <span className="font-mono text-xs text-fg" aria-current="step">
-          {shortHash(node.sha256)}… (this file)
+          {t("samples_chain_this_file", { hash: `${shortHash(node.sha256)}…` })}
         </span>
       )
     return (
@@ -65,7 +66,7 @@ function NodeLabel({ node, current }: { node: ChainNode; current: string }) {
 export function ChainSteps({ chain, current }: { chain: SampleChain; current: string }) {
   const nodes = orderChain(chain)
   return (
-    <ol className="relative space-y-4" aria-label="Steps of the chain">
+    <ol className="relative space-y-4" aria-label={t("samples_chain_steps_label")}>
       {nodes.map((n, i) => {
         // The API names a sample node by its family, else by its file kind ("html").
         const web = n.kind === "sample" ? webKindLabel(n.family) : null
@@ -94,7 +95,7 @@ export function ChainSteps({ chain, current }: { chain: SampleChain; current: st
             <div className="min-w-0 space-y-0.5 pt-0.5">
               <p className="text-sm font-medium text-fg">
                 <span className="mr-1.5 text-xs text-fg-subtle tabular-nums">{i + 1}.</span>
-                {KIND_LABEL[n.kind]}
+                {t(KIND_LABEL[n.kind])}
                 {n.kind === "sample" && n.family ? (
                   <span className="ml-2 font-normal text-fg-muted">{web ?? n.family}</span>
                 ) : null}

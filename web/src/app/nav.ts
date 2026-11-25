@@ -1,4 +1,5 @@
 import { Binoculars, Microscope, ShieldCheck, type LucideIcon } from "lucide-react"
+import { t, tk } from "@/i18n"
 
 /** The three sections of the product: what is happening, what it means, what to do about it. */
 export type SectionId = "observe" | "understand" | "defend"
@@ -7,9 +8,11 @@ export type SectionId = "observe" | "understand" | "defend"
 export interface NavPage {
   to: string
   /** The page's name: its title, the last crumb of the header. */
-  label: string
+  readonly label: string
+  /** The message key of `label`. */
+  readonly labelKey: string
   /** The name in the switch at the top of its entry's pages, when shorter ("Networks", "Rules"). */
-  tab?: string
+  readonly tab?: string
   /** Path prefixes (besides `to` and what sits below it) on which this page is current. */
   also?: readonly string[]
   /**
@@ -25,16 +28,33 @@ export interface NavPage {
  * keeps its own address, so links, filters and Back work as before.
  */
 export interface NavEntry {
-  label: string
+  readonly label: string
+  readonly labelKey: string
   /** In reading order; the first is where the sidebar row leads. */
   pages: readonly NavPage[]
 }
 
 export interface NavSection {
   id: SectionId
-  label: string
+  readonly label: string
+  readonly labelKey: string
   icon: LucideIcon
   entries: readonly NavEntry[]
+}
+
+/**
+ * A named item of the table. `label` (and `tab`) are read through `t()` each time, so the table
+ * can be built once at module scope and still follow the language.
+ */
+function named<T extends object>(
+  labelKey: string,
+  rest: T,
+  tabKey?: string,
+): T & { readonly label: string; readonly labelKey: string; readonly tab?: string } {
+  const item = { ...rest, labelKey }
+  Object.defineProperty(item, "label", { get: () => t(labelKey), enumerable: true })
+  if (tabKey) Object.defineProperty(item, "tab", { get: () => t(tabKey), enumerable: true })
+  return item as never
 }
 
 /**
@@ -43,105 +63,99 @@ export interface NavSection {
  * this one table.
  */
 export const NAV_SECTIONS: readonly NavSection[] = [
-  {
-    id: "observe",
-    label: "Observe",
+  named(tk("nav_section_observe"), {
+    id: "observe" as const,
     icon: Binoculars,
     entries: [
       // Today carries the live map and the day's figures: /live and /overview lead here.
-      { label: "Today", pages: [{ to: "/", label: "Today" }] },
-      {
-        label: "Attacks",
+      named(tk("nav_today"), { pages: [named(tk("nav_today"), { to: "/" })] }),
+      named(tk("nav_attacks"), {
         pages: [
-          {
+          named(tk("nav_sessions"), {
             to: "/attacks",
-            label: "Sessions",
             carries: ["sensor", "country", "asn", "tag", "since", "until"],
-          },
-          { to: "/attackers", label: "Attackers", carries: ["sensor", "country", "asn", "tag"] },
-          {
-            to: "/networks",
-            label: "Attacker networks",
-            tab: "Networks",
-            carries: ["country", "since"],
-          },
+          }),
+          named(tk("nav_attackers"), {
+            to: "/attackers",
+            carries: ["sensor", "country", "asn", "tag"],
+          }),
+          named(
+            tk("nav_networks"),
+            { to: "/networks", carries: ["country", "since"] },
+            tk("nav_networks_tab"),
+          ),
         ],
-      },
+      }),
     ],
-  },
-  {
-    id: "understand",
-    label: "Understand",
+  }),
+  named(tk("nav_section_understand"), {
+    id: "understand" as const,
     icon: Microscope,
     entries: [
-      {
-        label: "Campaigns",
+      named(tk("nav_campaigns"), {
         pages: [
-          { to: "/campaigns", label: "Campaigns" },
-          { to: "/techniques", label: "Techniques" },
+          named(tk("nav_campaigns"), { to: "/campaigns" }),
+          named(tk("nav_techniques"), { to: "/techniques" }),
         ],
-      },
-      {
-        label: "Payloads",
+      }),
+      named(tk("nav_payloads"), {
         pages: [
-          { to: "/scripts", label: "Scripts" },
-          { to: "/malware", label: "Files" },
-          { to: "/infrastructure", label: "Hosts & URLs" },
+          named(tk("nav_scripts"), { to: "/scripts" }),
+          named(tk("nav_files"), { to: "/malware" }),
+          named(tk("nav_hosts_urls"), { to: "/infrastructure" }),
         ],
-      },
-      { label: "Patterns", pages: [{ to: "/trends", label: "Patterns" }] },
+      }),
+      named(tk("nav_patterns"), { pages: [named(tk("nav_patterns"), { to: "/trends" })] }),
     ],
-  },
-  {
-    id: "defend",
-    label: "Defend",
+  }),
+  named(tk("nav_section_defend"), {
+    id: "defend" as const,
     icon: ShieldCheck,
     entries: [
-      {
-        label: "Block",
+      named(tk("nav_block"), {
         pages: [
-          { to: "/defend/blocklists", label: "Blocklists", tab: "Lists" },
-          { to: "/defend/detections", label: "Detections", tab: "Rules" },
+          named(tk("nav_blocklists"), { to: "/defend/blocklists" }, tk("nav_blocklists_tab")),
+          named(tk("nav_detections"), { to: "/defend/detections" }, tk("nav_detections_tab")),
         ],
-      },
-      {
-        label: "Exposure",
+      }),
+      named(tk("nav_exposure"), {
         pages: [
-          { to: "/defend/exposure", label: "Your exposure", tab: "Services" },
-          { to: "/cves", label: "CVE watch", tab: "CVEs" },
+          named(tk("nav_your_exposure"), { to: "/defend/exposure" }, tk("nav_your_exposure_tab")),
+          named(tk("nav_cve_watch"), { to: "/cves" }, tk("nav_cve_watch_tab")),
         ],
-      },
-      {
-        label: "Reports",
+      }),
+      named(tk("nav_reports"), {
         pages: [
-          { to: "/defend/abuse", label: "Abuse reports", tab: "Queue" },
-          { to: "/defend/results", label: "Results" },
+          named(tk("nav_abuse_reports"), { to: "/defend/abuse" }, tk("nav_abuse_reports_tab")),
+          named(tk("nav_results"), { to: "/defend/results" }),
         ],
-      },
-      {
-        label: "Network",
+      }),
+      named(tk("nav_network"), {
         pages: [
-          { to: "/network", label: "SuckerPot network", tab: "Overview" },
-          { to: "/network/members", label: "Network members", tab: "Members" },
+          named(tk("nav_suckerpot_network"), { to: "/network" }, tk("nav_suckerpot_network_tab")),
+          named(
+            tk("nav_network_members"),
+            { to: "/network/members" },
+            tk("nav_network_members_tab"),
+          ),
         ],
-      },
+      }),
     ],
-  },
+  }),
 ]
 
 /**
  * The foot of the sidebar. The styleguide is reached from Settings, and the weekly reports from its
  * Alerts tab, so both count as Settings.
  */
-export const SETTINGS_PAGE: NavPage = {
+export const SETTINGS_PAGE: NavPage = named(tk("nav_settings"), {
   to: "/settings",
-  label: "Settings",
   also: ["/styleguide", "/reports"],
-}
+})
 /** Where the alert rules, the recent alerts and the weekly reports live (the old /defend/alerts). */
 export const ALERTS_SETTINGS = "/settings?tab=alert-rules"
-export const STYLEGUIDE_PAGE: NavPage = { to: "/styleguide", label: "Styleguide" }
-export const SETTINGS_ENTRY: NavEntry = { label: SETTINGS_PAGE.label, pages: [SETTINGS_PAGE] }
+export const STYLEGUIDE_PAGE: NavPage = named(tk("nav_styleguide"), { to: "/styleguide" })
+export const SETTINGS_ENTRY: NavEntry = named(tk("nav_settings"), { pages: [SETTINGS_PAGE] })
 
 export const DOCS_URL = "https://suckerpot.selfhostr.io/docs/"
 export const GITHUB_URL = "https://github.com/selfhostr/suckerpot"
@@ -223,7 +237,7 @@ export function crumbsFor(pathname: string): Crumb[] {
   if (isUnder(pathname, STYLEGUIDE_PAGE.to))
     return [{ label: SETTINGS_PAGE.label, to: SETTINGS_PAGE.to }, { label: STYLEGUIDE_PAGE.label }]
   if (isUnder(pathname, "/reports"))
-    return [{ label: SETTINGS_PAGE.label, to: ALERTS_SETTINGS }, { label: "Weekly report" }]
+    return [{ label: SETTINGS_PAGE.label, to: ALERTS_SETTINGS }, { label: t("nav_weekly_report") }]
   const active = activePage(pathname)
   if (!active) return []
   const { page, entry, section } = active

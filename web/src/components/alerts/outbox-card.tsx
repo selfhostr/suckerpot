@@ -3,6 +3,7 @@ import { LoadMore } from "@/components/load-more"
 import { CircleAlert, CircleCheck, CircleDashed, CircleSlash, type LucideIcon } from "lucide-react"
 import { useMemo } from "react"
 import { FindingCard } from "@/components/finding-card"
+import { t } from "@/i18n"
 import { RelativeTime } from "@/components/relative-time"
 import { SeverityBadge } from "@/components/severity-badge"
 import { SkeletonText } from "@/components/skeletons"
@@ -38,7 +39,9 @@ export function OutboxRow({ item }: { item: OutboxItem }) {
         </p>
         {item.summary ? <p className="text-xs text-fg-muted">{item.summary}</p> : null}
         <p className="text-xs text-fg-muted">
-          To {item.channel_name ?? "a deleted channel"}
+          {item.channel_name
+            ? t("outbox_to", { channel: item.channel_name })
+            : t("outbox_to_deleted")}
           {reason ? <> · {reason}</> : null}
         </p>
       </div>
@@ -65,9 +68,9 @@ export function OutboxCard() {
   const items = useMemo(() => (q.data?.pages ?? []).flatMap((p) => p.items), [q.data])
   return (
     <FindingCard
-      eyebrow="Recent alerts"
-      finding={q.isPending ? "Checking the recent alerts…" : outboxFinding(items)}
-      detail="Newest first. A burst of alerts is folded into one summary message so a channel is never flooded."
+      eyebrow={t("outbox_title")}
+      finding={q.isPending ? t("outbox_checking") : outboxFinding(items)}
+      detail={t("outbox_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
     >
       {q.isPending ? (
@@ -76,11 +79,11 @@ export function OutboxCard() {
         </div>
       ) : items.length === 0 ? (
         <p className="border-t px-4 py-6 text-sm text-fg-muted sm:px-5">
-          Nothing yet. Alerts you switch on will show up here.
+          {t("outbox_empty")}
         </p>
       ) : (
         <>
-          <ul aria-label="Recent alerts" className="divide-y border-t">
+          <ul aria-label={t("outbox_title")} className="divide-y border-t">
             {items.map((item) => (
               <OutboxRow key={item.id} item={item} />
             ))}
@@ -89,7 +92,7 @@ export function OutboxCard() {
             hasNextPage={q.hasNextPage}
             isFetchingNextPage={q.isFetchingNextPage}
             fetchNextPage={q.fetchNextPage}
-            label="Show older alerts"
+            label={t("outbox_older")}
             className="border-t"
           />
         </>

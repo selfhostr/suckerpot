@@ -2,7 +2,9 @@ import { OctagonAlert } from "lucide-react"
 import { BarFill } from "@/components/bar-fill"
 import { useMemo } from "react"
 import { useIpMask } from "@/app/ip-mask"
-import { formatNumber, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
+import { formatNumber } from "@/lib/format"
 import { maskDefanged, type InfrastructureGraph } from "@/lib/infrastructure"
 
 const LIMIT = 8
@@ -35,7 +37,7 @@ export function FlowList({
   const max = Math.max(1, ...rows.map((r) => r.node.weight))
 
   return (
-    <ul aria-label="Indicators used by the most addresses" className="-mx-4 divide-y border-y">
+    <ul aria-label={t("infra_flow_list_label")} className="-mx-4 divide-y border-y">
       {rows.map(({ node, family }) => {
         const label = masked ? maskDefanged(node.label) : node.label
         return (
@@ -50,7 +52,7 @@ export function FlowList({
                   <OctagonAlert aria-hidden className="size-3.5 shrink-0 text-sev-severe" />
                 ) : null}
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{label}</span>
-                {node.known ? <span className="sr-only">Known malicious</span> : null}
+                {node.known ? <span className="sr-only">{t("infra_intel_known")}</span> : null}
               </span>
               <span className="flex items-center gap-3 text-xs text-fg-muted">
                 <span
@@ -59,11 +61,12 @@ export function FlowList({
                 >
                   <BarFill ratio={Math.max(0.06, node.weight / max)} className="bg-fg-muted" />
                 </span>
-                <span className="text-fg tabular-nums">
-                  {formatNumber(node.weight)}{" "}
-                  <span className="text-fg-muted">
-                    {plural(node.weight, "address", "addresses").replace(/^[\d,]+ /, "")}
-                  </span>
+                <span className="text-fg-muted tabular-nums">
+                  {tNodes(
+                    "infra_flow_list_addresses",
+                    { count: node.weight },
+                    { number: <span className="text-fg">{formatNumber(node.weight)}</span> },
+                  )}
                 </span>
               </span>
               {family ? <span className="text-xs text-fg-muted">{family}</span> : null}

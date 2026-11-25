@@ -36,6 +36,7 @@ import {
 import { saveBlob } from "@/lib/samples"
 import { useQuery } from "@tanstack/react-query"
 import { useAuth } from "@/app/auth"
+import { t } from "@/i18n"
 
 /**
  * "Export for CERT": STIX 2.1 or MISP JSON of one report or one campaign, with a TLP choice. The
@@ -83,7 +84,7 @@ export function ExportMenu({
       const reasons = guardReasonsOf(e)
       setMessage(
         reasons
-          ? `Blocked by the identity check. ${reasons.map(guardReason).join(" ")}`
+          ? t("abuse_export_blocked", { reasons: reasons.map(guardReason).join(" ") })
           : describeAbuseError(e),
       )
     } finally {
@@ -102,7 +103,7 @@ export function ExportMenu({
             >
               <Button variant="outline" size="sm" disabled aria-describedby={descId}>
                 <Share2 aria-hidden />
-                Export for CERT
+                {t("abuse_export_button")}
               </Button>
             </span>
           </TooltipTrigger>
@@ -113,11 +114,11 @@ export function ExportMenu({
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" disabled={busy}>
               <Share2 aria-hidden />
-              {busy ? "Preparing…" : "Export for CERT"}
+              {busy ? t("abuse_export_preparing") : t("abuse_export_button")}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Sharing level</DropdownMenuLabel>
+            <DropdownMenuLabel>{t("abuse_export_sharing_level")}</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={tlp} onValueChange={(v) => setChosen(v as Tlp)}>
               {TLP_OPTIONS.map((o) => (
                 <DropdownMenuRadioItem key={o.value} value={o.value}>
@@ -127,10 +128,10 @@ export function ExportMenu({
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void run("stix")}>
-              <Download aria-hidden /> STIX 2.1 bundle
+              <Download aria-hidden /> {t("abuse_export_stix")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setMispOpen(true)}>
-              <Download aria-hidden /> MISP event (JSON)
+              <Download aria-hidden /> {t("abuse_export_misp_item")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -145,14 +146,14 @@ export function ExportMenu({
             className="space-y-4"
           >
             <DialogHeader>
-              <DialogTitle>MISP event</DialogTitle>
+              <DialogTitle>{t("abuse_export_misp_title")}</DialogTitle>
               <DialogDescription>
-                MISP needs a short description of the event. Write it in your own words.
+                {t("abuse_export_misp_help")}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-1">
               <label htmlFor={`${descId}-misp`} className="text-sm font-medium">
-                Description
+                {t("abuse_export_description")}
               </label>
               <Input
                 id={`${descId}-misp`}
@@ -164,7 +165,7 @@ export function ExportMenu({
             </div>
             <DialogFooter>
               <Button type="submit" disabled={!description.trim()}>
-                <Download aria-hidden /> Download
+                <Download aria-hidden /> {t("common_download")}
               </Button>
             </DialogFooter>
           </form>

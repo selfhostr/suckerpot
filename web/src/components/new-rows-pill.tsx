@@ -1,12 +1,10 @@
 import { ArrowUp } from "lucide-react"
-import { plural } from "@/lib/format"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 interface NewRowsPillProps {
   /** Rows held back while the reader is further down. Nothing shows at 0. */
   count: number
-  /** "session" -> "3 new sessions". */
-  noun: string
   /** The count is a floor ("20+ new sessions"). */
   more?: boolean
   onShow: () => void
@@ -18,7 +16,7 @@ interface NewRowsPillProps {
  * so the list does not jump. It sits in a zero-height sticky slot under the top bar, so showing
  * it moves nothing; clicking it brings the rows in and scrolls back up.
  */
-export function NewRowsPill({ count, noun, more = false, onShow, className }: NewRowsPillProps) {
+export function NewRowsPill({ count, more = false, onShow, className }: NewRowsPillProps) {
   return (
     <div
       className={cn("pointer-events-none sticky top-18 z-20 flex h-0 justify-center", className)}
@@ -31,7 +29,7 @@ export function NewRowsPill({ count, noun, more = false, onShow, className }: Ne
             className="pointer-events-auto inline-flex h-(--control-sm) animate-slide-in items-center gap-1.5 rounded-full border bg-surface-raised px-3 text-xs font-medium text-fg shadow-md transition-colors hover:bg-surface-hover"
           >
             <ArrowUp aria-hidden className="size-3.5" />
-            {more ? `${count}+ new ${noun}s` : plural(count, `new ${noun}`)}
+            {more ? t("ui_new_sessions_more", { count }) : t("ui_new_sessions", { count })}
           </button>
         ) : null}
       </div>

@@ -19,16 +19,31 @@ import {
   type CampaignFilters,
   type CampaignStatus,
 } from "@/lib/campaigns"
-import { formatNumber, plural } from "@/lib/format"
+import { t } from "@/i18n"
 import { parseSensors } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
 
 const STATUS_OPTIONS = [
-  { value: "any", label: "Any" },
-  { value: "active", label: "Active" },
-  { value: "quiet", label: "Quiet" },
+  {
+    value: "any",
+    get label() {
+      return t("campaigns_status_any")
+    },
+  },
+  {
+    value: "active",
+    get label() {
+      return t("campaigns_status_active")
+    },
+  },
+  {
+    value: "quiet",
+    get label() {
+      return t("campaigns_status_quiet")
+    },
+  },
 ] as const
 
 /** Substring search on the campaign name: typing updates the URL after a short pause. */
@@ -60,8 +75,8 @@ function CampaignSearch() {
         autoComplete="off"
         spellCheck={false}
         maxLength={64}
-        placeholder="Search by name"
-        aria-label="Search campaigns by name"
+        placeholder={t("campaigns_search_placeholder")}
+        aria-label={t("campaigns_search_label")}
         size="sm"
         className="pl-8"
       />
@@ -138,11 +153,11 @@ export function CampaignsPage() {
 
   const headline = query.isSuccess
     ? describeCampaigns(rows, { days, more: hasNextPage })
-    : "Groups of attacks that share the same tools, scripts or servers."
+    : t("campaigns_page_description")
 
   return (
     <>
-      <PageHeader help="campaigns" title="Campaigns" description={headline} />
+      <PageHeader help="campaigns" title={t("campaigns_page_title")} description={headline} />
 
       <FilterBar
         className="mb-4"
@@ -150,25 +165,25 @@ export function CampaignsPage() {
         chips={[
           {
             param: "technique",
-            label: "Technique",
+            label: t("campaigns_filter_technique"),
             render: (v) => <span className="font-mono">{v}</span>,
           },
           {
             param: "family",
-            label: "Family",
+            label: t("campaigns_filter_family"),
             render: (v) => <span className="font-mono">{v}</span>,
           },
         ]}
       >
         <SensorFilter />
         <SegmentedControl
-          label="Status"
+          label={t("campaigns_filter_status")}
           value={status ?? "any"}
           onChange={(v) => setStatus(v === "any" ? null : v)}
           options={STATUS_OPTIONS}
         />
         <SegmentedControl
-          label="Last seen"
+          label={t("campaigns_filter_last_seen")}
           value={
             windowParam && CAMPAIGN_WINDOWS.some((w) => w.value === windowParam)
               ? windowParam
@@ -187,10 +202,10 @@ export function CampaignsPage() {
             CAMPAIGN_GRID,
           )}
         >
-          <span>Campaign</span>
-          <span>Playbook</span>
-          <span>Targets</span>
-          <span className="text-right">Status</span>
+          <span>{t("campaigns_col_campaign")}</span>
+          <span>{t("campaigns_col_playbook")}</span>
+          <span>{t("campaigns_col_targets")}</span>
+          <span className="text-right">{t("campaigns_col_status")}</span>
         </div>
         {query.isPending ? (
           <SkeletonList rows={8} />
@@ -198,11 +213,11 @@ export function CampaignsPage() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load campaigns"
+            title={t("campaigns_error_title")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -210,18 +225,18 @@ export function CampaignsPage() {
           <EmptyState
             variant="bare"
             icon={Flag}
-            title={filtered ? "No campaigns match" : "No campaigns yet"}
+            title={filtered ? t("campaigns_empty_filtered_title") : t("campaigns_empty_title")}
             description={
               filtered
-                ? "Try another window or sensor, or clear the filters."
-                : "A campaign appears when the same script, server or exploit shows up from two different addresses. It can take a few minutes after the sessions end."
+                ? t("campaigns_empty_filtered_hint")
+                : t("campaigns_empty_hint")
             }
           />
         ) : (
           <div
             ref={listRef}
             role="list"
-            aria-label="Campaigns"
+            aria-label={t("campaigns_page_title")}
             aria-busy={isFetchingNextPage}
             className="relative w-full"
             style={{ height: virtualizer.getTotalSize() }}
@@ -248,13 +263,14 @@ export function CampaignsPage() {
       </div>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {plural(rows.length, "campaign")} ·{" "}
-          {formatNumber(rows.reduce((n, c) => n + c.sessions, 0))} sessions
+          {t("campaigns_end_of_list", {
+            campaigns: rows.length,
+            sessions: rows.reduce((n, c) => n + c.sessions, 0),
+          })}
         </p>
       ) : null}
       <p className="mt-4 text-xs text-fg-subtle">
-        Campaigns are grouped automatically from what sessions have in common. Research scanners are
-        left out.
+        {t("campaigns_footnote")}
       </p>
     </>
   )

@@ -5,7 +5,7 @@
  * Creating a channel or changing where it goes asks for the administrator's password again.
  */
 import { ApiError, API_BASE, sendJson, type Page } from "@/lib/api"
-import { plural } from "@/lib/format"
+import { intlLocale, t } from "@/i18n"
 import type { Severity } from "@/lib/severity"
 
 export type ChannelKind = "discord" | "teams" | "email"
@@ -117,31 +117,64 @@ export interface ReportDetail {
 }
 
 export const KIND_LABEL: Record<ChannelKind, string> = {
-  discord: "Discord",
-  teams: "Microsoft Teams",
-  email: "E-mail",
+  get discord() {
+    return t("channels_kind_discord")
+  },
+  get teams() {
+    return t("channels_kind_teams")
+  },
+  get email() {
+    return t("channels_kind_email")
+  },
 }
 
 export const KIND_OPTIONS = [
-  { value: "discord", label: "Discord" },
-  { value: "teams", label: "Teams" },
-  { value: "email", label: "E-mail" },
+  {
+    value: "discord",
+    get label() {
+      return t("channels_kind_option_discord")
+    },
+  },
+  {
+    value: "teams",
+    get label() {
+      return t("channels_kind_option_teams")
+    },
+  },
+  {
+    value: "email",
+    get label() {
+      return t("channels_kind_option_email")
+    },
+  },
 ] as const
 
 export const TARGET_LABEL: Record<ChannelKind, { label: string; hint: string; example: string }> = {
   discord: {
-    label: "Webhook URL",
-    hint: "In Discord: channel settings, Integrations, Webhooks, Copy Webhook URL.",
+    get label() {
+      return t("channels_target_webhook_label")
+    },
+    get hint() {
+      return t("channels_target_discord_hint")
+    },
     example: "https://discord.com/api/webhooks/…",
   },
   teams: {
-    label: "Webhook URL",
-    hint: "In Teams: the Workflows app, “Post to a channel when a webhook request is received”.",
+    get label() {
+      return t("channels_target_webhook_label")
+    },
+    get hint() {
+      return t("channels_target_teams_hint")
+    },
     example: "https://….logic.azure.com/workflows/…",
   },
   email: {
-    label: "E-mail address",
-    hint: "One address. The server needs SMTP settings in .env for e-mail to work.",
+    get label() {
+      return t("channels_target_email_label")
+    },
+    get hint() {
+      return t("channels_target_email_hint")
+    },
     example: "security@example.org",
   },
 }
@@ -153,77 +186,162 @@ export interface RuleInfo {
   when: string
 }
 
-/** In the order they are shown. */
+/** In the order they are shown. Texts are read lazily so they follow the active language. */
 export const RULES: readonly RuleInfo[] = [
   {
     kind: "new_campaign",
-    title: "A new campaign appears",
-    when: "Several addresses start running the same attack against the honeypot.",
+    get title() {
+      return t("rules_new_campaign_title")
+    },
+    get when() {
+      return t("rules_new_campaign_when")
+    },
   },
   {
     kind: "malware_drop",
-    title: "Malware is dropped",
-    when: "An attacker downloads or runs a payload in a session.",
+    get title() {
+      return t("rules_malware_drop_title")
+    },
+    get when() {
+      return t("rules_malware_drop_when")
+    },
   },
   {
     kind: "new_download_host",
-    title: "A new malware download host",
-    when: "Attackers use a server we have never seen before to deliver payloads.",
+    get title() {
+      return t("rules_new_download_host_title")
+    },
+    get when() {
+      return t("rules_new_download_host_when")
+    },
   },
   {
     kind: "watched_cve_seen",
-    title: "A watched vulnerability is tried",
-    when: "A CVE on your watch list is used against the honeypot (at most one alert per CVE and day).",
+    get title() {
+      return t("rules_watched_cve_seen_title")
+    },
+    get when() {
+      return t("rules_watched_cve_seen_when")
+    },
   },
   {
     kind: "weekly_report",
-    title: "The weekly report is ready",
-    when: "Every Monday morning: what happened, what changed and what to do next.",
+    get title() {
+      return t("rules_weekly_report_title")
+    },
+    get when() {
+      return t("rules_weekly_report_when")
+    },
   },
 ]
 
-export const RULE_TITLE: Record<RuleKind, string> = Object.fromEntries(
-  RULES.map((r) => [r.kind, r.title]),
-) as Record<RuleKind, string>
+export const RULE_TITLE: Record<RuleKind, string> = {
+  get new_campaign() {
+    return t("rules_new_campaign_title")
+  },
+  get malware_drop() {
+    return t("rules_malware_drop_title")
+  },
+  get new_download_host() {
+    return t("rules_new_download_host_title")
+  },
+  get watched_cve_seen() {
+    return t("rules_watched_cve_seen_title")
+  },
+  get weekly_report() {
+    return t("rules_weekly_report_title")
+  },
+}
 
 export const SEVERITY_OPTIONS = [
-  { value: "info", label: "Any" },
-  { value: "warning", label: "Warning and up" },
-  { value: "severe", label: "Severe only" },
+  {
+    value: "info",
+    get label() {
+      return t("rules_severity_any")
+    },
+  },
+  {
+    value: "warning",
+    get label() {
+      return t("rules_severity_warning")
+    },
+  },
+  {
+    value: "severe",
+    get label() {
+      return t("rules_severity_severe")
+    },
+  },
 ] as const
 
 export const STATE_LABEL: Record<OutboxState, string> = {
-  pending: "Waiting",
-  sent: "Sent",
-  failed: "Failed",
-  suppressed: "Not sent",
+  get pending() {
+    return t("outbox_state_pending")
+  },
+  get sent() {
+    return t("outbox_state_sent")
+  },
+  get failed() {
+    return t("outbox_state_failed")
+  },
+  get suppressed() {
+    return t("outbox_state_suppressed")
+  },
 }
 
-const ERROR_TEXT: Record<string, string> = {
-  blocked_target: "The address is not an allowed destination.",
-  private_address: "The address points to a private network, so it was refused.",
-  dns: "The host name could not be looked up.",
-  timeout: "The service did not answer in time.",
-  network: "The service could not be reached.",
-  tls: "The secure connection failed (certificate check).",
-  redirect: "The service answered with a redirect, which is never followed.",
-  http_429: "The service asked us to slow down.",
-  http_5xx: "The service had a problem on its side.",
-  http_400: "The service refused the message.",
-  http_401: "The service refused the credentials.",
-  http_403: "The service refused the credentials.",
-  http_404: "The webhook does not exist any more.",
-  smtp_auth: "The mail server refused the user name or password.",
-  smtp_recipient: "The mail server refused the recipient.",
-  smtp_error: "The mail server returned an error.",
-  smtp_not_configured: "E-mail is not set up on the server (SMTP settings in .env).",
-  cannot_decrypt: "The stored address cannot be read with the current encryption key.",
-  no_encryption_key: "The server has no encryption key for stored addresses.",
-  too_large: "The message was too large.",
-  digested: "Sent as part of a summary message.",
-  daily_limit: "The daily limit was reached.",
-  channel_disabled: "The channel was switched off.",
-  channel_missing: "The channel no longer exists.",
+/** Shown for an error code the server reports (`error_code`). One literal key per code. */
+function errorText(code: string): string | null {
+  switch (code) {
+    case "blocked_target":
+      return t("alerts_error_blocked_target")
+    case "private_address":
+      return t("alerts_error_private_address")
+    case "dns":
+      return t("alerts_error_dns")
+    case "timeout":
+      return t("alerts_error_timeout")
+    case "network":
+      return t("alerts_error_network")
+    case "tls":
+      return t("alerts_error_tls")
+    case "redirect":
+      return t("alerts_error_redirect")
+    case "http_429":
+      return t("alerts_error_http_429")
+    case "http_5xx":
+      return t("alerts_error_http_5xx")
+    case "http_400":
+      return t("alerts_error_http_400")
+    case "http_401":
+    case "http_403":
+      return t("alerts_error_http_credentials")
+    case "http_404":
+      return t("alerts_error_http_404")
+    case "smtp_auth":
+      return t("alerts_error_smtp_auth")
+    case "smtp_recipient":
+      return t("alerts_error_smtp_recipient")
+    case "smtp_error":
+      return t("alerts_error_smtp_error")
+    case "smtp_not_configured":
+      return t("alerts_error_smtp_not_configured")
+    case "cannot_decrypt":
+      return t("alerts_error_cannot_decrypt")
+    case "no_encryption_key":
+      return t("alerts_error_no_encryption_key")
+    case "too_large":
+      return t("alerts_error_too_large")
+    case "digested":
+      return t("alerts_error_digested")
+    case "daily_limit":
+      return t("alerts_error_daily_limit")
+    case "channel_disabled":
+      return t("alerts_error_channel_disabled")
+    case "channel_missing":
+      return t("alerts_error_channel_missing")
+    default:
+      return null
+  }
 }
 
 export function describeError(code: string | null | undefined): string {
@@ -231,17 +349,17 @@ export function describeError(code: string | null | undefined): string {
   // A guard failure carries its codes after a colon: `guard_failed:no_self_address`.
   if (code.startsWith("guard_failed"))
     return code.includes("no_self_address")
-      ? "Alerts are paused until you confirm your own address in Settings → Reporting."
-      : "Blocked by the identity check."
-  return ERROR_TEXT[code] ?? "Something went wrong."
+      ? t("alerts_error_guard_self_address")
+      : t("alerts_error_guard_identity")
+  return errorText(code) ?? t("alerts_error_generic")
 }
 
 /** What the last test says, in a sentence. */
 export function describeTest(test: LastTest | null): string | null {
   if (!test) return null
-  if (test.state === "queued") return "Test requested. It is sent within a few seconds."
-  if (test.state === "done") return "The last test message arrived."
-  return `The last test did not work. ${describeError(test.detail)}`.trim()
+  if (test.state === "queued") return t("alerts_test_queued")
+  if (test.state === "done") return t("alerts_test_done")
+  return t("alerts_test_failed", { reason: describeError(test.detail) }).trim()
 }
 
 export function testInFlight(channels: readonly AlertChannel[] | undefined): boolean {
@@ -249,15 +367,15 @@ export function testInFlight(channels: readonly AlertChannel[] | undefined): boo
 }
 
 export function channelsFinding(status: AlertStatus | undefined, channels: AlertChannel[]): string {
-  if (status && !status.alerts.enabled)
-    return "Alerts are switched off on this server, so nothing is sent."
-  if (channels.length === 0) return "No channel yet. Add one to receive alerts."
+  if (status && !status.alerts.enabled) return t("alerts_finding_channels_off")
+  if (channels.length === 0) return t("alerts_finding_channels_none")
   const on = channels.filter((c) => c.enabled).length
   const broken = channels.filter(
     (c) => c.last_test && (c.last_test.state === "failed" || c.last_test.state === "refused"),
   ).length
-  const base = `${plural(on, "channel")} ${on === 1 ? "is" : "are"} ready to receive alerts.`
-  return broken > 0 ? `${base} ${plural(broken, "test")} failed, check the details below.` : base
+  return broken > 0
+    ? t("alerts_finding_channels_broken", { on, broken })
+    : t("alerts_finding_channels_ready", { on })
 }
 
 export function rulesFinding(
@@ -267,35 +385,38 @@ export function rulesFinding(
   const on = rules.filter((r) => r.enabled).length
   if (on === 0)
     return channels.length === 0
-      ? "Nothing is sent yet: add a channel, then switch on the alerts you care about."
-      : "Every alert is off. Switch on the ones you want, and pick where they go."
-  return `${plural(on, "alert")} ${on === 1 ? "is" : "are"} on. Everything else stays quiet.`
+      ? t("alerts_finding_rules_no_channel")
+      : t("alerts_finding_rules_all_off")
+  return t("alerts_finding_rules_on", { on })
 }
 
 export function outboxFinding(items: readonly OutboxItem[]): string {
-  if (items.length === 0) return "No alert has been queued yet."
+  if (items.length === 0) return t("alerts_finding_outbox_empty")
   const sent = items.filter((i) => i.state === "sent").length
   const failed = items.filter((i) => i.state === "failed").length
-  const head = `${plural(sent, "alert")} sent recently`
-  return failed > 0 ? `${head}, ${failed} could not be delivered.` : `${head}.`
+  return failed > 0
+    ? t("alerts_finding_outbox_failed", { sent, failed })
+    : t("alerts_finding_outbox_sent", { sent })
 }
 
 export function reportsFinding(items: readonly ReportItem[]): string {
   const first = items[0]
-  if (!first) return "No weekly report yet. The first one is built on the next Monday morning."
-  return first.headline ?? `Latest report: week of ${weekLabel(first.week_start)}.`
+  if (!first) return t("alerts_finding_reports_none")
+  return first.headline ?? t("alerts_finding_reports_latest", { week: weekLabel(first.week_start) })
 }
 
 /** "Oct 12 to Oct 18" for a Monday (date-only strings are UTC dates, shown as written). */
 export function weekLabel(weekStart: string, weekEnd?: string | null): string {
   const fmt = (iso: string) =>
-    new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
-      new Date(`${iso}T00:00:00Z`),
-    )
+    new Intl.DateTimeFormat(intlLocale(), {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(`${iso}T00:00:00Z`))
   const end =
     weekEnd ??
     new Date(Date.parse(`${weekStart}T00:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10)
-  return `${fmt(weekStart)} to ${fmt(end)}`
+  return t("alerts_week_range", { start: fmt(weekStart), end: fmt(end) })
 }
 
 export const CVE_PATTERN = /^CVE-\d{4}-\d{4,10}$/
@@ -316,17 +437,39 @@ export type AlertErrorReason =
   | "network"
 
 export const ALERT_MESSAGES: Record<AlertErrorReason, string> = {
-  "wrong-password": "That password is not right.",
-  "password-required": "Enter your password to confirm.",
-  "invalid-target": "This is not an allowed destination.",
-  "editing-disabled": "Alert channels cannot be edited: the server has no encryption key.",
-  "alerts-disabled": "Alerts are switched off on this server (ALERTS_ENABLED in .env).",
-  "rate-limited": "Please wait a moment before trying again.",
-  "too-many": "That is the maximum number of items.",
-  "no-channel": "Choose at least one channel first.",
-  "not-found": "This item no longer exists.",
-  session: "Your session has ended. Sign in again.",
-  network: "The change could not be saved. Try again.",
+  get "wrong-password"() {
+    return t("alerts_msg_wrong_password")
+  },
+  get "password-required"() {
+    return t("alerts_msg_password_required")
+  },
+  get "invalid-target"() {
+    return t("alerts_msg_invalid_target")
+  },
+  get "editing-disabled"() {
+    return t("alerts_msg_editing_disabled")
+  },
+  get "alerts-disabled"() {
+    return t("alerts_msg_alerts_disabled")
+  },
+  get "rate-limited"() {
+    return t("alerts_msg_rate_limited")
+  },
+  get "too-many"() {
+    return t("alerts_msg_too_many")
+  },
+  get "no-channel"() {
+    return t("alerts_msg_no_channel")
+  },
+  get "not-found"() {
+    return t("alerts_msg_not_found")
+  },
+  get session() {
+    return t("alerts_msg_session")
+  },
+  get network() {
+    return t("alerts_msg_network")
+  },
 }
 
 export class AlertError extends Error {

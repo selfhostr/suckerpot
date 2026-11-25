@@ -1,4 +1,5 @@
 import { useIpMask } from "@/app/ip-mask"
+import { t } from "@/i18n"
 import { ExpandToggle } from "@/components/expand-toggle"
 import { CopyButton } from "@/components/defend/copy-button"
 import { useExpandable } from "@/hooks/use-expandable"
@@ -27,7 +28,7 @@ export function CodeBlock({
     <figure className={cn("overflow-hidden rounded-md border bg-bg", className)}>
       <figcaption className="flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs text-fg-muted">
         <span className="truncate">{caption ?? label}</span>
-        {masked ? null : <CopyButton text={text} label={`Copy ${label}`} />}
+        {masked ? null : <CopyButton text={text} label={t("defend_copy_named", { name: label })} />}
       </figcaption>
       <pre
         ref={boxRef}

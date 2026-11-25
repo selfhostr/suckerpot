@@ -11,6 +11,8 @@ import {
   X,
 } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { FindingCard } from "@/components/finding-card"
 import { RelativeTime } from "@/components/relative-time"
 import { SkeletonText } from "@/components/skeletons"
@@ -55,9 +57,9 @@ function Field({
 
 /** This tab's wording for the gate reason; the shared sentences stay as they are. */
 function gateReason(code: string | null): string {
-  if (code === "ip_not_allowed") return "exit not in a trusted range"
-  if (code === "exit_is_self") return "the exit is this system's own address"
-  if (code === "exit_asn_denied") return "the exit network is on your deny list"
+  if (code === "ip_not_allowed") return t("vpn_gate_reason_not_trusted")
+  if (code === "exit_is_self") return t("vpn_gate_reason_self")
+  if (code === "exit_asn_denied") return t("vpn_gate_reason_denied")
   return egressReason(code)
 }
 
@@ -90,17 +92,17 @@ export function VpnTab() {
   }
   useEffect(() => {
     if (!watching) return
-    const t = setTimeout(() => setWatching(false), SWITCH_WATCH_MS)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setWatching(false), SWITCH_WATCH_MS)
+    return () => clearTimeout(timer)
   }, [watching])
   const v = q.data
   useEffect(() => {
     if (!check) return
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       setCheck(null)
-      setNotice("No answer yet. Ingest checks again by itself; the result shows under Last check.")
+      setNotice(t("vpn_check_no_answer"))
     }, CHECK_WATCH_MS)
-    return () => clearTimeout(t)
+    return () => clearTimeout(timer)
   }, [check])
   // Over as soon as ingest has looked at the gate after the request (or after one minute, above).
   const checking = check !== null && !(v && checkAnswered(v, check.since))
@@ -132,21 +134,21 @@ export function VpnTab() {
     <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2 2xl:items-start">
       <div className="grid grid-cols-1 gap-4">
         <FindingCard
-          eyebrow="VPN"
+          eyebrow={t("settings_tab_vpn")}
           finding={
             v
               ? describeVpn(v)
               : q.isError
-                ? "The VPN status is not available."
-                : "Checking the VPN…"
+                ? t("setup_vpn_unavailable")
+                : t("setup_vpn_checking")
           }
-          detail="Enrichment and the sample collector only talk to the internet through this tunnel."
+          detail={t("vpn_detail")}
         >
           {!v ? (
             q.isPending ? (
               <SkeletonText lines={4} className="py-1" />
             ) : (
-              <p className="text-sm text-fg-muted">This status is not available right now.</p>
+              <p className="text-sm text-fg-muted">{t("settings_status_unavailable")}</p>
             )
           ) : (
             <div className="space-y-5">
@@ -156,7 +158,7 @@ export function VpnTab() {
                   className="flex items-center gap-2 rounded-md border bg-bg px-3 py-2 text-sm text-fg-muted"
                 >
                   <LoaderCircle aria-hidden className="size-4 shrink-0 animate-spin" />
-                  The tunnel is restarting. This page checks every 5 seconds.
+                  {t("vpn_restarting")}
                 </p>
               ) : null}
               <StatusDetails v={v} />
@@ -168,8 +170,7 @@ export function VpnTab() {
         {v && !v.config_writable ? (
           <p className="flex items-start gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-fg-muted sm:px-5">
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
-            The vpn-config volume is not mounted or not writable. Uploading and reverting are off
-            until it is.
+            {t("vpn_not_writable")}
           </p>
         ) : null}
       </div>
@@ -197,11 +198,11 @@ export function VpnTab() {
         <AdminActionDialog
           open={reconnecting}
           onOpenChange={setReconnecting}
-          title="Reconnect the tunnel?"
-          description="The tunnel restarts. Lookups and downloads pause until it is back and checked, usually within a minute. Events are still recorded."
-          hint="Reconnecting asks for your own dashboard password again."
-          confirmLabel="Reconnect"
-          pendingLabel="Reconnecting…"
+          title={t("vpn_reconnect_title")}
+          description={t("vpn_reconnect_description")}
+          hint={t("vpn_reconnect_hint")}
+          confirmLabel={t("vpn_reconnect")}
+          pendingLabel={t("vpn_reconnecting")}
           run={async (password) => {
             await vpnApi.reconnect(password)
           }}
@@ -250,16 +251,16 @@ function TunnelButtons({
           ) : (
             <RefreshCw aria-hidden className="size-4" />
           )}
-          {checking ? "Checking…" : "Check now"}
+          {checking ? t("vpn_checking") : t("vpn_check_now")}
         </Button>
         <Button variant="outline" size="sm" onClick={onReconnect} disabled={!canReconnect}>
           <RotateCw aria-hidden className="size-4" />
-          Reconnect
+          {t("vpn_reconnect")}
         </Button>
       </div>
       {checking ? (
         <p role="status" className="text-xs text-fg-muted">
-          Ingest looks at the exit within a few seconds.
+          {t("vpn_check_wait")}
         </p>
       ) : notice ? (
         <p role="status" className="text-xs text-fg-muted">
@@ -267,8 +268,7 @@ function TunnelButtons({
         </p>
       ) : null}
       <p className="text-xs text-fg-muted">
-        Check now asks ingest to test the gate without waiting. Reconnect restarts the tunnel on the
-        same settings.
+        {t("vpn_buttons_note")}
       </p>
     </div>
   )
@@ -278,33 +278,33 @@ function StatusDetails({ v }: { v: VpnStatus }) {
   const open = v.gate.state === "open"
   return (
     <dl className="grid grid-cols-2 gap-4">
-      <Field label="Source">
-        {v.source === "upload" ? "Uploaded configuration" : "Settings from .env"}
+      <Field label={t("vpn_field_source")}>
+        {v.source === "upload" ? t("vpn_source_upload") : t("vpn_source_env")}
       </Field>
-      <Field label="Gate">
+      <Field label={t("vpn_field_gate")}>
         {open ? (
           <span className="inline-flex items-start gap-1.5 text-sm font-medium text-status-ok">
             <CircleCheck aria-hidden className="mt-0.5 size-3.5" strokeWidth={2.25} />
-            Open
+            {t("common_open")}
           </span>
         ) : (
           <span className="inline-flex items-start gap-1.5 text-sm font-medium text-sev-warning">
             <TriangleAlert aria-hidden className="mt-0.5 size-3.5" strokeWidth={2.25} />
-            Closed: {gateReason(v.gate.reason)}
+            {t("vpn_gate_closed", { reason: gateReason(v.gate.reason) })}
           </span>
         )}
       </Field>
-      <Field label="Endpoint">
+      <Field label={t("vpn_field_endpoint")}>
         {v.endpoint_ip ? (
           <span className={mono}>
             {v.endpoint_ip}
             {v.endpoint_port ? `:${v.endpoint_port}` : ""}
           </span>
         ) : (
-          <span className="text-fg-muted">Not reported</span>
+          <span className="text-fg-muted">{t("vpn_not_reported")}</span>
         )}
       </Field>
-      <Field label="Exit address">
+      <Field label={t("vpn_field_exit")}>
         {v.gate.egress_ip ? (
           <>
             <span className={mono}>{v.gate.egress_ip}</span>
@@ -313,40 +313,48 @@ function StatusDetails({ v }: { v: VpnStatus }) {
             ) : null}
           </>
         ) : (
-          <span className="text-fg-muted">Not checked yet</span>
+          <span className="text-fg-muted">{t("vpn_not_checked")}</span>
         )}
       </Field>
-      <Field label="Interface addresses" className="col-span-2 sm:col-span-1">
+      <Field label={t("vpn_field_addresses")} className="col-span-2 sm:col-span-1">
         {v.addresses?.length ? (
           <span className={mono}>{v.addresses.join(", ")}</span>
         ) : (
-          <span className="text-fg-muted">Not reported</span>
+          <span className="text-fg-muted">{t("vpn_not_reported")}</span>
         )}
       </Field>
-      <Field label="Peer key fingerprint" className="col-span-2 sm:col-span-1">
+      <Field label={t("vpn_field_fingerprint")} className="col-span-2 sm:col-span-1">
         {v.peer_key_fingerprint ? (
           <span className={mono}>{v.peer_key_fingerprint}</span>
         ) : (
-          <span className="text-fg-muted">Not reported</span>
+          <span className="text-fg-muted">{t("vpn_not_reported")}</span>
         )}
       </Field>
       {v.source === "upload" && v.uploaded_at ? (
-        <Field label="Uploaded" className="col-span-2 sm:col-span-1">
+        <Field label={t("vpn_field_uploaded")} className="col-span-2 sm:col-span-1">
           <RelativeTime iso={v.uploaded_at} className="text-sm" />
-          {v.uploaded_by ? <span className="text-fg-muted"> by {v.uploaded_by}</span> : null}
+          {v.uploaded_by ? (
+            <span className="text-fg-muted"> {t("vpn_uploaded_by", { user: v.uploaded_by })}</span>
+          ) : null}
         </Field>
       ) : null}
-      <Field label="Last check" className="col-span-2 sm:col-span-1">
+      <Field label={t("vpn_field_last_check")} className="col-span-2 sm:col-span-1">
         {v.gate.checked_at ? (
           <RelativeTime iso={v.gate.checked_at} className="text-sm" />
         ) : (
-          <span className="text-fg-muted">Not yet</span>
+          <span className="text-fg-muted">{t("vpn_not_yet")}</span>
         )}
         {v.last_check_request && !v.last_check_request.done_at ? (
           <span className="block text-xs text-fg-muted">
-            A check was asked for{" "}
-            <RelativeTime iso={v.last_check_request.requested_at} className="text-xs" />; waiting
-            for ingest.
+            {tNodes(
+              "vpn_check_requested",
+              {},
+              {
+                time: (
+                  <RelativeTime iso={v.last_check_request.requested_at} className="text-xs" />
+                ),
+              },
+            )}
           </span>
         ) : null}
       </Field>
@@ -380,22 +388,18 @@ function BlockedCallout({
         <ShieldAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-sev-warning" />
         <div className="min-w-0 space-y-1">
           <h3 id="vpn-blocked-title" className="type-subtitle text-fg">
-            This exit cannot be trusted
+            {t("vpn_blocked_title")}
           </h3>
           <p className="text-sm text-fg-muted">
-            {exitIp ? (
-              <>
-                The exit <span className="font-mono text-fg">{exitIp}</span>
-                {network ? ` (${network})` : ""}{" "}
-              </>
-            ) : (
-              "The exit "
+            {tNodes(
+              "vpn_blocked_body",
+              {
+                hasIp: exitIp ? "yes" : "no",
+                suffix: network ? ` (${network})` : "",
+                reason: reason === "exit_is_self" ? "self" : "denied",
+              },
+              { ip: <span className="font-mono text-fg">{exitIp}</span> },
             )}
-            {reason === "exit_is_self"
-              ? "looks like your own internet connection, not a VPN."
-              : "belongs to a network on your deny list."}{" "}
-            Outbound lookups stay paused. The uploaded file probably does not come from your VPN
-            provider.
           </p>
         </div>
       </div>
@@ -403,7 +407,7 @@ function BlockedCallout({
         <>
           <Button variant="outline" onClick={() => setOpen(true)} className="shrink-0">
             <Undo2 aria-hidden className="size-4" />
-            Use the .env settings again
+            {t("vpn_revert_button")}
           </Button>
           <RevertDialog open={open} onOpenChange={setOpen} onDone={onDone} />
         </>
@@ -433,26 +437,28 @@ function TrustCallout({
         <ShieldAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-sev-warning" />
         <div className="min-w-0 space-y-1">
           <h3 id="vpn-trust-title" className="type-subtitle text-fg">
-            Trust needed
+            {t("vpn_trust_title")}
           </h3>
           <p className="text-sm text-fg-muted">
-            The new exit <span className="font-mono text-fg">{exitIp ?? cidr}</span>
-            {network ? ` (${network})` : ""} is outside the trusted ranges. Outbound lookups stay
-            paused until you trust it.
+            {tNodes(
+              "vpn_trust_body",
+              { suffix: network ? ` (${network})` : "" },
+              { ip: <span className="font-mono text-fg">{exitIp ?? cidr}</span> },
+            )}
           </p>
         </div>
       </div>
       <Button onClick={() => setOpen(true)} className="shrink-0">
-        Trust {cidr}
+        {t("vpn_trust_button", { cidr })}
       </Button>
       <AdminActionDialog
         open={open}
         onOpenChange={setOpen}
-        title={`Trust ${cidr}?`}
-        description={`Outbound lookups will resume through any address in ${cidr}. Only do this if the range belongs to your VPN provider.`}
-        hint="Changing the VPN asks for your own dashboard password again."
-        confirmLabel={`Trust ${cidr}`}
-        pendingLabel="Trusting…"
+        title={t("vpn_trust_dialog_title", { cidr })}
+        description={t("vpn_trust_dialog_description", { cidr })}
+        hint={t("vpn_change_hint")}
+        confirmLabel={t("vpn_trust_button", { cidr })}
+        pendingLabel={t("vpn_trusting")}
         run={async (password) => {
           await vpnApi.trust(password)
         }}
@@ -462,11 +468,11 @@ function TrustCallout({
           {exitIp ? (
             <>
               <span className="font-mono">{exitIp}</span>
-              {network ? ` — ${network}` : ""}
+              {network ? ` · ${network}` : ""}
               <br />
             </>
           ) : null}
-          Check that this network is your VPN provider, not your internet provider.
+          {t("vpn_trust_check")}
         </p>
       </AdminActionDialog>
     </section>
@@ -485,19 +491,19 @@ function TrustedExitsCard({
   const [removing, setRemoving] = useState<TrustedExit | null>(null)
   return (
     <FindingCard
-      eyebrow="Trusted exits"
+      eyebrow={t("vpn_exits_title")}
       finding={
         loading
-          ? "Checking the trusted exits…"
+          ? t("vpn_exits_checking")
           : exits.length === 0
-            ? "No extra exit range is trusted."
-            : `${exits.length} extra exit ${exits.length === 1 ? "range is" : "ranges are"} trusted.`
+            ? t("vpn_exits_none")
+            : t("vpn_exits_count", { count: exits.length })
       }
-      detail="The ranges from .env are always trusted. Ranges added here are used on top of them."
+      detail={t("vpn_exits_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
     >
       {exits.length > 0 ? (
-        <ul aria-label="Trusted exits" className="divide-y border-t">
+        <ul aria-label={t("vpn_exits_title")} className="divide-y border-t">
           {exits.map((x) => (
             <li
               key={x.id}
@@ -506,17 +512,21 @@ function TrustedExitsCard({
               <div className="min-w-0">
                 <span className="font-mono text-sm text-fg">{x.cidr}</span>
                 <p className="text-xs text-fg-muted">
-                  Added <RelativeTime iso={x.created_at} className="text-xs" /> by {x.created_by}
+                  {tNodes(
+                    "vpn_exit_added",
+                    { user: x.created_by },
+                    { time: <RelativeTime iso={x.created_at} className="text-xs" /> },
+                  )}
                 </p>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                aria-label={`Remove ${x.cidr}`}
+                aria-label={t("vpn_exit_remove_label", { cidr: x.cidr })}
                 onClick={() => setRemoving(x)}
               >
                 <X aria-hidden className="size-3.5" />
-                Remove
+                {t("common_remove")}
               </Button>
             </li>
           ))}
@@ -527,11 +537,11 @@ function TrustedExitsCard({
         onOpenChange={(o) => {
           if (!o) setRemoving(null)
         }}
-        title={`Stop trusting ${removing?.cidr ?? ""}?`}
-        description="Outbound lookups pause if the VPN exit is in this range and not covered by .env."
-        hint="Changing the VPN asks for your own dashboard password again."
-        confirmLabel="Remove"
-        pendingLabel="Removing…"
+        title={t("vpn_untrust_title", { cidr: removing?.cidr ?? "" })}
+        description={t("vpn_untrust_description")}
+        hint={t("vpn_change_hint")}
+        confirmLabel={t("common_remove")}
+        pendingLabel={t("vpn_removing")}
         run={async (password) => {
           if (removing) await vpnApi.untrust(removing.id, password)
         }}
@@ -566,7 +576,7 @@ export function UploadCard({
     setFile(null)
     if (!f) return
     if (!f.name.toLowerCase().endsWith(".conf")) {
-      setProblem("Choose a .conf file from your VPN provider.")
+      setProblem(t("vpn_upload_choose_conf"))
       return
     }
     if (f.size > VPN_CONF_MAX_BYTES) {
@@ -574,7 +584,7 @@ export function UploadCard({
       return
     }
     const reader = new FileReader()
-    reader.onerror = () => setProblem("The file could not be read.")
+    reader.onerror = () => setProblem(t("vpn_upload_unreadable"))
     reader.onload = () => {
       const text = typeof reader.result === "string" ? reader.result : ""
       if (new Blob([text]).size > VPN_CONF_MAX_BYTES) setProblem(VPN_MESSAGES.tooLarge)
@@ -591,13 +601,9 @@ export function UploadCard({
 
   return (
     <FindingCard
-      eyebrow={first ? "Set up the tunnel" : "Replace the tunnel"}
-      finding={
-        first
-          ? "Upload the WireGuard file from your VPN provider to start the tunnel."
-          : "Upload the WireGuard file from your VPN provider to change where traffic leaves."
-      }
-      detail="The file is checked strictly, the private key is never shown again, and the new exit stays untrusted until you trust it."
+      eyebrow={first ? t("vpn_upload_title_first") : t("vpn_upload_title")}
+      finding={first ? t("vpn_upload_finding_first") : t("vpn_upload_finding")}
+      detail={t("vpn_upload_detail")}
     >
       <div className="space-y-4">
         <div
@@ -618,7 +624,11 @@ export function UploadCard({
         >
           <FileUp aria-hidden className="size-6 text-fg-muted" />
           <p className="text-sm text-fg-muted">
-            Drop a <code className="font-mono text-fg">.conf</code> file here (4 KiB at most), or
+            {tNodes(
+              "vpn_upload_drop",
+              {},
+              { file: <code className="font-mono text-fg">.conf</code> },
+            )}
           </p>
           <input
             ref={inputRef}
@@ -627,12 +637,12 @@ export function UploadCard({
             accept=".conf"
             className="sr-only"
             tabIndex={-1}
-            aria-label="WireGuard configuration file"
+            aria-label={t("vpn_upload_file_label")}
             disabled={disabled}
             onChange={(e) => take(e.target.files?.[0])}
           />
           <Button variant="outline" disabled={disabled} onClick={() => inputRef.current?.click()}>
-            Choose a file
+            {t("vpn_upload_choose")}
           </Button>
         </div>
         {problem ? (
@@ -649,10 +659,10 @@ export function UploadCard({
             </p>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={clear}>
-                Remove file
+                {t("vpn_upload_remove")}
               </Button>
               <Button size="sm" onClick={() => setConfirm(true)}>
-                Review and upload
+                {t("vpn_upload_review")}
               </Button>
             </div>
           </div>
@@ -661,11 +671,11 @@ export function UploadCard({
       <AdminActionDialog
         open={confirm}
         onOpenChange={setConfirm}
-        title="Replace the VPN configuration?"
-        description="The tunnel will use the uploaded file instead of the settings in .env."
-        hint="Changing the VPN asks for your own dashboard password again."
-        confirmLabel="Upload and restart the tunnel"
-        pendingLabel="Uploading…"
+        title={t("vpn_upload_dialog_title")}
+        description={t("vpn_upload_dialog_description")}
+        hint={t("vpn_change_hint")}
+        confirmLabel={t("vpn_upload_dialog_confirm")}
+        pendingLabel={t("vpn_uploading")}
         run={async (password) => {
           if (!file) return
           await vpnApi.upload(file.text, password)
@@ -678,11 +688,11 @@ export function UploadCard({
         <ul className="space-y-2 rounded-md border bg-bg px-3 py-3 text-sm text-fg">
           <li className="flex items-start gap-2">
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
-            The VPN endpoint sees your home IP: only upload a file from your own VPN provider.
+            {t("vpn_upload_warning_ip")}
           </li>
           <li className="flex items-start gap-2">
             <LoaderCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
-            The tunnel restarts; outbound lookups pause for a few seconds.
+            {t("vpn_upload_warning_restart")}
           </li>
         </ul>
       </AdminActionDialog>
@@ -705,11 +715,11 @@ function RevertDialog({
     <AdminActionDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Use the .env settings again?"
-      description="The uploaded file is deleted and the tunnel restarts on the settings in .env. Outbound lookups pause for a few seconds."
-      hint="Changing the VPN asks for your own dashboard password again."
-      confirmLabel="Use .env settings"
-      pendingLabel="Restarting…"
+      title={t("vpn_revert_title")}
+      description={t("vpn_revert_description")}
+      hint={t("vpn_change_hint")}
+      confirmLabel={t("vpn_revert_confirm")}
+      pendingLabel={t("vpn_restarting_label")}
       run={async (password) => {
         await vpnApi.revert(password)
       }}
@@ -723,12 +733,15 @@ function RevertCard({ onDone, disabled }: { onDone: () => void; disabled: boolea
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 sm:px-5">
       <p className="text-sm text-fg-muted">
-        Drop the uploaded file and go back to the VPN settings in{" "}
-        <code className="font-mono text-fg">.env</code>.
+        {tNodes(
+          "vpn_revert_note",
+          {},
+          { env: <code className="font-mono text-fg">.env</code> },
+        )}
       </p>
       <Button variant="outline" disabled={disabled} onClick={() => setOpen(true)}>
         <Undo2 aria-hidden className="size-4" />
-        Use the .env settings again
+        {t("vpn_revert_button")}
       </Button>
       <RevertDialog open={open} onOpenChange={setOpen} onDone={onDone} />
     </div>

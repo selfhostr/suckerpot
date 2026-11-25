@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { switchFor, type NavPage } from "./nav"
 
@@ -27,7 +28,7 @@ export function PageSwitch({ pathname }: { pathname: string }) {
     return qs ? `${p.to}?${qs}` : p.to
   }
   return (
-    <nav aria-label={`${entry.label} pages`} className="vt-pageswitch mb-6 border-b lg:mb-7">
+    <nav aria-label={t("nav_switch_label", { name: entry.label })} className="vt-pageswitch mb-6 border-b lg:mb-7">
       <ul className="-mb-px flex min-w-0 sm:gap-6">
         {entry.pages.map((p) => {
           const active = p === current

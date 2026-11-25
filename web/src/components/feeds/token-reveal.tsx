@@ -1,6 +1,8 @@
 import { KeyRound, X } from "lucide-react"
 import { CopyButton } from "@/components/defend/copy-button"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import {
   feedCurl,
   feedUrl,
@@ -11,18 +13,26 @@ import {
 } from "@/lib/defend"
 import type { CreatedToken } from "./create-token-dialog"
 
-function Snippet({ label, text }: { label: string; text: string }) {
+function Snippet({
+  label,
+  copyLabel,
+  text,
+}: {
+  label: string
+  copyLabel: string
+  text: string
+}) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <h4 className="type-eyebrow text-fg-muted">{label}</h4>
         <CopyButton
           text={text}
-          label={`Copy the ${label.toLowerCase()}`}
+          label={copyLabel}
           variant="outline"
           size="sm"
         >
-          Copy
+          {t("common_copy")}
         </CopyButton>
       </div>
       <pre
@@ -59,19 +69,17 @@ export function TokenReveal({
           <KeyRound aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
           <div className="space-y-1">
             <h3 id="token-reveal-title" className="type-card-title text-fg">
-              Copy your token now: “{item.name}”
+              {t("feeds_reveal_title", { name: item.name })}
             </h3>
             <p className="text-sm text-fg-muted">
-              This is the only time it is shown. It cannot be shown again, so store it somewhere
-              safe. Anyone who has the URL can read the lists it covers ({kindsPhrase(item.kinds)}),
-              so revoke the token if it ever leaks.
+              {t("feeds_reveal_description", { kinds: kindsPhrase(item.kinds) })}
             </p>
           </div>
         </div>
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="I have saved it, hide the token"
+          aria-label={t("feeds_reveal_hide")}
           onClick={onDismiss}
         >
           <X aria-hidden />
@@ -79,43 +87,63 @@ export function TokenReveal({
       </header>
 
       <div className="mt-4 space-y-4">
-        <Snippet label="Token" text={token} />
+        <Snippet
+          label={t("feeds_reveal_token")}
+          copyLabel={t("feeds_reveal_copy_token")}
+          text={token}
+        />
         {mirrorOnly ? (
           <>
             <Snippet
-              label="URL form, for OPNsense and pfSense URL tables"
+              label={t("feeds_reveal_url_form")}
+              copyLabel={t("feeds_reveal_copy_url_form")}
               text={networkFeedUrl(origin, token)}
             />
             <p className="-mt-2 text-xs text-fg-muted">
-              This is the verified copy of the community outbound list. For the others replace{" "}
-              <code className="font-mono">outbound.txt</code> with{" "}
-              <code className="font-mono">outbound-high.txt</code>,{" "}
-              <code className="font-mono">outbound-domains.txt</code>,{" "}
-              <code className="font-mono">inbound.txt</code> or{" "}
-              <code className="font-mono">inbound-high.txt</code>.
+              {tNodes(
+                "feeds_reveal_mirror_note",
+                {},
+                {
+                  current: <code className="font-mono">outbound.txt</code>,
+                  a: <code className="font-mono">outbound-high.txt</code>,
+                  b: <code className="font-mono">outbound-domains.txt</code>,
+                  c: <code className="font-mono">inbound.txt</code>,
+                  d: <code className="font-mono">inbound-high.txt</code>,
+                },
+              )}
             </p>
             <Snippet
-              label="Header form, for scripts and proxies"
+              label={t("feeds_reveal_header_form")}
+              copyLabel={t("feeds_reveal_copy_header_form")}
               text={networkFeedCurl(origin, token)}
             />
           </>
         ) : (
           <>
             <Snippet
-              label="URL form, for OPNsense and pfSense URL tables"
+              label={t("feeds_reveal_url_form")}
+              copyLabel={t("feeds_reveal_copy_url_form")}
               text={feedUrl(origin, token, first)}
             />
             <p className="-mt-2 text-xs text-fg-muted">
-              Firewalls cannot send headers, so the token is part of the URL. For the other lists
-              replace <code className="font-mono">{first}.txt</code> with{" "}
-              {blocks
-                .filter((k) => k !== first)
-                .map((k) => `${k}.txt`)
-                .join(", ") || "another list"}
-              , or use <code className="font-mono">.csv</code> for a file with a header line.
+              {tNodes(
+                "feeds_reveal_url_note",
+                {
+                  others:
+                    blocks
+                      .filter((k) => k !== first)
+                      .map((k) => `${k}.txt`)
+                      .join(", ") || t("feeds_reveal_another_list"),
+                },
+                {
+                  first: <code className="font-mono">{first}.txt</code>,
+                  csv: <code className="font-mono">.csv</code>,
+                },
+              )}
             </p>
             <Snippet
-              label="Header form, for scripts and proxies"
+              label={t("feeds_reveal_header_form")}
+              copyLabel={t("feeds_reveal_copy_header_form")}
               text={feedCurl(origin, token, first)}
             />
           </>
@@ -124,12 +152,14 @@ export function TokenReveal({
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
         <p className="text-xs text-fg-muted">
-          Behind Cloudflare Access? Add a bypass policy for{" "}
-          <code className="font-mono">/feeds/*</code>, or the firewall will be turned away at the
-          login page.
+          {tNodes(
+            "feeds_reveal_access_note",
+            {},
+            { path: <code className="font-mono">/feeds/*</code> },
+          )}
         </p>
         <Button variant="outline" size="sm" onClick={onDismiss}>
-          I have saved it
+          {t("feeds_reveal_saved")}
         </Button>
       </div>
     </section>

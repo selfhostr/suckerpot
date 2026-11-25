@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query"
 import { useState } from "react"
 import { useAuth } from "@/app/auth"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { describeAbuseError, type Recipient } from "@/lib/abuse"
 import { formsApi } from "@/lib/abuse-forms"
 
@@ -30,10 +31,10 @@ export function FormSwitch({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <Button size="sm" variant="outline" disabled={save.isPending} onClick={() => save.mutate()}>
-        This desk takes only a web form
+        {t("abuse_form_switch_button")}
       </Button>
       <span className="text-xs text-fg-muted">
-        Its reports then wait in To submit by form, and no mail goes there.
+        {t("abuse_form_switch_hint")}
       </span>
       {error ? <span className="block w-full text-xs text-fg">{error}</span> : null}
     </div>
