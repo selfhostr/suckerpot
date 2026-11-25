@@ -1,162 +1,101 @@
-import {
-  Bell,
-  Crosshair,
-  FileCode2,
-  Flag,
-  MailWarning,
-  Radar,
-  Radio,
-  Settings,
-  Share2,
-  ShieldCheck,
-  Sun,
-  SwatchBook,
-  TrendingUp,
-  type LucideIcon,
-} from "lucide-react"
+import { Binoculars, Microscope, ShieldCheck, type LucideIcon } from "lucide-react"
 
-/** The three spaces of the product, plus the footer. */
-export type Space = "observe" | "understand" | "defend" | "footer"
+/** The three sections of the product: what is happening, what it means, what to do about it. */
+export type SectionId = "observe" | "understand" | "defend"
 
-/** One page of the app: a sidebar entry on its own, or a tab of a hub. */
+/** One page of the app, listed in the sidebar under its section. */
 export interface NavPage {
   to: string
   label: string
+  /** Path prefixes (besides `to` and what sits below it) on which this page is current. */
+  also?: readonly string[]
 }
 
-export interface NavItem {
-  /** Where the sidebar entry links to: the first page of the hub. */
-  to: string
+export interface NavSection {
+  id: SectionId
   label: string
   icon: LucideIcon
-  space: Space
-  /** Small pill after the label, e.g. a count or "New". */
-  badge?: string
-  /** Hub only: the pages shown as a tab strip at the top of each of them. */
-  tabs?: readonly NavPage[]
-  /** Path prefixes (besides those of the tabs) on which the entry is active. */
-  also?: readonly string[]
-  /** Shown in development builds only. */
-  devOnly?: boolean
-}
-
-export interface NavGroup {
-  space: Space
-  label: string
-  items: NavItem[]
+  /**
+   * The pages in reading order. Pages that belong together (Sessions, Attackers and Attacker
+   * networks) form one cluster; the sidebar draws a little air between clusters, nothing more.
+   */
+  clusters: readonly (readonly NavPage[])[]
 }
 
 /**
- * Observe: what is happening. Understand: what it means. Defend: what to do about it.
- * A hub is one entry with `tabs`; every tab is still an ordinary route, so deep links keep working.
- * Sidebar, tab strips, the mobile drawer and the page list all read this one table.
+ * Observe, Understand, Defend. Every page is an ordinary route, so deep links and filters in the
+ * URL keep working; the sidebar, the mobile drawer, the header breadcrumb and the page list
+ * (`allPages`, which the help texts are checked against) all read this one table.
  */
-export const NAV_ITEMS: NavItem[] = [
-  { space: "observe", to: "/", label: "Today", icon: Sun },
-  { space: "observe", to: "/live", label: "Live", icon: Radio },
+export const NAV_SECTIONS: readonly NavSection[] = [
   {
-    space: "observe",
-    to: "/attacks",
-    label: "Attacks",
-    icon: Crosshair,
-    tabs: [
-      { to: "/attacks", label: "Sessions" },
-      { to: "/attackers", label: "Attackers" },
-      { to: "/networks", label: "Attacker networks" },
-    ],
-  },
-
-  {
-    space: "understand",
-    to: "/campaigns",
-    label: "Campaigns",
-    icon: Flag,
-    tabs: [
-      { to: "/campaigns", label: "Campaigns" },
-      { to: "/techniques", label: "Techniques" },
+    id: "observe",
+    label: "Observe",
+    icon: Binoculars,
+    clusters: [
+      [
+        { to: "/", label: "Today" },
+        { to: "/live", label: "Live" },
+      ],
+      [
+        { to: "/attacks", label: "Sessions" },
+        { to: "/attackers", label: "Attackers" },
+        { to: "/networks", label: "Attacker networks" },
+      ],
     ],
   },
   {
-    space: "understand",
-    to: "/scripts",
-    label: "Tools",
-    icon: FileCode2,
-    tabs: [
-      { to: "/scripts", label: "Scripts" },
-      { to: "/malware", label: "Malware" },
-      { to: "/infrastructure", label: "Infrastructure" },
+    id: "understand",
+    label: "Understand",
+    icon: Microscope,
+    clusters: [
+      [
+        { to: "/campaigns", label: "Campaigns" },
+        { to: "/techniques", label: "Techniques" },
+      ],
+      [
+        { to: "/scripts", label: "Scripts" },
+        { to: "/malware", label: "Malware" },
+        { to: "/infrastructure", label: "Infrastructure" },
+      ],
+      [
+        { to: "/overview", label: "Overview" },
+        { to: "/trends", label: "Trends" },
+      ],
     ],
   },
   {
-    space: "understand",
-    to: "/overview",
-    label: "Trends",
-    icon: TrendingUp,
-    // The routes stay /overview and /trends; only the grouping changed.
-    tabs: [
-      { to: "/overview", label: "Overview" },
-      { to: "/trends", label: "Trends" },
-    ],
-  },
-
-  {
-    space: "defend",
-    to: "/defend/blocklists",
-    label: "Protection",
+    id: "defend",
+    label: "Defend",
     icon: ShieldCheck,
-    tabs: [
-      { to: "/defend/blocklists", label: "Blocklists" },
-      { to: "/defend/detections", label: "Detections" },
+    clusters: [
+      [
+        { to: "/defend/blocklists", label: "Blocklists" },
+        { to: "/defend/detections", label: "Detections" },
+      ],
+      [
+        { to: "/defend/exposure", label: "Your exposure" },
+        { to: "/cves", label: "CVE watch" },
+      ],
+      [{ to: "/defend/alerts", label: "Alerts", also: ["/reports"] }],
+      [
+        { to: "/defend/abuse", label: "Abuse reports" },
+        { to: "/defend/results", label: "Results" },
+      ],
+      [
+        { to: "/network", label: "SuckerPot network" },
+        { to: "/network/members", label: "Network members" },
+      ],
     ],
   },
-  {
-    space: "defend",
-    to: "/defend/exposure",
-    label: "Exposure",
-    icon: Radar,
-    tabs: [
-      { to: "/defend/exposure", label: "Your exposure" },
-      { to: "/cves", label: "CVE watch" },
-    ],
-  },
-  {
-    space: "defend",
-    to: "/defend/alerts",
-    label: "Alerts",
-    icon: Bell,
-    also: ["/reports"],
-  },
-  {
-    space: "defend",
-    to: "/defend/abuse",
-    label: "Abuse reports",
-    icon: MailWarning,
-    tabs: [
-      { to: "/defend/abuse", label: "Abuse reports" },
-      { to: "/defend/results", label: "Results" },
-    ],
-  },
-  {
-    space: "defend",
-    to: "/network",
-    label: "SuckerPot network",
-    icon: Share2,
-    tabs: [
-      { to: "/network", label: "Overview" },
-      { to: "/network/members", label: "Members" },
-    ],
-  },
-
-  { space: "footer", to: "/settings", label: "Settings", icon: Settings },
-  { space: "footer", to: "/styleguide", label: "Styleguide", icon: SwatchBook, devOnly: true },
 ]
 
-const SPACE_LABEL: Record<Space, string> = {
-  observe: "Observe",
-  understand: "Understand",
-  defend: "Defend",
-  footer: "System",
-}
+/** The foot of the sidebar. The styleguide is reached from Settings, so it counts as Settings. */
+export const SETTINGS_PAGE: NavPage = { to: "/settings", label: "Settings", also: ["/styleguide"] }
+export const STYLEGUIDE_PAGE: NavPage = { to: "/styleguide", label: "Styleguide" }
+
+export const DOCS_URL = "https://suckerpot.selfhostr.io/docs/"
+export const GITHUB_URL = "https://github.com/selfhostr/suckerpot"
 
 /** Does `pathname` equal `prefix` or sit below it ("/attacks/42" is under "/attacks")? */
 export function isUnder(pathname: string, prefix: string): boolean {
@@ -164,47 +103,59 @@ export function isUnder(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
-/** The sidebar entry (hub or single page) that owns `pathname`, if any. */
-export function itemForPath(
+/** Every page of a section, clusters flattened. */
+export function sectionPages(section: NavSection): NavPage[] {
+  return section.clusters.flat()
+}
+
+export interface ActivePage {
+  page: NavPage
+  /** Undefined for Settings, which sits outside the three sections. */
+  section?: NavSection
+}
+
+/**
+ * The page that is current on `pathname`, detail routes included (a session is under Sessions).
+ * The longest matching prefix wins: "/network/members" is Network members, not SuckerPot network.
+ */
+export function activePage(
   pathname: string,
-  items: readonly NavItem[] = NAV_ITEMS,
-): NavItem | undefined {
-  return items.find((i) => {
-    const prefixes = [i.to, ...(i.tabs ?? []).map((t) => t.to), ...(i.also ?? [])]
-    return prefixes.some((p) => isUnder(pathname, p))
-  })
-}
-
-/** The hub `pathname` belongs to, or undefined on a page without tabs. */
-export function hubForPath(pathname: string): NavItem | undefined {
-  const item = itemForPath(pathname)
-  return item?.tabs ? item : undefined
-}
-
-/** The tab of `hub` that is current on `pathname` (detail routes count for their list). */
-export function activeTab(hub: NavItem, pathname: string): NavPage | undefined {
-  // The longest matching path wins: "/network/members" is Members, not Overview ("/network").
-  let best: NavPage | undefined
-  for (const t of hub.tabs ?? []) {
-    if (isUnder(pathname, t.to) && (!best || t.to.length > best.to.length)) best = t
+  sections: readonly NavSection[] = NAV_SECTIONS,
+): ActivePage | undefined {
+  let best: ActivePage | undefined
+  let bestLength = -1
+  const consider = (page: NavPage, section?: NavSection) => {
+    for (const prefix of [page.to, ...(page.also ?? [])]) {
+      if (isUnder(pathname, prefix) && prefix.length > bestLength) {
+        best = section ? { page, section } : { page }
+        bestLength = prefix.length
+      }
+    }
   }
+  for (const section of sections) for (const page of sectionPages(section)) consider(page, section)
+  consider(SETTINGS_PAGE)
   return best
 }
 
-/** Every individual page, flattened: what a search or command palette lists. */
-export function allPages(items: readonly NavItem[] = NAV_ITEMS): NavPage[] {
-  return items.flatMap((i) =>
-    i.tabs ? i.tabs.map((t) => ({ to: t.to, label: t.label })) : [{ to: i.to, label: i.label }],
-  )
+export interface Crumb {
+  label: string
+  /** Set when the crumb leads somewhere other than the current address. */
+  to?: string
 }
 
-/** The sidebar, grouped by space. Development-only entries are left out of production builds. */
-export function buildNav(dev: boolean = import.meta.env.DEV): NavGroup[] {
-  return (["observe", "understand", "defend", "footer"] as const).map((space) => ({
-    space,
-    label: SPACE_LABEL[space],
-    items: NAV_ITEMS.filter((i) => i.space === space && (dev || !i.devOnly)),
-  }))
+/** What the header says about where you are: "Observe / Attackers", or "Settings / Styleguide". */
+export function crumbsFor(pathname: string): Crumb[] {
+  if (isUnder(pathname, STYLEGUIDE_PAGE.to))
+    return [{ label: SETTINGS_PAGE.label, to: SETTINGS_PAGE.to }, { label: STYLEGUIDE_PAGE.label }]
+  const active = activePage(pathname)
+  if (!active) return []
+  const { page, section } = active
+  const here: Crumb =
+    pathname === page.to ? { label: page.label } : { label: page.label, to: page.to }
+  return section ? [{ label: section.label }, here] : [here]
 }
 
-export const NAV: NavGroup[] = buildNav()
+/** Every individual page, flattened: what the help texts and a page list cover. */
+export function allPages(): NavPage[] {
+  return [...NAV_SECTIONS.flatMap(sectionPages), SETTINGS_PAGE, STYLEGUIDE_PAGE]
+}

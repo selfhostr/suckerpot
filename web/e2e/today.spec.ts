@@ -115,7 +115,8 @@ test("hide research scanners", async ({ page }, info) => {
   const badge = page.locator('[title^="Known research scanner"]')
   await expect(badge).toHaveCount(0)
 
-  // The switch sits in the sidebar footer (desktop) or the navigation drawer (phones).
+  // The switch sits in the header (desktop) or the navigation drawer (phones); the count is its
+  // description (a tooltip in the header, a line under it in the drawer).
   if (info.project.name.startsWith("mobile")) {
     await page.getByRole("button", { name: "Open navigation" }).click()
   }
@@ -123,14 +124,12 @@ test("hide research scanners", async ({ page }, info) => {
     .getByRole("switch", { name: /Hide research scanners/ })
     .locator("visible=true")
   await expect(toggle).toBeChecked()
-  await expect(
-    page.getByText(/sessions? hidden \(last 24 h\)/).locator("visible=true"),
-  ).toBeVisible()
+  await expect(toggle).toHaveAccessibleDescription(/sessions? hidden \(last 24 h\)/)
   await shoot(page, "scanner-toggle-on", info.project.name)
 
   await toggle.click()
   await expect(toggle).not.toBeChecked()
-  await expect(page.getByText(/from scanners \(last 24 h\)/).locator("visible=true")).toBeVisible()
+  await expect(toggle).toHaveAccessibleDescription(/from scanners \(last 24 h\)/)
   if (info.project.name.startsWith("mobile")) await page.keyboard.press("Escape")
   await expect(badge.locator("visible=true").first()).toBeVisible()
   await settle(page)

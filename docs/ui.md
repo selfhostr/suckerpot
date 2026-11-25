@@ -1,27 +1,28 @@
 # Use the dashboard
 
-The dashboard is a single-page web app in `web/`. The API serves the built files, so there is one port to publish and one thing to put behind the tunnel. The design rules are in `web/DESIGN.md`. Colour tokens, the type scale and every component are shown on the `/styleguide` page of a running dashboard.
+The dashboard is a single-page web app in `web/`. The API serves the built files, so there is one port to publish and one thing to put behind the tunnel. The design rules are in `web/DESIGN.md`. Colour tokens, the type scale and every component are shown on the `/styleguide` page of a development or mock build (linked from Settings).
 
 ## Navigation
 
-The sidebar (the drawer on a phone) has ten entries in three spaces, plus Settings at the bottom. Related pages are grouped in **hubs**: one sidebar entry, and a row of tabs at the top of each page of the hub. The tabs are plain links between ordinary pages, so every address and filter in the URL keeps working. The entry stays highlighted on detail pages too (a session, an attacker, a campaign, a script).
+The sidebar (the drawer on a phone) has three sections: **Observe**, **Understand** and **Defend**. Click a section to open or fold the list of its pages, right under it. Below the sections are **Settings**, links to the **Documentation** and to **GitHub**, and your profile. Every page is an ordinary address, so links and filters in the URL keep working. The current page stays highlighted on detail pages too (a session, an attacker, a campaign, a script), and the header says where you are ("Observe / Attackers"); on a detail page the page name there leads back to the list.
 
-| Space | Entry | Tabs | Question it answers |
-| --- | --- | --- | --- |
-| Observe | Today | | What is happening now? |
-| Observe | Live | | What is happening now? |
-| Observe | Attacks | Sessions, Attackers, Attacker networks | Who is attacking, and from where? |
-| Understand | Campaigns | Campaigns, Techniques | Who is behind it? |
-| Understand | Tools | Scripts, Malware, Infrastructure | What do they drop, and from where? |
-| Understand | Trends | Overview, Trends | How does it change over time? |
-| Defend | Protection | Blocklists, Detections | What should I block or watch? |
-| Defend | Exposure | Your exposure, CVE watch | What of mine is at risk? |
-| Defend | Alerts | | What was I told, and what did the weekly report say? |
-| Defend | Abuse reports | Abuse reports, Results | What did I report, and did anything change? |
-| Defend | SuckerPot network | Overview, Members | What does the network see, and what did my node help confirm? |
-| System | Settings | | How is the system set up? |
+On a computer, the button beside the logo (or `Ctrl+B`, `⌘B` on a Mac) folds the sidebar to a rail of icons: hover an icon for its name, click a section to pick one of its pages. Click the logo to unfold it again. The browser remembers both the fold and the sections you closed.
 
-The Styleguide page is routable everywhere but listed in the sidebar only in development builds. The whole table lives in `web/src/app/nav.ts`.
+| Section | Pages | Question it answers |
+| --- | --- | --- |
+| Observe | Today, Live | What is happening now? |
+| Observe | Sessions, Attackers, Attacker networks | Who is attacking, and from where? |
+| Understand | Campaigns, Techniques | Who is behind it? |
+| Understand | Scripts, Malware, Infrastructure | What do they drop, and from where? |
+| Understand | Overview, Trends | How does it change over time? |
+| Defend | Blocklists, Detections | What should I block or watch? |
+| Defend | Your exposure, CVE watch | What of mine is at risk? |
+| Defend | Alerts | What was I told, and what did the weekly report say? |
+| Defend | Abuse reports, Results | What did I report, and did anything change? |
+| Defend | SuckerPot network, Network members | What does the network see, and what did my node help confirm? |
+| | Settings | How is the system set up? |
+
+The **Take the tour** button in the Settings header plays the guided tour again. In development and mock builds Settings also links to the Styleguide page (`/styleguide`), which is not in the sidebar. The whole table lives in `web/src/app/nav.ts`.
 
 `Ctrl+K` opens search from anywhere. The pages read the endpoints described in [API](api.md).
 
@@ -80,8 +81,8 @@ Two kinds of people can use the dashboard besides the owner: **administrators** 
 - **Row actions** (the three dots): change role, disable or enable, unlock (only while locked), reset password (shows a new temporary password once), sign out everywhere, delete. Each asks for your own password. You cannot do the destructive ones to your own account.
 - **Status** is one word with an icon: Active, Waiting for first sign-in, Locked, Disabled. The owner row says "Set in .env" and has no actions.
 - **Audit log**: newest first, one sentence per entry ("sam reset the password of riley"), filterable by kind (Sign-ins, Users, Keys) and by name; the filters are in the URL (`?audit_action=user.&audit_actor=sam`). Click a name to filter by it.
-- **Viewers** get the same pages, with a small "Read-only access" mark in the sidebar footer (and in the mobile header), no key buttons, and no Users or Audit cards.
-- **Account menu** (sidebar footer): your name, role, last sign-in, **Change password** and **Sign out**. The owner's password is changed in `.env`, so that entry is disabled for the owner.
+- **Viewers** get the same pages, with "Viewer, read-only" under their name in the sidebar, a "Read-only access" mark on pages with actions, no key buttons, and no Users or Audit cards.
+- **Account menu** (your profile at the foot of the sidebar): your name, role, last sign-in, **Change password**, the **Theme** (light, dark or system), **Mask IP addresses**, **Sign out** and the version. The owner's password is changed in `.env`, so that entry is disabled for the owner. Mock builds say there that nothing is real traffic.
 
 In the demo and mock builds, add `?as=viewer` to any address to preview the read-only interface and `?as=first-login` for the Set your password screen (`?as=admin` goes back). The choice lasts for the browser tab.
 
@@ -116,7 +117,7 @@ By default nothing here sends mail: you read, copy and send from your own mailbo
 
 ## Results (M26, M27)
 
-The **Abuse reports** entry is a hub with two tabs: **Abuse reports** and **Results**. The rules of the reports themselves are in [Abuse reports](#abuse-reports-m22). The answers and their matching are in [Replies to reports](replies.md), and the tracking of the targets in [Takedowns](takedowns.md).
+Under **Defend**, **Abuse reports** and **Results** sit together. The rules of the reports themselves are in [Abuse reports](#abuse-reports-m22). The answers and their matching are in [Replies to reports](replies.md), and the tracking of the targets in [Takedowns](takedowns.md).
 
 - **Results page** (`/defend/results`). Every card opens with one plain sentence, then the chart or table that proves it. Filters (period, report kind, channel, provider, grouping) live in the URL, so a view can be shared. From the top:
   1. Stat tiles: reports sent, answered (%), median first reply and resolved. With takedown tracking on, also taken down within 48 hours and median time to takedown.
@@ -188,11 +189,11 @@ With "reduce motion" set in the system, the arcs do not animate, the ticker does
 
 ## The live feed
 
-The Live page and the status dot in the header share one connection per browser tab.
+The Live page and the small dot beside **Live** in the sidebar share one connection per browser tab.
 
 - **WebSocket.** The app connects to `/api/v1/live`. It receives the 50 newest events first, then each new event, and statistics every 5 seconds.
-- **Reconnects.** When the socket closes, the app retries with exponential backoff and jitter (1 s, 2 s, 4 s, up to 30 s). The dot shows "Reconnecting".
-- **Polling fallback.** After 3 failed attempts in a row, or when the server refuses the socket (full, or origin not allowed), the app reads `/api/v1/events/recent` every 10 seconds while it keeps trying to reconnect. The dot then reads "Live" with a "Polling" note.
+- **Reconnects.** When the socket closes, the app retries with exponential backoff and jitter (1 s, 2 s, 4 s, up to 30 s). The dot dims.
+- **Polling fallback.** After 3 failed attempts in a row, or when the server refuses the socket (full, or origin not allowed), the app reads `/api/v1/events/recent` every 10 seconds while it keeps trying to reconnect. The Live page says so.
 - **Refusals.** If the server is full (close code 1013), the app waits a minute before it tries again. If the origin is rejected (1008), it waits five minutes, because only a configuration change fixes it. See [Behind a TLS-terminating tunnel](deployment.md#behind-a-tls-terminating-tunnel).
 - **Heartbeat.** The app sends a `ping` every 25 seconds.
 - **Hidden tabs.** After five minutes in the background, the app disconnects. It reconnects when the tab is visible again.
@@ -215,13 +216,13 @@ The story comes from `GET /api/v1/story`. Underlined words (brute force, malware
 
 **Glossary.** Security words in the interface (ASN, KEV, campaign, indicator, and more) have a dotted underline. Hover, tap or press Enter on one to read what it means in a sentence or two.
 
-**Research scanners.** Known, harmless crawlers such as Censys and Shodan are labelled when they connect and hidden by default, so they do not drown the real attacks. The **Hide research scanners** switch in the header (the navigation drawer on a phone) shows them again, with the number of sessions the last 24 hours hid. The list lives in `ingest/rules/scanners.yaml`. A scanner is recognised by the network that owns its address, never by what it says about itself (a user-agent can be forged). Even then a session stays labelled only while it just looks around: it may connect, probe and send GET, HEAD or OPTIONS requests. A login attempt, a command, a download, a POST, an exploit flag or an attack tag makes it a normal session for good, and its earlier events too. Charts that cover more than a few days come from pre-computed totals that do not separate scanners, so they include scanner traffic.
+**Research scanners.** Known, harmless crawlers such as Censys and Shodan are labelled when they connect and hidden by default, so they do not drown the real attacks. The **Hide research scanners** switch in the header (the navigation drawer on a phone) shows them again; hover it for the number of sessions the last 24 hours hid (the drawer prints it under the switch). The list lives in `ingest/rules/scanners.yaml`. A scanner is recognised by the network that owns its address, never by what it says about itself (a user-agent can be forged). Even then a session stays labelled only while it just looks around: it may connect, probe and send GET, HEAD or OPTIONS requests. A login attempt, a command, a download, a POST, an exploit flag or an attack tag makes it a normal session for good, and its earlier events too. Charts that cover more than a few days come from pre-computed totals that do not separate scanners, so they include scanner traffic.
 
 **Motion.** Pages change with a short cross-fade (the sidebar and the top bar stay still), the row you open becomes the title of its page. Filters make numbers count and bars rescale. On phones motion is plain fades. With `prefers-reduced-motion`, or `?motion=off`, nothing moves.
 
 ## Screenshot mode
 
-Real attack data contains attacker addresses. To take a screenshot, turn on **Mask IPs** in the sidebar footer, or open any page with `?mask=1`. Use `?mask=0` to turn it off. The choice is remembered per browser.
+Real attack data contains attacker addresses. To take a screenshot, turn on **Mask IP addresses** in the account menu, or open any page with `?mask=1`. Use `?mask=0` to turn it off. The choice is remembered per browser.
 
 - An IPv4 address is masked to its first two parts: `203.0.113.42` becomes `203.0.x.x`.
 - The masking also applies to addresses inside free text: URLs, commands, live summaries, the IP filter chip and page headlines.

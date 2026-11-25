@@ -19,15 +19,23 @@ export { SensorFilter } from "@/components/sensor-filter"
 interface FilterBarProps {
   /** Controls on the left (e.g. <SensorFilter />). */
   children?: React.ReactNode
+  /** Controls pushed to the right end, after the chips (e.g. a sort). */
+  trailing?: React.ReactNode
   /** Params shown as removable chips when present in the URL. */
   chips: FilterChipDef[]
-  /** Extra params cleared by "Clear filters" (besides the chips). */
+  /** Extra params cleared by "Clear all" (besides the chips). */
   alsoClears?: string[]
   className?: string
 }
 
 /** Every filter lives in the URL, so any view can be shared as a link. */
-export function FilterBar({ children, chips, alsoClears = [], className }: FilterBarProps) {
+export function FilterBar({
+  children,
+  trailing,
+  chips,
+  alsoClears = [],
+  className,
+}: FilterBarProps) {
   const [params, setParams] = useSearchParams()
   const active = chips.flatMap((c) => {
     const v = params.get(c.param)
@@ -47,7 +55,10 @@ export function FilterBar({ children, chips, alsoClears = [], className }: Filte
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
-      {children}
+      {/* One row that scrolls sideways on a phone; plain flex items from md up. */}
+      <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-2 overflow-x-auto px-4 pb-1 md:contents">
+        {children}
+      </div>
       {active.map((c) => (
         <span
           key={c.param}
@@ -74,9 +85,10 @@ export function FilterBar({ children, chips, alsoClears = [], className }: Filte
             remove([...chips.flatMap((c) => [c.param, ...(c.alsoRemove ?? [])]), ...alsoClears])
           }
         >
-          Clear filters
+          Clear all
         </Button>
       ) : null}
+      {trailing ? <div className="sm:ml-auto">{trailing}</div> : null}
     </div>
   )
 }

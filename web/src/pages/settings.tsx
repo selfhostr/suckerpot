@@ -4,6 +4,7 @@ import {
   CircleDashed,
   Info,
   OctagonAlert,
+  SwatchBook,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react"
@@ -15,6 +16,8 @@ import { ImapCard } from "@/components/abuse/imap-card"
 import { DigestCard } from "@/components/abuse/digest-card"
 import { SendingCard } from "@/components/abuse/sending-card"
 import { ChannelsCard } from "@/components/alerts/channels-card"
+import { TourButton } from "@/components/tour/tour-button"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { EgressCard } from "@/components/egress-card"
@@ -362,6 +365,26 @@ function RetentionCard({ data, loading }: { data?: SystemSettings; loading: bool
 
 /* --- Page --------------------------------------------------------------- */
 
+// The styleguide ships with development and mock builds only (see the route table).
+const SHOW_STYLEGUIDE = import.meta.env.DEV || import.meta.env.VITE_MOCK === "1"
+
+/** The guided tour and, where it ships, the styleguide: help about the app itself. */
+function SettingsActions() {
+  return (
+    <>
+      <TourButton />
+      {SHOW_STYLEGUIDE ? (
+        <Button asChild variant="outline" size="sm" className="text-fg-muted hover:text-fg">
+          <Link to="/styleguide">
+            <SwatchBook aria-hidden className="size-4" strokeWidth={1.85} />
+            Styleguide
+          </Link>
+        </Button>
+      ) : null}
+    </>
+  )
+}
+
 const TABS = [
   { id: "general", label: "General", adminOnly: false },
   { id: "keys", label: "Keys", adminOnly: false },
@@ -407,6 +430,7 @@ export function SettingsPage() {
             ? "Sensor health, enrichment keys, users, retention and storage, one tab each."
             : "Sensor health, enrichment, retention and storage."
         }
+        actions={<SettingsActions />}
       />
 
       <div className="mb-6 flex items-start gap-2.5 rounded-lg border border-dashed px-4 py-3 text-sm text-fg-muted">
