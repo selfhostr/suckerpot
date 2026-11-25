@@ -1,16 +1,18 @@
-import { act, render, screen } from "@testing-library/react"
+import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Source } from "./activity"
-import { WorldMap } from "./world-map"
+import { project } from "./projection"
+import { MAP_PRESETS, WorldMap } from "./world-map"
 
 const KEY = "suckerpot.map.preset"
 
-function mount() {
+function mount(extra: Partial<React.ComponentProps<typeof WorldMap>> = {}) {
   return render(
     <MemoryRouter>
       <WorldMap
+        {...extra}
         activity={{ sources: [], events: 0, unlocated: 0 }}
         events={[]}
         home={{ lat: 46.8, lon: 8.2 }}
@@ -47,6 +49,79 @@ describe("WorldMap presets", () => {
     screen.getByRole("group", { name: /Map of attack origins/ }).focus()
     await user.keyboard("0")
     expect(localStorage.getItem(KEY)).toBe("world")
+  })
+})
+
+describe("WorldMap regions", () => {
+  const NAMES = [
+    "World",
+    "Europe",
+    "North America",
+    "South America",
+    "Africa",
+    "Asia",
+    "Oceania",
+  ]
+
+  it("offers the world and six continents, one pressed at a time", async () => {
+    const user = userEvent.setup()
+    mount()
+    const group = screen.getByRole("group", { name: "Region" })
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(NAMES)
+    await user.click(screen.getByRole("button", { name: "Oceania" }))
+    expect(localStorage.getItem(KEY)).toBe("oceania")
+    expect(screen.getByRole("button", { name: "Oceania" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "World" })).toHaveAttribute("aria-pressed", "false")
+  })
+
+  it("reads a stored choice, and falls back to the world for an unknown one", () => {
+    localStorage.setItem(KEY, "africa")
+    const first = mount()
+    expect(screen.getByRole("button", { name: "Africa" })).toHaveAttribute("aria-pressed", "true")
+    first.unmount()
+    localStorage.setItem(KEY, "atlantis")
+    mount()
+    expect(screen.getByRole("button", { name: "World" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("keeps the whole north and south of every region inside the map area", () => {
+    // Latitudes of the land each region must show: [south, north].
+    const LAND: Record<(typeof MAP_PRESETS)[number], [number, number]> = {
+      world: [-55.5, 83.5],
+      europe: [35, 71],
+      "north-america": [8, 83.5],
+      "south-america": [-55.5, 12.5],
+      africa: [-34.9, 37.3],
+      asia: [-10.5, 77.7],
+      oceania: [-47.5, 2],
+    }
+    for (const p of MAP_PRESETS) {
+      localStorage.setItem(KEY, p)
+      const { container, unmount } = mount()
+      const [, y = 0, , h = 0] = (
+        container.querySelector("use")?.closest("svg")?.getAttribute("viewBox") ?? ""
+      )
+        .split(" ")
+        .map(Number)
+      const [south, north] = LAND[p]
+      expect(y, p).toBeLessThan(project(north, 0)[1])
+      expect(y + h, p).toBeGreaterThan(project(south, 0)[1])
+      unmount()
+    }
+  })
+
+  it("shows an expand button, or a close one in the expanded view", async () => {
+    const user = userEvent.setup()
+    const onExpand = vi.fn()
+    const first = mount({ onExpand })
+    await user.click(screen.getByRole("button", { name: "Expand the map" }))
+    expect(onExpand).toHaveBeenCalledOnce()
+    first.unmount()
+    const onClose = vi.fn()
+    mount({ onClose })
+    expect(screen.queryByRole("button", { name: "Expand the map" })).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Close" }))
+    expect(onClose).toHaveBeenCalledOnce()
   })
 })
 

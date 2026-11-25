@@ -1,4 +1,4 @@
-import { House, Minus, Plus } from "lucide-react"
+import { House, Maximize2, Minus, Plus, X } from "lucide-react"
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
@@ -38,14 +38,9 @@ interface Box {
   y1: number
 }
 
-/** Screen-space room kept clear of the fitted presets (the overlay band at the top). */
-interface Pad {
-  top: number
-  left: number
-}
-
-function boxOf(corners: readonly (readonly [number, number])[]): Box {
-  const pts = corners.map(([lat, lon]) => project(lat, lon))
+/** The bounding box, in map units, of a set of [lat, lon] points (a region's outermost land). */
+function boxOfPoints(points: readonly (readonly [number, number])[]): Box {
+  const pts = points.map(([lat, lon]) => project(lat, lon))
   return {
     x0: Math.min(...pts.map((p) => p[0])),
     x1: Math.max(...pts.map((p) => p[0])),
@@ -55,71 +50,174 @@ function boxOf(corners: readonly (readonly [number, number])[]): Box {
 }
 
 /** Everything that can be shown: the whole width, Greenland's tip to Tierra del Fuego. */
-const WORLD: Box = { x0: 0, x1: MAP_WIDTH, y0: project(84, 0)[1], y1: project(-56, 0)[1] }
+const WORLD: Box = { x0: 0, x1: MAP_WIDTH, y0: project(84.2, 0)[1], y1: project(-56.5, 0)[1] }
 /**
- * The "World" preset: the full inhabited band, cropped east and west to what attacks come from
- * (Alaska and the US west coast to Japan, Australia and New Zealand). On a usual dashboard card
- * (aspect 1.6 to 2.2) this fills the card edge to edge instead of floating in empty ocean.
+ * The "World" preset: the full inhabited band, cropped east and west only where there is no land
+ * to show (Alaska to Fiji and Chukotka), north to south from Greenland's tip to Tierra del Fuego.
+ * On a wide card that is height-limited, so nothing is cut; on a phone it is width-limited and
+ * the card is short to match.
  */
-const WORLD_FIT: Box = { x0: 180, x1: 910, y0: WORLD.y0, y1: WORLD.y1 }
-/**
- * The same on near-square cards (phones): the whole band would leave empty ocean under it, so
- * keep the Americas to South-East Asia and let Japan and Australia fall off the edges.
- */
-const WORLD_NARROW: Box = { x0: 228, x1: 812, y0: WORLD.y0, y1: WORLD.y1 }
+const WORLD_FIT: Box = { x0: 130, x1: 950, y0: WORLD.y0, y1: WORLD.y1 }
 
-function presetBox(p: MapPreset, aspect: number): Box {
-  if (p === "europe") return EUROPE
-  return aspect < 1.5 ? WORLD_NARROW : WORLD_FIT
+/** The regions the switch offers, in order. Each is framed from its latitude/longitude bounds. */
+export const MAP_PRESETS = [
+  "world",
+  "europe",
+  "north-america",
+  "south-america",
+  "africa",
+  "asia",
+  "oceania",
+] as const
+export type MapPreset = (typeof MAP_PRESETS)[number]
+
+/**
+ * Each region is framed from the outermost land it has: a lat/lon rectangle would take in empty
+ * ocean in its corners (Equal Earth pinches the poles), a few extreme points do not.
+ */
+const REGIONS: Record<Exclude<MapPreset, "world">, Box> = {
+  // Iceland to Russia's west, Crete to the North Cape.
+  europe: boxOfPoints([
+    [36, -9.6],
+    [65.5, -24.5],
+    [71.2, 26],
+    [66, 45],
+    [45, 45],
+    [35, 24.5],
+  ]),
+  // The Aleutians' tail to Greenland's tip, Panama to the Arctic islands.
+  "north-america": boxOfPoints([
+    [65, -168],
+    [71.4, -156],
+    [83.6, -33],
+    [81, -12],
+    [47, -52.6],
+    [7.2, -78],
+    [8, -83],
+    [16, -105],
+    [23, -110],
+    [20, -87],
+  ]),
+  "south-america": boxOfPoints([
+    [12.5, -71.5],
+    [10.7, -61],
+    [-7, -34.8],
+    [-55.9, -68],
+    [-5, -81.3],
+    [-18, -70.4],
+  ]),
+  africa: boxOfPoints([
+    [37.3, 9.8],
+    [14.7, -17.5],
+    [-34.8, 20],
+    [11.8, 51.3],
+    [-12.5, 49.3],
+    [-25.6, 45],
+    [31, 32],
+  ]),
+  // Anatolia to Kamchatka and Chukotka, the Taymyr to Timor.
+  asia: boxOfPoints([
+    [40, 26],
+    [77.7, 104],
+    [66, 179.9],
+    [51, 156],
+    [12, 43],
+    [-10.5, 124],
+    [-8.8, 115],
+    [5.5, 95],
+    [1.3, 103.8],
+    [8, 77.5],
+  ]),
+  // Australia, New Guinea and New Zealand (Fiji at the date line).
+  oceania: boxOfPoints([
+    [-22, 113.2],
+    [-10.7, 142.5],
+    [-2.6, 141],
+    [-4.5, 152],
+    [-28.6, 153.6],
+    [-43.6, 146.8],
+    [-46.6, 168],
+    [-37.5, 178.5],
+    [-17, 178],
+  ]),
 }
-/** Europe and its rim, where most real attackers sit relative to a Swiss home. */
-const EUROPE: Box = boxOf([
-  [63, -14],
-  [63, 40],
-  [33, -14],
-  [33, 40],
-  [48, 12],
-])
 
-export type MapPreset = "world" | "europe"
+function presetBox(p: MapPreset): Box {
+  return p === "world" ? WORLD_FIT : REGIONS[p]
+}
 
-/** Fit `box` into the screen area left after `pad`, so nothing important hides under overlays. */
-function fit(box: Box, size: { w: number; h: number }, pad: Pad = { top: 0, left: 0 }): View {
-  const availW = Math.max(1, size.w - pad.left)
-  const availH = Math.max(1, size.h - pad.top)
+/** Breathing space kept around the fitted region, in screen px. */
+const FIT_MARGIN = 18
+
+/**
+ * Fit `box` entirely inside the map area, centred, with `FIT_MARGIN` px of air on every side. The
+ * overlays are not in this area (the toolbar sits above it), so nothing hides what is fitted.
+ */
+function fit(box: Box, size: { w: number; h: number }): View {
+  const availW = Math.max(1, size.w - 2 * FIT_MARGIN)
+  const availH = Math.max(1, size.h - 2 * FIT_MARGIN)
   const upp = Math.max((box.x1 - box.x0) / availW, (box.y1 - box.y0) / availH)
-  return {
-    cx: (box.x0 + box.x1) / 2 - (pad.left / 2) * upp,
-    cy: (box.y0 + box.y1) / 2 - (pad.top / 2) * upp,
-    vw: upp * size.w,
-  }
+  return { cx: (box.x0 + box.x1) / 2, cy: (box.y0 + box.y1) / 2, vw: upp * size.w }
 }
 
 const MIN_VW = 70
 
+/** Where the view may go: the world plus some air, so a fitted edge region is never pushed back. */
+const PAN_X = { lo: -MAP_WIDTH * 0.06, hi: MAP_WIDTH * 1.06 }
+const PAN_Y = {
+  lo: WORLD.y0 - (WORLD.y1 - WORLD.y0) * 0.1,
+  hi: WORLD.y1 + (WORLD.y1 - WORLD.y0) * 0.1,
+}
+
+/** Keeps the centre of a view of `span` units inside [lo, hi]; a wider view may overhang. */
+function clampAxis(center: number, span: number, lo: number, hi: number, overhang = 0): number {
+  const half = Math.min(span, (hi - lo) * (1 - overhang)) / 2
+  return Math.min(hi - half, Math.max(lo + half, center))
+}
+
 function clampView(v: View, aspect: number): View {
-  // Zoomed all the way out, the whole map fits with a small margin.
-  const maxVw = Math.max(WORLD.x1 - WORLD.x0, (WORLD.y1 - WORLD.y0) * aspect) * 1.06
+  // Zoomed all the way out, the whole map fits with its air.
+  const maxVw = Math.max(PAN_X.hi - PAN_X.lo, (PAN_Y.hi - PAN_Y.lo) * aspect)
   const vw = Math.min(maxVw, Math.max(MIN_VW, v.vw))
   const vh = vw / aspect
-  const cx = Math.min(
-    WORLD.x1 - Math.min(vw, MAP_WIDTH) / 2,
-    Math.max(Math.min(vw, MAP_WIDTH) / 2, v.cx),
-  )
-  const midY = (WORLD.y0 + WORLD.y1) / 2
-  const spanY = WORLD.y1 - WORLD.y0
-  const cy = vh >= spanY ? midY : Math.min(WORLD.y1 - vh / 2, Math.max(WORLD.y0 + vh / 2, v.cy))
-  return { cx, cy, vw }
+  return {
+    // On a wide card a tall region is narrower than the view: it may sit off-centre in it.
+    cx: clampAxis(v.cx, vw, PAN_X.lo, PAN_X.hi, 0.5),
+    cy: vh >= PAN_Y.hi - PAN_Y.lo ? (PAN_Y.lo + PAN_Y.hi) / 2 : clampAxis(v.cy, vh, PAN_Y.lo, PAN_Y.hi),
+    vw,
+  }
 }
 
 const PRESET_KEY = "suckerpot.map.preset"
+/** Tells the other map (the expanded one, the inline one) that the choice changed. */
+const PRESET_EVENT = "suckerpot:map-preset"
 
 function storedPreset(): MapPreset {
   try {
-    // World is the default: Europe only when this browser chose it.
-    return localStorage.getItem(PRESET_KEY) === "europe" ? "europe" : "world"
+    // World is the default; the older two-value choice ("world" or "europe") reads as is.
+    const v = localStorage.getItem(PRESET_KEY)
+    return MAP_PRESETS.find((p) => p === v) ?? "world"
   } catch {
     return "world"
+  }
+}
+
+function presetLabel(p: MapPreset): string {
+  switch (p) {
+    case "world":
+      return t("map_preset_world")
+    case "europe":
+      return t("map_preset_europe")
+    case "north-america":
+      return t("map_preset_north_america")
+    case "south-america":
+      return t("map_preset_south_america")
+    case "africa":
+      return t("map_preset_africa")
+    case "asia":
+      return t("map_preset_asia")
+    case "oceania":
+      return t("map_preset_oceania")
   }
 }
 
@@ -162,8 +260,6 @@ interface Dash {
 
 const MAX_DASHES = 14
 const DASH_MS = 1_700
-/** Height of the overlay band at the top of the map (stats strip, presets, zoom). */
-export const MAP_TOP_BAND = 48
 
 // --- Component -------------------------------------------------------------------
 
@@ -179,8 +275,14 @@ interface WorldMapProps {
   focus?: string | null
   /** Hover or keyboard focus on a source dot. */
   onFocusChange?: (country: string | null) => void
-  /** Content for the top-left corner of the overlay band (the stats strip). */
+  /** Content for the left of the toolbar above the map (the stats strip). */
   topLeft?: React.ReactNode
+  /** Shows the "expand" button, which calls this with the button (to give focus back to). */
+  onExpand?: (opener: HTMLElement) => void
+  /** In the expanded view: shows a close button, which calls this. */
+  onClose?: () => void
+  /** Another map is shown over this one: stop its pulses and dashes. */
+  dormant?: boolean
   className?: string
 }
 
@@ -199,6 +301,9 @@ export const WorldMap = memo(function WorldMap({
   focus = null,
   onFocusChange,
   topLeft,
+  onExpand,
+  onClose,
+  dormant = false,
   className,
 }: WorldMapProps) {
   const reduced = useReducedMotion()
@@ -207,13 +312,12 @@ export const WorldMap = memo(function WorldMap({
   const hostRef = useRef<HTMLDivElement>(null)
   // Pulses and dashes run only while someone can see them.
   const onScreen = useOnScreen(hostRef)
-  const animate = !still && onScreen
+  const animate = !still && onScreen && !dormant
   const [size, setSize] = useState({ w: 800, h: 450 })
   const aspect = size.w / Math.max(1, size.h)
   const [preset, setPreset] = useState<MapPreset>(storedPreset)
   const [view, setView] = useState<View | null>(null)
   const anim = useRef<number | null>(null)
-  const pad = useMemo<Pad>(() => ({ top: size.w < 480 ? 36 : MAP_TOP_BAND, left: 0 }), [size.w])
 
   // Measure, and fit the preset on first layout and whenever the shape changes.
   useLayoutEffect(() => {
@@ -234,9 +338,9 @@ export const WorldMap = memo(function WorldMap({
   const fitKey = `${size.w}x${size.h}`
   if (fittedFor !== fitKey) {
     setFittedFor(fitKey)
-    setView(clampView(fit(presetBox(preset, aspect), size, pad), aspect))
+    setView(clampView(fit(presetBox(preset), size), aspect))
   }
-  const v = view ?? fit(presetBox(preset, aspect), size, pad)
+  const v = view ?? fit(presetBox(preset), size)
 
   const stopAnim = () => {
     if (anim.current !== null) cancelAnimationFrame(anim.current)
@@ -275,8 +379,25 @@ export const WorldMap = memo(function WorldMap({
     } catch {
       // Private mode: the choice just isn't remembered.
     }
-    animateTo(fit(presetBox(p, aspect), size, pad))
+    animateTo(fit(presetBox(p), size))
+    window.dispatchEvent(new Event(PRESET_EVENT))
   }
+  // The other map (inline or expanded) changed region: follow it, without a tween when hidden.
+  const followRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    followRef.current = () => {
+      const p = storedPreset()
+      if (p === preset) return
+      setPreset(p)
+      stopAnim()
+      setView(clampView(fit(presetBox(p), size), aspect))
+    }
+  })
+  useEffect(() => {
+    const onChange = () => followRef.current()
+    window.addEventListener(PRESET_EVENT, onChange)
+    return () => window.removeEventListener(PRESET_EVENT, onChange)
+  }, [])
   const zoomBy = (factor: number, at?: { x: number; y: number }) => {
     stopAnim()
     setView((cur) => {
@@ -507,153 +628,13 @@ export const WorldMap = memo(function WorldMap({
   const homeLabelW = 26 + homeName.length * 6.6
 
   return (
-    <div
-      ref={hostRef}
-      className={cn(
-        "relative size-full touch-pan-y overflow-hidden outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        className,
-      )}
-      tabIndex={0}
-      role="group"
-      aria-roledescription="map"
-      aria-label={t("map_aria", { home: homeLabel ?? t("map_home_sensors") })}
-      onKeyDown={onKeyDown}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-    >
-      <BaseLayer viewBox={viewBox} />
-      <ArcLayer viewBox={viewBox} drawn={drawn} lit={lit} now={now} />
-      {animate ? <DashLayer flights={flights} /> : null}
-      {animate ? <PulseLayer pulses={pulses} home={homeScreen} /> : null}
-      <DotLayer viewBox={viewBox} drawn={drawn} lit={lit} now={now} upp={upp} home={homeXY} />
-
-      {/* Hit targets for the sources: real buttons, so they are focusable and clickable. */}
-      {drawn.map(({ s, xy }) => {
-        const p = toScreen(xy)
-        if (!onMap(p, 10)) return null
-        const name = countryName(s.country) ?? s.country
-        return (
-          <button
-            key={`hit-${s.country}`}
-            type="button"
-            className="absolute size-7 -translate-x-1/2 -translate-y-1/2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            style={{ left: p.x, top: p.y }}
-            aria-label={t("map_source_aria", { name, events: s.events, ips: s.ips })}
-            onPointerEnter={() => enter(s.country)}
-            onPointerLeave={() => leave(s.country)}
-            onFocus={() => enter(s.country)}
-            onBlur={() => leave(s.country)}
-            onClick={() => {
-              if (moved.current <= 4) open(s)
-            }}
-          />
-        )
-      })}
-
-      {/*
-        Labels: home first, then the busiest visible sources. Each label tries the right of its
-        dot, then the left, above, below and the diagonals; it is skipped only when all collide (around
-        home at World scale), so the busiest neighbours keep theirs.
-      */}
-      {(() => {
-        const placed: Box[] = [
-          {
-            x0: homeScreen.x - 10,
-            y0: homeScreen.y - 10,
-            x1: homeScreen.x + 12 + homeLabelW,
-            y1: homeScreen.y + 10,
-          },
-        ]
-        return activity.sources.slice(0, 12).flatMap((s) => {
-          const xy = project(s.point.lat, s.point.lon)
-          const p = toScreen(xy)
-          const text = `${s.country} ${formatNumber(s.events)}`
-          const w = 10 + text.length * 6.6
-          const r = dotRadius(s.events)
-          // Busiest first: a label may cover a quieter dot (still clickable under it), never a
-          // busier one, so the leading sources get their labels first.
-          placed.push({ x0: p.x - r - 1, y0: p.y - r - 1, x1: p.x + r + 1, y1: p.y + r + 1 })
-          const candidates: Box[] = [
-            { x0: p.x + r + 4, y0: p.y - 9, x1: p.x + r + 4 + w, y1: p.y + 9 },
-            { x0: p.x - r - 4 - w, y0: p.y - 9, x1: p.x - r - 4, y1: p.y + 9 },
-            { x0: p.x - w / 2, y0: p.y - r - 22, x1: p.x + w / 2, y1: p.y - r - 4 },
-            { x0: p.x - w / 2, y0: p.y + r + 4, x1: p.x + w / 2, y1: p.y + r + 22 },
-            // Diagonals, for the tight cluster around home at World scale.
-            { x0: p.x + r, y0: p.y - r - 20, x1: p.x + r + w, y1: p.y - r - 2 },
-            { x0: p.x - r - w, y0: p.y - r - 20, x1: p.x - r, y1: p.y - r - 2 },
-            { x0: p.x + r, y0: p.y + r + 2, x1: p.x + r + w, y1: p.y + r + 20 },
-            { x0: p.x - r - w, y0: p.y + r + 2, x1: p.x - r, y1: p.y + r + 20 },
-          ]
-          const box = candidates.find(
-            (c) =>
-              c.x0 >= 0 &&
-              c.y0 >= pad.top &&
-              c.x1 <= size.w - 4 &&
-              c.y1 <= size.h - 4 &&
-              !placed.some((b) => b.x0 < c.x1 && c.x0 < b.x1 && b.y0 < c.y1 && c.y0 < b.y1),
-          )
-          if (!box) return []
-          placed.push(box)
-          return [
-            <span
-              key={`label-${s.country}`}
-              aria-hidden
-              className={cn(
-                "pointer-events-none absolute flex h-[18px] items-center rounded-xs bg-surface/85 px-1 font-mono text-2xs text-fg-muted transition-opacity duration-200",
-                lit && lit !== s.country && "opacity-30",
-              )}
-              style={{ left: box.x0, top: box.y0 }}
-            >
-              <span className="font-medium text-fg">{s.country}</span>&nbsp;
-              {formatNumber(s.events)}
-            </span>,
-          ]
-        })
-      })()}
-
-      <span
-        className="pointer-events-none absolute flex h-5 items-center gap-1 rounded-sm border border-border-strong bg-surface-raised/90 px-1.5 text-2xs font-medium text-fg shadow-sm"
-        style={{ left: homeScreen.x + 12, top: homeScreen.y - 10 }}
-      >
-        <House aria-hidden className="size-3 text-fg-muted" strokeWidth={2} />
-        {homeName}
-      </span>
-
-      {tipped ? (
-        <SourceTooltip
-          source={tipped.s}
-          at={toScreen(tipped.xy)}
-          homeX={homeScreen.x}
-          size={size}
-          minTop={pad.top}
-        />
-      ) : null}
-
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-2.5 sm:p-3"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <div className="pointer-events-auto min-w-0">{topLeft}</div>
-        <div className="pointer-events-auto flex shrink-0 items-center gap-1">
-          <div className="flex rounded-md border bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur-sm">
-            {(["europe", "world"] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                aria-pressed={preset === p}
-                onClick={() => choosePreset(p)}
-                className={cn(
-                  "h-6 rounded-sm px-2 text-xs font-medium transition-colors",
-                  preset === p ? "bg-surface-hover text-fg" : "text-fg-muted hover:text-fg",
-                )}
-              >
-                {p === "europe" ? t("map_preset_europe") : t("map_preset_world")}
-              </button>
-            ))}
-          </div>
-          <div className="flex rounded-md border bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur-sm">
+    <div className={cn("flex size-full min-h-0 flex-col", className)}>
+      {/* The bar is above the map, not over it: no land ever hides under a control. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-2.5 pt-2.5 pb-1 sm:px-3">
+        <div className="min-w-0">{topLeft}</div>
+        <div className="ml-auto flex max-w-full min-w-0 items-center gap-1">
+          <RegionSwitch preset={preset} onChoose={choosePreset} />
+          <div className="flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm">
             <button
               type="button"
               aria-label={t("map_zoom_in")}
@@ -671,32 +652,209 @@ export const WorldMap = memo(function WorldMap({
               <Minus aria-hidden className="size-3.5" />
             </button>
           </div>
+          {onExpand || onClose ? (
+            <div className="flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm">
+              <button
+                type="button"
+                aria-label={onClose ? t("common_close") : t("map_expand")}
+                onClick={(e) => (onClose ? onClose() : onExpand?.(e.currentTarget))}
+                className="flex size-6 items-center justify-center rounded-sm text-fg-muted hover:text-fg"
+              >
+                {onClose ? (
+                  <X aria-hidden className="size-3.5" />
+                ) : (
+                  <Maximize2 aria-hidden className="size-3.5" />
+                )}
+              </button>
+            </div>
+          ) : null}
         </div>
+      </div>
+      <div
+        ref={hostRef}
+        className="relative min-h-0 flex-1 touch-pan-y overflow-hidden outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        tabIndex={0}
+        role="group"
+        aria-roledescription="map"
+        aria-label={t("map_aria", { home: homeLabel ?? t("map_home_sensors") })}
+        onKeyDown={onKeyDown}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        <BaseLayer viewBox={viewBox} />
+        <ArcLayer viewBox={viewBox} drawn={drawn} lit={lit} now={now} />
+        {animate ? <DashLayer flights={flights} /> : null}
+        {animate ? <PulseLayer pulses={pulses} home={homeScreen} /> : null}
+        <DotLayer viewBox={viewBox} drawn={drawn} lit={lit} now={now} upp={upp} home={homeXY} />
+
+        {/* Hit targets for the sources: real buttons, so they are focusable and clickable. */}
+        {drawn.map(({ s, xy }) => {
+          const p = toScreen(xy)
+          if (!onMap(p, 10)) return null
+          const name = countryName(s.country) ?? s.country
+          return (
+            <button
+              key={`hit-${s.country}`}
+              type="button"
+              className="absolute size-7 -translate-x-1/2 -translate-y-1/2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              style={{ left: p.x, top: p.y }}
+              aria-label={t("map_source_aria", { name, events: s.events, ips: s.ips })}
+              onPointerEnter={() => enter(s.country)}
+              onPointerLeave={() => leave(s.country)}
+              onFocus={() => enter(s.country)}
+              onBlur={() => leave(s.country)}
+              onClick={() => {
+                if (moved.current <= 4) open(s)
+              }}
+            />
+          )
+        })}
+
+        {/*
+          Labels: home first, then the busiest visible sources. Each label tries the right of its
+          dot, then the left, above, below and the diagonals; it is skipped only when all collide (around
+          home at World scale), so the busiest neighbours keep theirs.
+        */}
+        {(() => {
+          const placed: Box[] = [
+            {
+              x0: homeScreen.x - 10,
+              y0: homeScreen.y - 10,
+              x1: homeScreen.x + 12 + homeLabelW,
+              y1: homeScreen.y + 10,
+            },
+          ]
+          return activity.sources.slice(0, 12).flatMap((s) => {
+            const xy = project(s.point.lat, s.point.lon)
+            const p = toScreen(xy)
+            const text = `${s.country} ${formatNumber(s.events)}`
+            const w = 10 + text.length * 6.6
+            const r = dotRadius(s.events)
+            // Busiest first: a label may cover a quieter dot (still clickable under it), never a
+            // busier one, so the leading sources get their labels first.
+            placed.push({ x0: p.x - r - 1, y0: p.y - r - 1, x1: p.x + r + 1, y1: p.y + r + 1 })
+            const candidates: Box[] = [
+              { x0: p.x + r + 4, y0: p.y - 9, x1: p.x + r + 4 + w, y1: p.y + 9 },
+              { x0: p.x - r - 4 - w, y0: p.y - 9, x1: p.x - r - 4, y1: p.y + 9 },
+              { x0: p.x - w / 2, y0: p.y - r - 22, x1: p.x + w / 2, y1: p.y - r - 4 },
+              { x0: p.x - w / 2, y0: p.y + r + 4, x1: p.x + w / 2, y1: p.y + r + 22 },
+              // Diagonals, for the tight cluster around home at World scale.
+              { x0: p.x + r, y0: p.y - r - 20, x1: p.x + r + w, y1: p.y - r - 2 },
+              { x0: p.x - r - w, y0: p.y - r - 20, x1: p.x - r, y1: p.y - r - 2 },
+              { x0: p.x + r, y0: p.y + r + 2, x1: p.x + r + w, y1: p.y + r + 20 },
+              { x0: p.x - r - w, y0: p.y + r + 2, x1: p.x - r, y1: p.y + r + 20 },
+            ]
+            const box = candidates.find(
+              (c) =>
+                c.x0 >= 0 &&
+                c.y0 >= 0 &&
+                c.x1 <= size.w - 4 &&
+                c.y1 <= size.h - 4 &&
+                !placed.some((b) => b.x0 < c.x1 && c.x0 < b.x1 && b.y0 < c.y1 && c.y0 < b.y1),
+            )
+            if (!box) return []
+            placed.push(box)
+            return [
+              <span
+                key={`label-${s.country}`}
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute flex h-[18px] items-center rounded-xs bg-surface/85 px-1 font-mono text-2xs text-fg-muted transition-opacity duration-200",
+                  lit && lit !== s.country && "opacity-30",
+                )}
+                style={{ left: box.x0, top: box.y0 }}
+              >
+                <span className="font-medium text-fg">{s.country}</span>&nbsp;
+                {formatNumber(s.events)}
+              </span>,
+            ]
+          })
+        })()}
+
+        <span
+          className="pointer-events-none absolute flex h-5 items-center gap-1 rounded-sm border border-border-strong bg-surface-raised/90 px-1.5 text-2xs font-medium text-fg shadow-sm"
+          style={{ left: homeScreen.x + 12, top: homeScreen.y - 10 }}
+        >
+          <House aria-hidden className="size-3 text-fg-muted" strokeWidth={2} />
+          {homeName}
+        </span>
+
+        {tipped ? (
+          <SourceTooltip
+            source={tipped.s}
+            at={toScreen(tipped.xy)}
+            homeX={homeScreen.x}
+            size={size}
+          />
+        ) : null}
+
       </div>
     </div>
   )
 })
+
+/** The region switch: one pressed button, scrollable sideways when the bar is narrow. */
+function RegionSwitch({
+  preset,
+  onChoose,
+}: {
+  preset: MapPreset
+  onChoose: (p: MapPreset) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  // Keep the pressed region in view when the row scrolls (a phone, a narrow card).
+  useEffect(() => {
+    const row = ref.current
+    const on = row?.querySelector<HTMLElement>("[aria-pressed=true]")
+    if (!row || !on) return
+    const left = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2
+    row.scrollTo?.({ left, behavior: "auto" })
+  }, [preset])
+  return (
+    <div
+      ref={ref}
+      role="group"
+      aria-label={t("map_regions_aria")}
+      className="relative flex min-w-0 overflow-x-auto rounded-md border bg-surface-raised p-0.5 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {MAP_PRESETS.map((p) => (
+        <button
+          key={p}
+          type="button"
+          aria-pressed={preset === p}
+          onClick={() => onChoose(p)}
+          className={cn(
+            "h-6 shrink-0 rounded-sm px-2 text-xs font-medium whitespace-nowrap transition-colors",
+            preset === p ? "bg-surface-hover text-fg" : "text-fg-muted hover:text-fg",
+          )}
+        >
+          {presetLabel(p)}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function SourceTooltip({
   source,
   at,
   homeX,
   size,
-  minTop,
 }: {
   source: Source
   at: { x: number; y: number }
   homeX: number
   size: { w: number; h: number }
-  minTop: number
 }) {
   const name = countryName(source.country) ?? source.country
   const W = 232
-  // On the side away from home, so the lit arc stays in view; never under the top band.
+  // On the side away from home, so the lit arc stays in view.
   const roomRight = at.x + 16 + W < size.w
   const roomLeft = at.x - 16 - W > 0
   const left = (at.x < homeX && roomLeft) || !roomRight ? Math.max(8, at.x - 16 - W) : at.x + 16
-  const top = Math.min(Math.max(minTop, at.y - 16), Math.max(minTop, size.h - 132))
+  const top = Math.min(Math.max(0, at.y - 16), Math.max(0, size.h - 132))
   return (
     <div
       role="tooltip"

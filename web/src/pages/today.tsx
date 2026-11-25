@@ -265,8 +265,8 @@ export function TodayPage() {
         focus={live.focus}
         onFocusChange={live.setFocus}
         className="min-h-0 lg:col-start-1 lg:row-start-2"
-        // Phones: the World preset's own shape (11:8), so it fills the card with no empty band.
-        mapClassName="aspect-[11/8] sm:aspect-auto sm:h-[26rem] lg:h-auto lg:flex-1"
+        // Phones: the bar (region switch) plus a map area about as tall as the whole world is wide.
+        mapClassName="h-[16rem] sm:h-[28rem] lg:h-auto lg:flex-1"
         footer={
           <LiveTicker
             events={live.ticker}

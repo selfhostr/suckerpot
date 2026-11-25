@@ -39,6 +39,25 @@ test("today", async ({ page }, info) => {
     await expect(day.getByText(label, { exact: true })).toBeVisible()
   expect(await page.locator("[data-todo]").count()).toBeLessThanOrEqual(3)
 
+  // The map has a region switch, and expands to the whole window and back with Escape.
+  const regions = page.getByRole("group", { name: "Region" })
+  await regions.getByRole("button", { name: "Africa" }).click()
+  await expect(regions.getByRole("button", { name: "Africa" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await page.getByRole("button", { name: "Expand the map" }).click()
+  const expanded = page.getByRole("dialog", { name: "Live map" })
+  await expect(expanded).toBeVisible()
+  await expect(expanded.getByRole("button", { name: "Africa" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await page.keyboard.press("Escape")
+  await expect(expanded).toBeHidden()
+  await expect(page.getByRole("button", { name: "Expand the map" })).toBeFocused()
+  await regions.getByRole("button", { name: "World" }).click()
+
   // On a desktop screen everything fits: the page does not scroll.
   if (info.project.name.startsWith("desktop")) {
     const scroll = await page.evaluate(
