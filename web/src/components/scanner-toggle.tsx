@@ -3,15 +3,16 @@ import { useId } from "react"
 import { useScannerFilter } from "@/app/scanner-filter"
 import { Term } from "@/components/term"
 import { Switch } from "@/components/ui/switch"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { scannerCaption } from "@/lib/scanner-caption"
 import { todayApi, todayKeys } from "@/lib/today"
 import { cn } from "@/lib/utils"
 
 /**
  * "Hide research scanners" switch, with the number of sessions it hides. The count is always
- * visible, so hiding never feels like data going missing. `inline` is the one-row form for the
- * desktop header (count first, then the label and the switch); the stacked form is for the
- * phone navigation drawer.
+ * there, so hiding never feels like data going missing. `inline` is the one-row form for the
+ * desktop header (the count in the switch's tooltip); the stacked form, with the count printed
+ * under it, is for the phone navigation drawer.
  */
 export function ScannerToggle({
   className,
@@ -30,21 +31,33 @@ export function ScannerToggle({
   })
   const caption = scannerCaption(hide, count.data?.sessions)
   if (inline) {
+    // The header form: label and switch only. The count sits in the switch's tooltip and its
+    // accessible description, so the header stays quiet; the phone drawer prints it in full.
     return (
       <div className={cn("flex items-center gap-2.5", className)}>
-        <p id={captionId} className="hidden text-2xs text-fg-subtle xl:block">
-          {caption}
-        </p>
         <label htmlFor={id} className="text-xs whitespace-nowrap text-fg-muted">
           Hide <Term id="research-scanner">research scanners</Term>
         </label>
-        <Switch
-          id={id}
-          size="sm"
-          checked={hide}
-          onCheckedChange={setHide}
-          aria-describedby={captionId}
-        />
+        <Tooltip>
+          {/* A wrapper as the trigger: the tooltip's own data-state must not replace the switch's. */}
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <Switch
+                id={id}
+                size="sm"
+                checked={hide}
+                onCheckedChange={setHide}
+                aria-describedby={captionId}
+              />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6}>
+            {caption}
+          </TooltipContent>
+        </Tooltip>
+        <span id={captionId} className="sr-only">
+          {caption}
+        </span>
       </div>
     )
   }

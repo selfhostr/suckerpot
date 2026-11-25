@@ -3,21 +3,19 @@ import { useTour } from "@/app/tour"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-/** The "?" in the top bar that replays the guided tour. */
+/** "Take the tour", in the Settings header: plays the guided tour again from its first step. */
 export function TourButton({ className }: { className?: string }) {
   const { start } = useTour()
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant="outline"
       size="sm"
-      aria-label="Take the tour"
-      title="Take the tour"
       onClick={start}
-      className={cn("text-fg-muted hover:text-fg max-lg:px-0", className)}
+      className={cn("text-fg-muted hover:text-fg", className)}
     >
       <Compass aria-hidden className="size-4" strokeWidth={1.85} />
-      <span className="hidden lg:inline">Tour</span>
+      Take the tour
     </Button>
   )
 }
