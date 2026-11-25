@@ -39,20 +39,15 @@ test("today", async ({ page }, info) => {
     await expect(day.getByText(label, { exact: true })).toBeVisible()
   expect(await page.locator("[data-todo]").count()).toBeLessThanOrEqual(3)
 
-  // The map has a region switch, and expands to the whole window and back with Escape.
+  // The map has a World toggle and a continent dropdown, and expands to the whole window and back.
   const regions = page.getByRole("group", { name: "Region" })
-  await regions.getByRole("button", { name: "Africa" }).click()
-  await expect(regions.getByRole("button", { name: "Africa" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  )
+  await regions.getByRole("combobox", { name: "Continent" }).click()
+  await page.getByRole("option", { name: "Africa" }).click()
+  await expect(regions.getByRole("combobox", { name: "Continent" })).toHaveText("Africa")
   await page.getByRole("button", { name: "Expand the map" }).click()
   const expanded = page.getByRole("dialog", { name: "Live map" })
   await expect(expanded).toBeVisible()
-  await expect(expanded.getByRole("button", { name: "Africa" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  )
+  await expect(expanded.getByRole("combobox", { name: "Continent" })).toHaveText("Africa")
   await page.keyboard.press("Escape")
   await expect(expanded).toBeHidden()
   await expect(page.getByRole("button", { name: "Expand the map" })).toBeFocused()

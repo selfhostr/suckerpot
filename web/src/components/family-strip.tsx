@@ -51,7 +51,7 @@ export function FamilyStrip({ bySensor, layout = "overlay", className }: FamilyS
       aria-label={t("family_strip_aria")}
       className={cn(
         overlay
-          ? "flex items-center gap-1 rounded-md border bg-surface-raised/90 p-1 shadow-sm backdrop-blur-sm"
+          ? "flex h-9 items-center gap-1 rounded-md border bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur-sm"
           : "grid grid-cols-2 gap-x-2 gap-y-1 sm:grid-cols-[auto_repeat(4,minmax(0,1fr))]",
         className,
       )}
@@ -82,6 +82,7 @@ export function FamilyStrip({ bySensor, layout = "overlay", className }: FamilyS
               <button
                 type="button"
                 aria-pressed={only === f}
+                title={fam.label}
                 aria-label={t("family_strip_button_aria", {
                   label: fam.label,
                   count: n,
@@ -95,7 +96,7 @@ export function FamilyStrip({ bySensor, layout = "overlay", className }: FamilyS
                 )}
               >
                 <span aria-hidden className={cn("h-[3px] w-3.5 shrink-0 rounded-full", fam.fill)} />
-                <span className="min-w-0 truncate">{fam.label}</span>
+                <span className={cn("min-w-0 truncate", overlay && "hidden @5xl:inline")}>{fam.label}</span>
                 <span
                   className={cn(
                     "ml-auto font-medium tabular-nums",

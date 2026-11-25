@@ -4,6 +4,7 @@ import { useIpMask } from "@/app/ip-mask"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
 import { FindingCard } from "@/components/finding-card"
 import { PageHeader } from "@/components/page-header"
+import { PageHelp } from "@/components/page-help"
 import { SegmentedControl } from "@/components/segmented-control"
 import { NewList } from "@/components/trends/new-list"
 import { TagTable } from "@/components/trends/tag-table"
@@ -166,25 +167,21 @@ export function TrendsPage() {
 
   return (
     <>
-      <PageHeader
-        help="patterns"
-        title={t("trends_title")}
-        description={t("trends_description", { days })}
-        actions={
-          <SegmentedControl
-            label={t("filters_period_label")}
-            value={String(days)}
-            onChange={(v) => setDays(v === "7" ? null : v)}
-            options={PERIODS.map((p) => ({
-              value: String(p),
-              label: t("trends_period_days", { days: p }),
-            }))}
-          />
-        }
-      />
+      <PageHeader title={t("trends_title")} />
 
       <FilterBar className="mb-4" chips={[]} alsoClears={["sensor"]}>
         <SensorFilter />
+        <SegmentedControl
+          label={t("filters_period_label")}
+          value={String(days)}
+          onChange={(v) => setDays(v === "7" ? null : v)}
+          options={PERIODS.map((p) => ({
+            value: String(p),
+            label: t("trends_period_days", { days: p }),
+          }))}
+        />
+        {/* No page switch here, so the "?" ends the toolbar row, at the top right. */}
+        <PageHelp id="patterns" className="ml-auto" />
       </FilterBar>
 
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">

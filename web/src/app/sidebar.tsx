@@ -74,11 +74,19 @@ function UpdateDot({ className }: { className?: string }) {
 }
 
 /** A tooltip to the right of a rail icon. */
-function RailTip({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+function RailTip({
+  label,
+  children,
+  side = "right",
+}: {
+  label: React.ReactNode
+  children: React.ReactNode
+  side?: "right" | "top"
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="right" sideOffset={8}>
+      <TooltipContent side={side} sideOffset={8}>
         {label}
       </TooltipContent>
     </Tooltip>
@@ -245,11 +253,11 @@ function SectionFlyout({
 const RAIL_ICON =
   "relative grid size-10 shrink-0 place-items-center rounded-lg text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
 /**
- * The expanded foot's three buttons share the width of the sidebar (each grows from its own label), each an icon over its
- * short name, so they are easy to hit and need no tooltip.
+ * The expanded foot's three buttons share the width of the sidebar equally: plain icon buttons
+ * (hover background only), named by a tooltip and an aria-label.
  */
 const FOOT_BUTTON =
-  "relative flex h-14 min-w-0 flex-auto flex-col items-center justify-center gap-1 rounded-md border bg-surface px-1 text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+  "relative grid h-10 min-w-0 flex-1 place-items-center rounded-md text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
 
 function Foot({
   rail,
@@ -292,31 +300,32 @@ function Foot({
   }
   // Unfolded: the three links share the full width above the profile block.
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-t px-3 pt-3 pb-3">
-      <div className="flex items-stretch gap-1.5">
-        <Link
-          to={SETTINGS_PAGE.to}
-          onClick={onNavigate}
-          aria-current={settingsCurrent ? "page" : undefined}
-          className={cn(
-            FOOT_BUTTON,
-            settingsCurrent && "border-border-strong bg-surface-hover text-fg",
-          )}
-        >
-          <Settings aria-hidden strokeWidth={1.85} className="size-[1.125rem]" />
-          <span className="max-w-full truncate text-xs font-medium">{t("nav_settings")}</span>
-          <UpdateDot className="absolute top-1.5 right-1.5" />
-        </Link>
-        <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={FOOT_BUTTON}>
-          <BookOpen aria-hidden strokeWidth={1.85} className="size-[1.125rem]" />
-          <span className="max-w-full truncate text-xs font-medium">{t("sidebar_docs_short")}</span>
-          <span className="sr-only">{t("sidebar_docs_new_tab")}</span>
-        </a>
-        <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className={FOOT_BUTTON}>
-          <GithubMark className="size-[1.0625rem]" />
-          <span className="max-w-full truncate text-xs font-medium">{t("sidebar_github")}</span>
-          <span className="sr-only">{t("sidebar_github_new_tab")}</span>
-        </a>
+    <div className="flex shrink-0 flex-col gap-2 px-3 pt-3 pb-3">
+      <div className="flex items-stretch gap-1">
+        <RailTip label={t("nav_settings")} side="top">
+          <Link
+            to={SETTINGS_PAGE.to}
+            onClick={onNavigate}
+            aria-label={t("nav_settings")}
+            aria-current={settingsCurrent ? "page" : undefined}
+            className={cn(FOOT_BUTTON, settingsCurrent && "bg-surface-hover text-fg")}
+          >
+            <Settings aria-hidden strokeWidth={1.85} className="size-[1.125rem]" />
+            <UpdateDot className="absolute top-2 right-[calc(50%-1.25rem)]" />
+          </Link>
+        </RailTip>
+        <RailTip label={t("sidebar_docs")} side="top">
+          <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={FOOT_BUTTON}>
+            <BookOpen aria-hidden strokeWidth={1.85} className="size-[1.125rem]" />
+            <span className="sr-only">{t("sidebar_docs_new_tab")}</span>
+          </a>
+        </RailTip>
+        <RailTip label={t("sidebar_github")} side="top">
+          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className={FOOT_BUTTON}>
+            <GithubMark className="size-[1.0625rem]" />
+            <span className="sr-only">{t("sidebar_github_new_tab")}</span>
+          </a>
+        </RailTip>
       </div>
       <AccountMenu />
     </div>

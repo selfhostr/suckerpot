@@ -1,6 +1,7 @@
 import { House, Maximize2, Minus, Plus, X } from "lucide-react"
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
 import { t } from "@/i18n"
 import { tNodes } from "@/i18n/rich"
@@ -632,14 +633,14 @@ export const WorldMap = memo(function WorldMap({
       {/* The bar is above the map, not over it: no land ever hides under a control. */}
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-2.5 pt-2.5 pb-1 sm:px-3">
         <div className="min-w-0">{topLeft}</div>
-        <div className="ml-auto flex max-w-full min-w-0 items-center gap-1">
+        <div className="ml-auto flex max-w-full min-w-0 items-center gap-1.5">
           <RegionSwitch preset={preset} onChoose={choosePreset} />
-          <div className="flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm">
+          <div className={cn("flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm", BAR_H)}>
             <button
               type="button"
               aria-label={t("map_zoom_in")}
               onClick={() => zoomBy(0.7)}
-              className="flex size-6 items-center justify-center rounded-sm text-fg-muted hover:text-fg"
+              className="flex aspect-square h-full items-center justify-center rounded-sm text-fg-muted hover:text-fg"
             >
               <Plus aria-hidden className="size-3.5" />
             </button>
@@ -647,18 +648,18 @@ export const WorldMap = memo(function WorldMap({
               type="button"
               aria-label={t("map_zoom_out")}
               onClick={() => zoomBy(1 / 0.7)}
-              className="flex size-6 items-center justify-center rounded-sm text-fg-muted hover:text-fg"
+              className="flex aspect-square h-full items-center justify-center rounded-sm text-fg-muted hover:text-fg"
             >
               <Minus aria-hidden className="size-3.5" />
             </button>
           </div>
           {onExpand || onClose ? (
-            <div className="flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm">
+            <div className={cn("flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm", BAR_H)}>
               <button
                 type="button"
                 aria-label={onClose ? t("common_close") : t("map_expand")}
                 onClick={(e) => (onClose ? onClose() : onExpand?.(e.currentTarget))}
-                className="flex size-6 items-center justify-center rounded-sm text-fg-muted hover:text-fg"
+                className="flex aspect-square h-full items-center justify-center rounded-sm text-fg-muted hover:text-fg"
               >
                 {onClose ? (
                   <X aria-hidden className="size-3.5" />
@@ -795,7 +796,13 @@ export const WorldMap = memo(function WorldMap({
   )
 })
 
-/** The region switch: one pressed button, scrollable sideways when the bar is narrow. */
+/** The bar's control height: the stats strip and this switch share it, so the bar is one row. */
+const BAR_H = "h-9"
+
+/**
+ * The region control: a "World" toggle and a "Continent" dropdown. Exactly one is active: World
+ * is pressed on the whole map, the dropdown shows the continent otherwise.
+ */
 function RegionSwitch({
   preset,
   onChoose,
@@ -803,36 +810,49 @@ function RegionSwitch({
   preset: MapPreset
   onChoose: (p: MapPreset) => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  // Keep the pressed region in view when the row scrolls (a phone, a narrow card).
-  useEffect(() => {
-    const row = ref.current
-    const on = row?.querySelector<HTMLElement>("[aria-pressed=true]")
-    if (!row || !on) return
-    const left = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2
-    row.scrollTo?.({ left, behavior: "auto" })
-  }, [preset])
+  const world = preset === "world"
   return (
     <div
-      ref={ref}
       role="group"
       aria-label={t("map_regions_aria")}
-      className="relative flex min-w-0 overflow-x-auto rounded-md border bg-surface-raised p-0.5 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className={cn("flex shrink-0 items-stretch gap-1 rounded-md border bg-surface-raised p-0.5 shadow-sm", BAR_H)}
     >
-      {MAP_PRESETS.map((p) => (
-        <button
-          key={p}
-          type="button"
-          aria-pressed={preset === p}
-          onClick={() => onChoose(p)}
+      <button
+        type="button"
+        aria-pressed={world}
+        onClick={() => onChoose("world")}
+        className={cn(
+          "rounded-sm px-2.5 text-xs font-medium whitespace-nowrap transition-colors",
+          world ? "bg-surface-hover text-fg" : "text-fg-muted hover:text-fg",
+        )}
+      >
+        {presetLabel("world")}
+      </button>
+      <Select
+        value={world ? "" : preset}
+        onValueChange={(v) => {
+          const p = MAP_PRESETS.find((m) => m === v)
+          if (p) onChoose(p)
+        }}
+      >
+        <SelectTrigger
+          size="sm"
+          aria-label={t("map_continent")}
           className={cn(
-            "h-6 shrink-0 rounded-sm px-2 text-xs font-medium whitespace-nowrap transition-colors",
-            preset === p ? "bg-surface-hover text-fg" : "text-fg-muted hover:text-fg",
+            "h-full gap-1.5 rounded-sm border-0 bg-transparent px-2 text-xs font-medium shadow-none hover:bg-surface-hover",
+            world ? "text-fg-muted" : "bg-surface-hover text-fg",
           )}
         >
-          {presetLabel(p)}
-        </button>
-      ))}
+          <SelectValue placeholder={t("map_continent")} />
+        </SelectTrigger>
+        <SelectContent position="popper" align="end">
+          {MAP_PRESETS.filter((p) => p !== "world").map((p) => (
+            <SelectItem key={p} value={p} className="text-xs">
+              {presetLabel(p)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }

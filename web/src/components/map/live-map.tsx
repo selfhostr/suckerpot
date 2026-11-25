@@ -58,7 +58,7 @@ export function LiveMap({
     [lat, lon],
   )
   const strip = useMemo(
-    () => <FamilyStrip bySensor={bySensor} className="hidden @4xl:flex" />,
+    () => <FamilyStrip bySensor={bySensor} className="hidden @3xl:flex" />,
     [bySensor],
   )
   const [expanded, setExpanded] = useState(false)
@@ -98,7 +98,7 @@ export function LiveMap({
           />
         )}
       </div>
-      <FamilyStrip bySensor={bySensor} layout="grid" className="border-t p-2 @4xl:hidden" />
+      <FamilyStrip bySensor={bySensor} layout="grid" className="border-t p-2 @3xl:hidden" />
       {footer}
       {home ? (
         <Dialog open={expanded} onOpenChange={setExpanded}>
@@ -129,7 +129,7 @@ export function LiveMap({
                 onClose={collapse}
               />
             </div>
-            <FamilyStrip bySensor={bySensor} layout="grid" className="border-t p-2 @4xl:hidden" />
+            <FamilyStrip bySensor={bySensor} layout="grid" className="border-t p-2 @3xl:hidden" />
           </DialogContent>
         </Dialog>
       ) : null}
