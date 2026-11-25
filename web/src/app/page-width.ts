@@ -1,34 +1,36 @@
 import type { UIMatch } from "react-router"
 
 /**
- * How wide a page may grow, declared per route in the route table (`handle: { width }`):
- * - `prose`: reading pages (setup, every detail page), about 1200 px, so lines stay short.
- * - `wide`: lists, hubs, Today, Results, Trends and Settings, about 1680 px: extra columns from
- *   `2xl`.
- * - `full`: the wall screen (Live), up to 2400 px.
- * The shell keeps the same gutters for all three, so switching pages never moves the edges on
- * a screen narrower than the cap.
+ * How a page uses the width, declared per route in the route table (`handle: { width }`):
+ * - `wide`, the default: the page fills the content column, whatever its width, and grows when
+ *   the sidebar folds. A safety cap of 2560 px (gutters included) only stops rows from stretching
+ *   across an ultra-wide screen.
+ * - `prose`: a text-heavy form (setup). The frame is the same, but the page's own column stops
+ *   at about 1150 px, left-aligned under the breadcrumb, so its lines stay readable.
+ * Every page keeps the same gutters, so switching pages never moves the edges.
  */
-export type PageWidth = "prose" | "wide" | "full"
+export type PageWidth = "wide" | "prose"
 
 export interface RouteHandle {
   width?: PageWidth
 }
 
-/** Pages that declare nothing are reading pages: a new page stays readable by default. */
-export const DEFAULT_PAGE_WIDTH: PageWidth = "prose"
+/** Lists, hubs, dashboards and detail pages fill the column: their text blocks cap themselves. */
+export const DEFAULT_PAGE_WIDTH: PageWidth = "wide"
 
-/** The content column's cap, gutters included (Tailwind `--container-page-*` in index.css). */
+/** The frame of every page: full width up to the safety cap (`--container-page-*`, index.css). */
+export const PAGE_FRAME_CLASS = "max-w-page-wide"
+
+/** The page's own column inside the frame. */
 export const PAGE_WIDTH_CLASS: Record<PageWidth, string> = {
+  wide: "",
   prose: "max-w-page-prose",
-  wide: "max-w-page-wide",
-  full: "max-w-page-full",
 }
 
 function widthOf(handle: unknown): PageWidth | undefined {
   if (typeof handle !== "object" || handle === null || !("width" in handle)) return undefined
   const w = (handle as RouteHandle).width
-  return w === "prose" || w === "wide" || w === "full" ? w : undefined
+  return w === "prose" || w === "wide" ? w : undefined
 }
 
 /** The deepest matched route that declares a width wins. */

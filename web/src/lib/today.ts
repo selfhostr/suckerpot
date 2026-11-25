@@ -85,9 +85,6 @@ export function pickTodo(cards: readonly TodayCardData[], limit = TODO_LIMIT): T
     .slice(0, limit)
 }
 
-/** Where the alerts live (rules, channels and what was sent). */
-export const ALERTS_LINK = "/defend/alerts"
-
 const DAY_MS = 86_400_000
 
 /** "2 sent in the last 24 hours, the latest 14 min. ago: Malware was dropped on the honeypot." */

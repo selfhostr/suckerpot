@@ -18,11 +18,11 @@ import { countryName, formatNumber, maskIpsInText } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /**
- * Desktop columns: IP address, country, what it did, tags, sessions, last seen; from xl the
- * network and the event count join in.
+ * Desktop columns: IP address, country, what it did, tags, sessions, last seen; from 2xl the
+ * network and the event count join in (at xl, beside the unfolded sidebar, the tags had no room).
  */
 export const ATTACKER_GRID =
-  "md:grid-cols-[9.5rem_9rem_minmax(14rem,1fr)_minmax(0,auto)_4.5rem_6rem] md:gap-x-4 xl:grid-cols-[9.5rem_9rem_12rem_minmax(18rem,1fr)_minmax(0,auto)_4.5rem_4.5rem_6rem]"
+  "md:grid-cols-[9.5rem_9rem_minmax(14rem,1fr)_minmax(0,auto)_4.5rem_6rem] md:gap-x-4 2xl:grid-cols-[9.5rem_9rem_12rem_minmax(16rem,1fr)_minmax(0,auto)_4.5rem_4.5rem_6rem]"
 
 /** One attacker as one line. The row opens the profile; chips and flags open filtered lists. */
 export function AttackerRow({
@@ -92,7 +92,7 @@ export function AttackerRow({
         )}
       </div>
 
-      <div className="hidden min-w-0 text-xs text-fg-muted xl:block">
+      <div className="hidden min-w-0 text-xs text-fg-muted 2xl:block">
         {a.asn !== null ? (
           <Link
             to={`/attackers?asn=${a.asn}`}
@@ -114,7 +114,7 @@ export function AttackerRow({
         </p>
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5 md:flex-nowrap md:justify-end md:overflow-hidden">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 md:justify-end">
         {a.sensors.slice(0, 3).map((s) => (
           <SensorBadge key={s} sensor={s} variant="dot" className="shrink-0" />
         ))}
@@ -142,7 +142,7 @@ export function AttackerRow({
       <span className="hidden text-right text-sm text-fg tabular-nums md:block">
         {formatNumber(a.sessions)}
       </span>
-      <span className="hidden text-right text-sm text-fg tabular-nums xl:block">
+      <span className="hidden text-right text-sm text-fg tabular-nums 2xl:block">
         {formatNumber(a.events)}
       </span>
 

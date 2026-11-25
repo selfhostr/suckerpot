@@ -70,7 +70,7 @@ export async function logoutRequest(): Promise<void> {
 
 /** Only same-app paths are valid redirect targets (no open redirect, no loop through /login). */
 export function safeNext(raw: string | null | undefined): string {
-  const fallback = "/overview"
+  const fallback = "/"
   // eslint-disable-next-line no-control-regex -- control characters and whitespace are the point
   if (!raw || /[\x00-\x20\x7f]/.test(raw) || !raw.startsWith("/") || raw.startsWith("//")) {
     return fallback

@@ -5,13 +5,11 @@ import { PageSkeleton } from "@/components/skeletons"
 import { NotFoundPage, RouteError } from "@/pages/not-found"
 import { AppShell } from "./app-shell"
 import { RequireAuth } from "./auth"
+import { ALERTS_SETTINGS } from "./nav"
 import type { RouteHandle } from "./page-width"
 import { installViewTransitions } from "./view-transitions"
 
 // Heavy pages (charts, terminal emulator, virtualised feeds) load on demand.
-const OverviewPage = lazy(() =>
-  import("@/pages/overview").then((m) => ({ default: m.OverviewPage })),
-)
 const TodayPage = lazy(() => import("@/pages/today").then((m) => ({ default: m.TodayPage })))
 const SessionDetailPage = lazy(() =>
   import("@/pages/session-detail").then((m) => ({ default: m.SessionDetailPage })),
@@ -85,7 +83,6 @@ const NetworkPage = lazy(() => import("@/pages/network").then((m) => ({ default:
 const NetworkMembersPage = lazy(() =>
   import("@/pages/network-members").then((m) => ({ default: m.NetworkMembersPage })),
 )
-const AlertsPage = lazy(() => import("@/pages/alerts").then((m) => ({ default: m.AlertsPage })))
 const ReportPage = lazy(() => import("@/pages/report").then((m) => ({ default: m.ReportPage })))
 
 /** Suspense with a skeleton in the final layout, so nothing jumps when the chunk lands. */
@@ -124,16 +121,15 @@ export const router = createBrowserRouter(
 // Page changes animate with the View Transitions API (view-transitions.ts).
 installViewTransitions(router)
 
-/** `/live` became part of Today: same query string (`?sensor=`), no history entry. */
+/** Live and Overview became part of Today: keep the query string (a sensor filter) on the way. */
 function ToToday() {
-  const { search } = useLocation()
-  return <Navigate to={{ pathname: "/", search }} replace />
+  const { search, hash } = useLocation()
+  return <Navigate to={{ pathname: "/", search, hash }} replace />
 }
 
 /**
- * Every page declares how wide it may grow (`handle.width`, see page-width.ts): lists, hubs and
- * dashboards (and Settings, a set of panels) are "wide", Today (with the live map) is "full", and
- * anything without a width (setup and every detail page) is a "prose" reading page.
+ * Every page fills the content column (page-width.ts); only the setup form declares
+ * `handle.width: "prose"`, which keeps its own column at reading width.
  */
 export function appRoutes(): RouteObject {
   return {
@@ -142,30 +138,17 @@ export function appRoutes(): RouteObject {
     children: [
       {
         index: true,
-        handle: { width: "full" } satisfies RouteHandle,
         element: (
           <Lazy>
             <TodayPage />
           </Lazy>
         ),
       },
-      {
-        // The live map is part of Today now; old links and bookmarks keep their filters.
-        path: "live",
-        element: <ToToday />,
-      },
-      {
-        path: "overview",
-        handle: { width: "wide" } satisfies RouteHandle,
-        element: (
-          <Lazy>
-            <OverviewPage />
-          </Lazy>
-        ),
-      },
+      // The live map and the day's figures are part of Today now: old links land there.
+      { path: "live", element: <ToToday /> },
+      { path: "overview", element: <ToToday /> },
       {
         path: "attacks",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <AttacksPage />
@@ -182,7 +165,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "attackers",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <AttackersPage />
@@ -191,7 +173,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "networks",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <NetworksPage />
@@ -208,7 +189,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "trends",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <TrendsPage />
@@ -217,7 +197,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "malware",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <MalwarePage />
@@ -226,7 +205,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "cves",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <CvesPage />
@@ -235,7 +213,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "infrastructure",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <InfrastructurePage />
@@ -244,7 +221,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "settings",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <SettingsPage />
@@ -253,6 +229,7 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "setup",
+        handle: { width: "prose" } satisfies RouteHandle,
         element: (
           <Lazy>
             <SetupPage />
@@ -263,7 +240,6 @@ export function appRoutes(): RouteObject {
         ? [
             {
               path: "styleguide",
-              handle: { width: "wide" } satisfies RouteHandle,
               element: (
                 <Lazy>
                   <StyleguidePage />
@@ -274,7 +250,6 @@ export function appRoutes(): RouteObject {
         : []),
       {
         path: "campaigns",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <CampaignsPage />
@@ -291,7 +266,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "techniques",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <TechniquesPage />
@@ -308,7 +282,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "scripts",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <ScriptsPage />
@@ -325,7 +298,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "defend/blocklists",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <BlocklistsPage />
@@ -334,7 +306,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "defend/detections",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <DetectionsPage />
@@ -343,25 +314,16 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "defend/exposure",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <ExposurePage />
           </Lazy>
         ),
       },
-      {
-        path: "defend/alerts",
-        handle: { width: "wide" } satisfies RouteHandle,
-        element: (
-          <Lazy>
-            <AlertsPage />
-          </Lazy>
-        ),
-      },
+      // The alert rules moved next to the channels in Settings.
+      { path: "defend/alerts", element: <Navigate to={ALERTS_SETTINGS} replace /> },
       {
         path: "defend/abuse",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <AbusePage />
@@ -378,7 +340,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "defend/results",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <ResultsPage />
@@ -395,7 +356,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "network",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <NetworkPage />
@@ -404,7 +364,6 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "network/members",
-        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <NetworkMembersPage />

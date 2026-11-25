@@ -186,7 +186,7 @@ export function InfrastructurePage() {
     <>
       <PageHeader
         help="infrastructure"
-        title="Infrastructure"
+        title="Hosts & URLs"
         description={headline}
         actions={exportButtons}
       />

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, FileText, Printer, ShieldCheck } from "lucide-react"
 import { Link, useParams } from "react-router"
+import { ALERTS_SETTINGS } from "@/app/nav"
 import { CountryFlag } from "@/components/country-flag"
 import { EmptyState } from "@/components/empty-state"
 import { FindingCard } from "@/components/finding-card"
@@ -266,7 +267,7 @@ export function ReportPage() {
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   })
   const back = (
-    <Link to="/defend/alerts" className="inline-flex items-center gap-1 hover:text-fg">
+    <Link to={ALERTS_SETTINGS} className="inline-flex items-center gap-1 hover:text-fg">
       <ArrowLeft aria-hidden className="size-3.5" />
       Alerts and reports
     </Link>
@@ -281,7 +282,7 @@ export function ReportPage() {
           description="Reports are built every Monday morning. Pick one from the list."
           action={
             <Button variant="outline" asChild>
-              <Link to="/defend/alerts">Back to the list</Link>
+              <Link to={ALERTS_SETTINGS}>Back to the list</Link>
             </Button>
           }
         />

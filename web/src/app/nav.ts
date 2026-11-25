@@ -3,96 +3,131 @@ import { Binoculars, Microscope, ShieldCheck, type LucideIcon } from "lucide-rea
 /** The three sections of the product: what is happening, what it means, what to do about it. */
 export type SectionId = "observe" | "understand" | "defend"
 
-/** One page of the app, listed in the sidebar under its section. */
+/** One page of the app: a route of its own, with its own address. */
 export interface NavPage {
   to: string
+  /** The page's name: its title, the last crumb of the header. */
   label: string
+  /** The name in the switch at the top of its entry's pages, when shorter ("Networks", "Rules"). */
+  tab?: string
   /** Path prefixes (besides `to` and what sits below it) on which this page is current. */
   also?: readonly string[]
+}
+
+/**
+ * One sidebar entry. An entry with several pages (Attacks: Sessions, Attackers, Attacker
+ * networks) is one row in the sidebar and a switch at the top of each of its pages; every page
+ * keeps its own address, so links, filters and Back work as before.
+ */
+export interface NavEntry {
+  label: string
+  /** In reading order; the first is where the sidebar row leads. */
+  pages: readonly NavPage[]
 }
 
 export interface NavSection {
   id: SectionId
   label: string
   icon: LucideIcon
-  /**
-   * The pages in reading order. Pages that belong together (Sessions, Attackers and Attacker
-   * networks) form one cluster; the sidebar draws a little air between clusters, nothing more.
-   */
-  clusters: readonly (readonly NavPage[])[]
+  entries: readonly NavEntry[]
 }
 
 /**
- * Observe, Understand, Defend. Every page is an ordinary route, so deep links and filters in the
- * URL keep working; the sidebar, the mobile drawer, the header breadcrumb and the page list
- * (`allPages`, which the help texts are checked against) all read this one table.
+ * Observe, Understand, Defend. The sidebar, the mobile drawer, the page switch, the header
+ * breadcrumb and the page list (`allPages`, which the help texts are checked against) all read
+ * this one table.
  */
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
     id: "observe",
     label: "Observe",
     icon: Binoculars,
-    clusters: [
-      [
-        { to: "/", label: "Today" },
-        { to: "/live", label: "Live" },
-      ],
-      [
-        { to: "/attacks", label: "Sessions" },
-        { to: "/attackers", label: "Attackers" },
-        { to: "/networks", label: "Attacker networks" },
-      ],
+    entries: [
+      // Today carries the live map and the day's figures: /live and /overview lead here.
+      { label: "Today", pages: [{ to: "/", label: "Today" }] },
+      {
+        label: "Attacks",
+        pages: [
+          { to: "/attacks", label: "Sessions" },
+          { to: "/attackers", label: "Attackers" },
+          { to: "/networks", label: "Attacker networks", tab: "Networks" },
+        ],
+      },
     ],
   },
   {
     id: "understand",
     label: "Understand",
     icon: Microscope,
-    clusters: [
-      [
-        { to: "/campaigns", label: "Campaigns" },
-        { to: "/techniques", label: "Techniques" },
-      ],
-      [
-        { to: "/scripts", label: "Scripts" },
-        { to: "/malware", label: "Malware" },
-        { to: "/infrastructure", label: "Infrastructure" },
-      ],
-      [
-        { to: "/overview", label: "Overview" },
-        { to: "/trends", label: "Trends" },
-      ],
+    entries: [
+      {
+        label: "Campaigns",
+        pages: [
+          { to: "/campaigns", label: "Campaigns" },
+          { to: "/techniques", label: "Techniques" },
+        ],
+      },
+      {
+        label: "Payloads",
+        pages: [
+          { to: "/scripts", label: "Scripts" },
+          { to: "/malware", label: "Files" },
+          { to: "/infrastructure", label: "Hosts & URLs" },
+        ],
+      },
+      { label: "Patterns", pages: [{ to: "/trends", label: "Patterns" }] },
     ],
   },
   {
     id: "defend",
     label: "Defend",
     icon: ShieldCheck,
-    clusters: [
-      [
-        { to: "/defend/blocklists", label: "Blocklists" },
-        { to: "/defend/detections", label: "Detections" },
-      ],
-      [
-        { to: "/defend/exposure", label: "Your exposure" },
-        { to: "/cves", label: "CVE watch" },
-      ],
-      [{ to: "/defend/alerts", label: "Alerts", also: ["/reports"] }],
-      [
-        { to: "/defend/abuse", label: "Abuse reports" },
-        { to: "/defend/results", label: "Results" },
-      ],
-      [
-        { to: "/network", label: "SuckerPot network" },
-        { to: "/network/members", label: "Network members" },
-      ],
+    entries: [
+      {
+        label: "Block",
+        pages: [
+          { to: "/defend/blocklists", label: "Blocklists", tab: "Lists" },
+          { to: "/defend/detections", label: "Detections", tab: "Rules" },
+        ],
+      },
+      {
+        label: "Exposure",
+        pages: [
+          { to: "/defend/exposure", label: "Your exposure", tab: "Services" },
+          { to: "/cves", label: "CVE watch", tab: "CVEs" },
+        ],
+      },
+      {
+        label: "Reports",
+        pages: [
+          { to: "/defend/abuse", label: "Abuse reports", tab: "Queue" },
+          { to: "/defend/results", label: "Results" },
+        ],
+      },
+      {
+        label: "Network",
+        pages: [
+          { to: "/network", label: "SuckerPot network", tab: "Overview" },
+          { to: "/network/members", label: "Network members", tab: "Members" },
+        ],
+      },
     ],
   },
 ]
 
-/** The foot of the sidebar. The styleguide is reached from Settings, so it counts as Settings. */
-export const SETTINGS_PAGE: NavPage = { to: "/settings", label: "Settings", also: ["/styleguide"] }
+/**
+ * The foot of the sidebar. The styleguide is reached from Settings, and the weekly reports from its
+ * Alerts tab, so both count as Settings.
+ */
+export const SETTINGS_PAGE: NavPage = {
+  to: "/settings",
+  label: "Settings",
+  also: ["/styleguide", "/reports"],
+}
+/** Where the alert rules, the recent alerts and the weekly reports live (the old /defend/alerts). */
+export const ALERTS_SETTINGS = "/settings?tab=alert-rules"
 export const STYLEGUIDE_PAGE: NavPage = { to: "/styleguide", label: "Styleguide" }
+export const SETTINGS_ENTRY: NavEntry = { label: SETTINGS_PAGE.label, pages: [SETTINGS_PAGE] }
 
 export const DOCS_URL = "https://suckerpot.selfhostr.io/docs/"
 export const GITHUB_URL = "https://github.com/selfhostr/suckerpot"
@@ -103,13 +138,19 @@ export function isUnder(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
-/** Every page of a section, clusters flattened. */
+/** Where a sidebar entry leads: its first page. */
+export function entryHome(entry: NavEntry): string {
+  return entry.pages[0]?.to ?? "/"
+}
+
+/** Every page of a section, entries flattened. */
 export function sectionPages(section: NavSection): NavPage[] {
-  return section.clusters.flat()
+  return section.entries.flatMap((e) => e.pages)
 }
 
 export interface ActivePage {
   page: NavPage
+  entry: NavEntry
   /** Undefined for Settings, which sits outside the three sections. */
   section?: NavSection
 }
@@ -124,17 +165,33 @@ export function activePage(
 ): ActivePage | undefined {
   let best: ActivePage | undefined
   let bestLength = -1
-  const consider = (page: NavPage, section?: NavSection) => {
+  const consider = (page: NavPage, entry: NavEntry, section?: NavSection) => {
     for (const prefix of [page.to, ...(page.also ?? [])]) {
       if (isUnder(pathname, prefix) && prefix.length > bestLength) {
-        best = section ? { page, section } : { page }
+        best = section ? { page, entry, section } : { page, entry }
         bestLength = prefix.length
       }
     }
   }
-  for (const section of sections) for (const page of sectionPages(section)) consider(page, section)
-  consider(SETTINGS_PAGE)
+  for (const section of sections)
+    for (const entry of section.entries)
+      for (const page of entry.pages) consider(page, entry, section)
+  consider(SETTINGS_PAGE, SETTINGS_ENTRY)
   return best
+}
+
+/**
+ * The entry whose page switch shows on `pathname`: only on the pages themselves (lists and
+ * hubs), not on a detail route below them, and only for an entry with more than one page.
+ */
+export function switchFor(pathname: string): { entry: NavEntry; current: NavPage } | undefined {
+  for (const section of NAV_SECTIONS)
+    for (const entry of section.entries) {
+      if (entry.pages.length < 2) continue
+      const current = entry.pages.find((p) => p.to === pathname)
+      if (current) return { entry, current }
+    }
+  return undefined
 }
 
 export interface Crumb {
@@ -143,16 +200,23 @@ export interface Crumb {
   to?: string
 }
 
-/** What the header says about where you are: "Observe / Attackers", or "Settings / Styleguide". */
+/**
+ * What the header says about where you are: "Observe / Attacks / Attackers". The entry is left
+ * out when the page has its name ("Understand / Campaigns"); on a detail route the page is a
+ * link back to its list.
+ */
 export function crumbsFor(pathname: string): Crumb[] {
   if (isUnder(pathname, STYLEGUIDE_PAGE.to))
     return [{ label: SETTINGS_PAGE.label, to: SETTINGS_PAGE.to }, { label: STYLEGUIDE_PAGE.label }]
+  if (isUnder(pathname, "/reports"))
+    return [{ label: SETTINGS_PAGE.label, to: ALERTS_SETTINGS }, { label: "Weekly report" }]
   const active = activePage(pathname)
   if (!active) return []
-  const { page, section } = active
-  const here: Crumb =
-    pathname === page.to ? { label: page.label } : { label: page.label, to: page.to }
-  return section ? [{ label: section.label }, here] : [here]
+  const { page, entry, section } = active
+  const crumbs: Crumb[] = section ? [{ label: section.label }] : []
+  if (page.label !== entry.label) crumbs.push({ label: entry.label })
+  crumbs.push(pathname === page.to ? { label: page.label } : { label: page.label, to: page.to })
+  return crumbs
 }
 
 /** Every individual page, flattened: what the help texts and a page list cover. */

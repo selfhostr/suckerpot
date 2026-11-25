@@ -13,7 +13,7 @@ export interface HelpText {
 export const HELP = {
   today: {
     title: "Today",
-    body: "The live map shows the last 15 minutes of attacks as arcs from each source country to your home point, coloured by the kind of sensor they hit, with the newest events under it and the busiest countries, addresses and networks beside it. Below are the last 24 hours in numbers and per hour, and what needs you. Click a family in the stats strip to filter, press Pause to freeze the picture, or click any number, row or hour to open the matching attacks.",
+    body: "The live map shows the last 15 minutes of attacks as arcs from each source country to your home point, coloured by the kind of sensor they hit, with the newest events under it and the busiest addresses and networks beside it. Below are the last 24 hours in numbers and per hour, and what needs you. Click a family in the stats strip to filter, press Pause to freeze the picture, or click any number, row or hour to open the matching attacks.",
   },
   attacks: {
     title: "Attacks",
@@ -35,12 +35,8 @@ export const HELP = {
     title: "Attacker networks",
     body: "The hosting providers and networks (ASNs) that attacks come from, counted from the same sessions as the Attackers list. Many addresses in one network often means one operator or one hosting farm. Click a network to see its sessions.",
   },
-  activity: {
-    title: "Overview",
-    body: "The last 24 hours in numbers: sessions, addresses, activity per sensor and the latest events, with up to three written insights. Everything is counted from the stored events, and fixed rules write the insights. Click an insight to open the evidence behind it.",
-  },
   patterns: {
-    title: "Trends",
+    title: "Patterns",
     body: "The most tried usernames, passwords, commands and URLs, tags over time, a day by hour heatmap and what is new this week. All of it is counted from the stored events over the period you pick. Click a value to open the sessions that used it.",
   },
   campaigns: {
@@ -64,7 +60,7 @@ export const HELP = {
     body: "One script that attackers typed on a fake shell, with what it does and every session that used it. The sensor only recorded the text: nothing was ever run. Click a session to read the whole attack.",
   },
   malware: {
-    title: "Malware",
+    title: "Files",
     body: "The download URLs that attackers tried to use, shown defanged so they cannot be opened by mistake. Sensors only record a URL: when payload fetching is on, the collector fetches it through the VPN into quarantine and the Samples tab shows the files. Open a sample to read its analysis.",
   },
   sample: {
@@ -72,7 +68,7 @@ export const HELP = {
     body: "One file the collector fetched, kept in quarantine and never run. The analyzer reads it with no network access: type, hashes, rule matches, the unwrapped script and strings. Administrators can download it as a password-protected archive for analysis elsewhere.",
   },
   infrastructure: {
-    title: "Infrastructure",
+    title: "Hosts & URLs",
     body: "The addresses, hosts and files that show up across sessions, as defanged text, never as links. A payload host or command server shared by several attackers is a link between them. Export the indicators as CSV or STIX 2.1 for your own tools.",
   },
   blocklists: {
@@ -95,9 +91,9 @@ export const HELP = {
     title: "CVE watch",
     body: "New and known-exploited vulnerabilities, ranked by how much they matter to the services the sensors emulate. They are fetched from public feeds through the VPN, and matched with what was seen in your traffic. Open a CVE for the details, or watch it to hear when it shows up.",
   },
-  alerts: {
-    title: "Alerts and reports",
-    body: "Rules that tell you when something happens, such as a new campaign, a malware drop or a watched CVE, and the weekly report. Everything is off until you switch it on, and messages leave through the VPN. Add a channel in Settings, then turn a rule on.",
+  "settings-alert-rules": {
+    title: "Alerts",
+    body: "Rules that tell you when something happens, such as a new campaign, a malware drop or a watched CVE, and the weekly report. Everything is off until you switch it on, and messages leave through the VPN. Add a channel under Alert channels, then turn a rule on.",
   },
   report: {
     title: "Weekly report",

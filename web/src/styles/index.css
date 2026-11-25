@@ -41,10 +41,13 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
 
-  /* Page widths (src/app/page-width.ts), gutters included: reading pages, lists and hubs, Live. */
-  --container-page-prose: 75rem;
-  --container-page-wide: 105rem;
-  --container-page-full: 150rem;
+  /*
+   * Page widths (src/app/page-width.ts). The frame fills the content column on every page, up to
+   * a safety cap for very wide screens (gutters included); `prose` caps only the inner column of
+   * a text-heavy form (setup), left-aligned under the breadcrumb.
+   */
+  --container-page-wide: 160rem;
+  --container-page-prose: 72rem;
 
   /* Motion tokens live in tokens.css; Tailwind's defaults follow them. */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -461,8 +464,8 @@
 }
 
 /* -----------------------------------------------------------------------------------------------
- * Page changes (View Transitions, src/app/view-transitions.ts). The sidebar and the top bars are
- * named and stay put; the page under them fades out fast and the new one rises in, the same for
+ * Page changes (View Transitions, src/app/view-transitions.ts). The sidebar, the top bars and the
+ * page switch (Sessions | Attackers | Networks) are named and stay put; the page under them fades out fast and the new one rises in, the same for
  * every page change. A clicked row's chip becomes the title of the page it opens (`vt-subject`).
  * The overlay is painted in the page background, so a cross-fade dips to the background, never to
  * white or black.
@@ -476,6 +479,9 @@
 .vt-mobilebar {
   view-transition-name: vt-mobilebar;
 }
+.vt-pageswitch {
+  view-transition-name: vt-pageswitch;
+}
 
 ::view-transition {
   background-color: var(--bg);
@@ -483,14 +489,17 @@
 ::view-transition-group(vt-sidebar),
 ::view-transition-group(vt-topbar),
 ::view-transition-group(vt-mobilebar),
+::view-transition-group(vt-pageswitch),
 ::view-transition-new(vt-sidebar),
 ::view-transition-new(vt-topbar),
-::view-transition-new(vt-mobilebar) {
+::view-transition-new(vt-mobilebar),
+::view-transition-new(vt-pageswitch) {
   animation: none;
 }
 ::view-transition-old(vt-sidebar),
 ::view-transition-old(vt-topbar),
-::view-transition-old(vt-mobilebar) {
+::view-transition-old(vt-mobilebar),
+::view-transition-old(vt-pageswitch) {
   display: none;
 }
 

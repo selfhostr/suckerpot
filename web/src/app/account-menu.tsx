@@ -1,34 +1,27 @@
 import { ChevronsUpDown, KeyRound, Laptop, LogOut, Moon, Sun } from "lucide-react"
 import { useState } from "react"
-import { Link, useNavigate } from "react-router"
+import { useNavigate } from "react-router"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
-import { RelativeTime } from "@/components/relative-time"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useVersion } from "@/hooks/use-version"
-import { ROLE_LABEL } from "@/lib/users"
-import { hasUpdate } from "@/lib/version"
 import { useAuth } from "./auth"
 import { useIpMask } from "./ip-mask"
 import { useTheme, type ThemePreference } from "./theme"
 
-const MOCK = import.meta.env.VITE_MOCK === "1"
-
-const THEMES: { value: ThemePreference; label: string; icon: typeof Moon }[] = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Laptop },
-]
+/** One item cycles the theme, light → dark → system, and shows the one in use. */
+const THEMES: Record<ThemePreference, { label: string; icon: typeof Moon; next: ThemePreference }> =
+  {
+    light: { label: "Light", icon: Sun, next: "dark" },
+    dark: { label: "Dark", icon: Moon, next: "system" },
+    system: { label: "System", icon: Laptop, next: "light" },
+  }
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -52,31 +45,27 @@ function Avatar({ name }: { name: string }) {
 }
 
 /**
- * The profile block at the foot of the sidebar: initials, name and role, opening a menu with the
- * last sign-in, "Change password", the theme, "Mask IP addresses", "Sign out" and the version.
+ * The profile block at the foot of the sidebar: initials and name, opening a short menu: the
+ * theme (one item that cycles), "Mask IP addresses", "Change password" (not for the owner, whose
+ * password lives in .env) and "Sign out". The version is at the foot of every page instead.
  * `rail` is the avatar alone, for the folded sidebar (the name shows as a tooltip).
  */
 export function AccountMenu({
   variant = "full",
   menuSide = "right",
-  onNavigate,
 }: {
   variant?: "full" | "rail"
   /** Where the menu opens: beside the sidebar on desktop, above the block in the phone drawer. */
   menuSide?: "right" | "top"
-  /** Called after a menu entry navigates (closes the phone drawer). */
-  onNavigate?: () => void
 }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { preference, setPreference } = useTheme()
   const { masked, setMasked } = useIpMask()
-  const version = useVersion().data
   const [changing, setChanging] = useState(false)
   if (!user) return null
-  const role = user.is_owner ? "Owner" : ROLE_LABEL[user.role]
-  const roleLine = user.role === "viewer" && !user.is_owner ? `${role}, read-only` : role
   const label = `Account menu for ${user.display_name}`
+  const theme = THEMES[preference]
 
   const trigger =
     variant === "rail" ? (
@@ -91,12 +80,11 @@ export function AccountMenu({
       <button
         type="button"
         aria-label={label}
-        className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-lg px-1.5 text-left transition-colors duration-150 hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none aria-expanded:bg-surface-hover lg:h-10"
+        className="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-1.5 text-left transition-colors duration-150 hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none aria-expanded:bg-surface-hover"
       >
         <Avatar name={user.display_name} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-medium text-fg">{user.display_name}</span>
-          <span className="block truncate text-2xs text-fg-subtle">{roleLine}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+          {user.display_name}
         </span>
         <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-fg-subtle" />
       </button>
@@ -122,52 +110,20 @@ export function AccountMenu({
           align={menuSide === "right" ? "end" : "start"}
           sideOffset={menuSide === "right" ? 10 : 6}
           collisionPadding={8}
-          className="w-64"
+          className="w-56"
         >
-          <DropdownMenuLabel className="space-y-0.5 font-normal">
-            <span className="block truncate text-sm font-medium text-fg">{user.display_name}</span>
-            <span className="block truncate text-xs text-fg-muted">
-              <span className="font-mono">{user.username}</span>, {roleLine.toLowerCase()}
-            </span>
-            {user.last_login_at ? (
-              <span className="block pt-1 text-xs text-fg-muted">
-                Last sign-in <RelativeTime iso={user.last_login_at} className="text-xs" />
-              </span>
-            ) : null}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {user.is_owner ? (
-            <DropdownMenuItem disabled>
-              <KeyRound aria-hidden />
-              Password is set in .env
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onSelect={() => setChanging(true)}>
-              <KeyRound aria-hidden />
-              Change password
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="py-1 text-xs font-normal text-fg-subtle">
-            Theme
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={preference}
-            onValueChange={(v) => setPreference(v as ThemePreference)}
+          <DropdownMenuItem
+            // The menu stays open, so the new theme is seen before moving on.
+            onSelect={(e) => {
+              e.preventDefault()
+              setPreference(theme.next)
+            }}
           >
-            {THEMES.map((t) => (
-              <DropdownMenuRadioItem
-                key={t.value}
-                value={t.value}
-                // The menu stays open, so the new theme is seen before moving on.
-                onSelect={(e) => e.preventDefault()}
-              >
-                <span className="flex-1">{t.label}</span>
-                <t.icon aria-hidden className="size-4 text-fg-subtle" />
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
+            <theme.icon aria-hidden />
+            <span className="flex-1">Theme</span>
+            <span className="text-xs text-fg-subtle">{theme.label}</span>
+            <span className="sr-only">, switches to {THEMES[theme.next].label.toLowerCase()}</span>
+          </DropdownMenuItem>
           <DropdownMenuCheckboxItem
             checked={masked}
             onCheckedChange={setMasked}
@@ -177,6 +133,12 @@ export function AccountMenu({
             <span className="sr-only"> (screenshot mode)</span>
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
+          {user.is_owner ? null : (
+            <DropdownMenuItem onSelect={() => setChanging(true)}>
+              <KeyRound aria-hidden />
+              Change password
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onSelect={() => {
               void logout().finally(() => navigate("/login", { replace: true }))
@@ -185,30 +147,6 @@ export function AccountMenu({
             <LogOut aria-hidden />
             Sign out
           </DropdownMenuItem>
-          {version || MOCK ? <DropdownMenuSeparator /> : null}
-          {version && hasUpdate(version) ? (
-            <DropdownMenuItem asChild>
-              <Link to="/settings" onClick={onNavigate} className="text-xs font-medium text-fg">
-                <span aria-hidden className="mx-1 size-1.5 rounded-full bg-primary" />
-                Update available: {version.latest}
-              </Link>
-            </DropdownMenuItem>
-          ) : null}
-          {version || MOCK ? (
-            <DropdownMenuLabel className="space-y-0.5 py-1 text-2xs font-normal text-fg-subtle">
-              {version ? (
-                <span
-                  className="block font-mono tabular-nums"
-                  title={version.commit ? `Commit ${version.commit}` : undefined}
-                >
-                  SuckerPot {version.version}
-                </span>
-              ) : null}
-              {MOCK ? (
-                <span className="block">Mock data: nothing here is real traffic.</span>
-              ) : null}
-            </DropdownMenuLabel>
-          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <ChangePasswordDialog open={changing} onOpenChange={setChanging} username={user.username} />

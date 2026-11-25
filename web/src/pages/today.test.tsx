@@ -207,7 +207,7 @@ describe("TodayPage: the day", () => {
     const line = await screen.findByRole("link", {
       name: /^Alerts: 1 sent in the last 24 hours, the latest/,
     })
-    expect(line).toHaveAttribute("href", "/defend/alerts")
+    expect(line).toHaveAttribute("href", "/settings?tab=alert-rules")
   })
 
   it("says so when nothing needs the operator", async () => {

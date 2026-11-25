@@ -15,6 +15,7 @@ import { ReportingNav } from "@/components/abuse/reporting-nav"
 import { ImapCard } from "@/components/abuse/imap-card"
 import { DigestCard } from "@/components/abuse/digest-card"
 import { SendingCard } from "@/components/abuse/sending-card"
+import { AlertsPanel } from "@/components/alerts/alerts-panel"
 import { ChannelsCard } from "@/components/alerts/channels-card"
 import { TourButton } from "@/components/tour/tour-button"
 import { Button } from "@/components/ui/button"
@@ -36,6 +37,7 @@ import { ProviderKeys } from "@/components/provider-keys"
 import { AuditCard } from "@/components/users/audit-card"
 import { UsersCard } from "@/components/users/users-card"
 import { useAuth } from "@/app/auth"
+import { ALERTS_SETTINGS } from "@/app/nav"
 import { RelativeTime } from "@/components/relative-time"
 import { SensorBadge } from "@/components/sensor-badge"
 import { SkeletonText } from "@/components/skeletons"
@@ -391,6 +393,7 @@ const TABS = [
   { id: "users", label: "Users", adminOnly: true },
   { id: "audit", label: "Audit", adminOnly: true },
   { id: "ports", label: "Sensors & ports", adminOnly: true },
+  { id: "alert-rules", label: "Alerts", adminOnly: false },
   { id: "alerts", label: "Alert channels", adminOnly: false },
   { id: "feeds", label: "Feeds", adminOnly: true },
   { id: "reporting", label: "Reporting", adminOnly: true },
@@ -508,12 +511,15 @@ export function SettingsPage() {
             <PortsCard />
           </TabsContent>
         ) : null}
+        <TabsContent value="alert-rules">
+          <AlertsPanel />
+        </TabsContent>
         <TabsContent value="alerts" className="grid grid-cols-1 gap-4">
           <ChannelsCard />
           <p className="text-sm text-fg-muted">
-            The rules, the recent alerts and the weekly reports are on the{" "}
-            <Link to="/defend/alerts" className="text-fg underline underline-offset-4">
-              Alerts page
+            The rules, the recent alerts and the weekly reports are in the{" "}
+            <Link to={ALERTS_SETTINGS} className="text-fg underline underline-offset-4">
+              Alerts tab
             </Link>
             .
           </p>

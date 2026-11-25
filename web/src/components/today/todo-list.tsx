@@ -12,12 +12,12 @@ import {
 } from "lucide-react"
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { ALERTS_SETTINGS } from "@/app/nav"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { alertKeys, alertsApi } from "@/lib/alerts"
 import { maskIpsInText } from "@/lib/format"
 import {
-  ALERTS_LINK,
   CARD_TITLE,
   alertsSentence,
   pickTodo,
@@ -90,7 +90,7 @@ function AlertsLine() {
   const text = masked ? maskIpsInText(sentence) : sentence
   return (
     <Link
-      to={ALERTS_LINK}
+      to={ALERTS_SETTINGS}
       data-alerts
       aria-label={`Alerts: ${text} Open the alerts`}
       className="group -mx-2 mt-auto flex items-center gap-3 rounded-md border-t px-2 pt-3 pb-1 transition-colors duration-150 hover:text-fg"

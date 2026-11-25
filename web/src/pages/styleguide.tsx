@@ -2,7 +2,6 @@ import { Inbox, Plus, RefreshCw } from "lucide-react"
 import { useState } from "react"
 import { AttackerRow } from "@/components/attacker-row"
 import { DayBars } from "@/components/charts/day-bars"
-import { SensorActivityChart } from "@/components/charts/sensor-activity-chart"
 import { CountryFlag } from "@/components/country-flag"
 import { TERMINAL_BG, TERMINAL_THEME } from "@/components/replay/terminal-theme"
 import { SegmentedControl } from "@/components/segmented-control"
@@ -52,13 +51,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Field as FormField, UnsavedHint } from "@/components/form-parts"
 import { useTheme } from "@/app/theme"
-import {
-  type Attacker,
-  type LiveEvent,
-  type SensorEvent,
-  type Session,
-  type TimePoint,
-} from "@/lib/api"
+import { type Attacker, type LiveEvent, type SensorEvent, type Session } from "@/lib/api"
 import type { DayPoint } from "@/lib/chart-time"
 import type { HeatmapCell, Insight, MalwareItem, NewItem, TagPoint } from "@/lib/trends"
 import { contrastRatio, parseHex, readTokenBlock } from "@/lib/contrast"
@@ -244,27 +237,6 @@ const SAMPLE_LIVE: Record<string, { events: number; sessions: number }> = {
 }
 
 const HOUR = 3_600_000
-const SAMPLE_POINTS: TimePoint[] = Array.from({ length: 12 }, (_, i) => {
-  const w = [3, 5, 4, 8, 12, 9, 7, 11, 14, 10, 6, 8][i] ?? 5
-  return {
-    ts: new Date(Date.now() - (11 - i) * HOUR).toISOString(),
-    events: {
-      ssh: w * 30,
-      telnet: w * 12,
-      adb: w * 2,
-      web: w * 9,
-      docker: w * 3,
-      redis: w * 11,
-      mysql: w * 6,
-      mssql: w * 4,
-      rdp: w * 3,
-      smb: w * 14,
-      sip: w,
-      synology: w * 2,
-    },
-    sessions: { ssh: w * 3, telnet: w, web: w, redis: w, smb: w * 2, rdp: 1 },
-  }
-})
 const SAMPLE_DAYS: DayPoint[] = Array.from({ length: 14 }, (_, i) => ({
   day: new Date(Date.now() - (13 - i) * 24 * HOUR).toISOString().slice(0, 10),
   events: [0, 4, 0, 12, 8, 0, 0, 22, 15, 9, 0, 31, 18, 64][i] ?? 0,
@@ -1053,7 +1025,7 @@ export function StyleguidePage() {
             ))}
           </div>
           <div className="border-y px-4 py-2 font-mono text-2xs text-fg-subtle sm:px-5">
-            LiveEventRow compact (LatestEventsCard)
+            LiveEventRow compact
           </div>
           {LIVE_EVENTS.slice(0, 3).map((e, i) => (
             <div key={e.id} className={cn(i > 0 && "border-t")}>
@@ -1094,14 +1066,7 @@ export function StyleguidePage() {
       >
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
           <FindingCard
-            className="lg:col-span-3"
-            eyebrow="SensorActivityChart"
-            finding="SSH drew 60% of all events in the last 12 hours."
-          >
-            <SensorActivityChart points={SAMPLE_POINTS} />
-          </FindingCard>
-          <FindingCard
-            className="lg:col-span-2"
+            className="lg:col-span-5"
             eyebrow="TopList"
             finding='"root" was the most tried username.'
           >

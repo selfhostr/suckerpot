@@ -13,7 +13,7 @@ export function SetPasswordPage() {
 
   if (status === "anonymous") return <Navigate to="/login" replace />
   if (status === "authenticated" && user && !user.must_change_password)
-    return <Navigate to="/overview" replace />
+    return <Navigate to="/" replace />
   if (!user) return null
 
   return (
@@ -43,7 +43,7 @@ export function SetPasswordPage() {
             submitLabel="Save and continue"
             layout="page"
             onDone={() => {
-              void refresh().then(() => navigate("/overview", { replace: true }))
+              void refresh().then(() => navigate("/", { replace: true }))
             }}
           />
           <button

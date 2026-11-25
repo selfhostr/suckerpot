@@ -30,13 +30,14 @@ const time = new Intl.DateTimeFormat("en-US", {
 
 /**
  * On desktop the page fills the window and never scrolls: the shell's header (3.5 rem) and top
- * padding (1.75 rem) above, the same 1.75 rem below (the shell's 3 rem bottom padding, pulled up
- * by 1.25 rem). Under the header, two rows: now (the map, and who is behind it) and the day (five
- * numbers and one chart, and what to do). The right column has one width in both rows, so the
- * cards line up on both edges. Below 40 rem of height the page scrolls rather than crush the map.
+ * padding (1.75 rem) above; below, 1 rem of air, then the version line (1.75 rem) where the
+ * shell's 2.5 rem bottom padding would be (pulled up by 1.5 rem). Under the header, two rows: now
+ * (the map, and who is behind it) and the day (five numbers and the hour strip, and what to do).
+ * The right column has one width in both rows, so the cards line up on both edges. Below 40 rem
+ * of height the page scrolls rather than crush the map.
  */
 const BOARD =
-  "grid grid-cols-1 gap-4 lg:-mb-5 lg:h-[calc(100dvh-7rem)] lg:min-h-[40rem] lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26%,26rem)] lg:grid-rows-[auto_minmax(0,1fr)_clamp(16.5rem,30dvh,20rem)]"
+  "grid grid-cols-1 gap-4 lg:-mb-6 lg:h-[calc(100dvh-8rem)] lg:min-h-[40rem] lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26%,26rem)] lg:grid-rows-[auto_minmax(0,1fr)_clamp(16.5rem,30dvh,20rem)]"
 
 /** One number of the day: label above, value below, a link to the matching list. */
 function Figure({ label, value, href }: { label: string; value: number; href?: string }) {

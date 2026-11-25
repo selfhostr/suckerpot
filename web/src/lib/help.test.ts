@@ -51,6 +51,7 @@ describe("page help texts", () => {
       "users",
       "audit",
       "ports",
+      "alert-rules",
       "alerts",
       "feeds",
       "reporting",
@@ -64,8 +65,6 @@ describe("page help texts", () => {
   it("has a text for every page in the navigation", () => {
     const byRoute: Record<string, HelpId> = {
       "/": "today",
-      // /live opens Today (the live map is part of it).
-      "/live": "today",
       "/attacks": "attacks",
       "/attackers": "attackers",
       "/networks": "networks",
@@ -74,13 +73,11 @@ describe("page help texts", () => {
       "/scripts": "scripts",
       "/malware": "malware",
       "/infrastructure": "infrastructure",
-      "/overview": "activity",
       "/trends": "patterns",
       "/defend/blocklists": "blocklists",
       "/defend/detections": "detections",
       "/defend/exposure": "exposure",
       "/cves": "cves",
-      "/defend/alerts": "alerts",
       "/defend/abuse": "abuse",
       "/defend/results": "abuse-results",
       "/network": "network",
@@ -95,6 +92,7 @@ describe("page help texts", () => {
   it("maps a Settings tab to its own text and falls back to General", () => {
     expect(settingsHelpId("vpn")).toBe("settings-vpn")
     expect(settingsHelpId("alerts")).toBe("settings-alerts")
+    expect(settingsHelpId("alert-rules")).toBe("settings-alert-rules")
     expect(settingsHelpId("nope")).toBe("settings-general")
   })
 })
