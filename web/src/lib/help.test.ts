@@ -66,7 +66,7 @@ describe("page help texts", () => {
     for (const [path, source] of Object.entries(pages)) {
       const name = /\/([^/]+)\.tsx$/.exec(path)?.[1] ?? path
       if (name.endsWith(".test") || NO_HEADER.includes(name)) continue
-      const ids = [...source.matchAll(/help="([a-z-]+)"/g)].map((m) => m[1] ?? "")
+      const ids = [...source.matchAll(/(?:help=|<PageHelp id=)"([a-z-]+)"/g)].map((m) => m[1] ?? "")
       const dynamic = source.includes("help={") || source.includes("<PageHelp id=")
       expect(ids.length > 0 || dynamic, `${name} has no help`).toBe(true)
       for (const id of ids) {
