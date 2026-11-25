@@ -71,7 +71,13 @@ No decorative gradients. The only fills under lines are flat, 8 % opacity.
 
 ## Space, shape, elevation
 
-- 4 px grid. Page gutters: 16 px on mobile, 24 px on tablet, 40 px on desktop. Content max width 1200 px. Cards pad 16 px (mobile) / 20 px. Sections are separated by 24 px or more.
+- 4 px grid. Page gutters: 16 px on mobile, 24 px on tablet, 40 px on desktop, the same on every page. Cards pad 16 px (mobile) / 20 px. Sections are separated by 24 px or more.
+- **Page width** is declared per route in the route table (`handle: { width }`, `src/app/page-width.ts`), gutters included:
+  - `prose`, 1200 px: Settings, setup and every detail page (an attacker, a session, a campaign, a script, a sample, a report). Also the default for a route that declares nothing.
+  - `wide`, 1680 px: lists, hubs, Today, Trends, Results and the other Defend pages. On a 1920 px screen this is the whole content area, so leaving Live moves nothing.
+  - `full`, 2400 px: Live only.
+- Wide pages use the room from `2xl` (1536 px), and only where it shortens the read: a third column (Today: the stories in two columns and what to do in the third; Results: three cards to a row; Trends: the four top lists in one row), side by side panels (Infrastructure: the diagram beside the control servers), and wider table cells so a place and a network fit on one line. Below `2xl` the layout is the same as before. Reading pages keep 1200 px: wider lines are harder to read, not faster.
+- Cards of uneven height (Today's stories and to-do cards) flow in CSS columns, not grid rows, so a short card never sits next to a hole.
 - Radius: 4 px chips, 6 px controls, 8 px small cards and nav items, 12 px cards. Pills are fully rounded only for the sensor share bar.
 - Elevation: in dark, a border plus a faint top highlight (`--shadow-sm`); shadows only for overlays. In light, a soft 1–2 px shadow.
 
@@ -108,6 +114,8 @@ The replay terminal is always dark, in both themes, with its own muted ANSI pale
 
 Every tile has the same structure: label, value, one footer line pinned to the bottom. The footer shows a neutral delta when a previous window exists, otherwise a plain hint. No sparkline in the Overview KPIs: the activity chart right below already shows the series.
 
+**Headline figures** (`StatTile variant="figure"`): the numbers that open Today and Results are not cards. They keep the same three parts, drop the border and fill, take the `3xl` size from `sm`, and sit on one band between two hairlines. A page whose every block is the same bordered card has no first thing to read; the figures are it. Use them once per page, for the page's key numbers only; other KPI rows stay tiles.
+
 ## Bars and shares
 
 Bars that stand for a sensor use that sensor's colour (the stacked activity chart, the sensor share bar). Every other bar is neutral: the share bars in top lists, an attacker's activity per day (an attacker spans sensors). Tinted backgrounds use the `tint-*` utilities only.
@@ -124,7 +132,7 @@ Day × hour uses a five-step neutral scale (color-mix of `--fg` into `--surface`
 
 Live is the screen left running on a wall or a second monitor, so the map is the hero and everything else stays out of its way. There is no 3D globe: a flat map is easier to read at a glance and puts every source in its real place at once.
 
-**Layout, top to bottom.** The page header (title, one sentence, sensor filter, Pause), then one card: the map, full content width (the Live page lifts the 1200 px cap, up to 2400 px), about `100dvh - 19.5rem` tall on desktop (26rem to 72rem), 26rem on tablets, 11:8 on phones; the live ticker is the card's footer. Below the card, three ranking cards. On a 1440 × 900 screen the map, the ticker and the ranking titles are above the fold.
+**Layout, top to bottom.** The page header (title, one sentence, sensor filter, Pause), then one card: the map, full content width (Live is the one `full` page, up to 2400 px), about `100dvh - 19.5rem` tall on desktop (26rem to 72rem), 26rem on tablets, 11:8 on phones; the live ticker is the card's footer. Below the card, three ranking cards. On a 1440 × 900 screen the map, the ticker and the ranking titles are above the fold.
 
 **The picture** (`components/map/activity.ts`): the last **15 minutes** of sources, aggregated **per country**, one arc per country to home, coloured by the country's dominant sensor family, thicker for more events (log scale) and fading with age (never below 22 % inside the window). A new event sends one short dash along its arc; active sources (last minute) pulse softly. Nothing flashes, and a quiet minute still shows where traffic came from.
 
@@ -141,7 +149,7 @@ Live is the screen left running on a wall or a second monitor, so the map is the
 
 ## Today
 
-The home page at `/` (first item of Observe). Three to five cards in a two-column grid, each one the same shape: a small heading with an icon, one plain-English sentence written by `GET /today`, at most three items (each opens a filtered view), and one outlined action at the bottom. Cards are, in order: what happened in 24 h, new campaigns, act now (download servers worth blocking), new this week (first-seen networks, URLs, commands) and your exposure (only once a service inventory exists). An odd last card spans both columns. A card with nothing to report keeps its place, its sentence turns muted, and the action stays. Cards enter with the staggered `animate-card-in`.
+The home page at `/` (first item of Observe). The headline sentence, the five headline figures, the flow, the hour strip, then the stories and the to-do cards. From `2xl` the stories take two columns and the to-do cards stack in a third beside them; below that the to-do cards follow the stories in two columns. Stories and to-do cards flow in columns (no equal heights, no holes). Three to five to-do cards, each one the same shape: a small heading with an icon, one plain-English sentence written by `GET /today`, at most three items (each opens a filtered view), and one outlined action at the bottom. Cards are, in order: what happened in 24 h, new campaigns, act now (download servers worth blocking), new this week (first-seen networks, URLs, commands) and your exposure (only once a service inventory exists). A card with nothing to report keeps its place, its sentence turns muted, and the action stays. Cards enter with the staggered `animate-card-in`.
 
 - **One meta line** under the title: "Updated 17:22" (minutes, not seconds: the page refreshes every two minutes), then, if research scanners are hidden, how many sessions are left out and "Show them".
 - **Numbers say what they count**: "82 sessions", "14 sightings", "41 times" (`countUnit`), the unit in the subtle colour. A campaign row has no number: its detail line already says "37 sessions from 9 sources".
@@ -162,7 +170,7 @@ Ingest labels sessions from known, harmless crawlers (Censys, Shodan...; the lis
 
 ## Settings
 
-Read-only by design: a dashed note says settings live in `.env`. Four cards, each with a finding sentence: Sensors (Active / Quiet / Silent with icon and label; silent is a warning, never red), Enrichment (GeoIP provider, age, the required attribution text, quota meters), Data retention, Storage (database against its ceiling; red only when the disk guard is critical).
+Read-only by design: a dashed note says settings live in `.env`. Four cards, each with a finding sentence: Sensors (Active / Quiet / Silent with icon and label; silent is a warning, never red), Enrichment (GeoIP provider, age, the required attribution text, quota meters), Data retention, Storage (database against its ceiling; red only when the disk guard is critical). On the General tab the sensors list in two columns from `lg`, and Updates and Pipeline share a row.
 
 Tabs whose forms save to the server (Reporting) say so in the note instead. Each section with its own Save button shows `UnsavedHint` next to it while its fields differ from what was last saved, so a long tab never loses an edit silently.
 
@@ -185,7 +193,7 @@ A ranked list of vulnerabilities under one plain-English finding ("3 new critica
 Pages for people who act at their company: block, detect, check exposure. Each opens with a sentence that says what is ready ("44 addresses … are ready for your firewall").
 
 - **Minimum score** is always one of three presets, from `SCORE_PRESETS` in `lib/defend.ts`: **High confidence 70+**, **Balanced 50+** (the default, no `min_score` in the URL) and **Everything 20+**, each with a one-line hint. The list filter, the export and the feed-token dialog use the same control; any other `min_score` in a URL falls back to Balanced.
-- **Act before evidence.** On Blocklists the export and your overrides sit above the entries, because the entries load more as you scroll and anything under them would drift out of reach.
+- **Act before evidence.** On Blocklists the export and your overrides sit above the entries, because the entries load more as you scroll and anything under them would drift out of reach. The firewall how-to (steps, copy, feed token) opens in a side sheet from "Firewall steps", like the Network tab's how-to, so the entries start near the top of the page.
 - **Scores**: a neutral meter, orange from 70 (a warning, never red), always with the number and a word (High, Listed, Seen).
 - **Exposure cards** show their numbers as label-left, value-right rows, then one muted line (trend and last attack), so cards line up whatever the label length.
 - Kinds have a title (`label`, "IP addresses"), a singular (`singular`, "IP address") and an in-sentence form (`phrase`, "IP addresses and domains"). Never derive one from the other with string tricks.

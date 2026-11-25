@@ -190,59 +190,62 @@ export function InfrastructurePage() {
         actions={exportButtons}
       />
 
-      <FindingCard
-        className="mb-6"
-        eyebrow="Sources, indicators and malware families"
-        finding={finding?.finding ?? "Reading the infrastructure…"}
-        detail={finding?.detail}
-        action={
-          <SegmentedControl
-            label="Time window"
-            value={String(hours)}
-            onChange={(v) => setWin(v === "168" ? null : v)}
-            options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
-          />
-        }
-      >
-        {graph.isPending ? (
-          <div role="status" aria-label="Loading" className="space-y-3">
-            <Skeleton className="h-64 w-full" />
-          </div>
-        ) : graph.isError ? (
-          <EmptyState
-            variant="bare"
-            icon={SearchX}
-            title="Could not load the infrastructure"
-            description={graph.error.message}
-            action={
-              <Button variant="outline" size="sm" onClick={() => void graph.refetch()}>
-                Try again
-              </Button>
-            }
-          />
-        ) : graph.data.nodes.length === 0 ? (
-          <EmptyState
-            variant="bare"
-            icon={Network}
-            title="No infrastructure to draw yet"
-            description="When a session downloads a file or names a host, it appears here with the addresses that used it."
-          />
-        ) : (
-          <>
-            <div className="hidden md:block">
-              <FlowDiagram graph={graph.data} onOpenIndicator={open} />
+      {/* From 2xl the diagram and the control servers sit side by side, above the table. */}
+      <div className="mb-8 grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] 2xl:items-start">
+        <FindingCard
+          className="min-w-0"
+          eyebrow="Sources, indicators and malware families"
+          finding={finding?.finding ?? "Reading the infrastructure…"}
+          detail={finding?.detail}
+          action={
+            <SegmentedControl
+              label="Time window"
+              value={String(hours)}
+              onChange={(v) => setWin(v === "168" ? null : v)}
+              options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+            />
+          }
+        >
+          {graph.isPending ? (
+            <div role="status" aria-label="Loading" className="space-y-3">
+              <Skeleton className="h-64 w-full" />
             </div>
-            <div className="md:hidden">
-              <FlowList graph={graph.data} onOpenIndicator={open} />
-              <p className="mt-3 text-xs text-fg-muted">
-                The diagram needs a wider screen. The table below lists every indicator.
-              </p>
-            </div>
-          </>
-        )}
-      </FindingCard>
+          ) : graph.isError ? (
+            <EmptyState
+              variant="bare"
+              icon={SearchX}
+              title="Could not load the infrastructure"
+              description={graph.error.message}
+              action={
+                <Button variant="outline" size="sm" onClick={() => void graph.refetch()}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : graph.data.nodes.length === 0 ? (
+            <EmptyState
+              variant="bare"
+              icon={Network}
+              title="No infrastructure to draw yet"
+              description="When a session downloads a file or names a host, it appears here with the addresses that used it."
+            />
+          ) : (
+            <>
+              <div className="hidden md:block">
+                <FlowDiagram graph={graph.data} onOpenIndicator={open} />
+              </div>
+              <div className="md:hidden">
+                <FlowList graph={graph.data} onOpenIndicator={open} />
+                <p className="mt-3 text-xs text-fg-muted">
+                  The diagram needs a wider screen. The table below lists every indicator.
+                </p>
+              </div>
+            </>
+          )}
+        </FindingCard>
 
-      <C2Section />
+        <C2Section className="min-w-0" />
+      </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">

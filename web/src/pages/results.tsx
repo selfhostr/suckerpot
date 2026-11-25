@@ -24,6 +24,7 @@ import {
   type ResultFilters,
 } from "@/lib/results"
 import { describeTakedownHeader, describeTtd, shortDelay } from "@/lib/results-sentences"
+import { cn } from "@/lib/utils"
 
 /** Filters that arrive from links elsewhere (a target page, the takedown tiles). */
 const FILTER_CHIPS: FilterChipDef[] = [
@@ -170,8 +171,10 @@ export function ResultsPage() {
         />
       ) : (
         <div className="space-y-4 normal-nums">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* The four headline numbers are figures on a ruled band, not four more cards. */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-y py-3 sm:py-4 lg:grid-cols-4">
             <StatTile
+              variant="figure"
               label="Reports sent"
               value={totals?.sent}
               loading={!totals}
@@ -179,6 +182,7 @@ export function ResultsPage() {
               href="/defend/abuse?status=sent"
             />
             <StatTile
+              variant="figure"
               label="Answered"
               value={totals?.answered}
               loading={!totals}
@@ -191,11 +195,13 @@ export function ResultsPage() {
             {tracking ? (
               <>
                 <StatTile
+                  variant="figure"
                   label="Taken down within 48 h"
                   value={s.urls.down_48h}
                   hint={`of ${formatNumber(s.urls.eligible_48h)} reported URLs`}
                 />
                 <StatTile
+                  variant="figure"
                   label="Median time to takedown"
                   value={s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? s.urls.ttd_p50_s : 0}
                   format={(n) =>
@@ -207,6 +213,7 @@ export function ResultsPage() {
             ) : (
               <>
                 <StatTile
+                  variant="figure"
                   label="Median first reply"
                   value={totals?.first_reply_p50_s ?? 0}
                   loading={!totals}
@@ -214,6 +221,7 @@ export function ResultsPage() {
                   hint="From the sending time"
                 />
                 <StatTile
+                  variant="figure"
                   label="Resolved"
                   value={totals?.by_outcome.resolved ?? 0}
                   loading={!totals}
@@ -223,15 +231,34 @@ export function ResultsPage() {
             )}
           </div>
 
-          <OverTimeCard />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AnswersCard data={byAsn.data} />
-            <DelayCard data={byAsn.data} />
+          {/*
+           * The charts pair up from lg and sit three to a row from 2xl: reports over time beside
+           * who answered, then the takedown curve beside how fast and whether it helped.
+           * Every cell stretches its card, so a row ends on one line.
+           */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-flow-row-dense 2xl:grid-cols-3 [&>*]:grid [&>*]:min-w-0">
+            <div className="lg:col-span-2">
+              <OverTimeCard />
+            </div>
+            <div>
+              <AnswersCard data={byAsn.data} />
+            </div>
+            <div className={cn(tracking && "2xl:col-start-3")}>
+              <DelayCard data={byAsn.data} />
+            </div>
+            {effectWeek.isError ? null : (
+              <div
+                className={cn("lg:col-span-2", tracking ? "2xl:col-span-1 2xl:col-start-3" : "")}
+              >
+                <EffectCard week={effectWeek.data} month={effectMonth.data} />
+              </div>
+            )}
+            {tracking ? (
+              <div className="lg:col-span-2 2xl:row-span-2">
+                <CurveCard summary={s} filters={filters} />
+              </div>
+            ) : null}
           </div>
-          {effectWeek.isError ? null : (
-            <EffectCard week={effectWeek.data} month={effectMonth.data} />
-          )}
-          {tracking ? <CurveCard summary={s} filters={filters} /> : null}
           <ProvidersCard
             groups={(group === "asn" ? byAsn.data : grouped.data)?.groups}
             group={group}

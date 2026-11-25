@@ -149,7 +149,8 @@ export function TrendsPage() {
         <SensorFilter />
       </FilterBar>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* Four short top lists: two by two, then one row of four once the page is wide enough. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-4">
         <TopCard
           kind="username"
           eyebrow="Usernames tried"
@@ -192,23 +193,29 @@ export function TrendsPage() {
         />
       </div>
 
-      <FindingCard
-        className="mt-4"
-        eyebrow={`Tags over time, ${days} days`}
-        finding={tags.isPending ? "Reading tags…" : tagFinding.finding}
-        detail={tags.isPending ? undefined : tagFinding.detail}
-      >
-        <TagChart points={tags.data?.points} series={tags.data?.series} loading={tags.isPending} />
-      </FindingCard>
+      <div className="mt-4 grid grid-cols-1 gap-4 2xl:grid-cols-2">
+        <FindingCard
+          className="min-w-0"
+          eyebrow={`Tags over time, ${days} days`}
+          finding={tags.isPending ? "Reading tags…" : tagFinding.finding}
+          detail={tags.isPending ? undefined : tagFinding.detail}
+        >
+          <TagChart
+            points={tags.data?.points}
+            series={tags.data?.series}
+            loading={tags.isPending}
+          />
+        </FindingCard>
 
-      <FindingCard
-        className="mt-4"
-        eyebrow={`Day and hour, ${days} days`}
-        finding={heat.isPending ? "Looking for a rhythm…" : heatFinding.finding}
-        detail={heat.isPending ? undefined : heatFinding.detail}
-      >
-        <Heatmap cells={heat.data?.cells} offsetHours={offset} loading={heat.isPending} />
-      </FindingCard>
+        <FindingCard
+          className="min-w-0"
+          eyebrow={`Day and hour, ${days} days`}
+          finding={heat.isPending ? "Looking for a rhythm…" : heatFinding.finding}
+          detail={heat.isPending ? undefined : heatFinding.detail}
+        >
+          <Heatmap cells={heat.data?.cells} offsetHours={offset} loading={heat.isPending} />
+        </FindingCard>
+      </div>
 
       <FindingCard
         className="mt-4"

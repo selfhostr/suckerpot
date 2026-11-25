@@ -8,6 +8,7 @@ import { LoginPage } from "@/pages/login"
 import { SetPasswordPage } from "@/pages/set-password"
 import { AppShell } from "./app-shell"
 import { RequireAuth } from "./auth"
+import type { RouteHandle } from "./page-width"
 
 // Heavy pages (charts, terminal emulator, virtualised feeds) load on demand.
 const OverviewPage = lazy(() =>
@@ -103,13 +104,19 @@ export const router = createBrowserRouter(
   { basename: import.meta.env.BASE_URL.replace(/\/$/, "") || undefined },
 )
 
-function appRoutes(): RouteObject {
+/**
+ * Every page declares how wide it may grow (`handle.width`, see page-width.ts): lists, hubs and
+ * dashboards are "wide", Live is "full", and anything without a width (Settings, setup and every
+ * detail page) is a "prose" reading page.
+ */
+export function appRoutes(): RouteObject {
   return {
     element: <AppShell />,
     errorElement: <RouteError />,
     children: [
       {
         index: true,
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <TodayPage />
@@ -118,6 +125,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "live",
+        handle: { width: "full" } satisfies RouteHandle,
         element: (
           <Lazy>
             <LivePage />
@@ -126,13 +134,18 @@ function appRoutes(): RouteObject {
       },
       {
         path: "overview",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <OverviewPage />
           </Lazy>
         ),
       },
-      { path: "attacks", element: <AttacksPage /> },
+      {
+        path: "attacks",
+        handle: { width: "wide" } satisfies RouteHandle,
+        element: <AttacksPage />,
+      },
       {
         path: "attacks/:sessionId",
         element: (
@@ -143,6 +156,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "attackers",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <AttackersPage />
@@ -151,6 +165,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "networks",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <NetworksPage />
@@ -167,6 +182,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "trends",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <TrendsPage />
@@ -175,6 +191,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "malware",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <MalwarePage />
@@ -183,6 +200,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "cves",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <CvesPage />
@@ -191,6 +209,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "infrastructure",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <InfrastructurePage />
@@ -199,6 +218,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "settings",
+        handle: { width: "prose" } satisfies RouteHandle,
         element: (
           <Lazy>
             <SettingsPage />
@@ -227,6 +247,7 @@ function appRoutes(): RouteObject {
         : []),
       {
         path: "campaigns",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <CampaignsPage />
@@ -243,6 +264,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "techniques",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <TechniquesPage />
@@ -259,6 +281,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "scripts",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <ScriptsPage />
@@ -275,6 +298,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "defend/blocklists",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <BlocklistsPage />
@@ -283,6 +307,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "defend/detections",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <DetectionsPage />
@@ -291,6 +316,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "defend/exposure",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <ExposurePage />
@@ -299,6 +325,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "defend/alerts",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <AlertsPage />
@@ -307,6 +334,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "defend/abuse",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <AbusePage />
@@ -323,6 +351,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "defend/results",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <ResultsPage />
@@ -339,6 +368,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "network",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <NetworkPage />
@@ -347,6 +377,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "network/members",
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <NetworkMembersPage />

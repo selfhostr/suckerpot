@@ -1,6 +1,6 @@
 import { Menu } from "lucide-react"
 import { useState } from "react"
-import { Link, Outlet, ScrollRestoration, useLocation } from "react-router"
+import { Link, Outlet, ScrollRestoration, useLocation, useMatches } from "react-router"
 import { LiveIndicator } from "@/components/live-indicator"
 import { PipelineBanner } from "@/components/pipeline-banner"
 import { MaskToggle } from "@/components/mask-toggle"
@@ -24,6 +24,7 @@ import { AccountMenu } from "./account-menu"
 import { Logo } from "./logo"
 import { HubTabs } from "@/components/hub-tabs"
 import { NAV, NAV_ITEMS, hubForPath, itemForPath } from "./nav"
+import { PAGE_WIDTH_CLASS, pageWidth } from "./page-width"
 import { TourProvider } from "./tour"
 import { useLiveStatus } from "./use-live-status"
 
@@ -145,6 +146,7 @@ export function AppShell() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   const hub = hubForPath(pathname)
+  const width = pageWidth(useMatches())
   const { status, detail: liveDetail } = useLiveStatus()
 
   return (
@@ -226,10 +228,13 @@ export function AppShell() {
               </div>
             </div>
             <div
+              data-page-width={width}
               className={cn(
-                "mx-auto w-full px-4 pt-6 pb-16 sm:px-6 lg:px-10 lg:pt-8",
-                // Live is the wall screen: its map uses the whole width. Other pages stay readable.
-                pathname.startsWith("/live") ? "max-w-[2400px]" : "max-w-[1200px]",
+                // Same gutters on every page; only the cap changes (route table, `handle.width`).
+                // Wide and full pages fill the 1680 px content area of a 1920 px screen alike, so
+                // leaving Live for a list moves nothing.
+                "mx-auto w-full px-4 pt-5 pb-12 sm:px-6 lg:px-10 lg:pt-7",
+                PAGE_WIDTH_CLASS[width],
               )}
             >
               {/* A new route fades in softly (off under reduced motion and for screenshots). */}

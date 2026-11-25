@@ -122,13 +122,15 @@ function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolea
           <Failed />
         </div>
       ) : (
-        <ul aria-label="Sensors" className="divide-y border-t">
+        // Two columns from lg: twelve sensors take six rows instead of twelve. Each row draws its
+        // own top rule (none on the first row), and the left column a rule on its right.
+        <ul aria-label="Sensors" className="grid grid-cols-1 border-t lg:grid-cols-2">
           {data.sensors.map((s) => {
             const state = SENSOR_STATE[s.status]
             return (
               <li
                 key={s.sensor}
-                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 px-4 py-3 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5"
+                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 lg:odd:border-r lg:[&:nth-child(2)]:border-t-0"
               >
                 <SensorBadge sensor={s.sensor} className="justify-self-start" />
                 <StateLabel {...state} />
@@ -443,9 +445,11 @@ export function SettingsPage() {
         <TabsContent value="general" className="grid grid-cols-1 gap-4">
           <SetupResumeCard />
           <SetupChecklistCard />
-          <UpdatesCard />
           <SensorsCard data={q.data} loading={q.isPending} />
-          <PipelineCard />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <UpdatesCard />
+            <PipelineCard />
+          </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <StorageCard data={q.data} loading={q.isPending} />
             <RetentionCard data={q.data} loading={q.isPending} />

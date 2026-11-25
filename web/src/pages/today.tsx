@@ -25,6 +25,7 @@ import {
   type StoryResponse,
 } from "@/lib/story"
 import { todayApi, todayKeys } from "@/lib/today"
+import { cn } from "@/lib/utils"
 
 const HOURS = 24
 
@@ -39,43 +40,69 @@ function Section({
   title,
   finding,
   children,
+  className,
 }: {
   id: string
   title: string
   finding: React.ReactNode
   children: React.ReactNode
+  className?: string
 }) {
   return (
-    <section aria-labelledby={id} className="mt-10">
+    <section aria-labelledby={id} className={cn("mt-8", className)}>
       <h2 id={id} className="text-xs font-medium text-fg-muted">
         {title}
       </h2>
-      <p className="mt-1.5 mb-4 max-w-3xl text-base text-pretty text-fg">{finding}</p>
+      <p className="mt-1 mb-3 max-w-3xl text-base text-pretty text-fg">{finding}</p>
       {children}
     </section>
   )
 }
 
+/** The five headline numbers: a ruled band of figures, so they read before any card. */
+const FIGURES =
+  "grid grid-cols-2 gap-x-6 gap-y-3 border-y py-3 sm:grid-cols-3 sm:py-4 lg:grid-cols-5"
+
+/**
+ * Cards of uneven height (stories, to-do cards) flow in columns instead of rows, so a short card
+ * never leaves a hole beside a tall one. Reading order runs down each column.
+ */
+const FLOW_COLUMNS = "-mb-4 gap-4 [&>*]:mb-4 [&>*]:break-inside-avoid"
+
 function Numbers({ story }: { story: StoryResponse }) {
   const t = story.totals
   const hrefOf = (key: string) => story.flow.nodes.find((n) => n.id === `stage:${key}`)?.href
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div className={FIGURES}>
       <StatTile
+        variant="figure"
         label="Visits"
         value={t.sessions}
         href={withWindow("/attacks", windowSince(story.as_of, story.hours))}
         hint="Doors knocked on"
-        className="col-span-2 sm:col-span-1"
       />
-      <StatTile label="Machines" value={t.sources} href="/attackers" hint="Different senders" />
-      <StatTile label="Countries" value={t.countries} hint="They came from" />
-      <StatTile label="Got in" value={t.got_in} href={hrefOf("got_in")} hint="A password worked" />
       <StatTile
+        variant="figure"
+        label="Machines"
+        value={t.sources}
+        href="/attackers"
+        hint="Different senders"
+      />
+      <StatTile variant="figure" label="Countries" value={t.countries} hint="They came from" />
+      <StatTile
+        variant="figure"
+        label="Got in"
+        value={t.got_in}
+        href={hrefOf("got_in")}
+        hint="A password worked"
+      />
+      <StatTile
+        variant="figure"
         label="Tried to install"
         value={t.downloads}
         href={hrefOf("download")}
         hint="A program, usually malware"
+        className="col-span-2 sm:col-span-1"
       />
     </div>
   )
@@ -85,9 +112,9 @@ function StoryLoading() {
   return (
     <div role="status" aria-label="Loading" className="space-y-8">
       <Skeleton className="h-6 w-3/4" />
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className={FIGURES}>
         {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-24" />
+          <Skeleton key={i} className="h-16" />
         ))}
       </div>
       <Skeleton className="h-80 w-full" />
@@ -110,7 +137,7 @@ function useToday() {
 }
 
 /** What to do about it: the cards of GET /today that are about action, not about the past. */
-function ToDo() {
+function ToDo({ className }: { className?: string }) {
   const query = useToday()
   if (query.isError) return null
   const cards = query.data?.cards.filter((c) => c.id !== "happened") ?? []
@@ -120,23 +147,21 @@ function ToDo() {
       id="todo"
       title="What you can do about it"
       finding="The short list: what to block, what is new, and what you expose."
+      className={className}
     >
       {query.isPending ? (
-        <div role="status" aria-label="Loading" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div
+          role="status"
+          aria-label="Loading"
+          className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-1"
+        >
           <TodayCardSkeleton />
           <TodayCardSkeleton />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className={cn("lg:columns-2 2xl:columns-1", FLOW_COLUMNS)}>
           {cards.map((card, i) => (
-            <TodayCard
-              key={card.id}
-              card={card}
-              index={i}
-              className={
-                i === cards.length - 1 && cards.length % 2 === 1 ? "lg:col-span-2" : undefined
-              }
-            />
+            <TodayCard key={card.id} card={card} index={i} />
           ))}
         </div>
       )}
@@ -222,48 +247,53 @@ export function TodayPage() {
               </>
             ) : null}
           </p>
-          <div className="mt-6">
+          <div className="mt-5">
             <Numbers story={story} />
           </div>
 
-          <Section
-            id="flow"
-            title="Where they come from, which door they knock on, how far they got"
-            finding={flowFinding(story.totals)}
-          >
-            <div className="rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
-              <StoryFlow flow={story.flow} />
-              <div className="mt-6 border-t pt-4">
-                <StageLegend />
-              </div>
+          {/* From 2xl the page has three columns: the story in two, what to do in the third. */}
+          <div className="2xl:grid 2xl:grid-cols-3 2xl:gap-x-6">
+            <div className="min-w-0 2xl:col-span-2">
+              <Section
+                id="flow"
+                title="Where they come from, which door they knock on, how far they got"
+                finding={flowFinding(story.totals)}
+              >
+                <div className="rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
+                  <StoryFlow flow={story.flow} />
+                  <div className="mt-6 border-t pt-4">
+                    <StageLegend />
+                  </div>
+                </div>
+              </Section>
+
+              <Section
+                id="hours"
+                title="Hour by hour"
+                finding={`The busiest hour is picked below. Drag, click or use the arrow keys to look at another one.`}
+              >
+                <div className="rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
+                  <TimelineScrubber timeline={story.timeline} />
+                </div>
+              </Section>
+
+              {story.stories.length > 0 ? (
+                <Section
+                  id="stories"
+                  title="Stories of the day"
+                  finding={`${plural(story.stories.length, "visit")} worth a closer look, the most serious first.`}
+                >
+                  <div className={cn("lg:columns-2", FLOW_COLUMNS)}>
+                    {story.stories.map((s, i) => (
+                      <StoryCard key={s.session_id} story={s} index={i} />
+                    ))}
+                  </div>
+                </Section>
+              ) : null}
             </div>
-          </Section>
 
-          <Section
-            id="hours"
-            title="Hour by hour"
-            finding={`The busiest hour is picked below. Drag, click or use the arrow keys to look at another one.`}
-          >
-            <div className="rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
-              <TimelineScrubber timeline={story.timeline} />
-            </div>
-          </Section>
-
-          {story.stories.length > 0 ? (
-            <Section
-              id="stories"
-              title="Stories of the day"
-              finding={`${plural(story.stories.length, "visit")} worth a closer look, the most serious first.`}
-            >
-              <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-                {story.stories.map((s, i) => (
-                  <StoryCard key={s.session_id} story={s} index={i} />
-                ))}
-              </div>
-            </Section>
-          ) : null}
-
-          <ToDo />
+            <ToDo className="min-w-0" />
+          </div>
         </>
       )}
     </>

@@ -152,7 +152,7 @@ function C2Row({ item }: { item: C2Address }) {
 }
 
 /** Addresses that malware dropped on the decoys is said to contact. Text only, never a link. */
-export function C2Section() {
+export function C2Section({ className }: { className?: string }) {
   const query = useInfiniteQuery({
     queryKey: queryKeys.c2(),
     queryFn: ({ pageParam }) => api.c2(pageParam, PAGE_SIZE),
@@ -165,7 +165,7 @@ export function C2Section() {
     : "Looking for control servers of the malware dropped here…"
 
   return (
-    <section aria-labelledby="c2-heading" className="mb-8">
+    <section aria-labelledby="c2-heading" className={className}>
       <div className="mb-3 space-y-1">
         <h2 id="c2-heading" className="text-sm font-medium text-fg">
           Probable <Explain term="c2">C2</Explain>

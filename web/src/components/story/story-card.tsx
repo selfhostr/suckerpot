@@ -45,7 +45,7 @@ function StepPath({ steps }: { steps: StoryItem["steps"] }) {
     reduced || motionFrozen() || typeof IntersectionObserver === "undefined",
   )
   return (
-    <ol ref={ref} aria-label="What it did, step by step" className="relative space-y-3">
+    <ol ref={ref} aria-label="What it did, step by step" className="relative space-y-2">
       {steps.map((s, i) => {
         const meta = stepMeta(s.kind)
         const Icon = meta.icon
@@ -61,7 +61,7 @@ function StepPath({ steps }: { steps: StoryItem["steps"] }) {
             {i < steps.length - 1 ? (
               <span
                 aria-hidden
-                className="absolute top-8 left-[15px] h-[calc(100%-1rem)] w-px bg-border-strong"
+                className="absolute top-8 left-[15px] h-[calc(100%-1.5rem)] w-px bg-border-strong"
               />
             ) : null}
             <span
@@ -174,28 +174,29 @@ export function StoryCard({ story, index = 0 }: { story: StoryItem; index?: numb
           <CountryFlag code={story.country} showName />
           <IPChip ip={story.src_ip} />
         </div>
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={detailId}
-          onClick={() => setOpen((v) => !v)}
-          className="mt-4 inline-flex min-h-9 items-center gap-1.5 self-start rounded-sm text-sm text-fg-muted hover:text-fg"
-        >
-          <ChevronDown
-            aria-hidden
-            className={cn("size-4 transition-transform duration-150", open && "rotate-180")}
-          />
-          Technical details
-        </button>
-        {open ? <Technical story={story} id={detailId} /> : null}
-        <div className="mt-auto pt-4">
+        {/* Both ways in share one row: the session for everyone, the details for the expert. */}
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-4">
           <Button asChild variant="outline" size="sm">
             <Link to={story.href}>
               Open the full session
               <ArrowRight aria-hidden />
             </Link>
           </Button>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={detailId}
+            onClick={() => setOpen((v) => !v)}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-sm text-sm text-fg-muted hover:text-fg"
+          >
+            <ChevronDown
+              aria-hidden
+              className={cn("size-4 transition-transform duration-150", open && "rotate-180")}
+            />
+            Technical details
+          </button>
         </div>
+        {open ? <Technical story={story} id={detailId} /> : null}
       </div>
     </Card>
   )

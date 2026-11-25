@@ -37,6 +37,11 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
 
+  /* Page widths (src/app/page-width.ts), gutters included: reading pages, lists and hubs, Live. */
+  --container-page-prose: 75rem;
+  --container-page-wide: 105rem;
+  --container-page-full: 150rem;
+
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
   --animate-slide-in: slide-in 250ms cubic-bezier(0.22, 1, 0.36, 1) both;

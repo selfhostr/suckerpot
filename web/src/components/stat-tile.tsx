@@ -23,6 +23,12 @@ interface StatTileProps {
   unitShort?: string
   /** Makes the whole tile a link (e.g. to the filtered list). */
   href?: string
+  /**
+   * `card` (default) is the bordered KPI tile. `figure` drops the card: no border or fill and a
+   * larger value, for the few headline numbers that open a page (Today, Results), so they read
+   * before the cards around them.
+   */
+  variant?: "card" | "figure"
   className?: string
 }
 
@@ -43,8 +49,10 @@ export function StatTile({
   unit,
   unitShort,
   href,
+  variant = "card",
   className,
 }: StatTileProps) {
+  const figure = variant === "figure"
   const meta = sensor ? sensorMeta(sensor) : null
   const SensorIcon = meta?.icon
   const DeltaIcon =
@@ -66,13 +74,16 @@ export function StatTile({
         {label}
       </div>
       {loading || value == null ? (
-        <Skeleton className="h-8 w-24" />
+        <Skeleton className={cn("w-24", figure ? "h-10" : "h-8")} />
       ) : (
         <span className="flex items-baseline gap-1.5">
           <AnimatedNumber
             value={value}
             format={format}
-            className="text-2xl font-semibold tracking-tight text-fg"
+            className={cn(
+              "font-semibold tracking-tight text-fg",
+              figure ? "text-2xl sm:text-3xl" : "text-2xl",
+            )}
           />
           {unit ? (
             <span className="text-xs text-fg-muted">
@@ -107,7 +118,10 @@ export function StatTile({
   )
 
   const classes = cn(
-    "flex min-w-0 flex-col gap-3 rounded-lg border bg-surface p-4 shadow-sm sm:p-5",
+    figure
+      ? // A little inner room, so a linked figure's hover fill does not touch the text.
+        "-mx-2 flex min-w-0 flex-col gap-1.5 rounded-md px-2 py-1.5"
+      : "flex min-w-0 flex-col gap-3 rounded-lg border bg-surface p-4 shadow-sm sm:p-5",
     href && "transition-colors duration-150 hover:bg-surface-hover/50",
     className,
   )

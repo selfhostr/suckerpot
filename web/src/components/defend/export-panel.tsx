@@ -1,16 +1,13 @@
-import { Download } from "lucide-react"
+import { Download, ListOrdered } from "lucide-react"
 import { useState } from "react"
 import { Link } from "react-router"
-import { CopyButton } from "@/components/defend/copy-button"
+import { FirewallStepsSheet } from "@/components/defend/firewall-steps-sheet"
 import { FindingCard } from "@/components/finding-card"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
 import {
   BLOCK_KINDS,
   exportUrl,
-  firewallInstructions,
-  FIREWALL_LABEL,
-  instructionsText,
   DEFAULT_MIN_SCORE,
   HIGH_SCORE,
   KIND_META,
@@ -19,7 +16,6 @@ import {
   scorePreset,
   type BlockKind,
   type DefendSummary,
-  type Firewall,
 } from "@/lib/defend"
 import { formatNumber } from "@/lib/format"
 
@@ -39,7 +35,7 @@ export function ExportPanel({
   const [kind, setKind] = useState<BlockKind>(initialKind)
   const [format, setFormat] = useState<Format>("txt")
   const [minScore, setMinScore] = useState<number>(initialScore)
-  const [firewall, setFirewall] = useState<Firewall>("opnsense")
+  const [stepsOpen, setStepsOpen] = useState(false)
 
   const effectiveFormat: Format = kind === "ip" ? format : format === "alias" ? "txt" : format
   const href = exportUrl({ kind, format: effectiveFormat, minScore })
@@ -53,8 +49,6 @@ export function ExportPanel({
         : counts.total
     : null
   const countPrefix = minScore >= LISTED_SCORE ? "About" : "Up to"
-  const feed = `${window.location.origin}/feeds/<your-token>/${kind}.txt`
-  const steps = firewallInstructions(firewall, feed)
 
   const formatOptions: { value: Format; label: string }[] = [
     { value: "txt", label: "Plain list" },
@@ -69,7 +63,7 @@ export function ExportPanel({
         finding="Download a list, or point your firewall at it so it stays current."
         detail="Entries you always allow and research scanners are left out. Demo entries are never exported."
       >
-        <div className="space-y-5">
+        <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-fg-muted">What</p>
@@ -118,44 +112,37 @@ export function ExportPanel({
             ) : null}
           </div>
 
-          <div className="space-y-3 border-t pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* The firewall how-to is read once: it opens in a side sheet, so the entries below
+              stay close to the top of the page. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-4">
+            <div className="min-w-0">
               <h4 className="text-sm font-medium text-fg">Keep a firewall up to date</h4>
-              <SegmentedControl
-                label="Firewall"
-                value={firewall}
-                onChange={setFirewall}
-                options={(["opnsense", "pfsense"] as const).map((f) => ({
-                  value: f,
-                  label: FIREWALL_LABEL[f],
-                }))}
-              />
+              <p className="text-xs text-fg-muted">
+                Point OPNsense or pfSense at a feed instead of downloading again.
+              </p>
             </div>
-            <ol className="list-decimal space-y-1.5 pl-5 text-sm text-fg-muted marker:text-fg-subtle">
-              {steps.map((s) => (
-                <li key={s} className="pl-1 break-words">
-                  {s}
-                </li>
-              ))}
-            </ol>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <CopyButton
+              <Button
+                type="button"
                 variant="outline"
-                text={instructionsText(firewall, feed)}
-                label="Copy firewall instructions"
+                size="sm"
+                aria-haspopup="dialog"
+                onClick={() => setStepsOpen(true)}
               >
-                Copy firewall instructions
-              </CopyButton>
+                <ListOrdered aria-hidden />
+                Firewall steps
+              </Button>
               <Link
                 to="/settings?tab=feeds"
                 className="text-sm text-fg underline underline-offset-4 hover:text-fg-muted"
               >
-                Create a feed token in Settings
+                Create a feed token
               </Link>
             </div>
           </div>
         </div>
       </FindingCard>
+      <FirewallStepsSheet open={stepsOpen} onOpenChange={setStepsOpen} kind={kind} />
     </div>
   )
 }
