@@ -85,12 +85,12 @@ describe("search palette", () => {
     mount()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     await user.keyboard("{Control>}k{/Control}")
-    expect(screen.getByRole("dialog", { name: "Search" })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible()
     await user.keyboard("{Escape}")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Search" }))
-    expect(screen.getByRole("dialog")).toBeVisible()
+    expect(await screen.findByRole("dialog")).toBeVisible()
     expect(screen.getByRole("combobox", { name: "Search" })).toHaveFocus()
   })
 
@@ -98,13 +98,14 @@ describe("search palette", () => {
     const user = userEvent.setup()
     mount()
     await user.keyboard("{Meta>}k{/Meta}")
-    expect(screen.getByRole("dialog")).toBeVisible()
+    expect(await screen.findByRole("dialog")).toBeVisible()
   })
 
   it("waits for two characters, then shows grouped hits and opens one with Enter", async () => {
     const user = userEvent.setup()
     mount()
     await user.keyboard("{Control>}k{/Control}")
+    await screen.findByRole("combobox", { name: "Search" })
     await user.keyboard("2")
     expect(screen.getByText(/Type at least two characters/)).toBeInTheDocument()
     expect(search).not.toHaveBeenCalled()
@@ -123,6 +124,7 @@ describe("search palette", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     // The next time, the search is offered again.
     await user.keyboard("{Control>}k{/Control}")
+    await screen.findByRole("combobox", { name: "Search" })
     expect(await screen.findByText("203.0.113.7", { selector: "span" })).toBeInTheDocument()
   })
 
@@ -131,6 +133,7 @@ describe("search palette", () => {
     const user = userEvent.setup()
     mount()
     await user.keyboard("{Control>}k{/Control}")
+    await screen.findByRole("combobox", { name: "Search" })
     await user.keyboard("zzzz")
     expect(await screen.findByText(/Nothing matches/)).toBeInTheDocument()
   })
@@ -140,6 +143,7 @@ describe("search palette", () => {
     const user = userEvent.setup()
     mount()
     await user.keyboard("{Control>}k{/Control}")
+    await screen.findByRole("combobox", { name: "Search" })
     await user.keyboard("203.0.113.7")
     await screen.findByText("Addresses")
     expect(screen.getByText("203.0.x.x")).toBeInTheDocument()

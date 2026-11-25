@@ -1,9 +1,22 @@
 /* eslint-disable react-refresh/only-export-components -- the provider and its hook belong together. */
-import { createContext, use, useCallback, useEffect, useMemo, useState } from "react"
+import {
+  Suspense,
+  createContext,
+  lazy,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import { useWizardProgress } from "@/hooks/use-wizard-progress"
-import { TourDialog } from "@/components/tour/tour-dialog"
 import { hasSeenTour, markTourSeen } from "@/lib/tour"
 import { useAuth } from "./auth"
+
+// Fetched the first time the tour opens, with its illustrations.
+const TourDialog = lazy(() =>
+  import("@/components/tour/tour-dialog").then((m) => ({ default: m.TourDialog })),
+)
 
 interface TourState {
   open: boolean
@@ -24,6 +37,8 @@ export function useTour(): TourState {
 export function TourProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
+  const [everOpened, setEverOpened] = useState(false)
+  if (open && !everOpened) setEverOpened(true)
   const username = user && !user.must_change_password ? user.username : null
   // An administrator with an unfinished setup is offered the tour at the end of the setup instead.
   const { canWrite } = useAuth()
@@ -43,7 +58,11 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
   return (
     <TourContext value={value}>
       {children}
-      <TourDialog open={open} onOpenChange={setOpen} />
+      {everOpened ? (
+        <Suspense fallback={null}>
+          <TourDialog open={open} onOpenChange={setOpen} />
+        </Suspense>
+      ) : null}
     </TourContext>
   )
 }

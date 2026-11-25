@@ -2,10 +2,7 @@
 import { Suspense, lazy } from "react"
 import { createBrowserRouter, type RouteObject } from "react-router"
 import { PageSkeleton } from "@/components/skeletons"
-import { AttacksPage } from "@/pages/attacks"
 import { NotFoundPage, RouteError } from "@/pages/not-found"
-import { LoginPage } from "@/pages/login"
-import { SetPasswordPage } from "@/pages/set-password"
 import { AppShell } from "./app-shell"
 import { RequireAuth } from "./auth"
 import type { RouteHandle } from "./page-width"
@@ -36,6 +33,12 @@ const InfrastructurePage = lazy(() =>
 )
 const SettingsPage = lazy(() =>
   import("@/pages/settings").then((m) => ({ default: m.SettingsPage })),
+)
+const AttacksPage = lazy(() => import("@/pages/attacks").then((m) => ({ default: m.AttacksPage })))
+// Signed-out screens: not needed when a session already exists.
+const LoginPage = lazy(() => import("@/pages/login").then((m) => ({ default: m.LoginPage })))
+const SetPasswordPage = lazy(() =>
+  import("@/pages/set-password").then((m) => ({ default: m.SetPasswordPage })),
 )
 const SetupPage = lazy(() => import("@/pages/setup").then((m) => ({ default: m.SetupPage })))
 // The styleguide is for development and the mock builds only. Both flags are replaced by constants
@@ -92,8 +95,22 @@ function Lazy({ children }: { children: React.ReactNode }) {
 
 export const router = createBrowserRouter(
   [
-    { path: "login", element: <LoginPage /> },
-    { path: "set-password", element: <SetPasswordPage /> },
+    {
+      path: "login",
+      element: (
+        <Suspense fallback={null}>
+          <LoginPage />
+        </Suspense>
+      ),
+    },
+    {
+      path: "set-password",
+      element: (
+        <Suspense fallback={null}>
+          <SetPasswordPage />
+        </Suspense>
+      ),
+    },
     {
       element: <RequireAuth />,
       errorElement: <RouteError />,
@@ -144,7 +161,11 @@ export function appRoutes(): RouteObject {
       {
         path: "attacks",
         handle: { width: "wide" } satisfies RouteHandle,
-        element: <AttacksPage />,
+        element: (
+          <Lazy>
+            <AttacksPage />
+          </Lazy>
+        ),
       },
       {
         path: "attacks/:sessionId",
