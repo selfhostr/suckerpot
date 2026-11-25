@@ -64,7 +64,7 @@ export function LiveMap({
       <div className={cn("relative min-h-0", mapClassName)}>
         {!home ? (
           <div className="flex size-full items-center justify-center" aria-hidden>
-            <div className="h-2/3 w-5/6 animate-pulse rounded-lg bg-accent" />
+            <div className="skeleton h-2/3 w-5/6 rounded-lg" />
           </div>
         ) : (
           <WorldMap

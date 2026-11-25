@@ -1,9 +1,11 @@
-import { memo } from "react"
+import { memo, useRef } from "react"
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { BarFill } from "@/components/bar-fill"
 import { CountryFlag } from "@/components/country-flag"
 import { FindingCard } from "@/components/finding-card"
 import type { Leader, Leaders, Source } from "@/components/map/activity"
+import { useReorderMotion } from "@/hooks/use-reorder-motion"
 import { countryName, formatNumber, formatPercent, maskIp, plural } from "@/lib/format"
 import { addressFinding, countryFinding, networkFinding } from "@/lib/live-stats"
 import { SENSOR_META, type Sensor } from "@/lib/sensors"
@@ -51,14 +53,20 @@ function RankList({
   onFocusChange: (country: string | null) => void
   empty: string
 }) {
+  // A new ranking glides into place instead of reshuffling at once.
+  const listRef = useRef<HTMLOListElement>(null)
+  useReorderMotion(
+    listRef,
+    rows.map((r) => r.key),
+  )
   if (!rows.length) return <p className="py-6 text-sm text-fg-muted">{empty}</p>
   const max = Math.max(...rows.map((r) => r.share), 0.0001)
   return (
-    <ol aria-label={label} className="-mx-2 space-y-0.5">
+    <ol ref={listRef} aria-label={label} className="-mx-2 space-y-0.5">
       {rows.map((r, i) => {
         const sensorNames = r.sensors.map((s) => SENSOR_META[s].label).join(", ")
         return (
-          <li key={r.key}>
+          <li key={r.key} data-flip={r.key}>
             <Link
               to={r.href}
               aria-label={`${r.name}: ${plural(r.events, "event")}, ${formatPercent(r.share)}${sensorNames ? `, on ${sensorNames}` : ""}. Open these attacks`}
@@ -94,12 +102,9 @@ function RankList({
               </span>
               <span
                 aria-hidden
-                className="absolute inset-x-2 bottom-0.5 h-0.5 rounded-full bg-border-strong/30"
+                className="absolute inset-x-2 bottom-0.5 h-0.5 overflow-hidden rounded-full bg-border-strong/30"
               >
-                <span
-                  className="block h-full rounded-full bg-fg-subtle/60 transition-[width] duration-300"
-                  style={{ width: `${(r.share / max) * 100}%` }}
-                />
+                <BarFill ratio={r.share / max} className="bg-fg-subtle/60" />
               </span>
             </Link>
           </li>

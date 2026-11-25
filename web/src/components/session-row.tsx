@@ -1,4 +1,5 @@
 import { Link } from "react-router"
+import { markSubject, subjectProps } from "@/app/view-transitions"
 import { CountryFlag } from "@/components/country-flag"
 import { FloodBadge } from "@/components/flood-badge"
 import { IPChip } from "@/components/ip-chip"
@@ -83,9 +84,11 @@ export function SessionRow({
             : "md:grid-cols-[5.5rem_minmax(0,1fr)_auto_6rem] md:gap-x-4"),
         className,
       )}
+      data-vt-row
     >
       <Link
         to={`/attacks/${encodeURIComponent(session.session_id)}`}
+        onClick={(e) => markSubject(`session:${session.session_id}`, e)}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
         aria-label={
           flood
@@ -95,7 +98,9 @@ export function SessionRow({
       />
       {/* Mobile (< md): two lines. Badge, address and time first; the story below. */}
       <div className={cn("flex min-w-0 items-center gap-2.5", !compact && "md:hidden")}>
-        <SensorBadge sensor={session.sensor} />
+        <span {...subjectProps(`session:${session.session_id}`)} className="inline-flex shrink-0">
+          <SensorBadge sensor={session.sensor} />
+        </span>
         {showSource ? (
           <>
             <IPChip
@@ -158,7 +163,12 @@ function DesktopLine({
   return (
     <>
       {/* Desktop: one line. */}
-      <SensorBadge sensor={session.sensor} className="hidden justify-self-start md:inline-flex" />
+      <span
+        {...subjectProps(`session:${session.session_id}`)}
+        className="hidden justify-self-start md:inline-flex"
+      >
+        <SensorBadge sensor={session.sensor} />
+      </span>
       {columns ? (
         <>
           <div className="hidden min-w-0 flex-col items-start gap-0.5 md:flex">

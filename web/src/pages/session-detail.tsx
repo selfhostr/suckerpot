@@ -4,6 +4,7 @@ import { ArrowLeft, FileQuestion, TerminalSquare } from "lucide-react"
 import { lazy, Suspense, useMemo, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { subjectProps } from "@/app/view-transitions"
 import { Term } from "@/components/term"
 import { CountryFlag } from "@/components/country-flag"
 import { CampaignChip } from "@/components/campaigns/campaign-chip"
@@ -168,7 +169,9 @@ export function SessionDetailPage() {
         {s ? (
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <SensorBadge sensor={s.sensor} />
+              <span {...subjectProps(`session:${sessionId}`)} className="inline-flex">
+                <SensorBadge sensor={s.sensor} />
+              </span>
               {flood ? <FloodBadge connections={connectionsOf(s)} /> : null}
               <SeverityBadge severity={sessionSeverity(s)} />
               {s.tags.map((t) => (

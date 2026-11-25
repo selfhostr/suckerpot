@@ -8,6 +8,7 @@ import { CountryFlag } from "@/components/country-flag"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
 import { FloodFilter } from "@/components/flood-filter"
+import { NewRowsPill } from "@/components/new-rows-pill"
 import { PageHeader } from "@/components/page-header"
 import { StickyFilters } from "@/components/sticky-filters"
 import {
@@ -21,6 +22,7 @@ import {
 import { SESSION_COLUMNS_GRID, SessionRow } from "@/components/session-row"
 import { SkeletonList, SkeletonRow } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
+import { useNewSessions } from "@/hooks/use-new-sessions"
 import { api, queryKeys, type SessionFilters } from "@/lib/api"
 import { useIpMask } from "@/app/ip-mask"
 import {
@@ -148,6 +150,13 @@ export function AttacksPage() {
   const lastIndex = items.at(-1)?.index ?? -1
 
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
+  // New sessions slide in at the top, or wait behind a pill once the reader has scrolled down.
+  const arrivals = useNewSessions({
+    filters,
+    rows,
+    ready: query.isSuccess,
+    listTop: scrollMargin,
+  })
   useEffect(() => {
     if (lastIndex >= rows.length - 10 && hasNextPage && !isFetchingNextPage) {
       void fetchNextPage()
@@ -242,6 +251,12 @@ export function AttacksPage() {
           </FilterBar>
         }
       >
+        <NewRowsPill
+          count={arrivals.pending}
+          more={arrivals.more}
+          noun="session"
+          onShow={arrivals.show}
+        />
         <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
           <div
             className={cn(
@@ -292,6 +307,7 @@ export function AttacksPage() {
               role="list"
               aria-label="Sessions"
               aria-busy={isFetchingNextPage}
+              data-arriving={arrivals.gliding ? "" : undefined}
               className="relative w-full"
               style={{ height: virtualizer.getTotalSize() }}
             >
@@ -308,7 +324,17 @@ export function AttacksPage() {
                       transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
                     }}
                   >
-                    {session ? <SessionRow session={session} layout="columns" /> : <SkeletonRow />}
+                    {session ? (
+                      <SessionRow
+                        session={session}
+                        layout="columns"
+                        className={
+                          arrivals.arriving.has(session.session_id) ? "animate-slide-in" : undefined
+                        }
+                      />
+                    ) : (
+                      <SkeletonRow />
+                    )}
                   </div>
                 )
               })}

@@ -1,5 +1,9 @@
+import { useRef } from "react"
 import { Link } from "react-router"
+import { AnimatedNumber } from "@/components/animated-number"
+import { BarFill } from "@/components/bar-fill"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useReorderMotion } from "@/hooks/use-reorder-motion"
 import { formatNumber, formatPercent } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -36,9 +40,26 @@ function shareLabel(share: number): string {
   return share > 0 && share < 0.005 ? "<1%" : formatPercent(share)
 }
 
+/** Same footprint as a row: rank, label, count and share, the bar underneath. */
+function TopListSkeleton({ rows, className }: { rows: number; className?: string }) {
+  return (
+    <div role="status" aria-label="Loading" className={cn("space-y-1", className)}>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} aria-hidden className="relative flex items-center gap-3 px-2 pt-1.5 pb-2.5">
+          <Skeleton className="h-2.5 w-3 shrink-0" />
+          <Skeleton className="h-3.5 flex-1" style={{ maxWidth: `${72 - i * 9}%` }} />
+          <Skeleton className="ml-auto h-3.5 w-10 shrink-0" />
+          <Skeleton className="h-3 w-8 shrink-0" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /**
  * A ranked list with share bars. The bar is decoration: the count and the
  * percentage are always printed, so no meaning rests on the bar or its colour.
+ * After a filter change the counts count, the bars rescale and the rows glide to their new rank.
  */
 export function TopList({
   items,
@@ -48,20 +69,14 @@ export function TopList({
   scale = "max",
   className,
 }: TopListProps) {
-  if (loading) {
-    return (
-      <div role="status" aria-label="Loading" className={cn("space-y-3", className)}>
-        {Array.from({ length: rows }, (_, i) => (
-          <Skeleton key={i} className="h-8 w-full" />
-        ))}
-      </div>
-    )
-  }
+  const listRef = useRef<HTMLOListElement>(null)
+  useReorderMotion(listRef, loading ? [] : items.map((i) => i.key))
+  if (loading) return <TopListSkeleton rows={rows} className={className} />
   if (items.length === 0)
     return <p className={cn("py-4 text-sm text-fg-muted", className)}>{empty}</p>
   const max = scale === "total" ? 1 : Math.max(...items.map((i) => i.share), 0.0001)
   return (
-    <ol className={cn("space-y-1", className)}>
+    <ol ref={listRef} className={cn("space-y-1", className)}>
       {items.map((item, idx) => {
         const row = (
           <>
@@ -72,25 +87,22 @@ export function TopList({
               {idx + 1}
             </span>
             <span className="min-w-0 flex-1 truncate text-sm text-fg">{item.label}</span>
-            <span className="text-sm text-fg tabular-nums">{formatNumber(item.count)}</span>
+            <AnimatedNumber value={item.count} className="text-sm text-fg" />
             <span className="w-10 text-right text-xs text-fg-muted tabular-nums">
               {shareLabel(item.share)}
             </span>
             <span
               aria-hidden
-              className="absolute inset-x-2 bottom-0.5 h-0.5 rounded-full bg-border-strong/30"
+              className="absolute inset-x-2 bottom-0.5 h-0.5 overflow-hidden rounded-full bg-border-strong/30"
             >
-              <span
-                className="block h-full rounded-full bg-fg-subtle/60 transition-[width] duration-300"
-                style={{ width: `${(item.share / max) * 100}%` }}
-              />
+              <BarFill ratio={item.share / max} className="bg-fg-subtle/60" />
             </span>
           </>
         )
         const cls =
           "relative flex items-center gap-3 rounded-md px-2 pt-1.5 pb-2.5 transition-colors duration-150"
         return (
-          <li key={item.key}>
+          <li key={item.key} data-flip={item.key}>
             {item.href ? (
               <Link
                 to={item.href}

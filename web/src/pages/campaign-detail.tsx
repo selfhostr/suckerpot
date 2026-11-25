@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, ArrowRight, FileQuestion, GitMerge, ShieldCheck } from "lucide-react"
 import { Link, useParams } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { subjectProps } from "@/app/view-transitions"
 import { ExportMenu } from "@/components/abuse/export-menu"
 import { ExcerptBlock } from "@/components/campaigns/excerpt-block"
 import { IndicatorList } from "@/components/campaigns/indicator-list"
@@ -202,7 +203,12 @@ export function CampaignDetailPage() {
               ))}
             </div>
             <div className="flex items-start gap-1.5">
-              <h1 className="text-xl font-semibold tracking-tight text-pretty text-fg">{c.name}</h1>
+              <h1
+                {...subjectProps(`campaign:${c.id}`)}
+                className="text-xl font-semibold tracking-tight text-pretty text-fg"
+              >
+                {c.name}
+              </h1>
               <PageHelp id="campaign" className="mt-0.5" />
             </div>
             <p className="max-w-2xl text-base text-pretty text-fg-muted">

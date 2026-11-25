@@ -1,4 +1,5 @@
 import { Radio } from "lucide-react"
+import { useRef } from "react"
 import { Link } from "react-router"
 import { useLiveFeed } from "@/app/use-live-feed"
 import { EmptyState } from "@/components/empty-state"
@@ -6,6 +7,7 @@ import { FindingCard } from "@/components/finding-card"
 import { LiveEventRow } from "@/components/live-event-row"
 import { SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
+import { useReorderMotion } from "@/hooks/use-reorder-motion"
 import { LATEST_ROWS } from "@/lib/latest"
 import { deriveStats, liveFinding } from "@/lib/live-stats"
 
@@ -14,6 +16,12 @@ export function LatestEventsCard({ className }: { className?: string }) {
   const { events, stats, status } = useLiveFeed()
   const latest = events.slice(0, LATEST_ROWS)
   const finding = liveFinding(stats ?? (events.length ? deriveStats(events) : null))
+  // A new event fades in at the top while the others glide down one row.
+  const listRef = useRef<HTMLDivElement>(null)
+  useReorderMotion(
+    listRef,
+    latest.map((e) => String(e.id)),
+  )
 
   return (
     <FindingCard
@@ -28,9 +36,9 @@ export function LatestEventsCard({ className }: { className?: string }) {
       bodyClassName="p-0 sm:p-0 pt-4 sm:pt-4"
     >
       {latest.length > 0 ? (
-        <div role="list" aria-label="Latest events" className="border-t">
+        <div ref={listRef} role="list" aria-label="Latest events" className="border-t">
           {latest.map((e) => (
-            <div key={e.id} role="listitem" className="border-b last:border-b-0">
+            <div key={e.id} role="listitem" data-flip={e.id} className="border-b last:border-b-0">
               <LiveEventRow event={e} compact />
             </div>
           ))}

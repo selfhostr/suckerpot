@@ -1,5 +1,6 @@
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { markSubject } from "@/app/view-transitions"
 import { CountryFlag } from "@/components/country-flag"
 import { IPChip } from "@/components/ip-chip"
 import { RelativeTime } from "@/components/relative-time"
@@ -53,15 +54,22 @@ export function AttackerRow({
         ATTACKER_GRID,
         className,
       )}
+      data-vt-row
     >
       <Link
         to={`/attackers/${encodeURIComponent(a.ip)}`}
+        onClick={(e) => markSubject(`attacker:${a.ip}`, e)}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
         aria-label={masked ? maskIpsInText(label) : label}
       />
       <div className="flex min-w-0 items-center gap-2 md:contents">
         <div className="flex min-w-0 items-center gap-2">
-          <IPChip ip={a.ip} variant="ghost" className="relative z-10 ml-0 md:-ml-1.5" />
+          <IPChip
+            ip={a.ip}
+            variant="ghost"
+            subject={`attacker:${a.ip}`}
+            className="relative z-10 ml-0 md:-ml-1.5"
+          />
           <span className="md:hidden">{flag}</span>
         </div>
         <span className="ml-auto flex shrink-0 items-center gap-2 md:hidden">

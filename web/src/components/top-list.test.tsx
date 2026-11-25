@@ -20,8 +20,11 @@ function mount(items: TopListItem[], scale?: "max" | "total") {
   )
 }
 
+/** The bars are scaled, not resized: each fill carries its ratio as `--bar`. */
 const barWidths = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>("[style]")].map((b) => b.style.width)
+  [...container.querySelectorAll<HTMLElement>(".bar-fill")].map(
+    (b) => `${Math.round(Number(b.style.getPropertyValue("--bar")) * 100)}%`,
+  )
 
 describe("TopList", () => {
   it("never prints a share that is not zero as 0%", () => {

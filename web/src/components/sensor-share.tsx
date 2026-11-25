@@ -1,12 +1,32 @@
+import type { CSSProperties } from "react"
 import { Link } from "react-router"
 import type { Sensor } from "@/lib/api"
 import { formatNumber, formatPercent } from "@/lib/format"
-import { FAMILY_META, SENSOR_FAMILIES, SENSOR_META, sensorsHref } from "@/lib/sensors"
+import {
+  FAMILY_META,
+  SENSOR_FAMILIES,
+  SENSOR_META,
+  sensorsHref,
+  type SensorFamily,
+} from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 
 interface SensorShareProps {
   shares: readonly { id: Sensor; value: number }[]
   className?: string
+}
+
+/** Where each family's segment starts and how much of the bar it takes (0..1). */
+function segments(families: readonly { id: SensorFamily; value: number }[], total: number) {
+  let start = 0
+  return families
+    .filter((f) => f.value > 0)
+    .map((f) => {
+      const share = f.value / total
+      const segment = { id: f.id, start, share }
+      start += share
+      return segment
+    })
 }
 
 /**
@@ -24,23 +44,32 @@ export function SensorShare({ shares, className }: SensorShareProps) {
 
   return (
     <div className={cn("space-y-4", className)}>
+      {/* Each segment is the whole track, moved to its start and scaled to its share, so a new
+        split glides on the compositor; a thin gap marks every start but the first. */}
       <div
-        className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-surface-hover"
+        className="relative h-2.5 w-full overflow-hidden rounded-full bg-surface-hover"
         role="img"
         aria-label={families
           .map((f) => `${FAMILY_META[f.id].label} ${formatNumber(f.value)}`)
           .join(", ")}
       >
         {total
-          ? families
-              .filter((f) => f.value > 0)
-              .map((f) => (
+          ? segments(families, total).map(({ id, start, share }) => (
+              <span key={id} aria-hidden>
                 <span
-                  key={f.id}
-                  className={cn("h-full transition-[width] duration-250", FAMILY_META[f.id].fill)}
-                  style={{ width: `${(f.value / total) * 100}%` }}
+                  className={cn("bar-fill absolute inset-0", FAMILY_META[id].fill)}
+                  style={
+                    { "--bar": share.toFixed(4), translate: `${start * 100}% 0` } as CSSProperties
+                  }
                 />
-              ))
+                {start > 0 ? (
+                  <span
+                    className="bar-gap absolute inset-0"
+                    style={{ translate: `${start * 100}% 0` }}
+                  />
+                ) : null}
+              </span>
+            ))
           : null}
       </div>
       <ul className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">

@@ -1,4 +1,5 @@
 import { FindingCard } from "@/components/finding-card"
+import { BarFill } from "@/components/bar-fill"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatNumber, formatPercent } from "@/lib/format"
 import { outcomeIsWarning } from "@/lib/replies"
@@ -36,14 +37,10 @@ export function AnswersCard({ data }: { data: OutcomesResponse | undefined }) {
                 className="grid grid-cols-[minmax(8.5rem,11rem)_1fr_2.5rem] items-center gap-3"
               >
                 <OutcomeBadge outcome={o} noAnswer />
-                <div className="h-2 rounded-full bg-surface-hover" aria-hidden>
-                  <div
-                    className={
-                      outcomeIsWarning(o)
-                        ? "h-full rounded-full bg-sev-warning"
-                        : "h-full rounded-full bg-fg-muted"
-                    }
-                    style={{ width: `${(n / max) * 100}%` }}
+                <div className="h-2 overflow-hidden rounded-full bg-surface-hover" aria-hidden>
+                  <BarFill
+                    ratio={n / max}
+                    className={outcomeIsWarning(o) ? "bg-sev-warning" : "bg-fg-muted"}
                   />
                 </div>
                 <span className="text-right text-sm text-fg tabular-nums">{formatNumber(n)}</span>

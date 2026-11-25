@@ -1,3 +1,4 @@
+import { BarFill } from "@/components/bar-fill"
 import { cn } from "@/lib/utils"
 
 export type MeterTone = "neutral" | "warning" | "severe"
@@ -36,10 +37,7 @@ export function Meter({ value, max, label, valueText, tone = "neutral", classNam
       aria-valuetext={valueText}
       className={cn("h-1.5 w-full overflow-hidden rounded-full bg-surface-hover", className)}
     >
-      <div
-        className={cn("h-full rounded-full transition-[width] duration-250 ease-out", FILL[tone])}
-        style={{ width: `${(ratio * 100).toFixed(1)}%` }}
-      />
+      <BarFill ratio={ratio} className={FILL[tone]} />
     </div>
   )
 }
