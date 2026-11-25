@@ -10,11 +10,15 @@
   --font-mono:
     "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
-  /* Type scale (13px is the default UI size, like most dense SaaS tools). */
+  /*
+   * Type scale (13px is the default UI size, like most dense SaaS tools). Running text keeps a
+   * line height of 1.5 or more (selfhostr guidelines, 6); 2xs is for one-line mono labels only.
+   * Components use the roles below (type-page-title…), not raw sizes, for every title and figure.
+   */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-xs: 0.75rem;
-  --text-xs--line-height: 1rem;
+  --text-xs--line-height: 1.125rem;
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.25rem;
   --text-base: 0.875rem;
@@ -191,6 +195,68 @@
   --color-border: var(--border);
   --color-input: var(--border-strong);
   --color-ring: var(--ring);
+}
+
+/*
+ * Type roles: one per kind of text, so a card title or a KPI value is the same size on every
+ * page. Size, line height, weight and tracking only; colour stays with the component.
+ * DESIGN.md "Type roles" lists where each one goes; /styleguide shows them.
+ */
+@utility type-page-title {
+  font-size: var(--text-xl);
+  line-height: var(--text-xl--line-height);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+@utility type-section-title {
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+@utility type-card-title {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: 500;
+}
+@utility type-subtitle {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: 500;
+}
+@utility type-eyebrow {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: 500;
+}
+/* Column labels over a list or table (also the small group labels in a menu). */
+@utility type-column {
+  font-size: var(--text-2xs);
+  line-height: var(--text-2xs--line-height);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+@utility type-lede {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: 400;
+}
+@utility type-kpi {
+  font-size: var(--text-2xl);
+  line-height: var(--text-2xl--line-height);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+@utility type-figure {
+  font-size: var(--text-2xl);
+  line-height: var(--text-2xl--line-height);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  @variant sm {
+    font-size: var(--text-3xl);
+    line-height: var(--text-3xl--line-height);
+  }
 }
 
 @layer base {

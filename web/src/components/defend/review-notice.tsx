@@ -9,7 +9,7 @@ export function ReviewNotice() {
     >
       <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
       <div className="space-y-1">
-        <h2 id="review-notice-title" className="text-sm font-medium text-fg">
+        <h2 id="review-notice-title" className="type-subtitle text-fg">
           Review before deploying
         </h2>
         <p className="text-sm text-fg-muted">

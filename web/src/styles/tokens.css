@@ -31,7 +31,8 @@
   /* Primary action is neutral (no brand hue). */
   --primary: #ecedef;
   --primary-hover: #d4d6da;
-  --ring: #8a8e98;
+  /* Focus outline: the ink colour, as in the selfhostr guidelines (2 px, 2 px offset). */
+  --ring: #ecedef;
 
   /*
    * One hue per sensor FAMILY (Okabe-Ito sky blue, reddish purple, bluish
@@ -101,7 +102,7 @@
 
   --primary: #16171b;
   --primary-hover: #2b2d33;
-  --ring: #6a6d76;
+  --ring: #0f1013;
 
   --family-shell: #1c6bc9;
   --family-web: #a6458f;
@@ -154,4 +155,22 @@
   --motion-stagger-max: 5;
   --motion-page-duration: 200ms;
   --motion-page-distance: 4px;
+
+  /*
+   * Component sizes. Three control heights, one per context (DESIGN.md, "Sizes"): sm 32 px in
+   * dense rows (filter bars, card headers, table rows), md 36 px in forms, lg 40 px for the one
+   * action of a full-page flow (the selfhostr button). A status chip is 22 px.
+   */
+  --control-sm: 2rem;
+  --control-md: 2.25rem;
+  --control-lg: 2.5rem;
+  --chip: 1.375rem;
+}
+
+/* Touch screens: every control is a 40 px target (selfhostr guidelines, 3.8). */
+@media (pointer: coarse) {
+  :root {
+    --control-sm: 2.5rem;
+    --control-md: 2.5rem;
+  }
 }

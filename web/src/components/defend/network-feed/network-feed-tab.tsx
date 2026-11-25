@@ -82,7 +82,7 @@ export function NetworkFeedTab() {
     <>
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="max-w-2xl space-y-2">
-          <p className="text-base text-pretty text-fg">{feedSentence(s)}</p>
+          <p className="type-lede text-pretty text-fg">{feedSentence(s)}</p>
           <p
             role="status"
             className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted"

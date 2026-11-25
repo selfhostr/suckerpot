@@ -127,10 +127,7 @@ export function TodayCard({ card, index = 0, className }: TodayCardProps) {
       role="group"
       aria-labelledby={`today-${card.id}`}
       style={{ "--motion-i": index } as CSSProperties}
-      className={cn(
-        "motion-stagger h-full animate-card-in gap-0 rounded-lg py-0 shadow-sm",
-        className,
-      )}
+      className={cn("motion-stagger h-full animate-card-in", className)}
     >
       <header className="px-4 pt-4 sm:px-5 sm:pt-5">
         <p className="flex items-center gap-2 text-xs font-medium text-fg-muted">
@@ -144,7 +141,7 @@ export function TodayCard({ card, index = 0, className }: TodayCardProps) {
         <h2
           id={`today-${card.id}`}
           className={cn(
-            "mt-2 text-base font-medium text-pretty",
+            "mt-2 type-card-title text-pretty",
             card.empty ? "text-fg-muted" : "text-fg",
           )}
         >
@@ -173,7 +170,7 @@ export function TodayCard({ card, index = 0, className }: TodayCardProps) {
 /** Same footprint as a card with three items, so nothing jumps when data arrives. */
 export function TodayCardSkeleton() {
   return (
-    <div aria-hidden className="h-full space-y-4 rounded-lg border bg-surface p-5">
+    <div aria-hidden className="h-full space-y-4 rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
       <div className="space-y-2.5">
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-4 w-11/12" />

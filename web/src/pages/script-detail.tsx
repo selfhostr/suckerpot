@@ -18,7 +18,7 @@ import { describeScript, nextStep, scriptKeys, scriptsApi } from "@/lib/scripts"
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">{label}</dt>
+      <dt className="type-column text-fg-subtle">{label}</dt>
       <dd className="text-sm text-fg tabular-nums">{children}</dd>
     </div>
   )

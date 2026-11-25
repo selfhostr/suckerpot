@@ -124,6 +124,7 @@ function SendingForm({
     <div className="grid gap-6">
       <div className="space-y-2.5">
         <SegmentedControl
+          size="form"
           label="Sending mode"
           value={f.mode}
           onChange={(v) => set("mode", v)}
@@ -215,6 +216,7 @@ function SendingForm({
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-fg">Security</span>
               <SegmentedControl
+                size="form"
                 label="Security"
                 value={f.security}
                 onChange={(v) => set("security", v)}

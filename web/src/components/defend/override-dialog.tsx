@@ -118,6 +118,7 @@ function OverrideForm({
       {target ? null : (
         <>
           <SegmentedControl
+            size="form"
             label="What to list"
             value={kind}
             onChange={setKind}
@@ -125,6 +126,7 @@ function OverrideForm({
             className="flex-wrap self-start"
           />
           <SegmentedControl
+            size="form"
             label="Rule"
             value={action}
             onChange={setAction}
@@ -173,6 +175,7 @@ function OverrideForm({
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-fg">Lasts</span>
         <SegmentedControl
+          size="form"
           label="Lasts"
           value={expiry}
           onChange={setExpiry}

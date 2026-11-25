@@ -15,14 +15,19 @@ interface SegmentedControlProps<T extends string> {
   options: readonly SegmentedOption<T>[]
   /** Accessible name of the whole group, e.g. "Sensor". */
   label: string
-  /** `md` for filters and sorts, `icon` for compact icon-only switches. */
-  size?: "md" | "icon"
+  /**
+   * `md` for filters and sorts: the whole track is a `sm` control (32 px, 40 on touch), so it
+   * lines up with the buttons, inputs and chips of a filter row. `form` beside form fields: a
+   * default control (36 px) with 13 px labels. `icon` for icon-only switches.
+   */
+  size?: "md" | "form" | "icon"
   className?: string
 }
 
 const ITEM = {
-  md: "h-7 min-w-9 gap-1.5 px-2.5 text-xs font-medium",
-  icon: "h-6 w-7 min-w-0 px-0",
+  md: "h-full min-w-9 gap-1.5 px-2.5 text-xs font-medium",
+  form: "h-full min-w-9 gap-1.5 px-3 text-sm font-medium",
+  icon: "h-full w-7 min-w-0 px-0",
 } as const
 
 /**
@@ -46,7 +51,11 @@ export function SegmentedControl<T extends string>({
         if (next) onChange(next.value)
       }}
       aria-label={label}
-      className={cn("rounded-md border bg-bg p-0.5", className)}
+      className={cn(
+        "rounded-md border bg-bg p-0.5",
+        size === "form" ? "h-(--control-md)" : "h-(--control-sm)",
+        className,
+      )}
     >
       {options.map((o) => (
         <ToggleGroupItem

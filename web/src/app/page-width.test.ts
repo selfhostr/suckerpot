@@ -42,14 +42,14 @@ describe("page width", () => {
       "/defend/results",
       "/network",
       "/network/members",
+      "/settings",
     ]) {
       expect(widthAt(path), path).toBe("wide")
     }
   })
 
-  it("keeps Settings and detail pages at reading width", () => {
+  it("keeps setup and detail pages at reading width", () => {
     for (const path of [
-      "/settings",
       "/setup",
       "/attacks/42",
       "/attackers/203.0.113.7",

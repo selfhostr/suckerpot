@@ -83,9 +83,9 @@ function KeyRow({
   const names = `${name} key`
 
   return (
-    <li className="flex flex-col gap-3 py-5 first:pt-0 last:pb-0">
+    <li className="flex flex-col gap-3 rounded-lg border bg-bg p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-fg">{name}</span>
+        <span className="type-subtitle text-fg">{name}</span>
         <span
           className={cn("inline-flex items-center gap-1.5 text-xs font-medium", state.className)}
         >
@@ -149,8 +149,26 @@ function KeyRow({
         </p>
       ) : null}
 
+      <div role="status" aria-live="polite" className="empty:hidden">
+        {testError ? (
+          <p className="text-xs text-sev-warning">{testError}</p>
+        ) : message && message.tone !== "pending" ? (
+          <p
+            className={cn("text-xs", message.tone === "ok" ? "text-status-ok" : "text-sev-warning")}
+          >
+            {message.text}
+            {info.test?.checked_at ? (
+              <>
+                {" "}
+                <RelativeTime iso={info.test.checked_at} className="text-xs" />
+              </>
+            ) : null}
+          </p>
+        ) : null}
+      </div>
       {readOnly ? null : (
-        <div className="flex flex-wrap items-center gap-2">
+        // Pinned to the bottom, so the actions of tiles side by side share one line.
+        <div className="mt-auto flex flex-wrap items-center gap-2">
           <SetKeyDialog
             provider={id}
             replacing={info.source === "settings"}
@@ -197,23 +215,6 @@ function KeyRow({
           ) : null}
         </div>
       )}
-      <div role="status" aria-live="polite" className="empty:hidden">
-        {testError ? (
-          <p className="text-xs text-sev-warning">{testError}</p>
-        ) : message && message.tone !== "pending" ? (
-          <p
-            className={cn("text-xs", message.tone === "ok" ? "text-status-ok" : "text-sev-warning")}
-          >
-            {message.text}
-            {info.test?.checked_at ? (
-              <>
-                {" "}
-                <RelativeTime iso={info.test.checked_at} className="text-xs" />
-              </>
-            ) : null}
-          </p>
-        ) : null}
-      </div>
     </li>
   )
 }
@@ -243,7 +244,7 @@ export function ProviderKeys({ e }: { e: EnrichmentSettings }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <h4 className="text-sm font-medium text-fg">API keys</h4>
+        <h4 className="type-subtitle text-fg">API keys</h4>
         {readOnly ? (
           <p className="text-xs text-fg-muted">
             Which keys are set, and their last four characters. Only an administrator can change
@@ -262,7 +263,7 @@ export function ProviderKeys({ e }: { e: EnrichmentSettings }) {
           </p>
         )}
       </div>
-      <ul aria-label="API keys" className="divide-y">
+      <ul aria-label="API keys" className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
         <KeyRow
           id="abuseipdb"
           info={e.abuseipdb}
@@ -299,15 +300,18 @@ export function ProviderKeys({ e }: { e: EnrichmentSettings }) {
           envName="GITHUB_ADVISORY_TOKEN"
         />
       </ul>
-      <div className="space-y-1 border-t pt-4">
-        <h4 className="text-sm font-medium text-fg">Threat intelligence</h4>
+      <div className="space-y-1 pt-2">
+        <h4 className="type-subtitle text-fg">Threat intelligence</h4>
         <p className="text-xs text-fg-muted">
           For the Infrastructure page. Only the indicator itself (a URL, host or file hash) is sent
           to these services, never a session or a source address, and the indicator is never
           contacted. VirusTotal is asked about file hashes only.
         </p>
       </div>
-      <ul aria-label="Threat intelligence keys" className="divide-y">
+      <ul
+        aria-label="Threat intelligence keys"
+        className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3"
+      >
         <KeyRow
           id="abusech"
           info={e.abusech}

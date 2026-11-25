@@ -61,7 +61,8 @@ function CveSearch() {
         maxLength={100}
         placeholder="Search, e.g. redis or CVE-2026"
         aria-label="Search CVEs"
-        className="h-8 pl-8 text-xs normal-nums md:text-xs"
+        size="sm"
+        className="pl-8 normal-nums"
       />
     </div>
   )
@@ -259,10 +260,7 @@ export function CvesPage() {
 
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
         <div
-          className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
-            CVE_GRID,
-          )}
+          className={cn("hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid", CVE_GRID)}
         >
           <span>Vulnerability</span>
           <span>Severity</span>

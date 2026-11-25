@@ -202,10 +202,10 @@ export function CampaignDetailPage() {
               ))}
             </div>
             <div className="flex items-start gap-1.5">
-              <h1 className="text-xl font-semibold tracking-tight text-pretty text-fg">{c.name}</h1>
+              <h1 className="type-page-title text-pretty text-fg">{c.name}</h1>
               <PageHelp id="campaign" className="mt-0.5" />
             </div>
-            <p className="max-w-2xl text-base text-pretty text-fg-muted">
+            <p className="max-w-2xl type-lede text-pretty text-fg-muted">
               {st?.headline ?? `${describeScale(c)}.`}
             </p>
             {c.status === "merged" && c.merged_into ? (

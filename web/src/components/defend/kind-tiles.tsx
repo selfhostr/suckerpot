@@ -42,11 +42,11 @@ export function KindTiles({
             aria-pressed={selected}
             onClick={() => onSelect(selected ? null : k)}
             className={cn(
-              "flex min-w-0 flex-col gap-2.5 rounded-lg border bg-surface p-4 text-left shadow-sm transition-colors duration-150 hover:bg-surface-hover/50 sm:p-5",
+              "flex min-w-0 flex-col gap-3 rounded-lg border bg-surface p-4 text-left shadow-sm transition-colors duration-150 hover:bg-surface-hover/50 sm:p-5",
               selected && "border-border-strong bg-surface-raised ring-1 ring-border-strong",
             )}
           >
-            <span className="flex items-center justify-between gap-2 text-xs font-medium text-fg-muted">
+            <span className="flex items-center justify-between gap-2 type-eyebrow text-fg-muted">
               <span className="inline-flex items-center gap-1.5">
                 <Icon aria-hidden className="size-3.5" strokeWidth={2} />
                 {KIND_META[k].label}
@@ -54,11 +54,7 @@ export function KindTiles({
               {selected ? <Check aria-hidden className="size-3.5 text-fg" /> : null}
             </span>
             {s ? (
-              <AnimatedNumber
-                value={s.listed}
-                format={formatNumber}
-                className="text-2xl font-semibold tracking-tight text-fg"
-              />
+              <AnimatedNumber value={s.listed} format={formatNumber} className="type-kpi text-fg" />
             ) : (
               <Skeleton className="h-8 w-16" />
             )}

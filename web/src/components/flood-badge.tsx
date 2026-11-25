@@ -18,11 +18,11 @@ export function FloodBadge({
     <span
       title={`${plural(connections, "connection")} from one address in one hour, shown as one row`}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm border border-border-strong px-2 text-2xs font-medium text-fg-muted",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted",
         className,
       )}
     >
-      <Waves aria-hidden className="size-3" strokeWidth={2} />
+      <Waves aria-hidden className="size-3.5" strokeWidth={2} />
       <span>flood</span>
       <span aria-hidden className="font-mono text-fg tabular-nums">
         x{formatNumber(connections)}

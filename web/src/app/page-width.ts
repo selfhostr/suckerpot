@@ -2,8 +2,9 @@ import type { UIMatch } from "react-router"
 
 /**
  * How wide a page may grow, declared per route in the route table (`handle: { width }`):
- * - `prose`: reading pages (Settings, every detail page), about 1200 px, so lines stay short.
- * - `wide`: lists, hubs, Today, Results and Trends, about 1680 px: extra columns from `2xl`.
+ * - `prose`: reading pages (setup, every detail page), about 1200 px, so lines stay short.
+ * - `wide`: lists, hubs, Today, Results, Trends and Settings, about 1680 px: extra columns from
+ *   `2xl`.
  * - `full`: the wall screen (Live), up to 2400 px.
  * The shell keeps the same gutters for all three, so switching pages never moves the edges on
  * a screen narrower than the cap.

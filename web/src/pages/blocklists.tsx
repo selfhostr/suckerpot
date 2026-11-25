@@ -238,8 +238,8 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
         <OverridesCard canWrite={canWrite} />
       </div>
 
-      <h2 className="mt-10 text-lg font-semibold tracking-tight text-fg">Entries</h2>
-      <p className="mt-1.5 max-w-2xl text-base text-fg-muted">
+      <h2 className="mt-10 type-section-title text-fg">Entries</h2>
+      <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
         Every value with its score, the reasons behind it and when it was last seen. Pick a reason
         or a type to narrow it down.
       </p>
@@ -265,7 +265,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
         <UrlSearch label="Search the list" placeholder="Search a value" />
         <label
           htmlFor={benignId}
-          className="inline-flex h-8 items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
+          className="inline-flex h-(--control-sm) items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
         >
           <Switch
             id={benignId}
@@ -285,7 +285,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
               key={r.reason}
               type="button"
               onClick={() => setReason(r.reason)}
-              className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-border-strong px-2 text-2xs font-medium text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
+              className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
             >
               {reasonLabel(r.reason)}
               <span className="text-fg-subtle">{formatNumber(r.count)}</span>
@@ -296,10 +296,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
 
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
         <div
-          className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase",
-            BLOCKLIST_GRID,
-          )}
+          className={cn("hidden border-b px-5 py-2.5 type-column text-fg-subtle", BLOCKLIST_GRID)}
         >
           <span>Value</span>
           <span>Score</span>

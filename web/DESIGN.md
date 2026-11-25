@@ -17,8 +17,28 @@ Quiet, dark and precise, like an observatory at night. Neutral surfaces, hairlin
 
 - Self-hosted through `@fontsource`. No external font requests.
 - `font-variant-numeric: tabular-nums` is set on `body`, so every number lines up and counters never jitter. Numbers use thousands separators (`formatNumber`, en-US).
-- Scale (size / line height): `2xs` 11/16, `xs` 12/16, `sm` **13/20 (default UI)**, `base` 14/22 (card findings, page intros), `md` 16/24, `lg` 18/26, `xl` 22/28 (page titles), `2xl` 28/34 (KPI values), `3xl` 36/42.
-- Weights: 400 body, 500 labels and findings, 600 titles and KPI values. Titles use `tracking-tight`.
+- Scale (size / line height): `2xs` 11/16, `xs` 12/18, `sm` **13/20 (default UI)**, `base` 14/22, `md` 16/24, `lg` 18/26, `xl` 22/28, `2xl` 28/34, `3xl` 36/42. Running text keeps a line height of 1.5 or more (selfhostr guidelines, 6); `2xs` is for one-line labels only.
+- Weights: 400 body, 500 labels and findings, 600 titles and KPI values. Titles and figures track at -0.02em.
+
+### Type roles
+
+Every title, label and figure uses a **role** (`@utility type-*` in `index.css`), never a raw size, so a card title or a KPI value is the same size on every page. Roles set size, line height, weight and tracking; the colour stays with the component. `src/styles/scale.test.ts` fails on a role that does not exist, on an `h1` without `type-page-title`, and on one-off sizes such as `text-[13px]`.
+
+| Role                 | Size / weight               | Where                                                            |
+| -------------------- | --------------------------- | ---------------------------------------------------------------- |
+| `type-page-title`    | 22/28 · 600                 | the page `h1` (PageHeader, detail pages, login)                  |
+| `type-section-title` | 18/26 · 600                 | a section between card groups ("Entries"), dialog titles         |
+| `type-card-title`    | 14/22 · 500                 | a card's finding sentence, its title, sheet titles, empty states |
+| `type-lede`          | 14/22 · 400                 | the sentence under a page or section title                       |
+| `type-subtitle`      | 13/20 · 500                 | a heading inside a card ("API keys", "Recent sessions")          |
+| body (`text-sm`)     | 13/20 · 400                 | text, table cells, md and lg controls                            |
+| `type-eyebrow`       | 12/18 · 500                 | the label above a card title or a KPI value                      |
+| meta (`text-xs`)     | 12/18 · 400                 | hints, timestamps, chips, sm controls                            |
+| `type-column`        | 11/16 · 500 · caps, +0.04em | column labels over a list or table                               |
+| `type-kpi`           | 28/34 · 600                 | the value of a KPI tile (StatTile, FamilyTile, KindTiles)        |
+| `type-figure`        | 28/34, 36/42 from `sm`      | the headline figures that open Today and Results                 |
+
+The finding sentence is 500, not the 600 of other headings: it is a whole sentence, often two lines, and the eyebrow above it already names the card.
 
 ## Colour
 
@@ -37,7 +57,7 @@ All colours are CSS variables on `:root` (dark, the default) and `[data-theme="l
 | `--fg-muted`                   | `#a1a4ac`             | `#4f525a`             | Secondary text                         |
 | `--fg-subtle`                  | `#858892`             | `#6a6d76`             | Labels, timestamps (still AA, ≥ 4.5:1) |
 
-The primary action is neutral (`--primary` is the text colour, inverted). There is no brand hue: a hue always means a sensor or a severity. The one exception is the product mark (`src/app/logo.tsx`, the same drawing as `public/favicon.svg`): its violet drop and dark tile are fixed colours inside the logo, never a token, and they do not change with the theme.
+The focus outline is the text colour (`--ring` = `--fg`), 2 px with a 2 px offset, on every control (the selfhostr focus rule); inside a box that clips (a scrolling tab strip) it is drawn inset. The primary action is neutral (`--primary` is the text colour, inverted). There is no brand hue: a hue always means a sensor or a severity. The one exception is the product mark (`src/app/logo.tsx`, the same drawing as `public/favicon.svg`): its violet drop and dark tile are fixed colours inside the logo, never a token, and they do not change with the theme.
 
 ### Sensors: one hue per family, one icon per sensor
 
@@ -73,12 +93,30 @@ No decorative gradients. The only fills under lines are flat, 8 % opacity.
 
 - 4 px grid. Page gutters: 16 px on mobile, 24 px on tablet, 40 px on desktop, the same on every page. Cards pad 16 px (mobile) / 20 px. Sections are separated by 24 px or more.
 - **Page width** is declared per route in the route table (`handle: { width }`, `src/app/page-width.ts`), gutters included:
-  - `prose`, 1200 px: Settings, setup and every detail page (an attacker, a session, a campaign, a script, a sample, a report). Also the default for a route that declares nothing.
-  - `wide`, 1680 px: lists, hubs, Today, Trends, Results and the other Defend pages. On a 1920 px screen this is the whole content area, so leaving Live moves nothing.
+  - `prose`, 1200 px: setup and every detail page (an attacker, a session, a campaign, a script, a sample, a report). Also the default for a route that declares nothing.
+  - `wide`, 1680 px: lists, hubs, Today, Trends, Results, the other Defend pages, Settings and the styleguide. On a 1920 px screen this is the whole content area, so leaving Live moves nothing.
   - `full`, 2400 px: Live only.
 - Wide pages use the room from `2xl` (1536 px), and only where it shortens the read: a third column (Today: the stories in two columns and what to do in the third; Results: three cards to a row; Trends: the four top lists in one row), side by side panels (Infrastructure: the diagram beside the control servers), and wider table cells so a place and a network fit on one line. Below `2xl` the layout is the same as before. Reading pages keep 1200 px: wider lines are harder to read, not faster.
 - Cards of uneven height (Today's stories and to-do cards) flow in CSS columns, not grid rows, so a short card never sits next to a hole.
-- Radius: 4 px chips, 6 px controls, 8 px small cards and nav items, 12 px cards. Pills are fully rounded only for the sensor share bar.
+- Radius, as in the selfhostr guidelines: 6 px chips (`rounded-sm`, the "plate"), 8 px controls, small panels and nav items (`rounded-md`, the button), 12 px cards (`rounded-lg`). 4 px (`rounded-xs`) only for marks inside a chip or a control (a copy button inside an address chip, a checkbox). Pills are fully rounded only for the sensor share bar and meters.
+- Cards side by side in a grid row share one height (grid rows stretch); a card whose title sits outside its box is a bug, the title goes inside like `FindingCard`. Uneven stacks are two column stacks (Settings, Reporting, VPN), never a grid with holes.
+
+### Sizes
+
+One set of heights, as tokens in `tokens.css` and used by every control primitive (`h-(--control-sm)`):
+
+| Token          | Height | Text                   | Where                                                                                     |
+| -------------- | ------ | ---------------------- | ----------------------------------------------------------------------------------------- |
+| `--control-sm` | 32 px  | 12 px                  | dense rows: filter bars, card header actions, table rows, toolbars, copy buttons          |
+| `--control-md` | 36 px  | 13 px                  | forms: inputs, selects, the form `SegmentedControl` (`size="form"`), Save, dialog buttons |
+| `--control-lg` | 40 px  | 13 px                  | the one action of a full-page flow (sign in, set a password), the selfhostr `.btn`        |
+| `--chip`       | 22 px  | 12 px sans, 11 px mono | every badge and chip: sensor, severity, tag, scanner, flood, address, KEV, counts         |
+
+- **One row, one height.** Every control in a filter bar is `sm` (button, input, select, segmented control, filter chip, switch box); every control beside a form field is `md`. A Save button next to a field is never smaller than the field.
+- **Touch.** Under `(pointer: coarse)` `--control-sm` and `--control-md` become 40 px, so every control is a 40 px target on a phone or tablet (selfhostr 3.8). There is no `xs` button: an icon button is at least `icon-sm`.
+- **Icons**: 16 px in every control and next to 13 to 14 px text, 14 px in chips and next to 12 px text, 20 px in an empty state's 40 px box. Lucide, stroke 2 (1.85 to 2.25 for small marks).
+- **Cards** pad 16 px on phones and 20 px from `sm` (header, body and footer alike), 16 px between cards, KPI tiles the same with a 12 px gap between label, value and footer.
+- **Tables** (CSS-grid lists): column labels in `type-column`, cells in `text-sm`, counts right-aligned with tabular figures, the header row padded like the rows under it.
 - Elevation: in dark, a border plus a faint top highlight (`--shadow-sm`); shadows only for overlays. In light, a soft 1–2 px shadow.
 
 ## Motion
@@ -170,7 +208,9 @@ Ingest labels sessions from known, harmless crawlers (Censys, Shodan...; the lis
 
 ## Settings
 
-Read-only by design: a dashed note says settings live in `.env`. Four cards, each with a finding sentence: Sensors (Active / Quiet / Silent with icon and label; silent is a warning, never red), Enrichment (GeoIP provider, age, the required attribution text, quota meters), Data retention, Storage (database against its ceiling; red only when the disk guard is critical). On the General tab the sensors list in two columns from `lg`, and Updates and Pipeline share a row.
+Read-only by design: a dashed note says settings live in `.env`. Four cards, each with a finding sentence: Sensors (Active / Quiet / Silent with icon and label; silent is a warning, never red), Enrichment (GeoIP provider, age, the required attribution text, quota meters), Data retention, Storage (database against its ceiling; red only when the disk guard is critical).
+
+Settings is a `wide` page built from the same parts as the rest (FindingCard, the control sizes, the type roles). It uses the room from `2xl` with two column stacks, never a grid with holes: on General the setup checklist and the sensors on the left, Updates, Pipeline, Storage, Retention and Outbound traffic stacked on the right (two by two from `lg` below `2xl`); on Reporting what a report says on the left and how it travels (sending, digest, replies) on the right; on VPN the tunnel's status on the left and what changes it on the right. The API keys are tiles (three to a row from `2xl`) with their actions pinned to the bottom, so the buttons of neighbouring tiles share a line.
 
 Tabs whose forms save to the server (Reporting) say so in the note instead. Each section with its own Save button shows `UnsavedHint` next to it while its fields differ from what was last saved, so a long tab never loses an edit silently.
 
@@ -261,6 +301,7 @@ Lists scroll with the window. The desktop sidebar scrolls as one block when the 
 | CredentialsCard            | `credentials-card.tsx`                   | finding + top usernames and passwords of a flood group (TopList, `scale="total"`), rows open Trends filters                                     |
 | SiblingGroupsCard          | `sibling-groups-card.tsx`                | the other flood groups of the same address and UTC hour, as compact SessionRows                                                                 |
 | FilterBar, SensorFilter    | `filter-bar.tsx`                         | URL-synced segmented control and removable chips                                                                                                |
+| SegmentedControl           | `segmented-control.tsx`                  | one choice among a few; the track is a control: `md` (32 px, filter rows), `form` (36 px, beside fields), `icon`                                |
 | PageHeader                 | `page-header.tsx`                        | title (text, or a node such as a mono address that wraps) + one sentence + actions                                                              |
 | MetaLine                   | `meta-line.tsx`                          | facts joined by middle dots that wrap cleanly: no dot ever ends or starts a line (phone rows of tables)                                         |
 | UnsavedHint                | `form-parts.tsx`                         | "Unsaved changes" with a neutral dot next to a section's Save button; pair with `useUnsaved(value)`                                             |
@@ -280,7 +321,25 @@ Lists scroll with the window. The desktop sidebar scrolls as one block when the 
 | TechniqueHeatmap           | `techniques/technique-heatmap.tsx`       | techniques by day, grouped by stage, neutral scale, readout line, sr-only table                                                                 |
 | LiveIndicator, ThemeToggle | `live-indicator.tsx`, `theme-toggle.tsx` | shell chrome                                                                                                                                    |
 
-Primitives (button, card, badge, tooltip, dropdown-menu, sheet, separator, skeleton, scroll-area, tabs, toggle, toggle-group, command, dialog, popover, input) come from shadcn/ui via the CLI and live in `src/components/ui/`. They read our tokens through the shadcn variable contract mapped in `index.css`. Do not edit them for one page: add a variant here instead.
+Primitives (button, card, badge, tooltip, dropdown-menu, sheet, separator, skeleton, scroll-area, tabs, toggle, toggle-group, command, dialog, popover, input) come from shadcn/ui via the CLI and live in `src/components/ui/`. They read our tokens through the shadcn variable contract mapped in `index.css`, and their sizes, radii and focus are ours, not shadcn's defaults: heights from the control tokens, `Card` is 12 px with no inner padding of its own, `Badge` is a 22 px chip, dialog and sheet titles use the type roles, focus is the base outline. Do not edit them for one page: add a variant here instead.
+
+## Against the selfhostr guidelines
+
+The organisation's guidelines (sections 3 and 6) are the reference, as for dmsforall and mccb. Where SuckerPot follows them and where it keeps its own value, with the reason:
+
+| Topic          | Guidelines                                     | SuckerPot                                                                                                                                                    |
+| -------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Fonts          | Inter 400/500/600, JetBrains Mono, self-hosted | Same                                                                                                                                                         |
+| Base text      | App 13 px, line height 1.5 or more             | Same (`sm` 13/20, `xs` 12/18)                                                                                                                                |
+| Radii          | plate 6, button 8, card 12                     | Same (`rounded-sm`, `rounded-md`, `rounded-lg`)                                                                                                              |
+| Focus          | 2 px ink outline, 2 px offset                  | Same (`--ring` = `--fg`)                                                                                                                                     |
+| Primary action | Neutral, one per view                          | Same                                                                                                                                                         |
+| Tap targets    | 40 px                                          | 40 px on touch screens (`pointer: coarse`); 32 and 36 px with a mouse, because the app is a dense dashboard (section 6) and the lists would double in length |
+| Button         | 40 px, 0.875rem / 600                          | `lg` is that button; `sm` and default keep 12 and 13 px at 500 so a control's label matches the 13 px text around it                                         |
+| Plate (chip)   | 22 px, 0.75rem / 600, 13 px icon               | 22 px, 12 px at 500 (600 is kept for "severe" only), 14 px icon so a chip icon matches the 14 px icons beside 12 px text                                     |
+| Colour tokens  | `--c-*` names, ground `#07080a`                | `--bg`, `--surface`, `--fg`… with ground `#0b0c0e`, as section 6 lists; a light theme because users asked for one                                            |
+| Eyebrow        | Mono 11 px, caps, +0.06em                      | Sans 12 px at 500 in sentence case: mono is for machine values only, and a caps label on every card is noise. Column labels over tables are 11 px caps       |
+| Page title     | `clamp(1.75rem, …, 2.5rem)` (sites)            | 22 px: an app page title is a label, not a hero                                                                                                              |
 
 ## Structure for feature work
 
@@ -288,6 +347,6 @@ Primitives (button, card, badge, tooltip, dropdown-menu, sheet, separator, skele
 - **Pages**: one file per page in `src/pages/`. Unbuilt pages are a "Coming soon" `EmptyState`; replace the file, the route already exists in `src/app/router.tsx`.
 - **API clients**: one `src/lib/<feature>-api.ts` per feature, exporting its own `<feature>QueryKeys`. Do not extend `api.ts` or its `queryKeys`.
 - **Mocks**: one `src/mocks/<feature>.ts` per feature (campaigns, defend, scripts, alerts, search, today), already imported by `handlers.ts`.
-- **Styleguide**: add `src/pages/styleguide/<feature>.tsx` exporting `section: FeatureSection` (see `registry.ts`); it is picked up automatically, listed in the table of contents and cropped by the screenshot run.
+- **Styleguide** (`wide`): the Type section lists every role, Space & shape shows the three control heights, one filter row on one line, the chip height, icon sizes and radii, and Components shows a form (label, field, hint, Save) and the Settings tab strip. Add `src/pages/styleguide/<feature>.tsx` exporting `section: FeatureSection` (see `registry.ts`); it is picked up automatically, listed in the table of contents and cropped by the screenshot run.
 - **E2E specs**: new specs go in `e2e/<feature>.spec.ts` and import `settle`, `shoot`, `shootTall`, `h1` from `e2e/helpers.ts`.
-- **Settings** is a tab layout driven by `?tab=` (general, keys, users, audit, alerts, feeds). Add content to a tab, not a new section above it.
+- **Settings** is a tab layout driven by `?tab=` (general, keys, users, audit, ports, alerts, feeds, reporting, vpn, network). Add content to a tab, not a new section above it.

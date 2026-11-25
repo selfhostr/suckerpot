@@ -306,6 +306,7 @@ function SettingsForm({
             Default sharing level for CERT exports
           </span>
           <SegmentedControl
+            size="form"
             label="Default sharing level"
             value={s.default_tlp}
             onChange={(v: Tlp) => set("default_tlp", v)}
@@ -316,6 +317,7 @@ function SettingsForm({
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-fg">Reply reference</span>
           <SegmentedControl
+            size="form"
             label="Reply reference"
             value={s.reference_style}
             onChange={(v: ReferenceStyle) => set("reference_style", v)}
@@ -366,7 +368,7 @@ function SettingsForm({
       </fieldset>
       <FormError id={ids.err} message={summary} />
       <div className="flex items-center gap-3">
-        <Button type="submit" size="sm" disabled={save.isPending}>
+        <Button type="submit" disabled={save.isPending}>
           {save.isPending ? "Saving…" : "Save"}
         </Button>
         <span role="status" className="text-sm text-fg-muted empty:hidden">
@@ -460,13 +462,13 @@ export function NeverInReport() {
                 </span>
                 <span className="ml-auto flex gap-2">
                   {!t.confirmed ? (
-                    <Button size="xs" variant="outline" onClick={() => confirm.mutate(t.id)}>
+                    <Button size="sm" variant="outline" onClick={() => confirm.mutate(t.id)}>
                       Confirm
                     </Button>
                   ) : null}
                   {t.source !== "sensor" ? (
                     <Button
-                      size="icon-xs"
+                      size="icon-sm"
                       variant="ghost"
                       aria-label={`Delete ${t.value}`}
                       onClick={() => del.mutate(t.id)}
@@ -494,6 +496,7 @@ export function NeverInReport() {
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-fg-muted">Add</span>
           <SegmentedControl
+            size="form"
             label="Kind"
             value={kind}
             onChange={setKind}
@@ -518,7 +521,7 @@ export function NeverInReport() {
             onChange={(e) => setValue(e.target.value)}
           />
         </div>
-        <Button type="submit" size="sm" variant="outline" disabled={add.isPending}>
+        <Button type="submit" variant="outline" disabled={add.isPending}>
           Add
         </Button>
         <p role="alert" className="w-full text-sm text-fg empty:hidden">

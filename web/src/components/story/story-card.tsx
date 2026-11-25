@@ -152,7 +152,7 @@ export function StoryCard({ story, index = 0 }: { story: StoryItem; index?: numb
     <Card
       data-story={story.session_id}
       style={{ "--motion-i": index } as React.CSSProperties}
-      className="motion-stagger h-full animate-card-in gap-0 rounded-lg py-0 shadow-sm"
+      className="motion-stagger h-full animate-card-in"
     >
       <div className="flex flex-1 flex-col px-4 pt-4 pb-4 sm:px-5 sm:pt-5">
         <p className="flex items-center gap-x-2 text-xs text-fg-muted">
@@ -163,7 +163,7 @@ export function StoryCard({ story, index = 0 }: { story: StoryItem; index?: numb
             {formatRelative(story.started_at)}
           </time>
         </p>
-        <h3 className="mt-2 text-base font-medium text-pretty text-fg">
+        <h3 className="mt-2 type-card-title text-pretty text-fg">
           <TermText text={story.title} terms={["botnet", "brute-force", "exploit", "malware"]} />
         </h3>
         <p className="mt-1 text-sm text-pretty text-fg-muted">{story.summary}</p>
@@ -204,7 +204,7 @@ export function StoryCard({ story, index = 0 }: { story: StoryItem; index?: numb
 
 export function StoryCardSkeleton() {
   return (
-    <div aria-hidden className="h-full space-y-4 rounded-lg border bg-surface p-5">
+    <div aria-hidden className="h-full space-y-4 rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
       <Skeleton className="h-3 w-28" />
       <Skeleton className="h-5 w-11/12" />
       <Skeleton className="h-4 w-3/4" />

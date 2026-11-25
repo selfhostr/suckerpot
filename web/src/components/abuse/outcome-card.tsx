@@ -229,11 +229,11 @@ export function OutcomeCard({ r }: { r: ReportDetail }) {
         {error}
       </p>
       <div className="flex items-center justify-between gap-3 border-t px-4 py-3 sm:px-5">
-        <h4 className="text-sm font-medium text-fg">
+        <h4 className="type-subtitle text-fg">
           Replies <span className="text-fg-subtle tabular-nums">{replies.length}</span>
         </h4>
         {canWrite ? (
-          <Button variant="outline" size="xs" onClick={() => setImporting(true)}>
+          <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
             <Plus aria-hidden /> Add a reply
           </Button>
         ) : null}

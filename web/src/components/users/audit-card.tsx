@@ -81,7 +81,8 @@ export function AuditCard() {
           onChange={(e) => setTyped(e.target.value)}
           autoComplete="off"
           spellCheck={false}
-          className="h-8 w-44 font-mono text-xs placeholder:font-sans"
+          size="sm"
+          className="w-44 font-mono placeholder:font-sans"
         />
       </div>
       {q.isPending ? (

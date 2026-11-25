@@ -102,7 +102,7 @@ function DigestForm({ initial }: { initial: DigestSettings }) {
       </Field>
       <p className="text-sm text-fg-muted">{DIGEST_EXPLANATION}</p>
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" size="sm" disabled={save.isPending}>
+        <Button type="submit" disabled={save.isPending}>
           Save
         </Button>
         {saved ? (

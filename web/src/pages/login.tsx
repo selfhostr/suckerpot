@@ -56,7 +56,7 @@ export function LoginPage() {
         <Logo />
         <Card className="w-full gap-6 border bg-surface p-6 shadow-none sm:p-8">
           <div className="space-y-1.5 text-center">
-            <h1 className="text-xl font-semibold tracking-tight text-fg">Sign in</h1>
+            <h1 className="type-page-title text-fg">Sign in</h1>
             <p className="text-sm text-fg-muted">Enter your credentials to open the dashboard.</p>
           </div>
           <form

@@ -20,7 +20,7 @@ export function TagBadge({ tag, href, className }: TagBadgeProps) {
   const severe = level === "severe"
   const to = href === undefined ? `/attacks?tag=${encodeURIComponent(tag)}` : href
   const classes = cn(
-    "relative inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm border px-2 font-mono text-2xs font-medium",
+    "relative inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm border px-2 font-mono text-2xs font-medium",
     severe
       ? "border-sev-severe/40 text-fg"
       : level === "warning"

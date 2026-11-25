@@ -25,7 +25,7 @@ import {
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">{label}</dt>
+      <dt className="type-column text-fg-subtle">{label}</dt>
       <dd className="text-sm text-fg tabular-nums">{children}</dd>
     </div>
   )
@@ -52,7 +52,7 @@ function Answer({ a }: { a: IntelAnswer }) {
           {a.tags.map((t) => (
             <span
               key={t}
-              className="inline-flex h-5 items-center rounded-sm border border-border-strong px-1.5 font-mono text-2xs text-fg-muted"
+              className="inline-flex h-(--chip) items-center rounded-sm border border-border-strong px-2 font-mono text-2xs text-fg-muted"
             >
               {t}
             </span>
@@ -117,9 +117,7 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
           tabIndex={-1}
           className="space-y-2 border-b px-5 pt-5 pr-12 pb-4 outline-none"
         >
-          <SheetTitle className="text-base font-medium text-fg">
-            {item ? TYPE_LABELS[item.type] : "Indicator"}
-          </SheetTitle>
+          <SheetTitle className="text-fg">{item ? TYPE_LABELS[item.type] : "Indicator"}</SheetTitle>
           <SheetDescription className="sr-only">
             Where it was seen, what threat intelligence says about it, and the addresses that used
             it.
@@ -183,7 +181,7 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
               </dl>
 
               <section aria-label="Threat intelligence">
-                <h3 className="mb-2 text-sm font-medium text-fg">Threat intelligence</h3>
+                <h3 className="mb-2 type-subtitle text-fg">Threat intelligence</h3>
                 {d.intel.length > 0 ? (
                   <ul className="divide-y rounded-md border bg-surface-hover/40 p-4">
                     {d.intel.map((a) => (
@@ -212,7 +210,7 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
               </section>
 
               <section aria-label="Addresses">
-                <h3 className="mb-2 text-sm font-medium text-fg">
+                <h3 className="mb-2 type-subtitle text-fg">
                   Addresses that used it ({formatNumber(d.source_ips.length)}
                   {d.links_truncated ? "+" : ""})
                 </h3>
@@ -239,7 +237,7 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
 
               {d.related.length > 0 ? (
                 <section aria-label="Seen together">
-                  <h3 className="mb-2 text-sm font-medium text-fg">Seen in the same sessions</h3>
+                  <h3 className="mb-2 type-subtitle text-fg">Seen in the same sessions</h3>
                   <ul className="-mx-5 divide-y border-y">
                     {d.related.map((r) => (
                       <li key={r.id}>
@@ -263,7 +261,7 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
               ) : null}
 
               <section aria-label="Recent sessions">
-                <h3 className="mb-2 text-sm font-medium text-fg">Recent sessions</h3>
+                <h3 className="mb-2 type-subtitle text-fg">Recent sessions</h3>
                 {d.sessions.length === 0 ? (
                   <p className="text-sm text-fg-muted">No sessions to show.</p>
                 ) : (

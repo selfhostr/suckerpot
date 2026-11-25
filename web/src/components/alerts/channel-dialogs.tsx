@@ -86,6 +86,7 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-fg">Where to send</span>
         <SegmentedControl
+          size="form"
           label="Channel type"
           value={kind}
           onChange={(next) => {

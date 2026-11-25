@@ -100,7 +100,7 @@ export function SendControl({
             Sending at <span className="tabular-nums">{formatClock(at)}</span>
           </span>
           <span aria-hidden>·</span>
-          <Button size="xs" variant="outline" onClick={() => void cancel()}>
+          <Button size="sm" variant="outline" onClick={() => void cancel()}>
             Cancel
           </Button>
         </p>

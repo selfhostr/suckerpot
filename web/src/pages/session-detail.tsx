@@ -177,7 +177,7 @@ export function SessionDetailPage() {
             </div>
             {s.campaign_id ? <CampaignChip id={s.campaign_id} /> : null}
             <div className="flex items-start gap-1.5">
-              <h1 className="min-w-0 text-lg font-medium text-pretty sm:text-xl">
+              <h1 className="min-w-0 type-section-title text-pretty sm:type-page-title">
                 <span className="sr-only">
                   {flood ? "Flood group" : "Session"} {s.session_id}:{" "}
                 </span>

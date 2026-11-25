@@ -35,8 +35,8 @@ function CategoryBadge({ category }: { category: string }) {
     <li
       className={
         severe
-          ? "inline-flex h-6 items-center gap-1.5 rounded-sm border border-sev-severe/40 px-2 text-2xs font-medium text-fg"
-          : "inline-flex h-6 items-center rounded-sm border border-border-strong px-2 text-2xs font-medium text-fg-muted"
+          ? "inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-sev-severe/40 px-2 text-xs font-medium text-fg"
+          : "inline-flex h-(--chip) items-center rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted"
       }
     >
       {severe ? (
@@ -91,13 +91,13 @@ export function EntryRow({ entry }: { entry: FeedEntry }) {
       </dl>
       <div className="flex flex-wrap items-start gap-1.5 md:justify-end">
         {entry.seen_here ? (
-          <Badge variant="outline" className="rounded-sm text-fg">
+          <Badge variant="outline" className="text-fg">
             <Eye aria-hidden />
             Seen here
           </Badge>
         ) : null}
         {entry.helped ? (
-          <Badge variant="outline" className="rounded-sm text-fg">
+          <Badge variant="outline" className="text-fg">
             <HandHelping aria-hidden />
             You helped
           </Badge>

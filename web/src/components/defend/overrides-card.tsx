@@ -51,7 +51,7 @@ function Row({
       {canWrite ? (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           aria-label={`Remove the override for ${value}`}
           onClick={() => onRemove({ id: item.id, label: value })}
         >

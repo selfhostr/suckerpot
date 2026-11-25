@@ -18,11 +18,11 @@ export function ScannerBadge({
     <span
       title={name ? `Known research scanner: ${name}` : "Known research scanner"}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm border border-dashed border-border-strong px-2 text-2xs font-medium text-fg-muted",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm border border-dashed border-border-strong px-2 text-xs font-medium text-fg-muted",
         className,
       )}
     >
-      <ScanSearch aria-hidden className="size-3" strokeWidth={2} />
+      <ScanSearch aria-hidden className="size-3.5" strokeWidth={2} />
       {short ? "Scanner" : "Research scanner"}
     </span>
   )

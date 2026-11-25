@@ -36,7 +36,7 @@ export function IPChip({
   return (
     <span
       className={cn(
-        "group/ip relative inline-flex h-6 max-w-full items-center rounded-sm font-mono text-xs text-fg",
+        "group/ip relative inline-flex h-(--chip) max-w-full items-center rounded-sm font-mono text-xs text-fg",
         variant === "chip" ? "border border-border bg-surface-hover/60" : "-ml-1.5",
         className,
       )}

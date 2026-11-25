@@ -31,7 +31,7 @@ export function SetPasswordPage() {
             >
               <KeyRound className="size-4" />
             </span>
-            <h1 className="text-xl font-semibold tracking-tight text-fg">Set your password</h1>
+            <h1 className="type-page-title text-fg">Set your password</h1>
             <p className="text-sm text-fg-muted">
               Hello {user.display_name}. The password you signed in with is temporary. Choose your
               own to open the dashboard.

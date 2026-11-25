@@ -28,13 +28,13 @@ export function FindingCard({
   bodyClassName,
 }: FindingCardProps) {
   return (
-    <Card className={cn("gap-0 rounded-lg py-0 shadow-sm", className)}>
+    <Card className={className}>
       {/* The action wraps under the sentence when both cannot sit side by side (wide segmented
           controls on phones), so the finding never shrinks into a narrow column. */}
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-4 pt-4 sm:px-5 sm:pt-5">
         <div className="min-w-0 flex-[1_1_16rem] space-y-1.5">
-          <p className="text-xs font-medium text-fg-muted">{eyebrow}</p>
-          <h3 className="text-base font-medium text-pretty text-fg">{finding}</h3>
+          <p className="type-eyebrow text-fg-muted">{eyebrow}</p>
+          <h3 className="type-card-title text-pretty text-fg">{finding}</h3>
           {detail ? <p className="text-sm text-fg-muted">{detail}</p> : null}
         </div>
         {action ? <div className="max-w-full shrink-0">{action}</div> : null}

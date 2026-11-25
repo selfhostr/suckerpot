@@ -53,7 +53,7 @@ export function CampaignRow({
       <div className="min-w-0 space-y-1">
         <div className="flex min-w-0 items-center gap-2">
           <SeverityBadge severity={c.severity} iconOnly />
-          <h3 className="truncate text-sm font-medium text-fg">{c.name}</h3>
+          <h3 className="truncate type-subtitle text-fg">{c.name}</h3>
         </div>
         <p className="line-clamp-2 text-xs text-fg-muted md:truncate">
           {describeScale(c)}

@@ -15,7 +15,7 @@ export function CopyButton({
   /** A visible caption turns the icon button into a labelled one. */
   children?: React.ReactNode
   variant?: "ghost" | "outline"
-  size?: "icon-xs" | "sm" | "xs"
+  size?: "icon-sm" | "sm"
 }) {
   const { copied, copy } = useCopy()
   const Icon = copied ? Check : Copy
@@ -23,7 +23,7 @@ export function CopyButton({
     <Button
       type="button"
       variant={variant}
-      size={size ?? (children ? "sm" : "icon-xs")}
+      size={size ?? (children ? "sm" : "icon-sm")}
       onClick={() => void copy(text)}
       aria-label={children ? undefined : copied ? "Copied" : label}
       className="text-fg-muted hover:text-fg"

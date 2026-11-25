@@ -51,7 +51,7 @@ export function FilterBar({ children, chips, alsoClears = [], className }: Filte
       {active.map((c) => (
         <span
           key={c.param}
-          className="inline-flex h-8 animate-fade-in items-center gap-1.5 rounded-md border border-border-strong bg-surface pr-1 pl-2.5 text-xs shadow-sm"
+          className="inline-flex h-(--control-sm) animate-fade-in items-center gap-1.5 rounded-md border border-border-strong bg-surface pr-1 pl-2.5 text-xs shadow-xs"
         >
           <span className="text-fg-muted">{c.label}</span>
           <span className="font-medium text-fg">{c.render ? c.render(c.value) : c.value}</span>
@@ -69,7 +69,7 @@ export function FilterBar({ children, chips, alsoClears = [], className }: Filte
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 text-xs text-fg-muted"
+          className="text-fg-muted"
           onClick={() =>
             remove([...chips.flatMap((c) => [c.param, ...(c.alsoRemove ?? [])]), ...alsoClears])
           }

@@ -96,10 +96,10 @@ export function EntriesCard() {
 
   return (
     <section aria-labelledby="feed-entries-title">
-      <h2 id="feed-entries-title" className="text-lg font-semibold tracking-tight text-fg">
+      <h2 id="feed-entries-title" className="type-section-title text-fg">
         Entries
       </h2>
-      <p className="mt-1.5 max-w-2xl text-base text-fg-muted">{entriesFinding(filters)}</p>
+      <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">{entriesFinding(filters)}</p>
 
       <FilterBar
         className="mt-4 mb-4"
@@ -128,7 +128,7 @@ export function EntriesCard() {
         <UrlSearch label="Search the lists" placeholder="Search a value" />
         <label
           htmlFor={seenId}
-          className="inline-flex h-8 items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
+          className="inline-flex h-(--control-sm) items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
         >
           <Switch
             id={seenId}
@@ -141,12 +141,7 @@ export function EntriesCard() {
       </FilterBar>
 
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-        <div
-          className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase",
-            FEED_GRID,
-          )}
-        >
+        <div className={cn("hidden border-b px-5 py-2.5 type-column text-fg-subtle", FEED_GRID)}>
           <span>Value</span>
           <span>What it is</span>
           <span>Dates</span>

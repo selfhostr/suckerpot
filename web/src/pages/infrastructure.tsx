@@ -81,7 +81,8 @@ function IndicatorSearch() {
         maxLength={128}
         placeholder="Search, e.g. bins/x86"
         aria-label="Search indicators"
-        className="h-8 pl-8 font-mono text-xs md:text-xs"
+        size="sm"
+        className="pl-8 font-mono"
       />
     </div>
   )
@@ -191,7 +192,7 @@ export function InfrastructurePage() {
       />
 
       {/* From 2xl the diagram and the control servers sit side by side, above the table. */}
-      <div className="mb-8 grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] 2xl:items-start">
+      <div className="mb-8 grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <FindingCard
           className="min-w-0"
           eyebrow="Sources, indicators and malware families"
@@ -248,9 +249,9 @@ export function InfrastructurePage() {
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <h2 className="text-sm font-medium text-fg">Indicators</h2>
-          <p className="text-xs text-fg-muted">
+        <div className="min-w-0 space-y-1">
+          <h2 className="type-section-title text-fg">Indicators</h2>
+          <p className="max-w-2xl type-lede text-fg-muted">
             {range === "all"
               ? "Every indicator on record, most recently seen first."
               : `Seen in the last ${WINDOWS.find((w) => w.hours === hours)?.label ?? `${Math.round(hours / 24)} days`}, the same window as the diagram.`}
@@ -296,7 +297,7 @@ export function InfrastructurePage() {
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid",
             INDICATOR_GRID,
           )}
         >

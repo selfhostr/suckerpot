@@ -82,9 +82,9 @@ function Parked({ count, onDismiss }: { count: number; onDismiss: () => void }) 
       <Button
         type="button"
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         aria-label="Dismiss this notice"
-        className="size-8 shrink-0"
+        className="shrink-0"
         onClick={onDismiss}
       >
         <X aria-hidden className="size-4" />

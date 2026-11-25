@@ -236,7 +236,7 @@ function FlowList({ flow }: FlowProps) {
   return (
     <div className="space-y-6">
       <section aria-labelledby="flow-origins">
-        <h3 id="flow-origins" className="mb-2 text-xs font-medium text-fg-muted">
+        <h3 id="flow-origins" className="mb-2 type-eyebrow text-fg-muted">
           {COLUMN_TITLES[0]}
         </h3>
         <ul className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
@@ -255,7 +255,7 @@ function FlowList({ flow }: FlowProps) {
         </ul>
       </section>
       <section aria-labelledby="flow-doors">
-        <h3 id="flow-doors" className="mb-2 text-xs font-medium text-fg-muted">
+        <h3 id="flow-doors" className="mb-2 type-eyebrow text-fg-muted">
           {COLUMN_TITLES[1]}, and how far they got
         </h3>
         <ul className="space-y-3">

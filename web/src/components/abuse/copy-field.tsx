@@ -28,7 +28,7 @@ export function CopyField({ label, value, multiline = false, className }: CopyFi
         {masked ? null : (
           <Button
             variant="ghost"
-            size="xs"
+            size="sm"
             onClick={() => void copy(value)}
             aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
           >

@@ -56,7 +56,7 @@ export function OutcomeBadge({ outcome, noAnswer = false, className }: OutcomeBa
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1 text-xs font-medium whitespace-nowrap",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm px-1 text-xs font-medium whitespace-nowrap",
         m.className,
         className,
       )}
@@ -115,7 +115,7 @@ export function TargetStateBadge({ state, role, className }: StateBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1 text-xs font-medium whitespace-nowrap text-fg",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm px-1 text-xs font-medium whitespace-nowrap text-fg",
         className,
       )}
     >

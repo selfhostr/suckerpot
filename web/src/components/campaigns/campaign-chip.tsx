@@ -33,7 +33,7 @@ export function CampaignChip({ id, className }: { id: number; className?: string
     <Link
       to={`/campaigns/${campaign.id}`}
       className={cn(
-        "inline-flex h-6 max-w-full animate-fade-in items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted transition-colors duration-150 hover:border-fg-subtle hover:text-fg",
+        "inline-flex h-(--chip) max-w-full animate-fade-in items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted transition-colors duration-150 hover:border-fg-subtle hover:text-fg",
         className,
       )}
     >

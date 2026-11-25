@@ -115,7 +115,7 @@ export function BundleCard({ className }: { className?: string }) {
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 aria-label={`Remove ${shortHash(sha)} from the bundle`}
                 onClick={() => sampleBundle.remove(sha)}
               >

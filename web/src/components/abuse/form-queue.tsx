@@ -33,7 +33,7 @@ function Card({
     >
       <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
         <span className="min-w-0 space-y-0.5">
-          <h2 id={id} className="text-base font-medium text-fg">
+          <h2 id={id} className="type-card-title text-fg">
             {item.recipient.name}
           </h2>
           <span className="block text-xs text-fg-muted">

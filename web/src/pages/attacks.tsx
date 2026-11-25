@@ -222,7 +222,7 @@ export function AttacksPage() {
       </FilterBar>
 
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-        <div className="hidden grid-cols-[5.5rem_minmax(0,1fr)_auto_6rem] gap-x-4 border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid">
+        <div className="hidden grid-cols-[5.5rem_minmax(0,1fr)_auto_6rem] gap-x-4 border-b px-5 py-2.5 type-column text-fg-subtle md:grid">
           <span>Sensor</span>
           <span>What happened</span>
           <span className="text-right">Tags</span>

@@ -11,7 +11,7 @@ export const SCRIPT_GRID = "md:grid-cols-[minmax(0,1fr)_5rem_5rem_6rem] md:gap-x
 
 function NewPill() {
   return (
-    <span className="inline-flex h-5 items-center rounded-sm border border-border-strong px-1.5 text-2xs font-medium text-fg">
+    <span className="inline-flex h-(--chip) items-center rounded-sm border border-border-strong px-2 text-xs font-medium text-fg">
       New this week
     </span>
   )

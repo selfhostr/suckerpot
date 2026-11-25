@@ -123,14 +123,18 @@ function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolea
         </div>
       ) : (
         // Two columns from lg: twelve sensors take six rows instead of twelve. Each row draws its
-        // own top rule (none on the first row), and the left column a rule on its right.
-        <ul aria-label="Sensors" className="grid grid-cols-1 border-t lg:grid-cols-2">
+        // own top rule (none on the first row), and the left column a rule on its right. From 2xl
+        // the card is one column of the General tab, so the list goes back to one column.
+        <ul
+          aria-label="Sensors"
+          className="grid grid-cols-1 border-t lg:grid-cols-2 2xl:grid-cols-1"
+        >
           {data.sensors.map((s) => {
             const state = SENSOR_STATE[s.status]
             return (
               <li
                 key={s.sensor}
-                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 lg:odd:border-r lg:[&:nth-child(2)]:border-t-0"
+                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 lg:odd:border-r 2xl:odd:border-r-0 lg:[&:nth-child(2)]:border-t-0 2xl:[&:nth-child(2)]:border-t"
               >
                 <SensorBadge sensor={s.sensor} className="justify-self-start" />
                 <StateLabel {...state} />
@@ -194,7 +198,7 @@ function EnrichmentCard() {
         <Failed />
       ) : (
         <div className="space-y-5">
-          <dl className="grid grid-cols-2 gap-4">
+          <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <Field label="GeoIP database">{provider}</Field>
             <Field label="Age">
               {age !== null ? plural(Math.round(age), "day") : "–"}
@@ -442,19 +446,25 @@ export function SettingsPage() {
           ))}
         </TabsList>
 
+        {/* Wide screens: setup and sensors on the left, the system's health stacked on the right.
+            Each column is its own stack, so a short card never leaves a hole beside a tall one. */}
         <TabsContent value="general" className="grid grid-cols-1 gap-4">
           <SetupResumeCard />
-          <SetupChecklistCard />
-          <SensorsCard data={q.data} loading={q.isPending} />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <UpdatesCard />
-            <PipelineCard />
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] 2xl:items-start">
+            <div className="grid grid-cols-1 gap-4">
+              <SetupChecklistCard />
+              <SensorsCard data={q.data} loading={q.isPending} />
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-1">
+              <UpdatesCard />
+              <PipelineCard />
+              <StorageCard data={q.data} loading={q.isPending} />
+              <RetentionCard data={q.data} loading={q.isPending} />
+              <div className="lg:col-span-2 2xl:col-span-1">
+                <EgressCard />
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <StorageCard data={q.data} loading={q.isPending} />
-            <RetentionCard data={q.data} loading={q.isPending} />
-          </div>
-          <EgressCard />
         </TabsContent>
         <TabsContent value="keys" className="grid grid-cols-1 gap-4">
           <EnrichmentCard />
@@ -492,16 +502,23 @@ export function SettingsPage() {
         {canWrite ? (
           <TabsContent value="reporting" className="grid grid-cols-1 gap-4">
             <ReportingNav />
-            <ReportingCard />
-            <section id="reporting-sending" className="scroll-mt-16">
-              <SendingCard />
-            </section>
-            <section id="reporting-digest" className="scroll-mt-16">
-              <DigestCard />
-            </section>
-            <section id="reporting-replies" className="scroll-mt-16">
-              <ImapCard />
-            </section>
+            {/* Wide screens: what a report says on the left, how it travels on the right. */}
+            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2 2xl:items-start">
+              <div className="grid grid-cols-1 gap-4">
+                <ReportingCard />
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                <section id="reporting-sending" className="scroll-mt-16">
+                  <SendingCard />
+                </section>
+                <section id="reporting-digest" className="scroll-mt-16">
+                  <DigestCard />
+                </section>
+                <section id="reporting-replies" className="scroll-mt-16">
+                  <ImapCard />
+                </section>
+              </div>
+            </div>
           </TabsContent>
         ) : null}
         {canWrite ? (

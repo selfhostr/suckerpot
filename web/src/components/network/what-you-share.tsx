@@ -10,7 +10,7 @@ export function WhatYouShare() {
   const title = `${useId()}-title`
   return (
     <section className="space-y-2" aria-labelledby={title}>
-      <h4 id={title} className="text-sm font-medium text-fg">
+      <h4 id={title} className="type-subtitle text-fg">
         What you share
       </h4>
       <ul className="space-y-1.5">

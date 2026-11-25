@@ -354,7 +354,7 @@ function ReplyContactForm() {
       </Field>
       <FormError id={`${id}-err`} message={error} />
       <div className="flex items-center gap-3">
-        <Button type="submit" size="sm" disabled={save.isPending || value.trim() === ""}>
+        <Button type="submit" disabled={save.isPending || value.trim() === ""}>
           {save.isPending ? "Saving…" : "Save"}
         </Button>
         <span role="status" className="text-sm text-fg-muted">

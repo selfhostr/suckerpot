@@ -120,10 +120,10 @@ export function ExposurePage() {
 
           {r.unlisted.length > 0 ? (
             <section aria-labelledby="unlisted" className="mt-10">
-              <h2 id="unlisted" className="text-lg font-semibold tracking-tight text-fg">
+              <h2 id="unlisted" className="type-section-title text-fg">
                 Attacked but not in your list
               </h2>
-              <p className="mt-1.5 max-w-2xl text-base text-fg-muted">
+              <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
                 Attackers went after {plural(r.unlisted.length, "kind")} of service you did not tell
                 us about. If you run any of them, add them to see the full picture.
               </p>

@@ -50,7 +50,8 @@ function HashSearch() {
         maxLength={200}
         placeholder="Hash start or URL part"
         aria-label="Search samples by hash or URL"
-        className="h-8 pl-8 font-mono text-xs md:text-xs"
+        size="sm"
+        className="pl-8 font-mono"
       />
     </div>
   )
@@ -148,7 +149,7 @@ export function SamplesTab() {
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid",
             canWrite ? SAMPLE_GRID_ACTION : SAMPLE_GRID,
           )}
         >

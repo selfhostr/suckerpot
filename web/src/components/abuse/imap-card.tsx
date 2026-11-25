@@ -232,6 +232,7 @@ function ImapSettingsForm({ initial }: { initial: ImapConfig }) {
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-fg">Security</span>
               <SegmentedControl
+                size="form"
                 label="Security"
                 value={f.security}
                 onChange={(v) => {
@@ -298,6 +299,7 @@ function ImapSettingsForm({ initial }: { initial: ImapConfig }) {
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-fg">After a reply is read</span>
             <SegmentedControl
+              size="form"
               label="After a reply is read"
               value={f.processed_action}
               onChange={(v) => set("processed_action", v)}

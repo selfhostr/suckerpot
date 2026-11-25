@@ -15,12 +15,12 @@ function Snippet({ label, text }: { label: string; text: string }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-medium text-fg-muted">{label}</h4>
+        <h4 className="type-eyebrow text-fg-muted">{label}</h4>
         <CopyButton
           text={text}
           label={`Copy the ${label.toLowerCase()}`}
           variant="outline"
-          size="xs"
+          size="sm"
         >
           Copy
         </CopyButton>
@@ -58,7 +58,7 @@ export function TokenReveal({
         <div className="flex items-start gap-3">
           <KeyRound aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
           <div className="space-y-1">
-            <h3 id="token-reveal-title" className="text-base font-medium text-fg">
+            <h3 id="token-reveal-title" className="type-card-title text-fg">
               Copy your token now: “{item.name}”
             </h3>
             <p className="text-sm text-fg-muted">
@@ -70,7 +70,7 @@ export function TokenReveal({
         </div>
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           aria-label="I have saved it, hide the token"
           onClick={onDismiss}
         >

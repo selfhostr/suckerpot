@@ -50,10 +50,10 @@ function Section({
 }) {
   return (
     <section aria-labelledby={id} className={cn("mt-8", className)}>
-      <h2 id={id} className="text-xs font-medium text-fg-muted">
+      <h2 id={id} className="type-eyebrow text-fg-muted">
         {title}
       </h2>
-      <p className="mt-1 mb-3 max-w-3xl text-base text-pretty text-fg">{finding}</p>
+      <p className="mt-1 mb-3 max-w-3xl type-card-title text-pretty text-fg">{finding}</p>
       {children}
     </section>
   )

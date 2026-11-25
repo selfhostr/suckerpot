@@ -39,7 +39,7 @@ function TokenRow({ token }: { token: FeedToken }) {
   const s = STATE[token.state]
   const Icon = s.icon
   const badge = (
-    <Badge variant="outline" className="rounded-sm text-fg">
+    <Badge variant="outline" className="text-fg">
       <Icon aria-hidden />
       {s.label}
     </Badge>
@@ -172,9 +172,7 @@ export function FeedsTab() {
           finding="Each token reads only the lists and the score you gave it."
           bodyClassName="px-0 sm:px-0 pt-3 pb-0 sm:pb-0"
         >
-          <div
-            className={`hidden border-y px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase ${GRID}`}
-          >
+          <div className={`hidden border-y px-5 py-2.5 type-column text-fg-subtle ${GRID}`}>
             <span>Name</span>
             <span>Covers</span>
             <span>State</span>

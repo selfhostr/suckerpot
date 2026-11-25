@@ -128,88 +128,101 @@ export function VpnTab() {
   ) : null
 
   return (
-    <div className="grid grid-cols-1 gap-4">
-      <FindingCard
-        eyebrow="VPN"
-        finding={
-          v ? describeVpn(v) : q.isError ? "The VPN status is not available." : "Checking the VPN…"
-        }
-        detail="Enrichment and the sample collector only talk to the internet through this tunnel."
-      >
-        {!v ? (
-          q.isPending ? (
-            <SkeletonText lines={4} className="py-1" />
+    // Wide screens: the tunnel's status on the left, what changes it on the right.
+    <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2 2xl:items-start">
+      <div className="grid grid-cols-1 gap-4">
+        <FindingCard
+          eyebrow="VPN"
+          finding={
+            v
+              ? describeVpn(v)
+              : q.isError
+                ? "The VPN status is not available."
+                : "Checking the VPN…"
+          }
+          detail="Enrichment and the sample collector only talk to the internet through this tunnel."
+        >
+          {!v ? (
+            q.isPending ? (
+              <SkeletonText lines={4} className="py-1" />
+            ) : (
+              <p className="text-sm text-fg-muted">This status is not available right now.</p>
+            )
           ) : (
-            <p className="text-sm text-fg-muted">This status is not available right now.</p>
-          )
-        ) : (
-          <div className="space-y-5">
-            {watching ? (
-              <p
-                role="status"
-                className="flex items-center gap-2 rounded-md border bg-bg px-3 py-2 text-sm text-fg-muted"
-              >
-                <LoaderCircle aria-hidden className="size-4 shrink-0 animate-spin" />
-                The tunnel is restarting. This page checks every 5 seconds.
-              </p>
-            ) : null}
-            <StatusDetails v={v} />
-            {controls}
-          </div>
-        )}
-      </FindingCard>
+            <div className="space-y-5">
+              {watching ? (
+                <p
+                  role="status"
+                  className="flex items-center gap-2 rounded-md border bg-bg px-3 py-2 text-sm text-fg-muted"
+                >
+                  <LoaderCircle aria-hidden className="size-4 shrink-0 animate-spin" />
+                  The tunnel is restarting. This page checks every 5 seconds.
+                </p>
+              ) : null}
+              <StatusDetails v={v} />
+              {controls}
+            </div>
+          )}
+        </FindingCard>
 
-      {v && !v.config_writable ? (
-        <p className="flex items-start gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-fg-muted sm:px-5">
-          <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
-          The vpn-config volume is not mounted or not writable. Uploading and reverting are off
-          until it is.
-        </p>
-      ) : null}
+        {v && !v.config_writable ? (
+          <p className="flex items-start gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-fg-muted sm:px-5">
+            <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-sev-warning" />
+            The vpn-config volume is not mounted or not writable. Uploading and reverting are off
+            until it is.
+          </p>
+        ) : null}
+      </div>
 
-      {v?.trust_blocked ? (
-        <BlockedCallout
-          reason={v.trust_blocked}
-          exitIp={v.gate.egress_ip}
-          network={describeNetwork(v.gate)}
-          canRevert={v.source === "upload" && v.config_writable}
-          onDone={restarted}
+      <div className="grid grid-cols-1 gap-4">
+        {v?.trust_blocked ? (
+          <BlockedCallout
+            reason={v.trust_blocked}
+            exitIp={v.gate.egress_ip}
+            network={describeNetwork(v.gate)}
+            canRevert={v.source === "upload" && v.config_writable}
+            onDone={restarted}
+          />
+        ) : null}
+
+        {v?.trust_candidate ? (
+          <TrustCallout
+            cidr={v.trust_candidate}
+            exitIp={v.gate.egress_ip}
+            network={describeNetwork(v.gate)}
+            onDone={refresh}
+          />
+        ) : null}
+
+        <AdminActionDialog
+          open={reconnecting}
+          onOpenChange={setReconnecting}
+          title="Reconnect the tunnel?"
+          description="The tunnel restarts. Lookups and downloads pause until it is back and checked, usually within a minute. Events are still recorded."
+          hint="Reconnecting asks for your own dashboard password again."
+          confirmLabel="Reconnect"
+          pendingLabel="Reconnecting…"
+          run={async (password) => {
+            await vpnApi.reconnect(password)
+          }}
+          onDone={() => {
+            setNotice(null)
+            restarted()
+          }}
         />
-      ) : null}
 
-      {v?.trust_candidate ? (
-        <TrustCallout
-          cidr={v.trust_candidate}
-          exitIp={v.gate.egress_ip}
-          network={describeNetwork(v.gate)}
-          onDone={refresh}
+        <UploadCard onUploaded={restarted} disabled={v ? !v.config_writable : false} />
+
+        <TrustedExitsCard
+          exits={v?.trusted_exits ?? []}
+          loading={q.isPending}
+          onChanged={refresh}
         />
-      ) : null}
 
-      <AdminActionDialog
-        open={reconnecting}
-        onOpenChange={setReconnecting}
-        title="Reconnect the tunnel?"
-        description="The tunnel restarts. Lookups and downloads pause until it is back and checked, usually within a minute. Events are still recorded."
-        hint="Reconnecting asks for your own dashboard password again."
-        confirmLabel="Reconnect"
-        pendingLabel="Reconnecting…"
-        run={async (password) => {
-          await vpnApi.reconnect(password)
-        }}
-        onDone={() => {
-          setNotice(null)
-          restarted()
-        }}
-      />
-
-      <UploadCard onUploaded={restarted} disabled={v ? !v.config_writable : false} />
-
-      <TrustedExitsCard exits={v?.trusted_exits ?? []} loading={q.isPending} onChanged={refresh} />
-
-      {v?.source === "upload" && !v.trust_blocked ? (
-        <RevertCard onDone={restarted} disabled={!v.config_writable} />
-      ) : null}
+        {v?.source === "upload" && !v.trust_blocked ? (
+          <RevertCard onDone={restarted} disabled={!v.config_writable} />
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -366,7 +379,7 @@ function BlockedCallout({
       <div className="flex min-w-0 items-start gap-3">
         <ShieldAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-sev-warning" />
         <div className="min-w-0 space-y-1">
-          <h3 id="vpn-blocked-title" className="text-sm font-medium text-fg">
+          <h3 id="vpn-blocked-title" className="type-subtitle text-fg">
             This exit cannot be trusted
           </h3>
           <p className="text-sm text-fg-muted">
@@ -419,7 +432,7 @@ function TrustCallout({
       <div className="flex min-w-0 items-start gap-3">
         <ShieldAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-sev-warning" />
         <div className="min-w-0 space-y-1">
-          <h3 id="vpn-trust-title" className="text-sm font-medium text-fg">
+          <h3 id="vpn-trust-title" className="type-subtitle text-fg">
             Trust needed
           </h3>
           <p className="text-sm text-fg-muted">

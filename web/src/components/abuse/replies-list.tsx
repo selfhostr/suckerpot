@@ -114,7 +114,7 @@ function LinkMenu({ reply, onLinked }: { reply: Reply; onLinked: (msg: string) =
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="xs" disabled={link.isPending}>
+        <Button variant="outline" size="sm" disabled={link.isPending}>
           <Link2 aria-hidden /> Link to report
         </Button>
       </DropdownMenuTrigger>
@@ -181,7 +181,7 @@ export function RepliesToCheck() {
               canWrite ? (
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {r.report ? (
-                    <Button variant="ghost" size="xs" asChild>
+                    <Button variant="ghost" size="sm" asChild>
                       <Link to={`/defend/abuse/${r.report}`}>Open the report</Link>
                     </Button>
                   ) : (
@@ -191,7 +191,7 @@ export function RepliesToCheck() {
                     <>
                       <Button
                         variant="outline"
-                        size="xs"
+                        size="sm"
                         disabled={patch.isPending}
                         onClick={() => patch.mutate({ id: r.id, trust: false })}
                       >
@@ -199,7 +199,7 @@ export function RepliesToCheck() {
                       </Button>
                       <Button
                         variant="outline"
-                        size="xs"
+                        size="sm"
                         disabled={patch.isPending}
                         onClick={() => patch.mutate({ id: r.id, trust: true })}
                       >

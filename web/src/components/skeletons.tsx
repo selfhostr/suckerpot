@@ -44,9 +44,12 @@ export function SkeletonList({ rows = 8, className }: { rows?: number; className
 
 export function SkeletonTile({ className }: { className?: string }) {
   return (
-    <div aria-hidden className={cn("space-y-3 rounded-lg border bg-surface p-5", className)}>
+    <div
+      aria-hidden
+      className={cn("space-y-3 rounded-lg border bg-surface p-4 shadow-sm sm:p-5", className)}
+    >
       <Skeleton className="h-3 w-20" />
-      <Skeleton className="h-8 w-28" />
+      <Skeleton className="h-8.5 w-28" />
       <Skeleton className="h-3 w-32" />
     </div>
   )
@@ -54,7 +57,10 @@ export function SkeletonTile({ className }: { className?: string }) {
 
 export function SkeletonCard({ className }: { className?: string }) {
   return (
-    <div aria-hidden className={cn("space-y-4 rounded-lg border bg-surface p-5", className)}>
+    <div
+      aria-hidden
+      className={cn("space-y-4 rounded-lg border bg-surface p-4 shadow-sm sm:p-5", className)}
+    >
       <div className="space-y-2">
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-4 w-3/4" />

@@ -30,13 +30,13 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0 space-y-1.5">
-        {eyebrow ? <div className="text-xs text-fg-muted">{eyebrow}</div> : null}
+        {eyebrow ? <div className="type-eyebrow text-fg-muted">{eyebrow}</div> : null}
         <div className="flex items-center gap-1.5">
-          <h1 className="min-w-0 text-xl font-semibold tracking-tight text-fg">{title}</h1>
+          <h1 className="min-w-0 type-page-title text-fg">{title}</h1>
           {help ? <PageHelp id={help} /> : null}
         </div>
         {description ? (
-          <p className="max-w-2xl text-base text-pretty text-fg-muted">{description}</p>
+          <p className="max-w-2xl type-lede text-pretty text-fg-muted">{description}</p>
         ) : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}

@@ -120,7 +120,7 @@ function InventoryForm({
             aria-describedby={`${ids.service}-hint`}
             value={service}
             onChange={(e) => setService(e.target.value)}
-            className="h-9 w-full cursor-pointer appearance-none rounded-md border border-input bg-transparent pr-9 pl-3 text-base text-fg shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30 [&>option]:bg-popover [&>option]:text-fg"
+            className="h-(--control-md) w-full cursor-pointer appearance-none rounded-md border border-input bg-surface pr-9 pl-3 text-sm text-fg shadow-xs transition-colors duration-150 [&>option]:bg-popover [&>option]:text-fg"
           >
             {SENSORS.map((s) => (
               <option key={s} value={s}>
@@ -161,6 +161,7 @@ function InventoryForm({
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-fg">Who can reach it</span>
         <SegmentedControl
+          size="form"
           label="Who can reach it"
           value={exposure}
           onChange={setExposure}

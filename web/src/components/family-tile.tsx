@@ -49,7 +49,7 @@ export function FamilyTile({
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
         aria-label={`${fam.label}: ${formatNumber(total)} ${unit ?? metric}. Open these attacks.`}
       />
-      <div className={cn("inline-flex items-center gap-2 text-xs font-medium", fam.text)}>
+      <div className={cn("inline-flex items-center gap-2 type-eyebrow", fam.text)}>
         <span aria-hidden className={cn("size-2 rounded-full", fam.fill)} />
         {fam.label}
       </div>
@@ -57,7 +57,7 @@ export function FamilyTile({
         <Skeleton className="h-8 w-24" />
       ) : (
         <span className="flex items-baseline gap-1.5">
-          <AnimatedNumber value={total} className="text-2xl font-semibold tracking-tight text-fg" />
+          <AnimatedNumber value={total} className="type-kpi text-fg" />
           {unit ? (
             <span className="text-xs text-fg-muted">
               <span className={cn(unitShort && "hidden sm:inline")}>{unit}</span>

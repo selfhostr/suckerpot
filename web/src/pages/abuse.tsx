@@ -70,7 +70,7 @@ function ProviderGroup({ g }: { g: Group }) {
       className="overflow-hidden rounded-lg border bg-surface shadow-sm"
     >
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-4 pb-3 sm:px-5">
-        <h2 id={`prov-${g.id}`} className="text-base font-medium text-fg">
+        <h2 id={`prov-${g.id}`} className="type-card-title text-fg">
           {g.name}
         </h2>
         <span className="font-mono text-xs text-fg-muted">{g.mailbox ?? "no mailbox yet"}</span>
@@ -79,7 +79,7 @@ function ProviderGroup({ g }: { g: Group }) {
             <Link
               key={a.asn}
               to={`/attackers?asn=${a.asn}`}
-              className="inline-flex h-6 items-center gap-1.5 rounded-sm border px-2 font-mono text-2xs text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
+              className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border px-2 font-mono text-2xs text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
             >
               AS{a.asn}
               {a.name ? <span className="font-sans">{a.name}</span> : null}
@@ -127,7 +127,8 @@ function MailboxForm({ w, onDone }: { w: WaitingRecipient; onDone: () => void })
         value={value}
         placeholder="abuse@provider.tld"
         onChange={(e) => setValue(e.target.value)}
-        className="h-8 w-56 font-mono text-xs placeholder:text-fg-subtle"
+        size="sm"
+        className="w-56 font-mono"
       />
       <Button type="submit" size="sm" variant="outline" disabled={save.isPending}>
         Add mailbox

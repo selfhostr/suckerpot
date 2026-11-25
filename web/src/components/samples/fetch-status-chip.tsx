@@ -42,12 +42,12 @@ export function FetchStatusChip({
     <span
       title={FETCH_STATUS[status].explain}
       className={cn(
-        "inline-flex h-5 items-center gap-1 rounded-sm border border-border-strong px-1.5 text-2xs font-medium",
+        "inline-flex h-(--chip) items-center gap-1 rounded-sm border border-border-strong px-2 text-xs font-medium",
         status === "fetched" ? "text-fg" : "text-fg-muted",
         className,
       )}
     >
-      <Icon aria-hidden className="size-3" strokeWidth={2.25} />
+      <Icon aria-hidden className="size-3.5" strokeWidth={2.25} />
       {fetchStatusLabel(status, url)}
     </span>
   )

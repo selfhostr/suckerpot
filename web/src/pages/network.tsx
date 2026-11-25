@@ -45,7 +45,7 @@ function MemberOverview({ status }: { status: NetworkStatus }) {
   const boot = t ? bootstrapSentence(t) : null
   return (
     <div className="grid grid-cols-1 gap-4">
-      <p className="max-w-3xl text-base text-pretty text-fg">
+      <p className="max-w-3xl type-lede text-pretty text-fg">
         {impact.data ? describeStatus(status, impact.data) : "Counting what the network did…"}
       </p>
       {boot ? (

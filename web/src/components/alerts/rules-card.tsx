@@ -290,7 +290,7 @@ export function WatchedCvesCard() {
                   {canWrite ? (
                     <Button
                       variant="ghost"
-                      size="icon-xs"
+                      size="icon-sm"
                       aria-label={`Stop watching ${c.cve_id}`}
                       onClick={() => void run(() => unwatchCve(c.cve_id))}
                     >

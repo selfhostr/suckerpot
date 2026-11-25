@@ -48,7 +48,7 @@ export function ExplainedLines({ lines }: { lines: readonly ExplainedLine[] }) {
                   {l.technique ? (
                     <Link
                       to={`/scripts?technique=${encodeURIComponent(l.technique)}`}
-                      className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-border-strong px-1.5 text-2xs text-fg-muted normal-nums transition-colors hover:border-fg-subtle hover:text-fg"
+                      className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted normal-nums transition-colors hover:border-fg-subtle hover:text-fg"
                     >
                       <span className="font-mono">{l.technique}</span>
                       {l.technique_name ? <span>{l.technique_name}</span> : null}

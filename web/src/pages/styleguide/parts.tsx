@@ -20,7 +20,7 @@ export function Section({
       className="scroll-mt-20 border-t py-10 first:border-t-0 first:pt-2"
     >
       <div className="mb-6 max-w-2xl space-y-1">
-        <h2 id={`${id}-title`} className="text-lg font-semibold tracking-tight text-fg">
+        <h2 id={`${id}-title`} className="type-section-title text-fg">
           {title}
         </h2>
         <p className="text-sm text-fg-muted normal-nums">{description}</p>

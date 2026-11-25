@@ -98,19 +98,15 @@ export function ListCard({
   const meta = LIST_META[list.id]
   const Icon = ICON[list.id]
   return (
-    <Card
-      role="group"
-      aria-label={`${meta.title} list`}
-      className="gap-4 rounded-lg p-4 shadow-sm sm:p-5"
-    >
+    <Card role="group" aria-label={`${meta.title} list`} className="gap-4 p-4 sm:p-5">
       <header className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="inline-flex items-center gap-2 text-base font-medium text-fg">
+          <h3 className="inline-flex items-center gap-2 type-card-title text-fg">
             <Icon aria-hidden className="size-4 text-fg-muted" strokeWidth={1.85} />
             {meta.title}
           </h3>
           {meta.startHere ? (
-            <Badge variant="outline" className="rounded-sm text-fg">
+            <Badge variant="outline" className="text-fg">
               <Star aria-hidden />
               Start here
             </Badge>

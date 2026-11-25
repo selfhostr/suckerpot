@@ -67,7 +67,7 @@ function RoleBadge({ user }: { user: UserItem }) {
   const admin = user.is_owner || user.role === "admin"
   const Icon = admin ? ShieldCheck : Eye
   return (
-    <Badge variant="outline" className={cn("rounded-sm", admin ? "text-fg" : "text-fg-muted")}>
+    <Badge variant="outline" className={cn(admin ? "text-fg" : "text-fg-muted")}>
       <Icon aria-hidden className="size-3" />
       {user.is_owner ? "Owner" : ROLE_LABEL[user.role]}
     </Badge>
@@ -234,12 +234,7 @@ function RowActions({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Actions for ${user.username}`}
-          className="size-8"
-        >
+        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${user.username}`}>
           <Ellipsis aria-hidden />
         </Button>
       </DropdownMenuTrigger>

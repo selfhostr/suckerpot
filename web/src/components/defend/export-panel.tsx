@@ -116,7 +116,7 @@ export function ExportPanel({
               stay close to the top of the page. */}
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-4">
             <div className="min-w-0">
-              <h4 className="text-sm font-medium text-fg">Keep a firewall up to date</h4>
+              <h4 className="type-subtitle text-fg">Keep a firewall up to date</h4>
               <p className="text-xs text-fg-muted">
                 Point OPNsense or pfSense at a feed instead of downloading again.
               </p>

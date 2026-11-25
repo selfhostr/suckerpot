@@ -31,10 +31,7 @@ export function NewList({ field, items, loading, empty }: NewListProps) {
   const link = LINKS[field]
   return (
     <>
-      <div
-        aria-hidden
-        className="flex gap-3 border-b pb-2 text-2xs font-medium tracking-wide text-fg-subtle uppercase"
-      >
+      <div aria-hidden className="flex gap-3 border-b pb-2 type-column text-fg-subtle">
         <span className="flex-1">Value</span>
         <span>Seen</span>
         <span className="w-24 text-right">First seen</span>

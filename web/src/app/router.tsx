@@ -123,8 +123,8 @@ export const router = createBrowserRouter(
 
 /**
  * Every page declares how wide it may grow (`handle.width`, see page-width.ts): lists, hubs and
- * dashboards are "wide", Live is "full", and anything without a width (Settings, setup and every
- * detail page) is a "prose" reading page.
+ * dashboards (and Settings, a set of panels) are "wide", Live is "full", and anything without a
+ * width (setup and every detail page) is a "prose" reading page.
  */
 export function appRoutes(): RouteObject {
   return {
@@ -239,7 +239,7 @@ export function appRoutes(): RouteObject {
       },
       {
         path: "settings",
-        handle: { width: "prose" } satisfies RouteHandle,
+        handle: { width: "wide" } satisfies RouteHandle,
         element: (
           <Lazy>
             <SettingsPage />
@@ -258,6 +258,7 @@ export function appRoutes(): RouteObject {
         ? [
             {
               path: "styleguide",
+              handle: { width: "wide" } satisfies RouteHandle,
               element: (
                 <Lazy>
                   <StyleguidePage />

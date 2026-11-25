@@ -120,10 +120,10 @@ export function DetectionsPage() {
       )}
 
       <section aria-labelledby="company-check" className="mt-12">
-        <h2 id="company-check" className="text-lg font-semibold tracking-tight text-fg">
+        <h2 id="company-check" className="type-section-title text-fg">
           Check this at your company
         </h2>
-        <p className="mt-1.5 max-w-2xl text-base text-fg-muted">
+        <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">
           {guidance.data
             ? guidance.data.items.length === 0
               ? `Nothing in the last ${plural(days, "day")} calls for a check yet.`

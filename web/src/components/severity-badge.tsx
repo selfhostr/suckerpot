@@ -21,7 +21,7 @@ export function SeverityBadge({ severity, iconOnly = false, className }: Severit
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm text-xs font-medium",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm text-xs font-medium",
         iconOnly ? "w-6 justify-center" : "px-2",
         severity === "severe" && "font-semibold",
         tone,

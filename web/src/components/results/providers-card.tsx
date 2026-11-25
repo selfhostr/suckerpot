@@ -91,7 +91,7 @@ function ProviderName({ r }: { r: Row }) {
       <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
         <Link
           to={`/attackers?asn=${r.key}`}
-          className="inline-flex h-6 items-center rounded-sm border px-2 font-mono text-2xs text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
+          className="inline-flex h-(--chip) items-center rounded-sm border px-2 font-mono text-2xs text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
         >
           AS{r.key}
         </Link>

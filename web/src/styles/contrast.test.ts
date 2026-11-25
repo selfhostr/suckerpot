@@ -60,6 +60,11 @@ describe.each(Object.entries(themes))("%s theme", (_name, t) => {
     expect(contrastRatio(hex(t, "fg-on-primary"), hex(t, "primary"))).toBeGreaterThanOrEqual(4.5)
   })
 
+  // selfhostr guidelines 3.6: the focus outline is the ink colour, 2 px, offset 2 px.
+  it("draws focus in the text colour", () => {
+    expect(t.ring).toBe(t.fg)
+  })
+
   it.each([["ring"], ["border-strong"], ["status-ok"]] as const)(
     "--%s is visible as a UI element on --bg (>= 3)",
     (name) => {

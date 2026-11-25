@@ -111,7 +111,7 @@ export function TechniquesPage() {
               <li
                 key={t.id}
                 title={t.name}
-                className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-border-strong px-2 text-2xs text-fg-muted"
+                className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted"
               >
                 <span className="font-mono text-fg-subtle">{t.id}</span>
                 {t.name}

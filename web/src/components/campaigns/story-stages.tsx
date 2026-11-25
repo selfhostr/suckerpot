@@ -41,7 +41,7 @@ export function StoryStages({ stages, campaignId, className }: StoryStagesProps)
             </span>
             <div className="min-w-0 space-y-1.5 pt-0.5">
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <h4 className="text-sm font-medium text-fg">
+                <h4 className="type-subtitle text-fg">
                   <span className="mr-1.5 text-xs text-fg-subtle tabular-nums">{i + 1}.</span>
                   {s.label}
                 </h4>
@@ -54,7 +54,7 @@ export function StoryStages({ stages, campaignId, className }: StoryStagesProps)
                     <Link
                       to={`/attacks?campaign_id=${campaignId}&technique=${encodeURIComponent(t.id)}`}
                       aria-label={`${t.name}, ${t.id}. Show the sessions of this campaign that used it.`}
-                      className="inline-flex h-6 min-w-0 items-center gap-1.5 rounded-l-sm border border-border-strong px-2 text-2xs text-fg-muted transition-colors duration-150 hover:border-fg-subtle hover:text-fg"
+                      className="inline-flex h-(--chip) min-w-0 items-center gap-1.5 rounded-l-sm border border-border-strong px-2 text-xs text-fg-muted transition-colors duration-150 hover:border-fg-subtle hover:text-fg"
                     >
                       <span className="shrink-0 font-mono text-fg">{t.id}</span>
                       <span className="max-w-48 min-w-0 truncate">{t.name}</span>

@@ -100,7 +100,7 @@ function TourSteps({ onClose }: { onClose: () => void }) {
           <p className="text-xs font-medium text-fg-muted">
             Step {index + 1} of {TOUR_STEPS.length}
           </p>
-          <DialogTitle className="text-lg leading-snug text-pretty">{step.title}</DialogTitle>
+          <DialogTitle className="text-pretty">{step.title}</DialogTitle>
           <DialogDescription className="text-sm text-pretty">{step.body}</DialogDescription>
         </DialogHeader>
 

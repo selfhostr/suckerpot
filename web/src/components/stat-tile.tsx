@@ -66,7 +66,7 @@ export function StatTile({
     <>
       <div
         className={cn(
-          "inline-flex items-center gap-1.5 text-xs font-medium",
+          "inline-flex items-center gap-1.5 type-eyebrow",
           meta ? meta.text : "text-fg-muted",
         )}
       >
@@ -74,16 +74,13 @@ export function StatTile({
         {label}
       </div>
       {loading || value == null ? (
-        <Skeleton className={cn("w-24", figure ? "h-10" : "h-8")} />
+        <Skeleton className={cn("w-24", figure ? "h-8.5 sm:h-10.5" : "h-8.5")} />
       ) : (
         <span className="flex items-baseline gap-1.5">
           <AnimatedNumber
             value={value}
             format={format}
-            className={cn(
-              "font-semibold tracking-tight text-fg",
-              figure ? "text-2xl sm:text-3xl" : "text-2xl",
-            )}
+            className={cn("text-fg", figure ? "type-figure" : "type-kpi")}
           />
           {unit ? (
             <span className="text-xs text-fg-muted">

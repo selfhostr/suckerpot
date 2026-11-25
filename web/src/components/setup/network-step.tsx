@@ -41,7 +41,7 @@ export function NetworkStep({
   if (s.state === "member" || s.state === "enrolling") {
     return (
       <div className="space-y-3">
-        <h3 className="flex items-center gap-2 text-base font-medium text-fg">
+        <h3 className="flex items-center gap-2 type-card-title text-fg">
           <CircleCheck aria-hidden className="size-4 text-status-ok" strokeWidth={2.25} />
           {s.state === "member"
             ? s.pseudonym
@@ -69,7 +69,7 @@ export function NetworkStep({
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <h3 className="text-base font-medium text-fg">
+        <h3 className="type-card-title text-fg">
           Join the SuckerPot network{" "}
           <span className="font-normal text-fg-muted">(recommended)</span>
         </h3>

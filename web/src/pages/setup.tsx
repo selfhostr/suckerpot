@@ -245,7 +245,7 @@ function Stepper() {
               id="step-title"
               ref={heading}
               tabIndex={-1}
-              className="text-lg font-semibold text-pretty text-fg outline-none"
+              className="type-section-title text-pretty text-fg outline-none"
             >
               {step.sentence}
             </h2>

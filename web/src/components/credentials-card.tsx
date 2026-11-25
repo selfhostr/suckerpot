@@ -86,7 +86,7 @@ export function CredentialsCard({
       ) : (
         <div className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
           <section aria-label="Usernames tried">
-            <h4 className="mb-2 text-xs font-medium text-fg-muted">Usernames</h4>
+            <h4 className="mb-2 type-eyebrow text-fg-muted">Usernames</h4>
             <TopList
               loading={!c}
               rows={3}
@@ -96,7 +96,7 @@ export function CredentialsCard({
             />
           </section>
           <section aria-label="Passwords tried">
-            <h4 className="mb-2 text-xs font-medium text-fg-muted">Passwords</h4>
+            <h4 className="mb-2 type-eyebrow text-fg-muted">Passwords</h4>
             <TopList
               loading={!c}
               rows={3}

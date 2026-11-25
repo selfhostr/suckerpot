@@ -43,7 +43,7 @@ export function Checks({ checks, title = "Checks to run" }: { checks: string[]; 
   if (checks.length === 0) return null
   return (
     <div className="space-y-1.5">
-      <h5 className="text-xs font-medium text-fg-muted">{title}</h5>
+      <h5 className="type-eyebrow text-fg-muted">{title}</h5>
       <ul className="list-disc space-y-1 pl-4 text-sm text-fg marker:text-fg-subtle">
         {checks.map((c) => (
           <li key={c} className="pl-1 text-pretty">
@@ -90,7 +90,7 @@ export function ExposureCard({
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-medium text-fg">{item.name}</h3>
+            <h3 className="type-card-title text-fg">{item.name}</h3>
             <SensorBadge sensor={item.service} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">
@@ -104,7 +104,7 @@ export function ExposureCard({
         {canWrite ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-xs" aria-label={`Actions for ${item.name}`}>
+              <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${item.name}`}>
                 <Ellipsis aria-hidden />
               </Button>
             </DropdownMenuTrigger>
@@ -156,7 +156,7 @@ export function ExposureCard({
 
       {service.top_tags.length > 0 ? (
         <div className="space-y-1.5">
-          <h5 className="text-xs font-medium text-fg-muted">What the attackers did</h5>
+          <h5 className="type-eyebrow text-fg-muted">What the attackers did</h5>
           <ul aria-label="Top tags" className="flex flex-wrap gap-1.5">
             {service.top_tags.map((t) => (
               <li key={t.tag} className="inline-flex items-center gap-1.5">
@@ -170,7 +170,7 @@ export function ExposureCard({
 
       {service.cves.length > 0 ? (
         <div className="space-y-1.5">
-          <h5 className="text-xs font-medium text-fg-muted">Known flaws that match</h5>
+          <h5 className="type-eyebrow text-fg-muted">Known flaws that match</h5>
           <ul className="space-y-1.5">
             {service.cves.map((c) => (
               <li key={c.cve_id} className="space-y-0.5">
@@ -185,7 +185,7 @@ export function ExposureCard({
                     <span className="text-xs text-fg-muted">CVSS {c.cvss_score.toFixed(1)}</span>
                   ) : null}
                   {c.in_kev ? (
-                    <Badge variant="outline" className="rounded-sm text-fg">
+                    <Badge variant="outline" className="text-fg">
                       Exploited in the wild
                     </Badge>
                   ) : null}

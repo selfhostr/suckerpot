@@ -54,7 +54,7 @@ function ConfidenceBadge({ confidence }: { confidence: C2Address["confidence"] }
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center rounded-sm border px-2 text-xs font-medium whitespace-nowrap",
+        "inline-flex h-(--chip) shrink-0 items-center rounded-sm border px-2 text-xs font-medium whitespace-nowrap",
         // Red is reserved for severe events: a ThreatFox-reported C2 qualifies, a sandbox contact does not.
         high ? "tint-severe border-sev-severe/30 text-sev-severe" : "border-border text-fg-muted",
       )}
@@ -113,7 +113,7 @@ function C2Row({ item }: { item: C2Address }) {
         </summary>
         <dl className="mt-2 space-y-2 pl-4 text-xs">
           <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">
+            <dt className="type-column text-fg-subtle">
               Files that contact it ({formatNumber(item.hash_count)})
             </dt>
             <dd className="mt-1 space-y-1">
@@ -165,14 +165,22 @@ export function C2Section({ className }: { className?: string }) {
     : "Looking for control servers of the malware dropped here…"
 
   return (
-    <section aria-labelledby="c2-heading" className={className}>
-      <div className="mb-3 space-y-1">
-        <h2 id="c2-heading" className="text-sm font-medium text-fg">
+    // A card with its title inside, like the diagram's FindingCard beside it: both headers start
+    // on the same line and the two cards share one height.
+    <section
+      aria-labelledby="c2-heading"
+      className={cn(
+        "flex flex-col overflow-hidden rounded-lg border bg-surface shadow-sm",
+        className,
+      )}
+    >
+      <header className="space-y-1.5 px-4 pt-4 pb-4 sm:px-5 sm:pt-5">
+        <h2 id="c2-heading" className="type-eyebrow text-fg-muted">
           Probable <Explain term="c2">C2</Explain>
         </h2>
-        <p className="text-sm text-fg-muted">{sentence}</p>
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+        <p className="type-card-title text-pretty text-fg">{sentence}</p>
+      </header>
+      <div className="flex-1 border-t">
         {query.isPending ? (
           <SkeletonList rows={3} />
         ) : query.isError ? (
@@ -205,7 +213,7 @@ export function C2Section({ className }: { className?: string }) {
         )}
       </div>
       {query.hasNextPage ? (
-        <div className="mt-3 flex justify-center">
+        <div className="flex justify-center border-t px-4 py-3 sm:px-5">
           <Button
             variant="outline"
             size="sm"

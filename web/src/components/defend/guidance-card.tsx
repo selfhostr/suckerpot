@@ -6,7 +6,7 @@ import { evidenceLine, type GuidanceItem } from "@/lib/defend"
 function Checklist({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="space-y-1.5">
-      <h5 className="text-xs font-medium text-fg-muted">{title}</h5>
+      <h5 className="type-eyebrow text-fg-muted">{title}</h5>
       <ul className="list-disc space-y-1 pl-4 text-sm text-fg marker:text-fg-subtle">
         {items.map((item) => (
           <li key={item} className="pl-1 text-pretty">
@@ -24,7 +24,7 @@ export function GuidanceCard({ item }: { item: GuidanceItem }) {
     <article className="flex flex-col gap-4 rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h4 className="text-base font-medium text-fg">{item.title}</h4>
+          <h4 className="type-card-title text-fg">{item.title}</h4>
           <SeverityBadge severity={item.severity} />
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">

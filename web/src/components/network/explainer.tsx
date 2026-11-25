@@ -16,7 +16,7 @@ function Column({
 }) {
   return (
     <section className="min-w-0 space-y-3">
-      <h4 className="text-sm font-medium text-fg">{title}</h4>
+      <h4 className="type-subtitle text-fg">{title}</h4>
       <ul className="space-y-2.5">
         {items.map((i) => (
           <li key={i.key} className="flex items-start gap-2.5 text-sm text-fg-muted">

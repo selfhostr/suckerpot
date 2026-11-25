@@ -20,11 +20,11 @@ export function ReadOnlyBadge({
         <span
           tabIndex={0}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-2xs font-medium whitespace-nowrap text-fg-muted",
+            "inline-flex h-(--chip) items-center gap-1.5 rounded-sm border px-2 text-xs font-medium whitespace-nowrap text-fg-muted",
             className,
           )}
         >
-          <Eye aria-hidden className="size-3" />
+          <Eye aria-hidden className="size-3.5" />
           Read-only{short ? <span className="sr-only"> access</span> : " access"}
         </span>
       </TooltipTrigger>

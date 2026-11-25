@@ -126,10 +126,7 @@ export function SensorFilter({ className, align = "start" }: SensorFilterProps) 
         <Button
           variant="outline"
           size="sm"
-          className={cn(
-            "h-8 max-w-full justify-between gap-2 px-2.5 text-xs font-medium",
-            className,
-          )}
+          className={cn("max-w-full justify-between gap-2 px-2.5", className)}
         >
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <span className="text-fg-muted">Sensors</span>

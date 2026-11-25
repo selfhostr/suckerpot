@@ -59,8 +59,8 @@ export function AnswersCard({ data }: { data: OutcomesResponse | undefined }) {
 function Figure({ label, seconds }: { label: string; seconds: number | null }) {
   return (
     <div className="flex items-baseline justify-between gap-3 rounded-lg border bg-bg p-4 sm:block sm:space-y-1">
-      <p className="text-xs font-medium text-fg-muted sm:min-h-[2lh]">{label}</p>
-      <p className="text-2xl font-semibold tracking-tight text-fg tabular-nums">
+      <p className="type-eyebrow text-fg-muted sm:min-h-[2lh]">{label}</p>
+      <p className="type-kpi text-fg tabular-nums">
         {seconds == null ? "none yet" : longDelay(seconds)}
       </p>
     </div>

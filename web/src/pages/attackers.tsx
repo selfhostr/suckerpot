@@ -96,7 +96,8 @@ function IpSearch() {
         maxLength={45}
         placeholder="IP prefix, e.g. 203.0.113"
         aria-label="Search by IP prefix"
-        className="h-8 pl-8 font-mono text-xs md:text-xs"
+        size="sm"
+        className="pl-8 font-mono"
       />
     </div>
   )
@@ -164,7 +165,7 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
       <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid",
             ATTACKER_GRID,
           )}
         >
@@ -254,12 +255,7 @@ function AsnList({ sort }: { sort: AsnSort }) {
   const grid = "md:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_5.5rem_6rem] md:gap-x-4"
   return (
     <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-      <div
-        className={cn(
-          "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
-          grid,
-        )}
-      >
+      <div className={cn("hidden border-b px-5 py-2.5 type-column text-fg-subtle md:grid", grid)}>
         <span>Network</span>
         <span className="text-right">Addresses</span>
         <span className="text-right">Sessions</span>

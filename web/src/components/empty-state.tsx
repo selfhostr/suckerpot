@@ -34,11 +34,11 @@ export function EmptyState({
         <Icon aria-hidden className="size-5" strokeWidth={1.75} />
       </div>
       {badge ? (
-        <span className="mb-2 rounded-full border px-2 py-0.5 text-2xs font-medium text-fg-muted">
+        <span className="mb-2 inline-flex h-(--chip) items-center rounded-sm border px-2 text-xs font-medium text-fg-muted">
           {badge}
         </span>
       ) : null}
-      <h3 className="text-base font-medium text-fg">{title}</h3>
+      <h3 className="type-card-title text-fg">{title}</h3>
       {description ? (
         <p className="mt-1.5 max-w-sm text-sm text-pretty text-fg-muted">{description}</p>
       ) : null}

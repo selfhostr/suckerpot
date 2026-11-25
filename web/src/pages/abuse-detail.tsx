@@ -217,12 +217,12 @@ function MessageCard({ r }: { r: ReportDetail }) {
           <CopyField label="Body" value={m.body} multiline />
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-fg-muted">Attach to your message:</span>
-            <Button variant="outline" size="xs" onClick={() => void save("txt", `report.txt`)}>
+            <Button variant="outline" size="sm" onClick={() => void save("txt", `report.txt`)}>
               report.txt
             </Button>
             <Button
               variant="outline"
-              size="xs"
+              size="sm"
               onClick={() => void save("evidence_csv", "evidence.csv")}
             >
               evidence.csv
@@ -230,7 +230,7 @@ function MessageCard({ r }: { r: ReportDetail }) {
             {format === "eml" ? (
               <Button
                 variant="outline"
-                size="xs"
+                size="sm"
                 onClick={() => void save("eml", `abuse-${short}.eml`)}
               >
                 abuse-{short}.eml
@@ -281,7 +281,7 @@ function XarfFiles({
             />
             <Button
               variant="outline"
-              size="xs"
+              size="sm"
               onClick={() =>
                 void onSave(
                   "xarf_json",
@@ -363,7 +363,7 @@ function SubjectGroup({
   return (
     <section aria-label={heading ?? "Addresses and hosts in this report"}>
       {heading ? (
-        <h3 className="border-t px-4 pt-3 pb-1 text-sm font-medium text-fg sm:px-5">{heading}</h3>
+        <h3 className="border-t px-4 pt-3 pb-1 type-subtitle text-fg sm:px-5">{heading}</h3>
       ) : null}
       <ul aria-label="Addresses and hosts in this report" className="divide-y border-t sm:hidden">
         {subjects.map((s) => (

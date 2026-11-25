@@ -41,12 +41,7 @@ export function TechniqueHeatmap({ matrix, linkSuffix = "", className }: Techniq
 
   return (
     <div className={className}>
-      <div
-        className={cn(
-          "hidden items-end pb-2 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
-          ROW_GRID,
-        )}
-      >
+      <div className={cn("hidden items-end pb-2 type-column text-fg-subtle md:grid", ROW_GRID)}>
         <span>Technique</span>
         <span className="flex justify-between normal-case">
           <span>{first ? formatDay(first) : ""}</span>

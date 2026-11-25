@@ -161,6 +161,7 @@ function CreateForm({
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-fg">Minimum score</span>
         <SegmentedControl
+          size="form"
           label="Minimum score"
           value={String(minScore)}
           onChange={(v) => setMinScore(Number(v))}
@@ -190,6 +191,7 @@ function CreateForm({
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-fg">Expires</span>
         <SegmentedControl
+          size="form"
           label="Expires"
           value={expiry}
           onChange={setExpiry}

@@ -51,7 +51,7 @@ function Reasons({ reasons }: { reasons: string[] }) {
         <li
           key={r}
           title={reasonSentence(r)}
-          className="inline-flex h-6 items-center rounded-sm border border-border-strong px-2 text-2xs font-medium text-fg-muted"
+          className="inline-flex h-(--chip) items-center rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted"
         >
           {reasonLabel(r)}
         </li>
@@ -59,7 +59,7 @@ function Reasons({ reasons }: { reasons: string[] }) {
       {rest.length > 0 ? (
         <li
           title={rest.map(reasonSentence).join(" ")}
-          className="inline-flex h-6 items-center rounded-sm px-1.5 text-2xs text-fg-subtle"
+          className="inline-flex h-(--chip) items-center rounded-sm px-1.5 text-xs text-fg-subtle"
         >
           +{rest.length} more
         </li>
@@ -71,7 +71,7 @@ function Reasons({ reasons }: { reasons: string[] }) {
 function OverrideBadge({ action }: { action: OverrideAction }) {
   const Icon = action === "allow" ? CircleCheck : Ban
   return (
-    <Badge variant="outline" className="rounded-sm text-fg">
+    <Badge variant="outline" className="text-fg">
       <Icon aria-hidden />
       {action === "allow" ? "Always allowed" : "Always blocked"}
     </Badge>
@@ -97,13 +97,13 @@ export function BlocklistRow({
         <ValueCell entry={entry} />
         {entry.override ? <OverrideBadge action={entry.override} /> : null}
         {entry.demo ? (
-          <Badge variant="outline" className="rounded-sm text-fg-muted">
+          <Badge variant="outline" className="text-fg-muted">
             <FlaskConical aria-hidden />
             Demo
           </Badge>
         ) : null}
         {entry.benign ? (
-          <Badge variant="outline" className="rounded-sm text-fg-muted">
+          <Badge variant="outline" className="text-fg-muted">
             <Radar aria-hidden />
             Research scanner
           </Badge>
@@ -141,7 +141,7 @@ export function BlocklistRow({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 aria-label={`Actions for ${entry.kind === "ip" ? "address" : entry.kind} ${entry.value}`}
               >
                 <Ellipsis aria-hidden />

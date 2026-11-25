@@ -88,7 +88,6 @@ export function EgressCard() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 text-xs"
                       aria-pressed={reveal}
                       onClick={() => setReveal((v) => !v)}
                     >

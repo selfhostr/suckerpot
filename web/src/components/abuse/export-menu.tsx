@@ -163,7 +163,7 @@ export function ExportMenu({
               />
             </div>
             <DialogFooter>
-              <Button type="submit" size="sm" disabled={!description.trim()}>
+              <Button type="submit" disabled={!description.trim()}>
                 <Download aria-hidden /> Download
               </Button>
             </DialogFooter>
