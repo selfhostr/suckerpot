@@ -31,9 +31,10 @@ test("campaign detail tells the attack in stages", async ({ page }, info) => {
     .first()
     .click()
   await expect(h1(page, "Mirai-style loader over Telnet #3")).toBeVisible()
-  const stages = page.getByRole("list", { name: "Stages of the attack" })
+  // The playbook at a glance: six slots, each said as seen or not seen.
+  const stages = page.getByRole("list", { name: /^Stages: / })
   await expect(stages).toBeVisible()
-  await expect(stages.getByRole("heading", { level: 4 }).first()).toBeVisible()
+  await expect(stages.getByRole("listitem")).toHaveCount(6)
   await expect(page.getByRole("list", { name: "Lines from a real session" })).toBeVisible()
   await settle(page)
   await shoot(page, "campaign-detail", info.project.name, true)
@@ -68,7 +69,7 @@ test("techniques table", async ({ page }, info) => {
   await shootTall(page, "techniques", info.project.name)
 
   await page.goto("/techniques?sensor=ssh&window=7")
-  await expect(page.getByText("Last 7 days", { exact: true })).toBeVisible()
+  await expect(page.getByText("Last 7 days").first()).toBeVisible()
   await settle(page)
   await shoot(page, "techniques-ssh-7d", info.project.name)
 
