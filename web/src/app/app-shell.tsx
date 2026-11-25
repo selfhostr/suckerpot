@@ -125,11 +125,10 @@ export function AppShell() {
             id="sidebar"
             data-collapsed={collapsed ? "" : undefined}
             className={cn(
-              "sticky top-0 z-30 hidden h-dvh shrink-0 self-start overflow-hidden border-r bg-bg transition-[width] duration-200 ease-out lg:block",
+              "vt-sidebar sticky top-0 z-30 hidden h-dvh shrink-0 self-start overflow-hidden border-r bg-bg lg:block",
               collapsed ? "w-14" : "w-60",
             )}
           >
-            {/* Fixed inner width, so nothing reflows while the column slides. */}
             <div className={cn("h-full", collapsed ? "w-14" : "w-60")}>
               <Sidebar variant={collapsed ? "rail" : "expanded"} onToggle={toggle} />
             </div>
@@ -137,7 +136,7 @@ export function AppShell() {
 
           <div className="flex min-w-0 flex-1 flex-col">
             {/* Phone and tablet top bar: the drawer, the mark, where you are, search. */}
-            <header className="sticky top-0 z-30 flex h-14 items-center gap-1 border-b bg-bg px-2 lg:hidden">
+            <header className="vt-mobilebar sticky top-0 z-30 flex h-14 items-center gap-1 border-b bg-bg px-2 lg:hidden">
               <Sheet open={open} onOpenChange={setOpen}>
                 <SheetTrigger asChild>
                   <Button
@@ -177,7 +176,7 @@ export function AppShell() {
              * (the research-scanner switch) and, flush right, the search box. Opaque on purpose: a
              * backdrop blur under a sticky bar costs a repaint on every scrolled frame.
              */}
-            <header className="sticky top-0 z-20 hidden h-14 items-center gap-6 border-b bg-bg px-10 lg:flex">
+            <header className="vt-topbar sticky top-0 z-20 hidden h-14 items-center gap-6 border-b bg-bg px-10 lg:flex">
               <Breadcrumb pathname={pathname} />
               <div className="flex shrink-0 items-center gap-5">
                 <ScannerToggle inline />

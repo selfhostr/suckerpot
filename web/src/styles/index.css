@@ -42,15 +42,19 @@
   --container-page-wide: 105rem;
   --container-page-full: 150rem;
 
+  /* Motion tokens live in tokens.css; Tailwind's defaults follow them. */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-move: cubic-bezier(0.4, 0, 0.2, 1);
+  --default-transition-duration: var(--motion-fast);
+  --default-transition-timing-function: var(--ease-out);
 
-  --animate-slide-in: slide-in 250ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  --animate-fade-in: fade-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-slide-in: slide-in var(--motion-slow) var(--ease-out) both;
+  --animate-fade-in: fade-in var(--motion-base) var(--ease-out) both;
   /* Entrance motion (M19). `backwards` so a staggered card waits invisible, then rests untouched. */
   --animate-card-in: card-in var(--motion-card-duration) var(--ease-out) backwards;
   --animate-page-in: page-in var(--motion-page-duration) var(--ease-out) backwards;
   --animate-live-pulse: live-pulse 2.4s ease-out infinite;
-  --animate-map-dash: map-dash 1.6s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-map-pulse: map-pulse 2.4s ease-out infinite;
 
   @keyframes slide-in {
@@ -91,29 +95,19 @@
       opacity: 1;
     }
   }
-  /* A short dash travelling once along an arc (path with pathLength="1"). */
-  @keyframes map-dash {
-    from {
-      stroke-dashoffset: 0.14;
-      opacity: 1;
-    }
-    85% {
-      opacity: 1;
-    }
-    to {
-      stroke-dashoffset: -1;
-      opacity: 0;
-    }
-  }
-  /* A soft ring around an active source on the map (SVG: transform-box fill-box). */
+  /*
+   * A soft ring around an active source on the map: an HTML ring drawn at its final size
+   * (2.8 dot radii) that grows from the dot, so only transform and opacity animate and the
+   * compositor runs it without repainting the map.
+   */
   @keyframes map-pulse {
     0% {
-      transform: scale(1);
+      transform: scale(calc(1 / 2.8));
       opacity: 0.55;
     }
     70%,
     100% {
-      transform: scale(2.8);
+      transform: scale(1);
       opacity: 0;
     }
   }
@@ -128,6 +122,21 @@
       opacity: 0;
     }
   }
+}
+
+/*
+ * Overlays (tw-animate-css `animate-in` / `animate-out`: dialogs, sheets, menus, popovers,
+ * tooltips) take the motion tokens: in on --motion-enter with an ease-out, out on the shorter
+ * --motion-exit with an ease-in. A component's `duration-*` no longer changes them; an explicit
+ * `animation-duration-*` still does.
+ */
+@theme inline {
+  --animate-in: enter var(--tw-animation-duration, var(--motion-enter)) var(--ease-out)
+    var(--tw-animation-delay, 0s) var(--tw-animation-iteration-count, 1)
+    var(--tw-animation-direction, normal) var(--tw-animation-fill-mode, none);
+  --animate-out: exit var(--tw-animation-duration, var(--motion-exit)) var(--ease-in)
+    var(--tw-animation-delay, 0s) var(--tw-animation-iteration-count, 1)
+    var(--tw-animation-direction, normal) var(--tw-animation-fill-mode, none);
 }
 
 /* Token -> Tailwind colour utilities (bg-surface, text-fg-muted, …). */
@@ -279,31 +288,245 @@
   }
 }
 
-/*
- * Entrance motion is removed, not shortened: a staggered card would otherwise sit invisible during
- * its delay. Reduced motion does it by preference; screenshots and tests do it with the
- * data-motion="off" attribute (see src/lib/motion.ts).
- */
-@media (prefers-reduced-motion: reduce) {
-  .animate-card-in,
-  .animate-page-in {
-    animation: none !important;
-  }
+/* A sheet travels further than a menu: it slides in on --motion-slow and out on --motion-base. */
+[data-slot="sheet-content"][data-state="open"] {
+  --tw-animation-duration: var(--motion-slow);
 }
-:root[data-motion="off"] .animate-card-in,
-:root[data-motion="off"] .animate-page-in {
-  animation: none !important;
+[data-slot="sheet-content"][data-state="closed"] {
+  --tw-animation-duration: var(--motion-base);
 }
 
+/* -----------------------------------------------------------------------------------------------
+ * Bars (`BarFill`): the filled part of a bar is scaled, not resized, so a new value after a filter
+ * change glides on the compositor without a layout. The track clips it and keeps the radius.
+ * --------------------------------------------------------------------------------------------- */
+@layer utilities {
+  .bar-fill {
+    transform: scaleX(var(--bar, 0));
+    transform-origin: left center;
+    transition-property: transform, translate;
+    transition-duration: var(--motion-tween);
+    transition-timing-function: var(--ease-move);
+  }
+  /* The gap between two segments of a stacked bar: 2 px at the left edge of a full-width layer. */
+  .bar-gap {
+    background: linear-gradient(to right, var(--surface-hover) 2px, transparent 2px);
+    transition: translate var(--motion-tween) var(--ease-move);
+  }
+}
+
+/* -----------------------------------------------------------------------------------------------
+ * Skeletons: a soft highlight sweeps across the placeholder (transform only, one per element).
+ * --------------------------------------------------------------------------------------------- */
+@layer components {
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--surface-hover);
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--skeleton-shine), transparent);
+    transform: translateX(-100%);
+    animation: skeleton-sweep 1.8s var(--ease-move) infinite;
+  }
+}
+@keyframes skeleton-sweep {
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes skeleton-breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* -----------------------------------------------------------------------------------------------
+ * Disclosures. A native <details> opens and closes with a height animation where the browser can
+ * interpolate to `auto` (elsewhere it simply opens). React disclosures use <Collapse>, the same
+ * motion with grid rows. Opening takes --motion-slow, closing the shorter --motion-base.
+ * --------------------------------------------------------------------------------------------- */
+@supports (interpolate-size: allow-keywords) and selector(::details-content) {
+  details {
+    interpolate-size: allow-keywords;
+  }
+  details::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    transition:
+      block-size var(--motion-base) var(--ease-in),
+      content-visibility var(--motion-base) allow-discrete;
+  }
+  details[open]::details-content {
+    block-size: auto;
+    transition-duration: var(--motion-slow);
+    transition-timing-function: var(--ease-out);
+  }
+}
+.collapse-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--motion-base) var(--ease-in),
+    visibility var(--motion-base) allow-discrete;
+}
+.collapse-panel[data-open] {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition-duration: var(--motion-slow);
+  transition-timing-function: var(--ease-out);
+}
+.collapse-panel > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* -----------------------------------------------------------------------------------------------
+ * A list that takes new rows at the top (Attacks): for a moment after the rows arrive, the rows
+ * already there glide down to their new place instead of jumping (see use-new-rows.ts).
+ * --------------------------------------------------------------------------------------------- */
+[data-arriving] > [role="listitem"] {
+  transition: transform var(--motion-slow) var(--ease-move);
+}
+
+/* -----------------------------------------------------------------------------------------------
+ * Page changes (View Transitions, src/app/view-transitions.ts). The sidebar and the top bars are
+ * named and stay put; the page under them fades out fast and the new one rises in, the same for
+ * every page change. A clicked row's chip becomes the title of the page it opens (`vt-subject`).
+ * The overlay is painted in the page background, so a cross-fade dips to the background, never to
+ * white or black.
+ * --------------------------------------------------------------------------------------------- */
+.vt-sidebar {
+  view-transition-name: vt-sidebar;
+}
+.vt-topbar {
+  view-transition-name: vt-topbar;
+}
+.vt-mobilebar {
+  view-transition-name: vt-mobilebar;
+}
+
+::view-transition {
+  background-color: var(--bg);
+}
+::view-transition-group(vt-sidebar),
+::view-transition-group(vt-topbar),
+::view-transition-group(vt-mobilebar),
+::view-transition-new(vt-sidebar),
+::view-transition-new(vt-topbar),
+::view-transition-new(vt-mobilebar) {
+  animation: none;
+}
+::view-transition-old(vt-sidebar),
+::view-transition-old(vt-topbar),
+::view-transition-old(vt-mobilebar) {
+  display: none;
+}
+
+::view-transition-old(root) {
+  animation: vt-fade-out var(--motion-route-out) var(--ease-in) both;
+}
+::view-transition-new(root) {
+  animation: vt-rise var(--motion-route-in) var(--ease-out) both;
+}
+
+::view-transition-group(vt-subject) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--ease-move);
+}
+::view-transition-old(vt-subject) {
+  animation: vt-fade-out var(--motion-base) var(--ease-in) both;
+}
+::view-transition-new(vt-subject) {
+  animation: vt-fade-in var(--motion-slow) var(--ease-out) both;
+}
+
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes vt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-route-distance));
+  }
+}
+
+/* With view transitions the page rises in through them; the fade on the route is the fallback. */
+@supports (view-transition-name: none) {
+  .animate-page-in {
+    animation: none;
+  }
+}
+
+/* -----------------------------------------------------------------------------------------------
+ * Reduced motion. Entrance motion is removed, not shortened: a staggered card would otherwise sit
+ * invisible during its delay. Everything else ends at once (durations and delays to zero, one
+ * iteration), view transitions included. Two things keep a slow, still life, because a frozen one
+ * reads as broken: a spinner turns slowly, and a skeleton breathes (opacity only, no sweep).
+ * Screenshots and tests do the same with data-motion="off" (src/lib/motion.ts), minus the two
+ * slow loops, so a capture never depends on timing.
+ * --------------------------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
   ::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
+  .animate-card-in,
+  .animate-page-in,
+  .animate-slide-in {
+    animation: none !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+  .animate-spin {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+  .skeleton::after {
+    background: var(--skeleton-shine);
+    transform: none;
+    animation: skeleton-breathe 2.4s ease-in-out infinite !important;
+  }
+}
+:root[data-motion="off"] .animate-card-in,
+:root[data-motion="off"] .animate-page-in,
+:root[data-motion="off"] .animate-slide-in,
+:root[data-motion="off"] .skeleton::after {
+  animation: none !important;
+}
+:root[data-motion="off"] .skeleton::after {
+  opacity: 0;
+}
+:root[data-motion="off"] .bar-fill,
+:root[data-motion="off"] .bar-gap,
+:root[data-motion="off"] [data-arriving] > [role="listitem"] {
+  transition: none !important;
+}
+:root[data-motion="off"]::view-transition-group(*),
+:root[data-motion="off"]::view-transition-old(*),
+:root[data-motion="off"]::view-transition-new(*) {
+  animation: none !important;
 }
 
 /*

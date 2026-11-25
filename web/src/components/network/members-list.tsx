@@ -1,5 +1,5 @@
-import { useVirtualizer } from "@tanstack/react-virtual"
-import { useRef } from "react"
+import { useWindowVirtualizer } from "@tanstack/react-virtual"
+import { useLayoutEffect, useRef, useState } from "react"
 import { CountryFlag } from "@/components/country-flag"
 import { formatNumber } from "@/lib/format"
 import { formatMonth, memberName, TIER_LABEL, type NetworkMember } from "@/lib/network"
@@ -118,19 +118,31 @@ export function MembersList({
   self?: string | null
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  // The virtualizer is used as intended; the compiler just cannot memoize its return value.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const v = useVirtualizer({
+  const [scrollMargin, setScrollMargin] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => setScrollMargin(el.getBoundingClientRect().top + window.scrollY)
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(measure)
+    ro.observe(document.body)
+    return () => ro.disconnect()
+  }, [])
+  const v = useWindowVirtualizer({
     count: members.length,
-    getScrollElement: () => ref.current,
     estimateSize: () => ROW_H,
     overscan: 8,
+    scrollMargin,
   })
   return (
     <div>
       <div
         aria-hidden
-        className={cn("hidden border-t px-5 py-2 text-xs font-medium text-fg-muted sm:grid", COLS)}
+        className={cn(
+          "sticky top-14 z-10 hidden border-t bg-surface px-5 py-2 text-xs font-medium text-fg-muted sm:grid",
+          COLS,
+        )}
       >
         <span>Member</span>
         <span>Country</span>
@@ -140,10 +152,9 @@ export function MembersList({
       </div>
       <div
         ref={ref}
-        tabIndex={0}
         role="list"
         aria-label={`Members, ${formatNumber(members.length)} shown`}
-        className="max-h-[34rem] overflow-auto border-t focus-visible:ring-2 focus-visible:ring-ring"
+        className="border-t"
       >
         <div className="relative w-full" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((item) => {
@@ -154,7 +165,10 @@ export function MembersList({
                 key={m.fingerprint}
                 role="listitem"
                 className="absolute top-0 left-0 w-full border-b"
-                style={{ height: item.size, transform: `translateY(${item.start}px)` }}
+                style={{
+                  height: item.size,
+                  transform: `translateY(${item.start - scrollMargin}px)`,
+                }}
               >
                 <MemberRow m={m} self={!!self && m.fingerprint === self} />
               </div>
