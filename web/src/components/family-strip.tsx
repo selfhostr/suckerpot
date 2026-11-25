@@ -96,7 +96,9 @@ export function FamilyStrip({ bySensor, layout = "overlay", className }: FamilyS
                 )}
               >
                 <span aria-hidden className={cn("h-[3px] w-3.5 shrink-0 rounded-full", fam.fill)} />
-                <span className={cn("min-w-0 truncate", overlay && "hidden @5xl:inline")}>{fam.label}</span>
+                <span className={cn("min-w-0 truncate", overlay && "hidden @5xl:inline")}>
+                  {fam.label}
+                </span>
                 <span
                   className={cn(
                     "ml-auto font-medium tabular-nums",

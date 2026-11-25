@@ -52,7 +52,10 @@ const BOARD =
 function Figure({ label, value, href }: { label: string; value: number; href?: string }) {
   const body = (
     <>
-      <AnimatedNumber value={value} className="text-lg leading-6 font-semibold tracking-tight text-fg" />
+      <AnimatedNumber
+        value={value}
+        className="text-lg leading-6 font-semibold tracking-tight text-fg"
+      />
       <span className="min-w-0 truncate type-eyebrow text-fg-muted">{label}</span>
     </>
   )

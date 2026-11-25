@@ -1,7 +1,13 @@
 import { House, Maximize2, Minus, Plus, X } from "lucide-react"
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
 import { t } from "@/i18n"
 import { tNodes } from "@/i18n/rich"
@@ -644,7 +650,12 @@ export const WorldMap = memo(function WorldMap({
         <div className="min-w-0">{topLeft}</div>
         <div className="ml-auto flex max-w-full min-w-0 items-center gap-1.5">
           <RegionSwitch preset={preset} onChoose={choosePreset} />
-          <div className={cn("flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm", BAR_H)}>
+          <div
+            className={cn(
+              "flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm",
+              BAR_H,
+            )}
+          >
             <button
               type="button"
               aria-label={t("map_zoom_in")}
@@ -663,7 +674,12 @@ export const WorldMap = memo(function WorldMap({
             </button>
           </div>
           {onExpand || onClose ? (
-            <div className={cn("flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm", BAR_H)}>
+            <div
+              className={cn(
+                "flex shrink-0 rounded-md border bg-surface-raised p-0.5 shadow-sm",
+                BAR_H,
+              )}
+            >
               <button
                 type="button"
                 aria-label={onClose ? t("common_close") : t("map_expand")}
@@ -823,7 +839,10 @@ function RegionSwitch({
     <div
       role="group"
       aria-label={t("map_regions_aria")}
-      className={cn("flex shrink-0 items-stretch gap-1 rounded-md border bg-surface-raised p-0.5 shadow-sm", BAR_H)}
+      className={cn(
+        "flex shrink-0 items-stretch gap-1 rounded-md border bg-surface-raised p-0.5 shadow-sm",
+        BAR_H,
+      )}
     >
       <button
         type="button"

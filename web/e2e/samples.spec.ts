@@ -8,7 +8,7 @@ test("malware samples tab", async ({ page }, info) => {
   await settle(page)
   await shootTall(page, "malware-samples", info.project.name)
 
-  await page.goto("/malware&kind=Script")
+  await page.goto("/malware?kind=Script")
   await expect(page.getByRole("list", { name: "Samples" })).toBeVisible()
   await settle(page)
   await shoot(page, "malware-samples-filtered", info.project.name)
@@ -42,7 +42,7 @@ test("sample detail", async ({ page }, info) => {
   await page.keyboard.press("Escape")
 
   // A script with a decoded layer.
-  await page.goto("/malware&kind=Script")
+  await page.goto("/malware?kind=Script")
   await page
     .getByRole("list", { name: "Samples" })
     .getByRole("link")

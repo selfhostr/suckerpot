@@ -32,10 +32,11 @@ afterEach(() => {
 /** Radix Select leans on pointer capture and scrolling, which jsdom lacks. */
 function polyfillSelect() {
   const proto = Element.prototype as unknown as Record<string, unknown>
+  const noop = (): void => undefined
   proto.hasPointerCapture ??= () => false
-  proto.setPointerCapture ??= () => {}
-  proto.releasePointerCapture ??= () => {}
-  proto.scrollIntoView ??= () => {}
+  proto.setPointerCapture ??= noop
+  proto.releasePointerCapture ??= noop
+  proto.scrollIntoView ??= noop
 }
 
 /** Picks a continent in the dropdown. */
@@ -77,7 +78,11 @@ describe("WorldMap regions", () => {
     const user = userEvent.setup()
     mount()
     const group = screen.getByRole("group", { name: "Region" })
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["World"])
+    expect(
+      within(group)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["World"])
     await user.click(screen.getByRole("combobox", { name: "Continent" }))
     expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual([
       "Europe",
