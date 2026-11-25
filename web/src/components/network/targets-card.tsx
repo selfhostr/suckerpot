@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { BadgeCheck, ListX } from "lucide-react"
 import { useMemo } from "react"
 import { Link } from "react-router"
@@ -210,18 +211,13 @@ export function TargetsCard() {
               <Row key={t.hub_id} t={t} />
             ))}
           </ul>
-          {list.hasNextPage ? (
-            <div className="border-t px-4 py-3 sm:px-5">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void list.fetchNextPage()}
-                disabled={list.isFetchingNextPage}
-              >
-                {list.isFetchingNextPage ? "Loading…" : "Show more"}
-              </Button>
-            </div>
-          ) : null}
+          <LoadMore
+            hasNextPage={list.hasNextPage}
+            isFetchingNextPage={list.isFetchingNextPage}
+            fetchNextPage={list.fetchNextPage}
+            label="Show more"
+            className="border-t"
+          />
         </>
       )}
     </FindingCard>

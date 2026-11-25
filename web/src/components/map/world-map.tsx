@@ -1,5 +1,5 @@
 import { House, Minus, Plus } from "lucide-react"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
 import type { LiveEvent } from "@/lib/api"
@@ -15,8 +15,10 @@ import {
   type GeoPoint,
   type Source,
 } from "./activity"
-import { BORDERS_PATH, LAND_PATH } from "./data/world-paths"
+import worldSvg from "./data/world.svg?url"
+import { DASH_DURATION, DASH_THICKNESS, dashTrack } from "./dash"
 import { MAP_WIDTH, project } from "./projection"
+import { useOnScreen } from "./use-on-screen"
 
 // --- Viewport -----------------------------------------------------------------
 
@@ -121,8 +123,8 @@ function storedPreset(): MapPreset {
 
 // --- Geometry -------------------------------------------------------------------
 
-/** A gentle quadratic curve from the source to home, bowing north. Null for the same point. */
-function arcPath(from: [number, number], to: [number, number]): string | null {
+/** Control point of the arc from the source to home, bowing north. Null for the same point. */
+function arcControl(from: [number, number], to: [number, number]): [number, number] | null {
   const dx = to[0] - from[0]
   const dy = to[1] - from[1]
   const len = Math.hypot(dx, dy)
@@ -135,10 +137,15 @@ function arcPath(from: [number, number], to: [number, number]): string | null {
     py = -py
   }
   const bow = Math.min(len * 0.22, 60)
-  const mx = (from[0] + to[0]) / 2 + px * bow
-  const my = (from[1] + to[1]) / 2 + py * bow
+  return [(from[0] + to[0]) / 2 + px * bow, (from[1] + to[1]) / 2 + py * bow]
+}
+
+/** A gentle quadratic curve from the source to home, bowing north. Null for the same point. */
+function arcPath(from: [number, number], to: [number, number]): string | null {
+  const c = arcControl(from, to)
+  if (!c) return null
   const f = (n: number) => n.toFixed(2)
-  return `M${f(from[0])} ${f(from[1])}Q${f(mx)} ${f(my)} ${f(to[0])} ${f(to[1])}`
+  return `M${f(from[0])} ${f(from[1])}Q${f(c[0])} ${f(c[1])} ${f(to[0])} ${f(to[1])}`
 }
 
 /** Screen radius (px) of a source dot. */
@@ -147,7 +154,8 @@ const dotRadius = (events: number) => 3 + 5 * countWeight(events)
 interface Dash {
   key: number
   country: string
-  family: string
+  /** performance.now() at launch: a dash redrawn mid-flight (pan, zoom) resumes where it was. */
+  born: number
 }
 
 const MAX_DASHES = 14
@@ -179,7 +187,7 @@ interface WorldMapProps {
  * home, thicker for more events and fading with age; a new event sends one
  * short dash along its arc. Wheel, drag, pinch and the keyboard pan and zoom.
  */
-export function WorldMap({
+export const WorldMap = memo(function WorldMap({
   activity,
   events,
   home,
@@ -195,6 +203,9 @@ export function WorldMap({
   const still = reduced || motionFrozen()
   const navigate = useNavigate()
   const hostRef = useRef<HTMLDivElement>(null)
+  // Pulses and dashes run only while someone can see them.
+  const onScreen = useOnScreen(hostRef)
+  const animate = !still && onScreen
   const [size, setSize] = useState({ w: 800, h: 450 })
   const aspect = size.w / Math.max(1, size.h)
   const [preset, setPreset] = useState<MapPreset>(storedPreset)
@@ -372,6 +383,14 @@ export function WorldMap({
   // New events: one dash each along their source's arc (capped, calm).
   const [dashes, setDashes] = useState<Dash[]>([])
   const lastId = useRef<number | null>(null)
+  // A dash leaves when its flight is over, even if the map stopped animating in between.
+  const dashTimers = useRef(new Set<ReturnType<typeof setTimeout>>())
+  useEffect(() => {
+    const timers = dashTimers.current
+    return () => {
+      for (const t of timers) clearTimeout(t)
+    }
+  }, [])
   useEffect(() => {
     const newest = events[0]?.id ?? 0
     if (lastId.current === null) {
@@ -380,22 +399,22 @@ export function WorldMap({
     }
     const since = lastId.current
     lastId.current = Math.max(since, newest)
-    if (still || paused) return
+    if (!animate || paused) return
     const fresh = events
       .filter((e) => e.id > since && e.country)
       .slice(0, 4)
       .flatMap((e) => {
         const src = activity.sources.find((s) => s.country === e.country?.toUpperCase())
-        return src ? [{ key: e.id, country: src.country, family: src.family }] : []
+        return src ? [{ key: e.id, country: src.country, born: performance.now() }] : []
       })
     if (!fresh.length) return
     setDashes((d) => [...d, ...fresh].slice(-MAX_DASHES))
-    const t = setTimeout(
-      () => setDashes((d) => d.filter((x) => !fresh.some((f) => f.key === x.key))),
-      DASH_MS,
-    )
-    return () => clearTimeout(t)
-  }, [events, still, paused, activity.sources])
+    const t = setTimeout(() => {
+      dashTimers.current.delete(t)
+      setDashes((d) => d.filter((x) => !fresh.some((f) => f.key === x.key)))
+    }, DASH_MS)
+    dashTimers.current.add(t)
+  }, [events, animate, paused, activity.sources])
 
   // Hovered or keyboard-focused dot (local), else the highlight asked for from outside.
   const [hover, setHover] = useState<string | null>(null)
@@ -434,8 +453,54 @@ export function WorldMap({
   const tipped = lit ? drawn.find((x) => x.s.country === lit) : undefined
   const dim = (country: string) => (lit && lit !== country ? 0.28 : 1)
 
-  const open = (s: Source) => void navigate(`/attacks?country=${s.country}`)
+  const viewBox = `${v.cx - v.vw / 2} ${v.cy - vh / 2} ${v.vw} ${vh}`
   const homeScreen = toScreen(homeXY)
+  const onMap = (p: { x: number; y: number }, margin: number) =>
+    p.x >= -margin && p.y >= -margin && p.x <= size.w + margin && p.y <= size.h + margin
+
+  // Dashes in flight, in screen pixels.
+  const flights: Flight[] = []
+  if (animate) {
+    for (const dash of dashes) {
+      const hit = drawn.find((x) => x.s.country === dash.country)
+      const c = hit ? arcControl(hit.xy, homeXY) : null
+      if (!hit || !c) continue
+      const p0 = toScreen(hit.xy)
+      const p1 = toScreen(c)
+      flights.push({
+        key: dash.key,
+        born: dash.born,
+        color: FAMILY_META[hit.s.family].cssVar,
+        x0: p0.x,
+        y0: p0.y,
+        x1: p1.x,
+        y1: p1.y,
+        x2: homeScreen.x,
+        y2: homeScreen.y,
+      })
+    }
+  }
+
+  // Active sources (an event in the last minute) pulse; only those in view get a ring.
+  const pulses: Pulse[] = []
+  if (animate) {
+    for (const s of activity.sources) {
+      if (now - s.last >= ACTIVE_MS) continue
+      const p = toScreen(project(s.point.lat, s.point.lon))
+      const r = dotRadius(s.events)
+      if (!onMap(p, r * PULSE_SCALE)) continue
+      pulses.push({
+        key: s.country,
+        x: p.x,
+        y: p.y,
+        r,
+        color: FAMILY_META[s.family].cssVar,
+        opacity: dim(s.country),
+      })
+    }
+  }
+
+  const open = (s: Source) => void navigate(`/attacks?country=${s.country}`)
   const homeName = homeLabel ?? "Home"
   const homeLabelW = 26 + homeName.length * 6.6
 
@@ -456,131 +521,16 @@ export function WorldMap({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      <svg
-        className="absolute inset-0 size-full"
-        viewBox={`${v.cx - v.vw / 2} ${v.cy - vh / 2} ${v.vw} ${vh}`}
-        preserveAspectRatio="xMidYMid meet"
-        aria-hidden
-      >
-        <path d={LAND_PATH} fill="var(--map-land)" fillRule="evenodd" />
-        <path
-          d={BORDERS_PATH}
-          fill="none"
-          stroke="var(--map-border)"
-          strokeWidth={0.6}
-          vectorEffect="non-scaling-stroke"
-          strokeLinejoin="round"
-        />
-
-        {drawn.map(({ s, d }) =>
-          d ? (
-            <path
-              key={`arc-${s.country}`}
-              d={d}
-              fill="none"
-              stroke={FAMILY_META[s.family].cssVar}
-              strokeOpacity={lit === s.country ? 1 : 0.8 * ageOpacity(s.last, now) * dim(s.country)}
-              strokeWidth={1.2 + 2.6 * countWeight(s.events) + (lit === s.country ? 1 : 0)}
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-              className="transition-[stroke-opacity] duration-200"
-            />
-          ) : null,
-        )}
-
-        {dashes.map((dash) => {
-          const hit = drawn.find((x) => x.s.country === dash.country)
-          if (!hit?.d) return null
-          return (
-            <path
-              key={`dash-${dash.key}`}
-              d={hit.d}
-              pathLength={1}
-              fill="none"
-              stroke={FAMILY_META[hit.s.family].cssVar}
-              strokeWidth={2.8}
-              strokeLinecap="round"
-              strokeDasharray="0.14 2"
-              vectorEffect="non-scaling-stroke"
-              className="animate-map-dash"
-            />
-          )
-        })}
-
-        {drawn.map(({ s, xy }) => {
-          const r = dotRadius(s.events) * upp
-          const active = !still && now - s.last < ACTIVE_MS
-          const color = FAMILY_META[s.family].cssVar
-          return (
-            <g
-              key={`src-${s.country}`}
-              opacity={dim(s.country)}
-              className="transition-opacity duration-200"
-            >
-              {active ? (
-                <circle
-                  cx={xy[0]}
-                  cy={xy[1]}
-                  r={r}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={1}
-                  vectorEffect="non-scaling-stroke"
-                  className="[transform-origin:center] animate-map-pulse [transform-box:fill-box]"
-                />
-              ) : null}
-              <circle
-                cx={xy[0]}
-                cy={xy[1]}
-                r={r}
-                fill={color}
-                fillOpacity={0.4 + 0.6 * ageOpacity(s.last, now)}
-                stroke={lit === s.country ? "var(--fg)" : "var(--surface)"}
-                strokeWidth={lit === s.country ? 1.5 : 1}
-                vectorEffect="non-scaling-stroke"
-              />
-            </g>
-          )
-        })}
-
-        {/* Home: a ring, a slow pulse and a solid dot, always on top. */}
-        {!still ? (
-          <circle
-            cx={homeXY[0]}
-            cy={homeXY[1]}
-            r={5 * upp}
-            fill="none"
-            stroke="var(--fg)"
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-            className="[transform-origin:center] animate-map-pulse [transform-box:fill-box]"
-          />
-        ) : null}
-        <circle
-          cx={homeXY[0]}
-          cy={homeXY[1]}
-          r={8 * upp}
-          fill="none"
-          stroke="var(--fg)"
-          strokeOpacity={0.5}
-          strokeWidth={1}
-          vectorEffect="non-scaling-stroke"
-        />
-        <circle
-          cx={homeXY[0]}
-          cy={homeXY[1]}
-          r={4 * upp}
-          fill="var(--fg)"
-          stroke="var(--surface)"
-          strokeWidth={1.5}
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
+      <BaseLayer viewBox={viewBox} />
+      <ArcLayer viewBox={viewBox} drawn={drawn} lit={lit} now={now} />
+      {animate ? <DashLayer flights={flights} /> : null}
+      {animate ? <PulseLayer pulses={pulses} home={homeScreen} /> : null}
+      <DotLayer viewBox={viewBox} drawn={drawn} lit={lit} now={now} upp={upp} home={homeXY} />
 
       {/* Hit targets for the sources: real buttons, so they are focusable and clickable. */}
       {drawn.map(({ s, xy }) => {
         const p = toScreen(xy)
-        if (p.x < -10 || p.y < -10 || p.x > size.w + 10 || p.y > size.h + 10) return null
+        if (!onMap(p, 10)) return null
         const name = countryName(s.country) ?? s.country
         return (
           <button
@@ -723,7 +673,7 @@ export function WorldMap({
       </div>
     </div>
   )
-}
+})
 
 function SourceTooltip({
   source,
@@ -776,3 +726,232 @@ function SourceTooltip({
     </div>
   )
 }
+
+// --- Layers ---------------------------------------------------------------------
+//
+// The map is a stack of layers, each on its own compositing layer (will-change), so what moves
+// repaints only itself: the land and borders are drawn once per view, the arcs and dots when the
+// data changes, the dashes while one flies, and the pulses never (HTML rings animated with
+// transform and opacity only, which the compositor runs off the main thread).
+
+const LAYER = "absolute inset-0 size-full will-change-transform"
+
+interface Drawn {
+  s: Source
+  xy: [number, number]
+  d: string | null
+}
+
+/** Land and borders, from the static `world.svg` asset (kept out of the JS bundle). */
+const BaseLayer = memo(function BaseLayer({ viewBox }: { viewBox: string }) {
+  return (
+    <svg className={LAYER} viewBox={viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden>
+      <use href={`${worldSvg}#land`} fill="var(--map-land)" />
+      <use href={`${worldSvg}#borders`} stroke="var(--map-border)" />
+    </svg>
+  )
+})
+
+const ArcLayer = memo(function ArcLayer({
+  viewBox,
+  drawn,
+  lit,
+  now,
+}: {
+  viewBox: string
+  drawn: readonly Drawn[]
+  lit: string | null
+  now: number
+}) {
+  return (
+    <svg className={LAYER} viewBox={viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden>
+      {drawn.map(({ s, d }) =>
+        d ? (
+          <path
+            key={`arc-${s.country}`}
+            d={d}
+            fill="none"
+            stroke={FAMILY_META[s.family].cssVar}
+            strokeOpacity={
+              lit === s.country
+                ? 1
+                : 0.8 * ageOpacity(s.last, now) * (lit && lit !== s.country ? 0.28 : 1)
+            }
+            strokeWidth={1.2 + 2.6 * countWeight(s.events) + (lit === s.country ? 1 : 0)}
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+            className="transition-[stroke-opacity] duration-200"
+          />
+        ) : null,
+      )}
+    </svg>
+  )
+})
+
+interface Flight {
+  key: number
+  born: number
+  color: string
+  /** Source, control point and home, screen px. */
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+function DashLayer({ flights }: { flights: readonly Flight[] }) {
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden data-map-dashes>
+      {flights.map(({ key, ...f }) => (
+        <DashFlight key={key} {...f} />
+      ))}
+    </div>
+  )
+}
+
+/** One dash: transform and opacity keyframes only (see `dash.ts`), run by the compositor. */
+const DashFlight = memo(function DashFlight({
+  born,
+  color,
+  x0,
+  y0,
+  x1,
+  y1,
+  x2,
+  y2,
+}: Omit<Flight, "key">) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const track = useMemo(() => dashTrack([x0, y0], [x1, y1], [x2, y2]), [x0, y0, x1, y1, x2, y2])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || typeof el.animate !== "function") return
+    const flight = el.animate(track.keyframes, { duration: DASH_DURATION, fill: "both" })
+    flight.currentTime = Math.min(DASH_DURATION, Math.max(0, performance.now() - born))
+    return () => flight.cancel()
+  }, [track, born])
+  return (
+    <span
+      ref={ref}
+      className="absolute top-0 left-0 rounded-full opacity-0"
+      style={{
+        width: track.width,
+        height: DASH_THICKNESS,
+        marginTop: -DASH_THICKNESS / 2,
+        transformOrigin: `0 ${DASH_THICKNESS / 2}px`,
+        background: color,
+      }}
+    />
+  )
+})
+
+/** How far a pulse ring grows, in dot radii (the `map-pulse` keyframes start at 1 / this). */
+const PULSE_SCALE = 2.8
+
+interface Pulse {
+  key: string
+  /** Screen position and dot radius, px. */
+  x: number
+  y: number
+  r: number
+  color: string
+  opacity: number
+}
+
+/**
+ * Rings around active sources and home. Each ring is drawn at its largest size with a 1 px
+ * border and shrunk to the dot by the animation, so the line never gets thicker than 1 px.
+ */
+function PulseLayer({
+  pulses,
+  home,
+}: {
+  pulses: readonly Pulse[]
+  home: { x: number; y: number }
+}) {
+  const ring = (key: string, x: number, y: number, r: number, color: string, opacity = 1) => {
+    const size = 2 * r * PULSE_SCALE + 1
+    return (
+      <span
+        key={key}
+        className="absolute transition-opacity duration-200"
+        style={{ left: x, top: y, opacity }}
+      >
+        <span
+          className="absolute block animate-map-pulse rounded-full border"
+          style={{
+            width: size,
+            height: size,
+            left: -size / 2,
+            top: -size / 2,
+            borderColor: color,
+          }}
+        />
+      </span>
+    )
+  }
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden data-map-pulses>
+      {pulses.map((p) => ring(p.key, p.x, p.y, p.r, p.color, p.opacity))}
+      {ring("home", home.x, home.y, 5, "var(--fg)")}
+    </div>
+  )
+}
+
+const DotLayer = memo(function DotLayer({
+  viewBox,
+  drawn,
+  lit,
+  now,
+  upp,
+  home,
+}: {
+  viewBox: string
+  drawn: readonly Drawn[]
+  lit: string | null
+  now: number
+  /** Map units per screen pixel: dots keep their screen size at every zoom. */
+  upp: number
+  home: [number, number]
+}) {
+  return (
+    <svg className={LAYER} viewBox={viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden>
+      {drawn.map(({ s, xy }) => (
+        <circle
+          key={`src-${s.country}`}
+          cx={xy[0]}
+          cy={xy[1]}
+          r={dotRadius(s.events) * upp}
+          fill={FAMILY_META[s.family].cssVar}
+          fillOpacity={0.4 + 0.6 * ageOpacity(s.last, now)}
+          stroke={lit === s.country ? "var(--fg)" : "var(--surface)"}
+          strokeWidth={lit === s.country ? 1.5 : 1}
+          vectorEffect="non-scaling-stroke"
+          opacity={lit && lit !== s.country ? 0.28 : 1}
+          className="transition-opacity duration-200"
+        />
+      ))}
+      {/* Home: a ring and a solid dot (its pulse is in the pulse layer), always on top. */}
+      <circle
+        cx={home[0]}
+        cy={home[1]}
+        r={8 * upp}
+        fill="none"
+        stroke="var(--fg)"
+        strokeOpacity={0.5}
+        strokeWidth={1}
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle
+        cx={home[0]}
+        cy={home[1]}
+        r={4 * upp}
+        fill="var(--fg)"
+        stroke="var(--surface)"
+        strokeWidth={1.5}
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
+})

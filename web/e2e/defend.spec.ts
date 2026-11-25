@@ -12,6 +12,7 @@ test("blocklists", async ({ page }, info) => {
   await shootTall(page, "defend-blocklists", info.project.name)
   await page.evaluate(() => window.scrollTo(0, 0))
   await shoot(page, "defend-blocklists-top", info.project.name)
+  await page.getByRole("button", { name: "Export and your own rules" }).click()
   await page.locator("#export").scrollIntoViewIfNeeded()
   await page.locator("#export").screenshot({
     path: `screenshots/defend-blocklists-export-${info.project.name}.png`,

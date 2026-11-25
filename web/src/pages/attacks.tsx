@@ -236,8 +236,8 @@ export function AttacksPage() {
         noun="session"
         onShow={arrivals.show}
       />
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-        <div className="hidden grid-cols-[5.5rem_minmax(0,1fr)_auto_6rem] gap-x-4 border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
+        <div className="sticky top-14 z-10 hidden grid-cols-[5.5rem_minmax(0,1fr)_auto_6rem] gap-x-4 border-b bg-surface px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid">
           <span>Sensor</span>
           <span>What happened</span>
           <span className="text-right">Tags</span>

@@ -72,6 +72,31 @@ describe("StringsList", () => {
     await userEvent.tab()
     expect(list).toHaveFocus()
   })
+
+  it("offers Expand only when there is more than the capped box shows", async () => {
+    const many = Array.from({ length: 40 }, (_, i) => `string ${i}`)
+    render(
+      <TooltipProvider>
+        <StringsList strings={many} />
+      </TooltipProvider>,
+    )
+    const expand = screen.getByRole("button", { name: "Expand strings" })
+    expect(expand).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(expand)
+    expect(screen.getByRole("button", { name: "Collapse strings" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    )
+  })
+
+  it("has no toggle for a short list", () => {
+    render(
+      <TooltipProvider>
+        <StringsList strings={["/bin/sh", "wget"]} />
+      </TooltipProvider>,
+    )
+    expect(screen.queryByRole("button", { name: /strings/ })).not.toBeInTheDocument()
+  })
 })
 
 describe("SampleRow origin badge", () => {

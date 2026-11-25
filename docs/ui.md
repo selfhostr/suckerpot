@@ -10,15 +10,15 @@ The sidebar (the drawer on a phone) has ten entries in three spaces, plus Settin
 | --- | --- | --- | --- |
 | Observe | Today | | What is happening now? |
 | Observe | Live | | What is happening now? |
-| Observe | Attacks | Sessions, Attackers, Networks | Who is attacking, and from where? |
+| Observe | Attacks | Sessions, Attackers, Attacker networks | Who is attacking, and from where? |
 | Understand | Campaigns | Campaigns, Techniques | Who is behind it? |
 | Understand | Tools | Scripts, Malware, Infrastructure | What do they drop, and from where? |
-| Understand | Trends | Activity, Patterns | How does it change over time? |
+| Understand | Trends | Overview, Trends | How does it change over time? |
 | Defend | Protection | Blocklists, Detections | What should I block or watch? |
 | Defend | Exposure | Your exposure, CVE watch | What of mine is at risk? |
 | Defend | Alerts | | What was I told, and what did the weekly report say? |
-| Defend | Abuse reports | Reports, Results | What did I report, and did anything change? |
-| Defend | Network | Overview, Members | What does the network see, and what did my node help confirm? |
+| Defend | Abuse reports | Abuse reports, Results | What did I report, and did anything change? |
+| Defend | SuckerPot network | Overview, Members | What does the network see, and what did my node help confirm? |
 | System | Settings | | How is the system set up? |
 
 The Styleguide page is routable everywhere but listed in the sidebar only in development builds. The whole table lives in `web/src/app/nav.ts`.
@@ -45,8 +45,8 @@ The Styleguide page is routable everywhere but listed in the sidebar only in dev
 | Attacks | `/attacks` | Sessions, newest first, one line each, as a short story. Filters: sensor, floods (All, Hide, Only), source address, period, tag, country and network. Pages of 50, virtualised. A source that flooded the sensors is one row per hour (see [Flood groups](#flood-groups)). |
 | Session detail | `/attacks/<session id>` | The attack timeline, with long runs of the same event folded, a terminal replay for shell sessions, and a source panel. A flood group has its own page, with the credentials it tried instead of a replay. |
 | Attackers | `/attackers`, `/attackers/<ip>` | Profiles by address: first and last seen, sensors targeted, reputation. |
-| Networks | `/networks` | The hosting providers and networks (ASNs) the attacks come from. The old `/attackers?view=asns` address redirects here. |
-| Activity | `/overview` | KPIs for the last 24 hours, activity per sensor, the sensor mix, the latest events and up to three insights (see [Insights](#insights)). |
+| Attacker networks | `/networks` | The hosting providers and networks (ASNs) the attacks come from. The old `/attackers?view=asns` address redirects here. |
+| Overview | `/overview` | KPIs for the last 24 hours, activity per sensor, the sensor mix, the latest events and up to three insights (see [Insights](#insights)). |
 | **Understand** | | |
 | Campaigns | `/campaigns`, `/campaigns/<id>` | Sessions that share a script, payload host, file hash, malware family, exploit or credential list, grouped into one campaign with a plain-English story. Campaigns from the same addresses are merged into the oldest one; the old address shows a note with a link to the combined campaign. |
 | Techniques | `/techniques` | The MITRE ATT&CK techniques seen, as a heatmap per day. |
@@ -116,7 +116,7 @@ By default nothing here sends mail: you read, copy and send from your own mailbo
 
 ## Results (M26, M27)
 
-The **Abuse reports** entry is a hub with two tabs: **Reports** and **Results**. The rules of the reports themselves are in [Abuse reports](#abuse-reports-m22). The answers and their matching are in [Replies to reports](replies.md), and the tracking of the targets in [Takedowns](takedowns.md).
+The **Abuse reports** entry is a hub with two tabs: **Abuse reports** and **Results**. The rules of the reports themselves are in [Abuse reports](#abuse-reports-m22). The answers and their matching are in [Replies to reports](replies.md), and the tracking of the targets in [Takedowns](takedowns.md).
 
 - **Results page** (`/defend/results`). Every card opens with one plain sentence, then the chart or table that proves it. Filters (period, report kind, channel, provider, grouping) live in the URL, so a view can be shared. From the top:
   1. Stat tiles: reports sent, answered (%), median first reply and resolved. With takedown tracking on, also taken down within 48 hours and median time to takedown.
@@ -166,7 +166,7 @@ Some sources open hundreds of plain connections in an hour: a password spray, a 
 - **The row.** One story that counts the connections, for example "203.0.113.7 opened 812 RDP connections, one login each", a neutral chip with an icon, the word "flood" and the count ("x812"), and the hours the group ran in your time zone ("14:02–14:58", under the start time, with the date and time zone on hover). A flood is volume, not a payload, so the chip is never red and never relies on colour.
 - **The Attacks page.** The headline says how much of the day came in floods ("... 96% of them in floods from 20 addresses."). The **Floods** control has three choices: **All** (the default), **Hide** and **Only**. It is written in the URL as `?kind=session` (Hide) and `?kind=burst` (Only), so a view can be shared. The end of the list counts connections, not rows ("End of the list · 5,432 sessions in 140 rows").
 - **The group page.** A sentence says what the group is (none of its connections got in, ran a command or downloaded a file), then the window it covers, the connections, the logins tried, the events and the target port (there is no single source port to show). A **Credentials tried** card lists the most used usernames and passwords, each opening the matching [Trends](#trends-and-malware) filter. **First events** shows the first 200 events in the usual timeline, with long runs folded. **Same hour** lists the other groups of the same address in that hour, and the source card links to every session of the address. There is no terminal replay.
-- **Links from events.** A link to a session from an event (the Live feed, the latest events of the Activity page) carries the time of the event as `?at=`. A connection that was folded into a group has no page of its own, so the page opens the group that holds it and says so. A link without `?at=` to a folded connection shows "Session not found".
+- **Links from events.** A link to a session from an event (the Live feed, the latest events of the Overview page) carries the time of the event as `?at=`. A connection that was folded into a group has no page of its own, so the page opens the group that holds it and says so. A link without `?at=` to a folded connection shows "Session not found".
 - **Attacker profile.** The profile sentence adds "of which 1,456 in floods" (a link to that address's flood groups; "at least" when the address has more than 200 groups).
 
 ## The Live page

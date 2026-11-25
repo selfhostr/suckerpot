@@ -161,10 +161,10 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
 
   return (
     <>
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
             ATTACKER_GRID,
           )}
         >
@@ -253,10 +253,10 @@ function AsnList({ sort }: { sort: AsnSort }) {
   const items = q.data?.items ?? []
   const grid = "md:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_5.5rem_6rem] md:gap-x-4"
   return (
-    <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+    <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
       <div
         className={cn(
-          "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+          "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
           grid,
         )}
       >
@@ -283,7 +283,7 @@ function AsnList({ sort }: { sort: AsnSort }) {
           description="Networks appear once GeoIP and ASN enrichment has run on incoming events."
         />
       ) : (
-        <ul aria-label="Networks">
+        <ul aria-label="Attacker networks">
           {items.map((n: AsnItem, i) => (
             <li key={n.asn} className={cn(i > 0 && "border-t")}>
               <Link
@@ -363,7 +363,7 @@ function AttackersView({ asns }: { asns: boolean }) {
     <>
       <PageHeader
         help={asns ? "networks" : "attackers"}
-        title={asns ? "Networks" : "Attackers"}
+        title={asns ? "Attacker networks" : "Attackers"}
         description={description}
       />
 

@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import {
   Ban,
   CircleCheck,
@@ -415,18 +416,13 @@ export function UsersCard() {
                 />
               ))}
             </ul>
-            {q.hasNextPage ? (
-              <div className="border-t px-4 py-3 sm:px-5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={q.isFetchingNextPage}
-                  onClick={() => void q.fetchNextPage()}
-                >
-                  {q.isFetchingNextPage ? "Loading…" : "Show more users"}
-                </Button>
-              </div>
-            ) : null}
+            <LoadMore
+              hasNextPage={q.hasNextPage}
+              isFetchingNextPage={q.isFetchingNextPage}
+              fetchNextPage={q.fetchNextPage}
+              label="Show more users"
+              className="border-t"
+            />
           </>
         )}
       </FindingCard>

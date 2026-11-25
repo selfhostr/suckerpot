@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { Mailbox, MailWarning, Settings2 } from "lucide-react"
 import { useId, useMemo, useState } from "react"
 import { Link } from "react-router"
@@ -278,6 +279,15 @@ export function AbusePage() {
           aria-label="Report status"
           className="scroll-fade-x mb-4 max-w-full justify-start overflow-x-auto"
         >
+          {/* Workflow order: review drafts, send, check replies, then the archive. */}
+          {LIST_STATUSES.filter((s) => s === "draft" || s === "reviewed").map((s) => (
+            <TabsTrigger key={s} value={s} className="flex-none px-3">
+              {TAB_LABEL[s]}
+              {counts ? (
+                <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">{counts[s]}</span>
+              ) : null}
+            </TabsTrigger>
+          ))}
           {canWrite ? (
             <TabsTrigger value="queue" className="flex-none px-3">
               To send
@@ -304,7 +314,7 @@ export function AbusePage() {
               <span className="ml-1.5 text-xs text-fg-subtle tabular-nums">{repliesToCheck}</span>
             </TabsTrigger>
           ) : null}
-          {LIST_STATUSES.map((s) => (
+          {LIST_STATUSES.filter((s) => s !== "draft" && s !== "reviewed").map((s) => (
             <TabsTrigger key={s} value={s} className="flex-none px-3">
               {TAB_LABEL[s]}
               {counts ? (
@@ -354,16 +364,12 @@ export function AbusePage() {
           ) : (
             groups.map((g) => <ProviderGroup key={g.id} g={g} />)
           )}
-          {list.hasNextPage ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={list.isFetchingNextPage}
-              onClick={() => void list.fetchNextPage()}
-            >
-              {list.isFetchingNextPage ? "Loading…" : "Show more"}
-            </Button>
-          ) : null}
+          <LoadMore
+            hasNextPage={list.hasNextPage}
+            isFetchingNextPage={list.isFetchingNextPage}
+            fetchNextPage={list.fetchNextPage}
+            label="Show more"
+          />
           {status === "draft" ? <NoContact /> : null}
         </div>
       )}

@@ -151,7 +151,7 @@ export function NetworkPage() {
     <>
       <PageHeader
         help="network"
-        title="Network"
+        title="SuckerPot network"
         description="SuckerPot installations pooling what their sensors see, to get attackers removed."
         actions={canWrite ? null : <ReadOnlyBadge />}
       />

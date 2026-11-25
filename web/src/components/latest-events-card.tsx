@@ -8,14 +8,13 @@ import { LiveEventRow } from "@/components/live-event-row"
 import { SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { useReorderMotion } from "@/hooks/use-reorder-motion"
+import { LATEST_ROWS } from "@/lib/latest"
 import { deriveStats, liveFinding } from "@/lib/live-stats"
-
-const SHOWN = 6
 
 /** The newest events from the shared live feed, with the same finding sentence as /live. */
 export function LatestEventsCard({ className }: { className?: string }) {
   const { events, stats, status } = useLiveFeed()
-  const latest = events.slice(0, SHOWN)
+  const latest = events.slice(0, LATEST_ROWS)
   const finding = liveFinding(stats ?? (events.length ? deriveStats(events) : null))
   // A new event fades in at the top while the others glide down one row.
   const listRef = useRef<HTMLDivElement>(null)
@@ -30,8 +29,8 @@ export function LatestEventsCard({ className }: { className?: string }) {
       eyebrow="Latest events"
       finding={finding}
       action={
-        <Button asChild variant="outline" size="sm">
-          <Link to="/live">Open live feed</Link>
+        <Button asChild variant="ghost" size="sm">
+          <Link to="/live">See all</Link>
         </Button>
       }
       bodyClassName="p-0 sm:p-0 pt-4 sm:pt-4"

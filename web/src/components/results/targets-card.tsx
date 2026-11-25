@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { CornerDownRight } from "lucide-react"
 import { useMemo } from "react"
 import { Link } from "react-router"
@@ -7,7 +8,6 @@ import { MetaLine } from "@/components/meta-line"
 import { FindingCard } from "@/components/finding-card"
 import { RelativeTime } from "@/components/relative-time"
 import { SegmentedControl } from "@/components/segmented-control"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { cn } from "@/lib/utils"
@@ -163,11 +163,11 @@ export function TargetsCard({ filters }: { filters: ResultFilters }) {
       ) : items.length === 0 ? null : (
         <>
           <TargetCards items={items} ids={ids} />
-          <div className="relative hidden overflow-x-auto border-t sm:block">
+          <div className="relative hidden border-t sm:block">
             <table className="w-full text-left text-sm">
               <caption className="sr-only">Tracked targets</caption>
-              <thead className="text-xs text-fg-muted">
-                <tr className="border-b">
+              <thead className="text-xs text-fg-muted [&_th]:sticky [&_th]:top-14 [&_th]:z-10 [&_th]:border-b [&_th]:bg-surface">
+                <tr>
                   <th scope="col" className="px-4 py-2 font-medium sm:px-5">
                     Target
                   </th>
@@ -248,18 +248,13 @@ export function TargetsCard({ filters }: { filters: ResultFilters }) {
           </div>
         </>
       )}
-      {q.hasNextPage ? (
-        <div className="border-t px-4 py-3 sm:px-5">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={q.isFetchingNextPage}
-            onClick={() => void q.fetchNextPage()}
-          >
-            {q.isFetchingNextPage ? "Loading…" : "Show more"}
-          </Button>
-        </div>
-      ) : null}
+      <LoadMore
+        hasNextPage={q.hasNextPage}
+        isFetchingNextPage={q.isFetchingNextPage}
+        fetchNextPage={q.fetchNextPage}
+        label="Show more"
+        className="border-t"
+      />
     </FindingCard>
   )
 }
