@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { Mailbox, MailWarning, Settings2 } from "lucide-react"
 import { useId, useMemo, useState } from "react"
 import { Link } from "react-router"
@@ -354,16 +355,12 @@ export function AbusePage() {
           ) : (
             groups.map((g) => <ProviderGroup key={g.id} g={g} />)
           )}
-          {list.hasNextPage ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={list.isFetchingNextPage}
-              onClick={() => void list.fetchNextPage()}
-            >
-              {list.isFetchingNextPage ? "Loading…" : "Show more"}
-            </Button>
-          ) : null}
+          <LoadMore
+            hasNextPage={list.hasNextPage}
+            isFetchingNextPage={list.isFetchingNextPage}
+            fetchNextPage={list.fetchNextPage}
+            label="Show more"
+          />
           {status === "draft" ? <NoContact /> : null}
         </div>
       )}

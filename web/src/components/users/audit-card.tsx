@@ -1,11 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { useEffect, useMemo, useState } from "react"
 import { FindingCard } from "@/components/finding-card"
 import { IPChip } from "@/components/ip-chip"
 import { RelativeTime } from "@/components/relative-time"
 import { SegmentedControl } from "@/components/segmented-control"
 import { SkeletonText } from "@/components/skeletons"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { queryKeys } from "@/lib/api"
@@ -137,18 +137,13 @@ export function AuditCard() {
               </li>
             ) : null}
           </ul>
-          {q.hasNextPage ? (
-            <div className="border-t px-4 py-3 sm:px-5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={q.isFetchingNextPage}
-                onClick={() => void q.fetchNextPage()}
-              >
-                {q.isFetchingNextPage ? "Loading…" : "Show older entries"}
-              </Button>
-            </div>
-          ) : null}
+          <LoadMore
+            hasNextPage={q.hasNextPage}
+            isFetchingNextPage={q.isFetchingNextPage}
+            fetchNextPage={q.fetchNextPage}
+            label="Show older entries"
+            className="border-t"
+          />
         </>
       ) : null}
     </FindingCard>
