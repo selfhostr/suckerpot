@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { FamilyStrip } from "@/components/family-strip"
 import type { LiveEvent, SensorCounts } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -41,7 +42,17 @@ export function LiveMap({
   className,
 }: LiveMapProps) {
   const site = useSiteHome()
-  const home = site.data ? { lat: site.data.lat, lon: site.data.lon } : null
+  const lat = site.data?.lat
+  const lon = site.data?.lon
+  // Stable props, so the (memoized) map skips renders that change nothing it draws.
+  const home = useMemo(
+    () => (lat !== undefined && lon !== undefined ? { lat, lon } : null),
+    [lat, lon],
+  )
+  const strip = useMemo(
+    () => <FamilyStrip bySensor={bySensor} className="hidden @4xl:flex" />,
+    [bySensor],
+  )
 
   return (
     <div
@@ -65,7 +76,7 @@ export function LiveMap({
             now={now}
             focus={focus}
             onFocusChange={onFocusChange}
-            topLeft={<FamilyStrip bySensor={bySensor} className="hidden @4xl:flex" />}
+            topLeft={strip}
           />
         )}
       </div>

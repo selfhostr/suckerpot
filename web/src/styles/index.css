@@ -50,7 +50,6 @@
   --animate-card-in: card-in var(--motion-card-duration) var(--ease-out) backwards;
   --animate-page-in: page-in var(--motion-page-duration) var(--ease-out) backwards;
   --animate-live-pulse: live-pulse 2.4s ease-out infinite;
-  --animate-map-dash: map-dash 1.6s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-map-pulse: map-pulse 2.4s ease-out infinite;
 
   @keyframes slide-in {
@@ -91,29 +90,19 @@
       opacity: 1;
     }
   }
-  /* A short dash travelling once along an arc (path with pathLength="1"). */
-  @keyframes map-dash {
-    from {
-      stroke-dashoffset: 0.14;
-      opacity: 1;
-    }
-    85% {
-      opacity: 1;
-    }
-    to {
-      stroke-dashoffset: -1;
-      opacity: 0;
-    }
-  }
-  /* A soft ring around an active source on the map (SVG: transform-box fill-box). */
+  /*
+   * A soft ring around an active source on the map: an HTML ring drawn at its final size
+   * (2.8 dot radii) that grows from the dot, so only transform and opacity animate and the
+   * compositor runs it without repainting the map.
+   */
   @keyframes map-pulse {
     0% {
-      transform: scale(1);
+      transform: scale(calc(1 / 2.8));
       opacity: 0.55;
     }
     70%,
     100% {
-      transform: scale(2.8);
+      transform: scale(1);
       opacity: 0;
     }
   }
