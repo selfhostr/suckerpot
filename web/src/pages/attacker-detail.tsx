@@ -25,6 +25,7 @@ import {
 } from "@/lib/api"
 import { attackerOrigin, describeAttacker } from "@/lib/describe-attacker"
 import { describeTimeline } from "@/lib/findings"
+import { LATEST_ROWS } from "@/lib/latest"
 import { floodSentence, isFlood, totalConnections } from "@/lib/floods"
 import { formatNumber, maskIp, maskIpsInText } from "@/lib/format"
 
@@ -129,6 +130,7 @@ export function AttackerDetailPage() {
   }
 
   const d = q.data
+  const latest = d?.recent_sessions.slice(0, LATEST_ROWS) ?? []
   const a = d?.attacker
   const origin = a ? attackerOrigin(a) : null
   const story = a ? `${origin ? `${origin} — ` : ""}${describeAttacker(a)}.` : undefined
@@ -291,23 +293,23 @@ export function AttackerDetailPage() {
           <FindingCard
             eyebrow="Recent sessions"
             finding={
-              d.recent_sessions.length === 1
-                ? d.recent_sessions.some(isFlood)
+              latest.length === 1
+                ? latest.some(isFlood)
                   ? "Its only flood group so far."
                   : "Its only session so far."
-                : d.recent_sessions.some(isFlood)
-                  ? `Its last ${d.recent_sessions.length} sessions and flood groups, newest first.`
-                  : `Its last ${d.recent_sessions.length} sessions, newest first.`
+                : latest.some(isFlood)
+                  ? `Its last ${latest.length} sessions and flood groups, newest first.`
+                  : `Its last ${latest.length} sessions, newest first.`
             }
             action={
               <Button asChild variant="ghost" size="sm">
-                <Link to={sessionsHref}>View all</Link>
+                <Link to={sessionsHref}>See all</Link>
               </Button>
             }
             bodyClassName="p-0 sm:p-0 pt-4 sm:pt-4"
           >
             <ul aria-label="Recent sessions" className="border-t">
-              {d.recent_sessions.map((s, i) => (
+              {latest.map((s, i) => (
                 <li key={s.session_id} className={i > 0 ? "border-t" : undefined}>
                   <SessionRow session={s} showSource={false} />
                 </li>
