@@ -22,10 +22,12 @@ import {
   SEVERITY_FILTERS,
   SINCE_OPTIONS,
   SOURCE_LABELS,
+  severityLabel,
   sinceParam,
   type CveFilters,
 } from "@/lib/cves"
-import { formatNumber } from "@/lib/format"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 25
@@ -59,9 +61,10 @@ function CveSearch() {
         autoComplete="off"
         spellCheck={false}
         maxLength={100}
-        placeholder="Search, e.g. redis or CVE-2026"
-        aria-label="Search CVEs"
-        className="h-8 pl-8 text-xs normal-nums md:text-xs"
+        placeholder={t("cves_search_placeholder")}
+        aria-label={t("cves_search_label")}
+        size="sm"
+        className="pl-8 normal-nums"
       />
     </div>
   )
@@ -78,23 +81,22 @@ function SyncCard() {
   return (
     <FindingCard
       className="mt-6"
-      eyebrow="Feed status"
+      eyebrow={t("cves_feed_eyebrow")}
       finding={
-        !s ? (
-          "Checking the CVE feeds…"
-        ) : newest ? (
-          <>
-            {formatNumber(s.total)} CVEs tracked, {formatNumber(s.relevant)} relevant to our
-            services. Last updated <RelativeTime iso={newest} className="text-base text-fg" />.
-          </>
-        ) : (
-          "The CVE feeds have not run yet. They update once a day."
-        )
+        !s
+          ? t("cves_feed_checking")
+          : newest
+            ? tNodes(
+                "cves_feed_summary",
+                { total: s.total, relevant: s.relevant },
+                { time: <RelativeTime iso={newest} className="text-base text-fg" /> },
+              )
+            : t("cves_feed_not_run")
       }
-      detail="Public data from CISA, the NVD and GitHub, fetched once a day by the ingest service within fixed quotas. Nothing is deployed from it."
+      detail={t("cves_feed_detail")}
     >
       {s ? (
-        <ul aria-label="Feed sources" className="divide-y">
+        <ul aria-label={t("cves_feed_sources_label")} className="divide-y">
           {s.sources.map((src) => (
             <li
               key={src.source}
@@ -103,19 +105,19 @@ function SyncCard() {
               <span className="text-sm font-medium text-fg">{SOURCE_LABELS[src.source]}</span>
               <span className="text-xs text-fg-muted">{describeSource(src)}</span>
               <span className="text-xs text-fg-subtle sm:text-right">
-                {src.last_success_at ? (
-                  <>
-                    Updated <RelativeTime iso={src.last_success_at} className="text-xs" />
-                  </>
-                ) : (
-                  "Never updated"
-                )}
+                {src.last_success_at
+                  ? tNodes(
+                      "cves_feed_updated",
+                      {},
+                      { time: <RelativeTime iso={src.last_success_at} className="text-xs" /> },
+                    )
+                  : t("cves_feed_never_updated")}
                 {src.source !== "kev" ? (
                   <>
                     {" · "}
                     {(src.source === "nvd" ? s.nvd_key_configured : s.github_key_configured)
-                      ? "API key set"
-                      : "No API key (lower rate limit)"}
+                      ? t("cves_feed_key_set")
+                      : t("cves_feed_key_missing")}
                   </>
                 ) : null}
               </span>
@@ -124,11 +126,17 @@ function SyncCard() {
         </ul>
       ) : null}
       <p className="mt-3 text-xs text-fg-muted">
-        NVD and GitHub keys are optional. Add them in{" "}
-        <Link to="/settings" className="text-fg underline underline-offset-4">
-          Settings
-        </Link>{" "}
-        for higher rate limits.
+        {tNodes(
+          "cves_feed_keys_note",
+          {},
+          {
+            settings: (
+              <Link to="/settings" className="text-fg underline underline-offset-4">
+                {t("cves_feed_settings_link")}
+              </Link>
+            ),
+          },
+        )}
       </p>
     </FindingCard>
   )
@@ -178,7 +186,7 @@ export function CvesPage() {
         kevRelevant: week.data.items.filter((c) => c.in_kev).length,
         seen: week.data.items.filter((c) => c.seen_sessions > 0).length,
       })
-    : "Recent vulnerabilities, ranked by how much they matter to the services we emulate."
+    : t("cves_page_description")
 
   const listRef = useRef<HTMLDivElement>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -211,7 +219,7 @@ export function CvesPage() {
 
   return (
     <>
-      <PageHeader help="cves" title="CVE watch" description={finding} />
+      <PageHeader help="cves" title={t("cves_page_title")} description={finding} />
 
       <FilterBar
         className="mb-4"
@@ -219,55 +227,55 @@ export function CvesPage() {
         alsoClears={["relevance", "severity", "since", "kev", "q"]}
       >
         <SegmentedControl
-          label="Relevance"
+          label={t("cves_filter_relevance")}
           value={relevance}
           onChange={(v) => setRelevance(v === "all" ? "all" : null)}
           options={[
-            { value: "relevant", label: "Our services" },
-            { value: "all", label: "All CVEs" },
+            { value: "relevant", label: t("cves_filter_our_services") },
+            { value: "all", label: t("cves_filter_all") },
           ]}
         />
         <SegmentedControl
-          label="Severity"
+          label={t("cves_filter_severity")}
           value={severity ?? "any"}
           onChange={(v) => setSeverity(v === "any" ? null : v)}
           options={[
-            { value: "any", label: "Any severity" },
+            { value: "any", label: t("cves_filter_any_severity") },
             ...SEVERITY_FILTERS.map((s) => ({
               value: s,
-              label: s.charAt(0).toUpperCase() + s.slice(1),
+              label: severityLabel(s.toUpperCase()),
             })),
           ]}
         />
         <SegmentedControl
-          label="Published"
+          label={t("cves_filter_published")}
           value={days}
           onChange={(v) => setSinceDays(v === DEFAULT_SINCE ? null : v)}
           options={SINCE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
         />
         <SegmentedControl
-          label="Exploited in the wild"
+          label={t("cves_filter_kev")}
           value={kev === "1" ? "kev" : "any"}
           onChange={(v) => setKev(v === "kev" ? "1" : null)}
           options={[
-            { value: "any", label: "Any" },
-            { value: "kev", label: "KEV only" },
+            { value: "any", label: t("cves_filter_any") },
+            { value: "kev", label: t("cves_filter_kev_only") },
           ]}
         />
         <CveSearch />
       </FilterBar>
 
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle md:grid",
             CVE_GRID,
           )}
         >
-          <span>Vulnerability</span>
-          <span>Severity</span>
-          <span>Relevance</span>
-          <span className="text-right">Seen in traffic</span>
+          <span>{t("cves_col_vulnerability")}</span>
+          <span>{t("cves_fact_severity")}</span>
+          <span>{t("cves_fact_relevance")}</span>
+          <span className="text-right">{t("cves_col_seen")}</span>
         </div>
         {query.isPending ? (
           <SkeletonList rows={8} />
@@ -275,11 +283,11 @@ export function CvesPage() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load CVEs"
+            title={t("cves_error_title")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -287,18 +295,14 @@ export function CvesPage() {
           <EmptyState
             variant="bare"
             icon={ShieldAlert}
-            title={filtered ? "No CVEs match" : "No CVEs yet"}
-            description={
-              filtered
-                ? "Try another period or severity, or show all CVEs."
-                : "The feeds update once a day. New vulnerabilities appear here after the first run."
-            }
+            title={filtered ? t("cves_empty_filtered_title") : t("cves_empty_title")}
+            description={filtered ? t("cves_empty_filtered_hint") : t("cves_empty_hint")}
           />
         ) : (
           <div
             ref={listRef}
             role="list"
-            aria-label="CVEs"
+            aria-label={t("cves_list_label")}
             aria-busy={isFetchingNextPage}
             className="relative w-full"
             style={{ height: virtualizer.getTotalSize() }}
@@ -325,7 +329,7 @@ export function CvesPage() {
       </div>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {formatNumber(total)} CVEs
+          {t("cves_end_of_list", { count: total })}
         </p>
       ) : null}
 

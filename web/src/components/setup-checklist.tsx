@@ -1,6 +1,8 @@
 import { CircleCheck, CircleDashed, CircleOff, TriangleAlert, type LucideIcon } from "lucide-react"
 import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { useSetupStatus } from "@/hooks/use-setup-status"
 import { FindingCard } from "@/components/finding-card"
 import { SkeletonText } from "@/components/skeletons"
@@ -24,8 +26,11 @@ const STATE_STYLE: Record<SetupState, { icon: LucideIcon; className: string }> =
 export function FirewallNote() {
   return (
     <>
-      The host firewall can&apos;t be seen from inside the stack: run{" "}
-      <code className="font-mono text-fg">just egress-check</code> on the VM.
+      {tNodes(
+        "checklist_firewall_note",
+        {},
+        { command: <code className="font-mono text-fg">just egress-check</code> },
+      )}
     </>
   )
 }
@@ -42,7 +47,7 @@ export function SetupItems({
   className?: string
 }) {
   return (
-    <ul aria-label="Setup checklist" className={cn("divide-y border-t", className)}>
+    <ul aria-label={t("checklist_title")} className={cn("divide-y border-t", className)}>
       {items.map((item) => {
         const { icon: Icon, className: tone } = STATE_STYLE[item.state]
         const href = safeHref(item.href)
@@ -66,10 +71,10 @@ export function SetupItems({
               <Link
                 to={href}
                 onClick={onNavigate}
-                aria-label={`Open ${title}`}
+                aria-label={t("checklist_open_label", { title })}
                 className="rounded-sm text-xs font-medium text-fg-muted underline underline-offset-4 transition-colors hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
               >
-                Open
+                {t("common_open")}
               </Link>
             ) : (
               <span />
@@ -89,15 +94,16 @@ export function SetupChecklistCard() {
   const items = q.data
   return (
     <FindingCard
-      eyebrow="Setup checklist"
+      eyebrow={t("checklist_title")}
+      help="checklist"
       finding={
         items
           ? describeSetup(items)
           : q.isError
-            ? "The setup status is not available right now."
-            : "Checking the setup…"
+            ? t("checklist_unavailable")
+            : t("checklist_checking")
       }
-      detail="Each line is computed from the running stack, not from a saved answer."
+      detail={t("checklist_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-0 sm:pb-0"
       footer={<FirewallNote />}
     >

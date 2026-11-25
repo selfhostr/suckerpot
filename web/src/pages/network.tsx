@@ -1,13 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { Hourglass } from "lucide-react"
 import { useAuth } from "@/app/auth"
-import { CountriesList } from "@/components/network/countries-list"
 import { SharedExplainer } from "@/components/network/explainer"
 import { JoinCard } from "@/components/network/join-card"
 import { NodeCard } from "@/components/network/node-card"
 import { TargetsCard } from "@/components/network/targets-card"
 import { useNetworkStatus } from "@/components/network/use-network"
-import { WeeklyChart } from "@/components/network/weekly-chart"
 import { EmptyState } from "@/components/empty-state"
 import { FindingCard } from "@/components/finding-card"
 import { PageHeader } from "@/components/page-header"
@@ -16,7 +14,6 @@ import { SkeletonCard } from "@/components/skeletons"
 import { StatTile } from "@/components/stat-tile"
 import {
   bootstrapSentence,
-  countriesFinding,
   describeStatus,
   formatDay,
   isMember,
@@ -25,14 +22,15 @@ import {
   networkKeys,
   weeklyFinding,
 } from "@/lib/network"
+import { t } from "@/i18n"
 
 /** The summary of the network is fetched by this node once a day; wait for the first one. */
 function WaitingForFigures() {
   return (
     <EmptyState
       icon={Hourglass}
-      title="The first figures are on their way"
-      description="The network publishes its figures once a day. They show up here after the next count."
+      title={t("network_overview_waiting_title")}
+      description={t("network_overview_waiting_description")}
     />
   )
 }
@@ -41,12 +39,12 @@ function MemberOverview({ status }: { status: NetworkStatus }) {
   const summary = useQuery({ queryKey: networkKeys.summary, queryFn: networkApi.summary })
   const impact = useQuery({ queryKey: networkKeys.impact, queryFn: networkApi.impact })
   const s = summary.data
-  const t = s?.totals
-  const boot = t ? bootstrapSentence(t) : null
+  const tot = s?.totals
+  const boot = tot ? bootstrapSentence(tot) : null
   return (
     <div className="grid grid-cols-1 gap-4">
-      <p className="max-w-3xl text-base text-pretty text-fg">
-        {impact.data ? describeStatus(status, impact.data) : "Counting what the network did…"}
+      <p className="max-w-3xl type-lede text-pretty text-fg">
+        {impact.data ? describeStatus(status, impact.data) : t("network_overview_counting")}
       </p>
       {boot ? (
         <p
@@ -57,43 +55,46 @@ function MemberOverview({ status }: { status: NetworkStatus }) {
         </p>
       ) : null}
 
-      <section aria-label="Network figures" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <section
+        aria-label={t("network_overview_figures_label")}
+        className="grid grid-cols-2 gap-3 lg:grid-cols-5"
+      >
         <StatTile
-          label="Active members this week"
-          value={t?.active_7d}
+          label={t("network_overview_active_members")}
+          value={tot?.active_7d}
           loading={summary.isPending}
-          hint={t ? `of ${t.members} members` : undefined}
+          hint={tot ? t("network_overview_of_members", { count: tot.members }) : undefined}
           href="/network/members"
         />
         <StatTile
-          label="Confirmed, 30 days"
-          value={t?.confirmed_30d}
+          label={t("network_overview_confirmed")}
+          value={tot?.confirmed_30d}
           loading={summary.isPending}
-          hint="by 5 or more sensors"
+          hint={t("network_overview_confirmed_hint")}
           href="/network?state=all"
         />
         <StatTile
-          label="Reported, 30 days"
-          value={t?.reported_30d}
+          label={t("network_overview_reported")}
+          value={tot?.reported_30d}
           loading={summary.isPending}
-          hint="one report per target"
+          hint={t("network_overview_reported_hint")}
           href="/network?state=reported"
         />
         <StatTile
-          label="Taken down, 30 days"
-          value={t?.taken_down_30d}
+          label={t("network_overview_taken_down")}
+          value={tot?.taken_down_30d}
           loading={summary.isPending}
-          hint="no longer answering"
+          hint={t("network_overview_taken_down_hint")}
           href="/network?state=taken_down"
         />
-        {t?.median_days_to_takedown === null ? null : (
+        {tot?.median_days_to_takedown === null ? null : (
           <StatTile
-            label="Median time to takedown"
-            value={t?.median_days_to_takedown}
+            label={t("network_overview_median")}
+            value={tot?.median_days_to_takedown}
             loading={summary.isPending}
-            unit="days"
+            unit={t("network_overview_unit_days")}
             className="col-span-2 lg:col-span-1"
-            hint="from first sighting"
+            hint={t("network_overview_median_hint")}
           />
         )}
       </section>
@@ -103,22 +104,12 @@ function MemberOverview({ status }: { status: NetworkStatus }) {
       ) : !s ? (
         <WaitingForFigures />
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <FindingCard
-            eyebrow="Per week"
-            finding={weeklyFinding(s.weekly)}
-            detail={`Figures of ${formatDay(s.generated_day, true)}.`}
-          >
-            <WeeklyChart weekly={s.weekly} />
-          </FindingCard>
-          <FindingCard
-            eyebrow="Where members are"
-            finding={countriesFinding(s.countries, s.totals.countries)}
-            detail="Only countries with at least 3 members who chose to share one."
-          >
-            <CountriesList countries={s.countries} />
-          </FindingCard>
-        </div>
+        <p className="text-sm text-fg-muted">
+          {weeklyFinding(s.weekly)}{" "}
+          <span className="text-fg-subtle">
+            {t("network_overview_figures_of", { date: formatDay(s.generated_day, true) })}
+          </span>
+        </p>
       )}
 
       <TargetsCard />
@@ -133,9 +124,9 @@ function OutsideOverview() {
     <div className="grid grid-cols-1 gap-4">
       <JoinCard />
       <FindingCard
-        eyebrow="How it works"
-        finding="Many sensors see the same attackers. Together they can get one of them removed."
-        detail="Here is exactly what is shared if you join, and what never is."
+        eyebrow={t("network_overview_how_eyebrow")}
+        finding={t("network_overview_how_finding")}
+        detail={t("network_overview_how_detail")}
       >
         <SharedExplainer />
       </FindingCard>
@@ -151,8 +142,8 @@ export function NetworkPage() {
     <>
       <PageHeader
         help="network"
-        title="Network"
-        description="SuckerPot installations pooling what their sensors see, to get attackers removed."
+        title={t("network_page_title")}
+        description={t("network_page_description")}
         actions={canWrite ? null : <ReadOnlyBadge />}
       />
       {q.isPending ? (

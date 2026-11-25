@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode, type SyntheticEvent } from "react"
 import { Field, FormError } from "@/components/form-parts"
+import { t } from "@/i18n"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
 import {
@@ -39,15 +40,15 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
   const [formError, setFormError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const ids = { name: useId(), target: useId(), mask: useId(), pass: useId(), err: useId() }
-  const t = TARGET_LABEL[kind]
+  const info = TARGET_LABEL[kind]
 
   async function submit() {
     if (pending) return
     setFormError(null)
     const found: Errors = {}
-    if (!name.trim()) found.name = "Give the channel a name."
-    if (!target.trim()) found.target = `Enter the ${t.label.toLowerCase()}.`
-    if (!password) found.password = "Enter your password to confirm."
+    if (!name.trim()) found.name = t("channels_error_name")
+    if (!target.trim()) found.target = t("channels_error_target", { kind })
+    if (!password) found.password = t("alerts_msg_password_required")
     setErrors(found)
     if (Object.keys(found).length > 0) return
     setPending(true)
@@ -59,7 +60,7 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       const err = e instanceof AlertError ? e : null
       if (err?.reason === "wrong-password") setErrors({ password: err.message })
       else if (err?.reason === "invalid-target") setErrors({ target: err.message })
-      else setFormError(err?.message ?? "The channel could not be saved.")
+      else setFormError(err?.message ?? t("channels_error_save"))
     } finally {
       setPending(false)
     }
@@ -76,17 +77,15 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       autoComplete="off"
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Add an alert channel</DialogTitle>
-        <DialogDescription>
-          The address is encrypted before it is stored and is never shown again. Only official
-          Discord and Teams webhook addresses are accepted.
-        </DialogDescription>
+        <DialogTitle>{t("setup_alerts_add")}</DialogTitle>
+        <DialogDescription>{t("channels_add_description")}</DialogDescription>
       </DialogHeader>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-fg">Where to send</span>
+        <span className="text-sm font-medium text-fg">{t("channels_where")}</span>
         <SegmentedControl
-          label="Channel type"
+          size="form"
+          label={t("channels_type_label")}
           value={kind}
           onChange={(next) => {
             setKind(next)
@@ -99,8 +98,8 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
 
       <Field
         id={ids.name}
-        label="Name"
-        hint="Only for you, e.g. “SecOps channel”."
+        label={t("channels_name")}
+        hint={t("channels_name_hint")}
         error={errors.name}
       >
         <Input
@@ -115,7 +114,7 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         />
       </Field>
 
-      <Field id={ids.target} label={t.label} hint={t.hint} error={errors.target}>
+      <Field id={ids.target} label={info.label} hint={info.hint} error={errors.target}>
         <Input
           id={ids.target}
           name="channel-target"
@@ -126,7 +125,7 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
           spellCheck={false}
           data-1p-ignore
           data-lpignore="true"
-          placeholder={t.example}
+          placeholder={info.example}
           value={target}
           onChange={(e) => setTarget(e.target.value.trim())}
           aria-invalid={errors.target ? true : undefined}
@@ -138,17 +137,15 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       <div className="flex items-start gap-3">
         <Switch id={ids.mask} checked={maskIps} onCheckedChange={setMaskIps} className="mt-0.5" />
         <label htmlFor={ids.mask} className="text-sm text-fg">
-          Hide the end of attacker IP addresses
-          <span className="block text-xs text-fg-muted">
-            203.0.113.7 is sent as 203.0.x.x. Recommended: chat history is hard to delete.
-          </span>
+          {t("channels_mask")}
+          <span className="block text-xs text-fg-muted">{t("channels_mask_hint")}</span>
         </label>
       </div>
 
       <Field
         id={ids.pass}
-        label="Your password"
-        hint="Adding a channel asks for your dashboard password again."
+        label={t("channels_password")}
+        hint={t("channels_password_hint")}
         error={errors.password}
       >
         <Input
@@ -165,10 +162,10 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       <FormError id={ids.err} message={formError} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Add channel"}
+          {pending ? t("setup_saving") : t("channels_add_submit")}
         </Button>
       </DialogFooter>
     </form>
@@ -208,14 +205,14 @@ function ChangeTargetForm({
   const [formError, setFormError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const ids = { target: useId(), pass: useId(), err: useId() }
-  const t = TARGET_LABEL[channel.kind]
+  const info = TARGET_LABEL[channel.kind]
 
   async function submit() {
     if (pending) return
     setFormError(null)
     const found: Errors = {}
-    if (!target.trim()) found.target = `Enter the new ${t.label.toLowerCase()}.`
-    if (!password) found.password = "Enter your password to confirm."
+    if (!target.trim()) found.target = t("channels_error_new_target", { kind: channel.kind })
+    if (!password) found.password = t("alerts_msg_password_required")
     setErrors(found)
     if (Object.keys(found).length > 0) return
     setPending(true)
@@ -227,7 +224,7 @@ function ChangeTargetForm({
       const err = e instanceof AlertError ? e : null
       if (err?.reason === "wrong-password") setErrors({ password: err.message })
       else if (err?.reason === "invalid-target") setErrors({ target: err.message })
-      else setFormError(err?.message ?? "The address could not be saved.")
+      else setFormError(err?.message ?? t("channels_error_save_address"))
     } finally {
       setPending(false)
     }
@@ -244,15 +241,15 @@ function ChangeTargetForm({
       autoComplete="off"
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Change where “{channel.name}” goes</DialogTitle>
+        <DialogTitle>{t("channels_change_title", { name: channel.name })}</DialogTitle>
         <DialogDescription>
-          Now: {channel.target_hint}. The new address replaces it and is encrypted the same way.
+          {t("channels_change_description", { hint: channel.target_hint })}
         </DialogDescription>
       </DialogHeader>
       <Field
         id={ids.target}
-        label={`New ${t.label.toLowerCase()}`}
-        hint={t.hint}
+        label={t("channels_new_target", { kind: channel.kind })}
+        hint={info.hint}
         error={errors.target}
       >
         <Input
@@ -265,7 +262,7 @@ function ChangeTargetForm({
           autoFocus
           data-1p-ignore
           data-lpignore="true"
-          placeholder={t.example}
+          placeholder={info.example}
           value={target}
           onChange={(e) => setTarget(e.target.value.trim())}
           aria-invalid={errors.target ? true : undefined}
@@ -273,7 +270,7 @@ function ChangeTargetForm({
           className="font-mono"
         />
       </Field>
-      <Field id={ids.pass} label="Your password" error={errors.password}>
+      <Field id={ids.pass} label={t("channels_password")} error={errors.password}>
         <Input
           id={ids.pass}
           name="password"
@@ -288,10 +285,10 @@ function ChangeTargetForm({
       <FormError id={ids.err} message={formError} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Save address"}
+          {pending ? t("setup_saving") : t("channels_save_address")}
         </Button>
       </DialogFooter>
     </form>

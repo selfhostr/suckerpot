@@ -1,5 +1,6 @@
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { t } from "@/i18n"
 import { SeverityBadge } from "@/components/severity-badge"
 import { maskIpsInText } from "@/lib/format"
 import type { ExplainedLine } from "@/lib/scripts"
@@ -17,7 +18,7 @@ import { cn } from "@/lib/utils"
 export function ExplainedLines({ lines }: { lines: readonly ExplainedLine[] }) {
   const { masked } = useIpMask()
   return (
-    <ol aria-label="Commands with explanations" className="divide-y">
+    <ol aria-label={t("scripts_lines_label")} className="divide-y">
       {lines.map((l, i) => {
         const command = l.raw ?? l.text
         const flagged = l.risk === "warning" || l.risk === "severe" || l.risk === "notice"
@@ -48,7 +49,7 @@ export function ExplainedLines({ lines }: { lines: readonly ExplainedLine[] }) {
                   {l.technique ? (
                     <Link
                       to={`/scripts?technique=${encodeURIComponent(l.technique)}`}
-                      className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-border-strong px-1.5 text-2xs text-fg-muted normal-nums transition-colors hover:border-fg-subtle hover:text-fg"
+                      className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted normal-nums transition-colors hover:border-fg-subtle hover:text-fg"
                     >
                       <span className="font-mono">{l.technique}</span>
                       {l.technique_name ? <span>{l.technique_name}</span> : null}

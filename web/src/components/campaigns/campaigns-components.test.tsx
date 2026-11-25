@@ -8,8 +8,8 @@ import { CampaignChip } from "@/components/campaigns/campaign-chip"
 import { CampaignRow } from "@/components/campaigns/campaign-row"
 import { ExcerptBlock } from "@/components/campaigns/excerpt-block"
 import { StageTrail } from "@/components/campaigns/stage-trail"
-import { StoryStages } from "@/components/campaigns/story-stages"
-import { TechniqueHeatmap } from "@/components/techniques/technique-heatmap"
+import { TechniqueChips } from "@/components/campaigns/technique-chips"
+import { TechniqueTable } from "@/components/techniques/technique-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { Campaign, Matrix, StoryStage } from "@/lib/campaigns"
 
@@ -102,18 +102,9 @@ const stages: StoryStage[] = [
   },
 ]
 
-describe("StoryStages", () => {
-  it("lists the steps in order with a plain sentence each", () => {
-    wrap(<StoryStages stages={stages} campaignId={3} />)
-    const steps = screen.getAllByRole("listitem").filter((li) => li.querySelector("h4"))
-    expect(steps).toHaveLength(2)
-    expect(steps[0]).toHaveTextContent("Getting in")
-    expect(steps[0]).toHaveTextContent("They guessed passwords.")
-    expect(screen.getByText("How did they get in?")).toBeInTheDocument()
-  })
-
+describe("TechniqueChips", () => {
   it("links a technique to this campaign's sessions and to ATT&CK in a new tab", () => {
-    wrap(<StoryStages stages={stages} campaignId={3} />)
+    wrap(<TechniqueChips stages={stages} campaignId={3} />)
     expect(screen.getByRole("link", { name: /^Brute Force, T1110/ })).toHaveAttribute(
       "href",
       "/attacks?campaign_id=3&technique=T1110",
@@ -176,20 +167,15 @@ const matrix: Matrix = {
   ],
 }
 
-describe("TechniqueHeatmap", () => {
-  it("groups techniques by stage and links each row to its sessions", () => {
-    wrap(<TechniqueHeatmap matrix={matrix} linkSuffix="&sensor=ssh" />)
-    expect(screen.getByRole("heading", { name: /Getting in/ })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: /Bringing tools/ })).toBeInTheDocument()
+describe("TechniqueTable", () => {
+  it("lists techniques with the most sessions first and links each to its sessions", () => {
+    wrap(<TechniqueTable matrix={matrix} linkSuffix="&sensor=ssh" />)
     const link = screen.getByRole("link", { name: /Brute Force/ })
     expect(link).toHaveAttribute("href", "/attacks?technique=T1110&sensor=ssh")
-  })
-
-  it("keeps the exact numbers in a table for screen readers", () => {
-    wrap(<TechniqueHeatmap matrix={matrix} />)
-    const table = screen.getByRole("table", { name: /Sessions per technique and day/ })
-    expect(table).toHaveTextContent("T1110 Brute Force")
-    expect(table).toHaveTextContent("Oct 24")
+    const names = screen.getAllByRole("listitem").map((li) => li.textContent)
+    expect(names.findIndex((t) => t.includes("Brute Force"))).toBeLessThan(
+      names.findIndex((t) => t.includes("Ingress Tool Transfer")),
+    )
   })
 })
 

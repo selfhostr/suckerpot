@@ -1,4 +1,6 @@
+import { memo } from "react"
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { CountryFlag } from "@/components/country-flag"
 import { eventTypeMeta } from "@/lib/event-type"
 import { IPChip } from "@/components/ip-chip"
@@ -29,7 +31,7 @@ interface LiveEventRowProps {
  * the session; the IP, flag and tags stay independently clickable above it.
  * `summary` comes from the server as plain text and is rendered as text only.
  */
-export function LiveEventRow({
+export const LiveEventRow = memo(function LiveEventRow({
   event,
   isNew = false,
   compact = false,
@@ -53,7 +55,9 @@ export function LiveEventRow({
       )}
     >
       <Icon aria-hidden className="size-3.5" strokeWidth={2} />
-      <span className="sr-only">{severe ? `${type.label} (severe)` : type.label}</span>
+      <span className="sr-only">
+        {severe ? t("live_event_severe", { type: type.label }) : type.label}
+      </span>
     </span>
   )
 
@@ -68,7 +72,7 @@ export function LiveEventRow({
       <Link
         to={to}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
-        aria-label={`${label}: ${summary}, from ${shownIp}. Open session`}
+        aria-label={t("live_event_open_aria", { label, summary, ip: shownIp })}
       />
 
       {/* Mobile: address line, then the summary. */}
@@ -93,8 +97,8 @@ export function LiveEventRow({
         {!compact ? (
           <>
             <span className="flex shrink-0 items-center gap-1.5">
-              {event.tags.slice(0, 2).map((t) => (
-                <TagBadge key={t} tag={t} className="relative z-10" />
+              {event.tags.slice(0, 2).map((tag) => (
+                <TagBadge key={tag} tag={tag} className="relative z-10" />
               ))}
             </span>
             <IPChip ip={event.src_ip} variant="ghost" className="relative z-10 w-36 shrink-0" />
@@ -107,4 +111,4 @@ export function LiveEventRow({
       </div>
     </div>
   )
-}
+})

@@ -6,7 +6,7 @@ import {
   describeSources,
   kindLabel,
   localToUtcMinute,
-  SAME_DAY_QUESTION,
+  sameDayQuestion,
   utcMinuteToLocal,
   withSameDayConfirm,
   type ReportItem,
@@ -80,7 +80,7 @@ describe("withSameDayConfirm", () => {
     )
     const ask = vi.fn(() => true)
     await expect(withSameDayConfirm(run, ask)).resolves.toBe("sent")
-    expect(ask).toHaveBeenCalledWith(SAME_DAY_QUESTION)
+    expect(ask).toHaveBeenCalledWith(sameDayQuestion())
     expect(run.mock.calls).toEqual([[false], [true]])
   })
 

@@ -1,6 +1,7 @@
 import { Check, Minus } from "lucide-react"
 import { TermText } from "@/components/term"
-import { BENEFIT, CONSENTS, NETWORK_FACTS, NEVER_SHARED, RESIDUAL_RISK } from "@/lib/network"
+import { t } from "@/i18n"
+import { benefitText, CONSENTS, networkFacts, neverShared, residualRisk } from "@/lib/network"
 import { cn } from "@/lib/utils"
 
 const TERMS = ["consensus", "blinded-indicator", "eligible-node"] as const
@@ -16,7 +17,7 @@ function Column({
 }) {
   return (
     <section className="min-w-0 space-y-3">
-      <h4 className="text-sm font-medium text-fg">{title}</h4>
+      <h4 className="type-subtitle text-fg">{title}</h4>
       <ul className="space-y-2.5">
         {items.map((i) => (
           <li key={i.key} className="flex items-start gap-2.5 text-sm text-fg-muted">
@@ -51,22 +52,22 @@ export function SharedExplainer({
 }) {
   return (
     <div className={cn("space-y-5", className)}>
-      {compact ? null : <p className="max-w-3xl text-sm text-fg-muted">{BENEFIT}</p>}
+      {compact ? null : <p className="max-w-3xl text-sm text-fg-muted">{benefitText()}</p>}
       <div className="grid gap-6 md:grid-cols-2">
         <Column
-          title="What is shared, once you join"
+          title={t("network_explainer_shared_title")}
           icon={Check}
           items={CONSENTS.map((c) => ({ key: c.id, head: c.title, text: c.shared }))}
         />
         <Column
-          title="What is never shared"
+          title={t("network_explainer_never_title")}
           icon={Minus}
-          items={NEVER_SHARED.map((t) => ({ key: t, text: t }))}
+          items={neverShared().map((text) => ({ key: text, text }))}
         />
       </div>
       {compact ? null : (
         <ul className="space-y-1.5 border-t pt-4 text-sm text-fg-muted">
-          {NETWORK_FACTS.map((f) => (
+          {networkFacts().map((f) => (
             <li key={f} className="max-w-3xl">
               <TermText text={f} terms={TERMS} />
             </li>
@@ -74,8 +75,8 @@ export function SharedExplainer({
         </ul>
       )}
       <p className="max-w-3xl rounded-md border bg-bg px-3 py-2 text-sm text-fg-muted">
-        <span className="font-medium text-fg">One risk to know about. </span>
-        {RESIDUAL_RISK}
+        <span className="font-medium text-fg">{t("network_explainer_risk_head")} </span>
+        {residualRisk()}
       </p>
     </div>
   )

@@ -1,10 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { ArrowRight } from "lucide-react"
 import { useMemo } from "react"
 import { Link } from "react-router"
 import { FindingCard } from "@/components/finding-card"
+import { t } from "@/i18n"
 import { SkeletonText } from "@/components/skeletons"
-import { Button } from "@/components/ui/button"
 import { alertKeys, alertsApi, reportsFinding, weekLabel } from "@/lib/alerts"
 import { formatNumber } from "@/lib/format"
 
@@ -19,9 +20,9 @@ export function ReportsCard() {
   const items = useMemo(() => (q.data?.pages ?? []).flatMap((p) => p.items), [q.data])
   return (
     <FindingCard
-      eyebrow="Weekly reports"
-      finding={q.isPending ? "Checking the weekly reports…" : reportsFinding(items)}
-      detail="One page every Monday morning: what happened, what changed, what to do. Print it to PDF to share with your team."
+      eyebrow={t("alerts_reports_title")}
+      finding={q.isPending ? t("alerts_reports_checking") : reportsFinding(items)}
+      detail={t("alerts_reports_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
     >
       {q.isPending ? (
@@ -30,11 +31,11 @@ export function ReportsCard() {
         </div>
       ) : items.length === 0 ? (
         <p className="border-t px-4 py-6 text-sm text-fg-muted sm:px-5">
-          The first report appears here after the next Monday morning.
+          {t("alerts_reports_empty")}
         </p>
       ) : (
         <>
-          <ul aria-label="Weekly reports" className="divide-y border-t">
+          <ul aria-label={t("alerts_reports_title")} className="divide-y border-t">
             {items.map((r) => (
               <li key={r.week_start}>
                 <Link
@@ -43,13 +44,18 @@ export function ReportsCard() {
                 >
                   <span className="min-w-0 space-y-0.5">
                     <span className="block text-sm font-medium text-fg">
-                      Week of {weekLabel(r.week_start, r.week_end)}
+                      {t("alerts_reports_week", { week: weekLabel(r.week_start, r.week_end) })}
                     </span>
                     <span className="block text-xs text-fg-muted">
-                      {formatNumber(r.sessions)} sessions from {formatNumber(r.sources)} addresses
-                      {r.malware > 0 ? ` · ${formatNumber(r.malware)} dropped malware` : ""}
+                      {t("alerts_reports_totals", { sessions: r.sessions, sources: r.sources })}
+                      {r.malware > 0
+                        ? ` · ${t("alerts_reports_malware", { count: formatNumber(r.malware) })}`
+                        : ""}
                       {r.change_pct !== null && Math.abs(r.change_pct) >= 5
-                        ? ` · ${r.change_pct > 0 ? "up" : "down"} ${Math.abs(r.change_pct)}% on the week before`
+                        ? ` · ${t("alerts_reports_change", {
+                            direction: r.change_pct > 0 ? "up" : "down",
+                            percent: formatNumber(Math.abs(r.change_pct)),
+                          })}`
                         : ""}
                     </span>
                   </span>
@@ -61,18 +67,13 @@ export function ReportsCard() {
               </li>
             ))}
           </ul>
-          {q.hasNextPage ? (
-            <div className="border-t px-4 py-3 sm:px-5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={q.isFetchingNextPage}
-                onClick={() => void q.fetchNextPage()}
-              >
-                {q.isFetchingNextPage ? "Loading…" : "Show older reports"}
-              </Button>
-            </div>
-          ) : null}
+          <LoadMore
+            hasNextPage={q.hasNextPage}
+            isFetchingNextPage={q.isFetchingNextPage}
+            fetchNextPage={q.fetchNextPage}
+            label={t("alerts_reports_older")}
+            className="border-t"
+          />
         </>
       )}
     </FindingCard>

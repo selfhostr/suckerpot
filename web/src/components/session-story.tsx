@@ -50,7 +50,9 @@ export function SessionStory({
       {origin ? (
         <span className="inline-flex shrink-0 items-center gap-1.5 text-fg-muted">
           <CountryFlag code={session.country} className="relative z-10" />
-          <span className={cn(inline && "hidden max-w-48 truncate xl:inline")}>{origin}</span>
+          <span className={cn(inline && "hidden max-w-48 truncate xl:inline 2xl:max-w-80")}>
+            {origin}
+          </span>
         </span>
       ) : null}
       <span className={cn(inline && "truncate")}>{predicate}</span>

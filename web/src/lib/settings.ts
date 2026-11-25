@@ -2,7 +2,8 @@
  * Settings page data (`/api/v1/settings/system` and `/settings/enrichment`) and the
  * plain-English findings each card opens with. Pure functions, unit-tested.
  */
-import { formatBytes, formatNumber, formatPercent, formatRelative, plural } from "./format"
+import { intlLocale, t } from "@/i18n"
+import { formatBytes, formatNumber, formatPercent, formatRelative } from "./format"
 import { sensorMeta } from "./sensors"
 
 export type SensorState = "active" | "quiet" | "silent"
@@ -119,9 +120,9 @@ export interface EnrichmentSettings {
 export const TEST_TIMEOUT_MS = 90_000
 
 export function sourceLabel(source: KeySource | null): string {
-  if (source === "env") return "From .env"
-  if (source === "settings") return "Set in Settings"
-  return "No key"
+  if (source === "env") return t("settings_source_env")
+  if (source === "settings") return t("settings_source_settings")
+  return t("settings_source_none")
 }
 
 export function testTimedOut(k: KeyInfo, now = Date.now()): boolean {
@@ -143,40 +144,37 @@ export interface TestMessage {
 export function testMessage(k: KeyInfo, now = Date.now()): TestMessage | null {
   if (k.test_pending) {
     return testTimedOut(k, now)
-      ? { tone: "warning", text: "Ingest did not answer the test. Try again in a moment." }
-      : { tone: "pending", text: "Testing the key…" }
+      ? { tone: "warning", text: t("settings_test_no_answer") }
+      : { tone: "pending", text: t("settings_test_pending") }
   }
-  const t = k.test
-  if (!t) return null
-  if (t.ok) return { tone: "ok", text: "The provider accepted the key." }
-  switch (t.error) {
+  const result = k.test
+  if (!result) return null
+  if (result.ok) return { tone: "ok", text: t("settings_test_ok") }
+  switch (result.error) {
     case "auth":
-      return { tone: "warning", text: "The provider rejected the key. Check it and replace it." }
+      return { tone: "warning", text: t("settings_test_auth") }
     case "rate_limited":
-      return { tone: "warning", text: "The provider is rate limiting this key. Try again later." }
+      return { tone: "warning", text: t("settings_test_rate_limited") }
     case "quota_exhausted":
-      return { tone: "warning", text: "Today's quota is used up, so the test was not sent." }
+      return { tone: "warning", text: t("settings_test_quota") }
     case "no_key":
-      return { tone: "warning", text: "There is no key to test." }
+      return { tone: "warning", text: t("settings_test_no_key") }
     default:
-      return { tone: "warning", text: "The test could not reach the provider." }
+      return { tone: "warning", text: t("settings_test_unreachable") }
   }
 }
 
 /** One line for a saved key that ingest cannot use, or null. */
 export function secretErrorMessage(code: string | null): string | null {
-  if (code === "cannot_decrypt")
-    return "The saved key cannot be read, probably because SETTINGS_ENCRYPTION_KEY changed. Replace or remove it."
-  if (code === "no_encryption_key")
-    return "A key is saved but SETTINGS_ENCRYPTION_KEY is not set, so it is not used."
+  if (code === "cannot_decrypt") return t("settings_secret_cannot_decrypt")
+  if (code === "no_encryption_key") return t("settings_secret_no_encryption_key")
   return null
 }
 
 const label = (s: string) => sensorMeta(s)?.label ?? s.toUpperCase()
 
 function joinAnd(parts: string[]): string {
-  if (parts.length <= 1) return parts.join("")
-  return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1) ?? ""}`
+  return new Intl.ListFormat(intlLocale(), { style: "long", type: "conjunction" }).format(parts)
 }
 
 export function sensorsFinding(sensors: readonly SensorStatus[], now = Date.now()): string {
@@ -184,24 +182,34 @@ export function sensorsFinding(sensors: readonly SensorStatus[], now = Date.now(
   const silent = sensors.filter((s) => s.status === "silent")
   const quiet = sensors.filter((s) => s.status === "quiet")
   if (sensors.length > 0 && active.length === sensors.length) {
-    return sensors.length === 4
-      ? "All four sensors reported in the last 15 minutes."
-      : `All ${sensors.length} sensors reported in the last 15 minutes.`
+    return t("settings_finding_sensors_all", { count: sensors.length })
   }
-  if (silent.length === sensors.length) return "No sensor has reported in the last 24 hours."
+  if (silent.length === sensors.length) return t("settings_finding_sensors_none")
   const parts: string[] = []
   if (active.length > 3)
-    parts.push(`${active.length} of ${sensors.length} sensors reported in the last 15 minutes`)
+    parts.push(t("settings_finding_sensors_some", { active: active.length, total: sensors.length }))
   else if (active.length)
-    parts.push(`${joinAnd(active.map((x) => label(x.sensor)))} reported in the last 15 minutes`)
+    parts.push(
+      t("settings_finding_sensors_named", {
+        names: joinAnd(active.map((x) => label(x.sensor))),
+      }),
+    )
   for (const q of quiet) {
     parts.push(
-      `${label(q.sensor)} last reported ${q.last_event_at ? formatRelative(q.last_event_at, now) : "earlier today"}`,
+      q.last_event_at
+        ? t("settings_finding_sensor_quiet_at", {
+            sensor: label(q.sensor),
+            when: formatRelative(q.last_event_at, now),
+          })
+        : t("settings_finding_sensor_quiet_today", { sensor: label(q.sensor) }),
     )
   }
   if (silent.length) {
     parts.push(
-      `${joinAnd(silent.map((x) => label(x.sensor)))} ${silent.length === 1 ? "has" : "have"} not reported in over 24 hours`,
+      t("settings_finding_sensors_silent", {
+        count: silent.length,
+        names: joinAnd(silent.map((x) => label(x.sensor))),
+      }),
     )
   }
   const head = parts.join("; ")
@@ -224,18 +232,28 @@ export function geoAgeDays(e: EnrichmentSettings): number | null {
 
 export function enrichmentFinding(e: EnrichmentSettings): string {
   const g = e.geoip
-  if (g.provider === "unknown") return "Ingest has not reported its enrichment status yet."
+  if (g.provider === "unknown") return t("settings_finding_enrichment_unknown")
   let geo: string
-  if (g.provider === "off" || !g.available) geo = "GeoIP is off, so new sessions are not located"
+  if (g.provider === "off" || !g.available) geo = t("settings_finding_geo_off")
   else {
     const age = geoAgeDays(e)
-    geo = `GeoIP is on (${geoProviderName(g.provider)}${age !== null ? `, ${plural(Math.round(age), "day")} old` : ""})`
+    geo =
+      age !== null
+        ? t("settings_finding_geo_on_age", {
+            provider: geoProviderName(g.provider),
+            days: Math.round(age),
+          })
+        : t("settings_finding_geo_on", { provider: geoProviderName(g.provider) })
   }
   const abuse = e.abuseipdb
   if (abuse.configured && abuse.daily_quota) {
-    return `${geo}; AbuseIPDB used ${formatNumber(abuse.used_today)} of ${formatNumber(abuse.daily_quota)} checks today.`
+    return t("settings_finding_abuse_used", {
+      geo,
+      used: formatNumber(abuse.used_today),
+      quota: formatNumber(abuse.daily_quota),
+    })
   }
-  return `${geo}; no reputation provider is configured.`
+  return t("settings_finding_no_reputation", { geo })
 }
 
 /** A gap of more than this many days between the window and the oldest event is worth saying. */
@@ -252,32 +270,37 @@ export function retentionFinding(
   guard: DiskGuard | null = null,
   now = Date.now(),
 ): string {
-  if (!r.raw_days)
-    return "Raw events are kept until the disk guard trims them; aggregates are kept forever."
-  const days = plural(r.raw_days, "day")
-  const agree = `Raw events are kept for ${days}; aggregates are kept forever.`
+  if (!r.raw_days) return t("settings_finding_retention_guard")
+  const days = r.raw_days
+  const agree = t("settings_finding_retention_kept", { days })
   const oldest = r.oldest_event_at ? Date.parse(r.oldest_event_at) : Number.NaN
   if (!Number.isFinite(oldest)) return agree
   const age = Math.max(0, Math.floor((now - oldest) / 86_400_000))
   if (r.raw_days - age <= RETENTION_GAP_DAYS) return agree
-  const set = `Raw events are set to be kept for ${days}`
-  const stored = `the oldest stored event is ${plural(age, "day")} old`
   if (guard && ceilingIsLimiting(guard)) {
-    return `${set}, but ${stored}: the ${formatBytes(guard.max_bytes)} size limit removes older data first.`
+    return t("settings_finding_retention_limited", {
+      days,
+      age,
+      limit: formatBytes(guard.max_bytes),
+    })
   }
-  return `${set}; ${stored}, so the store has not filled that window yet.`
+  return t("settings_finding_retention_young", { days, age })
 }
 
 export function storageFinding(s: SystemSettings): string {
   const g = s.disk_guard
   if (g?.state === "critical") {
-    return `The database is at ${formatPercent(g.percent / 100)} of its ceiling: new data may be dropped.`
+    return t("settings_finding_storage_critical", { percent: formatPercent(g.percent / 100) })
   }
   const size = s.database.size_bytes
   const max = s.database.max_bytes ?? g?.max_bytes ?? null
-  if (size === null) return "The database size is not available."
-  if (!max) return `The database uses ${formatBytes(size)}.`
-  return `The database uses ${formatBytes(size)} of its ${formatBytes(max)} ceiling (${formatPercent(size / max)}).`
+  if (size === null) return t("settings_finding_storage_unknown")
+  if (!max) return t("settings_finding_storage_size", { size: formatBytes(size) })
+  return t("settings_finding_storage_ceiling", {
+    size: formatBytes(size),
+    max: formatBytes(max),
+    percent: formatPercent(size / max),
+  })
 }
 
 /** Tone for a used/budget ratio: neutral, then warning from 80 %. Severe is decided by the caller. */

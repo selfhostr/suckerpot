@@ -1,5 +1,6 @@
 import { Ban, CircleCheck, Ellipsis, FlaskConical, Radar } from "lucide-react"
 import { useIpMask } from "@/app/ip-mask"
+import { t } from "@/i18n"
 import { CopyButton } from "@/components/defend/copy-button"
 import { IPChip } from "@/components/ip-chip"
 import { Meter } from "@/components/meter"
@@ -12,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { formatNumber, maskIpsInText, plural } from "@/lib/format"
+import { maskIpsInText } from "@/lib/format"
 import {
   BAND_LABEL,
   reasonLabel,
@@ -37,7 +38,9 @@ function ValueCell({ entry }: { entry: BlockEntry }) {
       <span title={shown} className="min-w-0 truncate font-mono text-xs text-fg">
         {shown}
       </span>
-      {masked ? null : <CopyButton text={entry.value} label={`Copy ${entry.value}`} />}
+      {masked ? null : (
+        <CopyButton text={entry.value} label={t("defend_copy_named", { name: entry.value })} />
+      )}
     </span>
   )
 }
@@ -46,12 +49,12 @@ function Reasons({ reasons }: { reasons: string[] }) {
   const shown = reasons.slice(0, MAX_REASONS)
   const rest = reasons.slice(MAX_REASONS)
   return (
-    <ul aria-label="Why it is listed" className="flex flex-wrap gap-1.5">
+    <ul aria-label={t("blocklists_why")} className="flex flex-wrap gap-1.5">
       {shown.map((r) => (
         <li
           key={r}
           title={reasonSentence(r)}
-          className="inline-flex h-6 items-center rounded-sm border border-border-strong px-2 text-2xs font-medium text-fg-muted"
+          className="inline-flex h-(--chip) items-center rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted"
         >
           {reasonLabel(r)}
         </li>
@@ -59,9 +62,9 @@ function Reasons({ reasons }: { reasons: string[] }) {
       {rest.length > 0 ? (
         <li
           title={rest.map(reasonSentence).join(" ")}
-          className="inline-flex h-6 items-center rounded-sm px-1.5 text-2xs text-fg-subtle"
+          className="inline-flex h-(--chip) items-center rounded-sm px-1.5 text-xs text-fg-subtle"
         >
-          +{rest.length} more
+          {t("blocklists_row_more", { count: rest.length })}
         </li>
       ) : null}
     </ul>
@@ -71,9 +74,9 @@ function Reasons({ reasons }: { reasons: string[] }) {
 function OverrideBadge({ action }: { action: OverrideAction }) {
   const Icon = action === "allow" ? CircleCheck : Ban
   return (
-    <Badge variant="outline" className="rounded-sm text-fg">
+    <Badge variant="outline" className="text-fg">
       <Icon aria-hidden />
-      {action === "allow" ? "Always allowed" : "Always blocked"}
+      {action === "allow" ? t("blocklists_row_allowed") : t("blocklists_row_blocked")}
     </Badge>
   )
 }
@@ -97,15 +100,15 @@ export function BlocklistRow({
         <ValueCell entry={entry} />
         {entry.override ? <OverrideBadge action={entry.override} /> : null}
         {entry.demo ? (
-          <Badge variant="outline" className="rounded-sm text-fg-muted">
+          <Badge variant="outline" className="text-fg-muted">
             <FlaskConical aria-hidden />
-            Demo
+            {t("blocklists_row_demo")}
           </Badge>
         ) : null}
         {entry.benign ? (
-          <Badge variant="outline" className="rounded-sm text-fg-muted">
+          <Badge variant="outline" className="text-fg-muted">
             <Radar aria-hidden />
-            Research scanner
+            {t("blocklists_row_scanner")}
           </Badge>
         ) : null}
       </div>
@@ -114,8 +117,8 @@ export function BlocklistRow({
         <Meter
           value={entry.score}
           max={100}
-          label="Score"
-          valueText={`${entry.score} out of 100, ${BAND_LABEL[band]}`}
+          label={t("blocklists_col_score")}
+          valueText={t("blocklists_row_score_text", { score: entry.score, band: BAND_LABEL[band] })}
           tone={band === "high" ? "warning" : "neutral"}
           className="w-16 shrink-0"
         />
@@ -126,9 +129,8 @@ export function BlocklistRow({
       <Reasons reasons={entry.reasons} />
 
       <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs text-fg-muted md:block">
-        <span className="whitespace-nowrap">
-          {plural(entry.sessions, "session")} · {formatNumber(entry.sources)}{" "}
-          {entry.sources === 1 ? "source" : "sources"}
+        <span>
+          {t("blocklists_row_seen", { sessions: entry.sessions, sources: entry.sources })}
         </span>
         <span className="md:block">
           <RelativeTime iso={entry.last_seen} className="text-xs" />
@@ -141,8 +143,8 @@ export function BlocklistRow({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                size="icon-xs"
-                aria-label={`Actions for ${entry.kind === "ip" ? "address" : entry.kind} ${entry.value}`}
+                size="icon-sm"
+                aria-label={t("blocklists_row_actions", { kind: entry.kind, value: entry.value })}
               >
                 <Ellipsis aria-hidden />
               </Button>
@@ -150,15 +152,15 @@ export function BlocklistRow({
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => onOverride(entry, "allow")}>
                 <CircleCheck aria-hidden />
-                Always allow…
+                {t("blocklists_row_always_allow")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onOverride(entry, "block")}>
                 <Ban aria-hidden />
-                Always block…
+                {t("blocklists_row_always_block")}
               </DropdownMenuItem>
               {entry.override ? (
                 <DropdownMenuItem onSelect={() => onRemoveOverride(entry)}>
-                  Remove the override
+                  {t("blocklists_row_remove_override")}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>

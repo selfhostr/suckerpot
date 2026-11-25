@@ -30,7 +30,7 @@ function setup(initial: string) {
         element: <RequireAuth />,
         children: [
           { path: "/attacks", element: <h1>Attacks page</h1> },
-          { path: "/overview", element: <h1>Overview page</h1> },
+          { path: "/", element: <h1>Today page</h1> },
         ],
       },
     ],
@@ -114,8 +114,8 @@ describe("first sign-in", () => {
     await fill("wrong")
     expect(await screen.findByText("That password is not correct.")).toBeInTheDocument()
     await fill("temp-password-1")
-    await screen.findByRole("heading", { name: "Overview page" })
-    expect(router.state.location.pathname).toBe("/overview")
+    await screen.findByRole("heading", { name: "Today page" })
+    expect(router.state.location.pathname).toBe("/")
     expect(bodies.at(-1)).toEqual({
       current_password: "temp-password-1",
       new_password: "a long passphrase 2026",
@@ -125,7 +125,7 @@ describe("first sign-in", () => {
   it("sends an account that already chose a password straight on", async () => {
     mustChange = false
     const router = setup("/set-password")
-    await screen.findByRole("heading", { name: "Overview page" })
-    expect(router.state.location.pathname).toBe("/overview")
+    await screen.findByRole("heading", { name: "Today page" })
+    expect(router.state.location.pathname).toBe("/")
   })
 })

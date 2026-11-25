@@ -1,7 +1,8 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
-import { FileSearch, Search, SearchX } from "lucide-react"
+import { ArrowRight, FileSearch, Info, Search, SearchX } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar } from "@/components/filter-bar"
@@ -13,12 +14,22 @@ import { SkeletonList, SkeletonRow } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useUrlParam } from "@/hooks/use-url-param"
-import { formatNumber } from "@/lib/format"
-import { describeSamples, sampleKeys, samplesApi, type SampleFilters } from "@/lib/samples"
+import { t } from "@/i18n"
+import {
+  describeCollector,
+  describeSamples,
+  sampleKeys,
+  samplesApi,
+  type SampleFilters,
+} from "@/lib/samples"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
 const KINDS = ["ELF", "Script", "PE"] as const
+
+function kindLabel(k: (typeof KINDS)[number]): string {
+  return k === "Script" ? t("samples_kind_script") : k
+}
 
 function HashSearch() {
   const [q, setQ] = useUrlParam("q")
@@ -48,15 +59,16 @@ function HashSearch() {
         autoComplete="off"
         spellCheck={false}
         maxLength={200}
-        placeholder="Hash start or URL part"
-        aria-label="Search samples by hash or URL"
-        className="h-8 pl-8 font-mono text-xs md:text-xs"
+        placeholder={t("samples_search_placeholder")}
+        aria-label={t("samples_search_label")}
+        size="sm"
+        className="pl-8 font-mono"
       />
     </div>
   )
 }
 
-/** The Samples tab of the Malware page: files the collector fetched and analysed. */
+/** The Files page: files the collector fetched and analysed. */
 export function SamplesTab() {
   const { canWrite } = useAuth()
   const [kind, setKind] = useUrlParam("kind")
@@ -79,6 +91,14 @@ export function SamplesTab() {
   })
   const rows = query.data?.pages.flatMap((p) => p.items) ?? []
   const filtered = Boolean(kind ?? q ?? arch ?? family ?? yara)
+  // With nothing collected, say why: the collector is off, paused or still working.
+  const none = query.isSuccess && rows.length === 0 && !filtered
+  const egress = useQuery({
+    queryKey: sampleKeys.egress,
+    queryFn: samplesApi.egress,
+    enabled: none,
+  })
+  const collector = describeCollector(egress.data)
 
   const listRef = useRef<HTMLDivElement>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -109,55 +129,82 @@ export function SamplesTab() {
 
   return (
     <>
-      <FindingCard
-        className="mb-4"
-        eyebrow="Collected files"
-        finding={
-          query.isPending
-            ? "Counting the collected files…"
-            : filtered && rows.length === 0
-              ? "No sample matches these filters."
-              : describeSamples(rows, query.hasNextPage)
-        }
-        detail="Files are fetched by the collector, stored under their hash and only ever read, never run."
-      />
+      {none ? (
+        <FindingCard
+          className="mb-4"
+          eyebrow={t("samples_collector_eyebrow")}
+          finding={egress.isPending ? t("samples_collector_checking") : collector.finding}
+          detail={
+            <span className="inline-flex items-start gap-2">
+              <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {collector.detail}{" "}
+                <Link
+                  to="/settings"
+                  className="inline-flex items-center gap-1 font-medium text-fg underline-offset-4 hover:underline"
+                >
+                  {t("samples_collector_settings_link")}
+                  <ArrowRight aria-hidden className="size-3.5" />
+                </Link>
+              </span>
+            </span>
+          }
+        />
+      ) : (
+        <FindingCard
+          className="mb-4"
+          eyebrow={t("samples_files_eyebrow")}
+          finding={
+            query.isPending
+              ? t("samples_files_counting")
+              : filtered && rows.length === 0
+                ? t("samples_files_no_match")
+                : describeSamples(rows, query.hasNextPage)
+          }
+          detail={t("samples_files_detail")}
+        />
+      )}
 
       {canWrite ? <BundleCard className="mb-4" /> : null}
 
       <FilterBar
         className="mb-4"
         chips={[
-          { param: "arch", label: "Architecture" },
-          { param: "family", label: "Family" },
-          { param: "yara", label: "Rule", render: (v) => <span className="font-mono">{v}</span> },
+          { param: "arch", label: t("samples_filter_arch") },
+          { param: "family", label: t("samples_filter_family") },
+          {
+            param: "yara",
+            label: t("samples_filter_rule"),
+            render: (v) => <span className="font-mono">{v}</span>,
+          },
         ]}
         alsoClears={["kind", "q"]}
       >
         <SegmentedControl
-          label="File kind"
+          label={t("samples_filter_kind")}
           value={kind ?? "all"}
           onChange={(v) => setKind(v === "all" ? null : v)}
           options={[
-            { value: "all", label: "All kinds" },
-            ...KINDS.map((k) => ({ value: k, label: k })),
+            { value: "all", label: t("samples_filter_all_kinds") },
+            ...KINDS.map((k) => ({ value: k, label: kindLabel(k) })),
           ]}
         />
         <HashSearch />
       </FilterBar>
 
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle md:grid",
             canWrite ? SAMPLE_GRID_ACTION : SAMPLE_GRID,
           )}
         >
-          <span>Family and kind</span>
-          <span className="text-right">Size</span>
-          <span className="text-right">URLs</span>
-          <span className="text-right">Sessions</span>
-          <span className="text-right">Last seen</span>
-          {canWrite ? <span className="sr-only">Bundle</span> : null}
+          <span>{t("samples_col_family_kind")}</span>
+          <span className="text-right">{t("samples_col_size")}</span>
+          <span className="text-right">{t("samples_col_urls")}</span>
+          <span className="text-right">{t("samples_col_sessions")}</span>
+          <span className="text-right">{t("samples_col_last_seen")}</span>
+          {canWrite ? <span className="sr-only">{t("samples_col_bundle")}</span> : null}
         </div>
         {query.isPending ? (
           <SkeletonList rows={8} />
@@ -165,11 +212,11 @@ export function SamplesTab() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load the samples"
+            title={t("samples_error_title")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -177,18 +224,14 @@ export function SamplesTab() {
           <EmptyState
             variant="bare"
             icon={FileSearch}
-            title={filtered ? "No samples match" : "No samples collected yet"}
-            description={
-              filtered
-                ? "Try another kind or a shorter search, or clear the filters."
-                : "When the collector fetches a file from a download URL, it appears here with its analysis."
-            }
+            title={filtered ? t("samples_empty_filtered_title") : t("samples_summary_empty")}
+            description={filtered ? t("samples_empty_filtered_hint") : t("samples_empty_hint")}
           />
         ) : (
           <div
             ref={listRef}
             role="list"
-            aria-label="Samples"
+            aria-label={t("samples_list_label")}
             aria-busy={isFetchingNextPage}
             className="relative w-full"
             style={{ height: virtualizer.getTotalSize() }}
@@ -228,7 +271,7 @@ export function SamplesTab() {
       </div>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {formatNumber(rows.length)} samples
+          {t("samples_end_of_list", { count: rows.length })}
         </p>
       ) : null}
     </>

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
 import { FindingCard } from "@/components/finding-card"
+import { t } from "@/i18n"
 import { Button } from "@/components/ui/button"
 import {
   abuseApi,
@@ -11,7 +12,6 @@ import {
   describeSettingsIssue,
   type BlockedDrafts,
 } from "@/lib/abuse"
-import { plural } from "@/lib/format"
 
 const SETTINGS_LINK = "/settings?tab=reporting#reporting-message"
 
@@ -30,7 +30,7 @@ export function SettingsCause() {
   if (!canWrite || issues.length === 0) return null
   return (
     <div className="space-y-2 text-sm">
-      <p className="font-medium text-fg">Found in your reporting settings</p>
+      <p className="font-medium text-fg">{t("abuse_blocked_settings_found")}</p>
       <ul className="list-disc space-y-1 pl-5 text-fg-muted">
         {issues.map(([field, codes]) => (
           <li key={field}>{describeSettingsIssue(field, codes)}</li>
@@ -40,7 +40,7 @@ export function SettingsCause() {
         to={SETTINGS_LINK}
         className="inline-block font-medium text-fg underline underline-offset-4"
       >
-        Fix them in the Reporting settings
+        {t("abuse_blocked_settings_fix")}
       </Link>
     </div>
   )
@@ -55,13 +55,14 @@ export function BlockedDraftsNotice({ blocked }: { blocked: BlockedDrafts }) {
   if (blocked.count === 0) return null
   return (
     <FindingCard
-      eyebrow="Blocked drafts"
+      eyebrow={t("abuse_blocked_eyebrow")}
+      help="blocked"
       finding={describeBlockedDrafts(blocked)}
-      detail="The identity check stops any draft that could point back to you or to the project. A blocked draft can never be reviewed or sent."
+      detail={t("abuse_blocked_detail")}
       action={
         canWrite ? (
           <Button asChild variant="outline" size="sm">
-            <Link to={SETTINGS_LINK}>Open Reporting settings</Link>
+            <Link to={SETTINGS_LINK}>{t("abuse_blocked_open_settings")}</Link>
           </Button>
         ) : undefined
       }
@@ -74,7 +75,7 @@ export function BlockedDraftsNotice({ blocked }: { blocked: BlockedDrafts }) {
             <li key={r.code}>
               <span className="text-fg">{r.why}</span>{" "}
               <span className="text-fg-muted">
-                {plural(r.drafts, "draft")}. {r.fix}
+                {t("abuse_blocked_reason_drafts", { count: r.drafts })} {r.fix}
               </span>
             </li>
           ))}

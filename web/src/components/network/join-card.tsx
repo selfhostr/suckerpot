@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { describeNetworkError, describeStatus, type NetworkStatus } from "@/lib/network"
 import { JoinDialog } from "./join-dialog"
 import { hasLeft, useNetworkStatus } from "./use-network"
+import { t } from "@/i18n"
 
 function Notice({ children, busy = false }: { children: React.ReactNode; busy?: boolean }) {
   const Icon = busy ? LoaderCircle : TriangleAlert
@@ -19,17 +20,15 @@ function Notice({ children, busy = false }: { children: React.ReactNode; busy?: 
         aria-hidden
         className={busy ? "mt-0.5 size-4 shrink-0 animate-spin" : "mt-0.5 size-4 shrink-0"}
       />
-      <span>{children}</span>
+      <span className="min-w-0">{children}</span>
     </p>
   )
 }
 
 /** Why joining is not possible right now, or null when it is. */
 function blockedBy(s: NetworkStatus): React.ReactNode {
-  if (!s.enabled_env)
-    return "Sharing is switched off in this system's settings (NETWORK_ENABLED=false)."
-  if (!s.hub_configured)
-    return "This system has no network hub address yet, so there is nothing to join. Nothing is sent."
+  if (!s.enabled_env) return t("network_join_blocked_env")
+  if (!s.hub_configured) return t("network_join_blocked_hub")
   return null
 }
 
@@ -44,15 +43,18 @@ export function JoinCard({ onJoined }: { onJoined?: () => void }) {
   const s = q.data
   if (q.isPending) {
     return (
-      <FindingCard eyebrow="Your membership" finding="Checking the network status…">
+      <FindingCard eyebrow={t("network_join_eyebrow")} finding={t("network_join_checking")}>
         <SkeletonText lines={2} />
       </FindingCard>
     )
   }
   if (!s) {
     return (
-      <FindingCard eyebrow="Your membership" finding="The network status is not available.">
-        <p className="text-sm text-fg-muted">This status is not available right now.</p>
+      <FindingCard
+        eyebrow={t("network_join_eyebrow")}
+        finding={t("network_join_status_unavailable")}
+      >
+        <p className="text-sm text-fg-muted">{t("network_join_status_unavailable_detail")}</p>
       </FindingCard>
     )
   }
@@ -61,21 +63,17 @@ export function JoinCard({ onJoined }: { onJoined?: () => void }) {
   const error = s.state === "error" ? describeNetworkError(s.last_error_code) : null
   return (
     <FindingCard
-      eyebrow="Your membership"
+      eyebrow={t("network_join_eyebrow")}
       finding={describeStatus(s)}
-      detail={
-        s.state === "off"
-          ? "Joining takes one button and your password. Leaving takes one button too."
-          : undefined
-      }
+      detail={s.state === "off" ? t("network_join_detail_off") : undefined}
     >
       <div className="space-y-4">
         {blocked ? <Notice>{blocked}</Notice> : null}
         {busy ? (
           <Notice busy>
             {s.state === "enrolling"
-              ? "Joining: creating this system's key and registering it. This page updates by itself."
-              : "Leaving: deleting your data at the hub. This page updates by itself."}
+              ? t("network_join_busy_enrolling")
+              : t("network_join_busy_leaving")}
           </Notice>
         ) : null}
         {error ? <Notice>{error}</Notice> : null}
@@ -84,16 +82,12 @@ export function JoinCard({ onJoined }: { onJoined?: () => void }) {
             <div className="flex flex-wrap items-center gap-3">
               <Button onClick={() => setOpen(true)} disabled={!!blocked}>
                 <Share2 aria-hidden />
-                {hasLeft() ? "Join again" : "Join the network"}
+                {hasLeft() ? t("network_join_again") : t("network_join_button")}
               </Button>
-              <span className="text-xs text-fg-muted">
-                You will see what you share, then enter your password.
-              </span>
+              <span className="text-xs text-fg-muted">{t("network_join_hint")}</span>
             </div>
           ) : (
-            <p className="text-sm text-fg-muted">
-              Only an administrator can join the network for this system.
-            </p>
+            <p className="text-sm text-fg-muted">{t("network_join_admin_only")}</p>
           )
         ) : null}
       </div>

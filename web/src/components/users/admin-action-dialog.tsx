@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode, type SyntheticEvent } from "react"
 import { Field, FormError } from "@/components/form-parts"
+import { t } from "@/i18n"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -43,7 +44,7 @@ function ActionForm({
   description,
   confirmLabel,
   pendingLabel,
-  hint = "Changing users asks for your own dashboard password again.",
+  hint = t("users_dialog_hint"),
   children,
   focusPassword = true,
   run,
@@ -67,7 +68,7 @@ function ActionForm({
       return
     }
     if (!password) {
-      setPasswordError("Enter your password to confirm.")
+      setPasswordError(t("alerts_msg_password_required"))
       return
     }
     setPending(true)
@@ -98,7 +99,12 @@ function ActionForm({
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       {children}
-      <Field id={ids.pass} label="Your password" hint={hint} error={passwordError ?? undefined}>
+      <Field
+        id={ids.pass}
+        label={t("channels_password")}
+        hint={hint}
+        error={passwordError ?? undefined}
+      >
         <Input
           id={ids.pass}
           name="password"
@@ -114,7 +120,7 @@ function ActionForm({
       <FormError id={ids.err} message={formError} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
           {pending ? pendingLabel : confirmLabel}

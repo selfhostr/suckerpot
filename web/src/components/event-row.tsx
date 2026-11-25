@@ -9,11 +9,13 @@ import {
   SquareChevronRight,
   type LucideIcon,
 } from "lucide-react"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { IPChip } from "@/components/ip-chip"
 import { RelativeTime } from "@/components/relative-time"
 import type { SensorEvent } from "@/lib/api"
 import { useIpMask } from "@/app/ip-mask"
-import { formatClock, formatDuration, maskIpsInText } from "@/lib/format"
+import { formatAbsolute, formatClock, formatDuration, maskIpsInText } from "@/lib/format"
 import { isSevereEvent } from "@/lib/severity"
 import { sensorMeta } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
@@ -46,17 +48,17 @@ function viewEvent(e: SensorEvent): EventView {
     case "connect":
       return {
         icon: Plug,
-        label: "Connect",
-        summary: (
-          <>
-            Connected to port {e.dst_port}
-            {str(d.client_version) ? (
-              <span className="text-fg-muted">
-                {" "}
-                with <Mono>{str(d.client_version)}</Mono>
-              </span>
-            ) : null}
-          </>
+        label: t("event_type_connect"),
+        summary: str(d.client_version) ? (
+          <span>
+            {tNodes(
+              "event_connect_with_client",
+              { port: e.dst_port },
+              { client: <Mono>{str(d.client_version)}</Mono> },
+            )}
+          </span>
+        ) : (
+          t("event_connect_port", { port: e.dst_port })
         ),
       }
     case "login_attempt": {
@@ -66,17 +68,25 @@ function viewEvent(e: SensorEvent): EventView {
         const cleartext = method === "rdp-nla-off"
         const user = str(d.username)
         const domain = str(d.domain)
-        const who = d.anonymous === true ? "(anonymous)" : (user ?? "?")
+        const who = d.anonymous === true ? t("event_login_anonymous") : (user ?? "?")
         const password = str(d.password)
         return {
           icon: ok ? CircleCheck : KeyRound,
-          label: ok ? "Login succeeded" : cleartext ? "Cleartext login" : "NTLM login",
+          label: ok
+            ? t("event_login_succeeded")
+            : cleartext
+              ? t("event_login_cleartext")
+              : t("event_login_ntlm"),
           // Wraps instead of truncating: on a phone the hint or the password drops to a
           // second line, so DOMAIN\user stays readable.
           summary: (
             <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2">
               <span className="shrink-0 text-fg-muted">
-                {ok ? "Logged in as" : cleartext ? "Sent in the clear" : "Tried"}
+                {ok
+                  ? t("event_login_logged_in_as")
+                  : cleartext
+                    ? t("event_login_sent_clear")
+                    : t("event_login_tried")}
               </span>
               <Mono>{domain ? `${domain}\\${who}` : who}</Mono>
               {password ? (
@@ -85,7 +95,7 @@ function viewEvent(e: SensorEvent): EventView {
                   <Mono>{password}</Mono>
                 </span>
               ) : (
-                <span className="shrink-0 text-fg-subtle">(password hash only)</span>
+                <span className="shrink-0 text-fg-subtle">{t("event_login_hash_only")}</span>
               )}
             </span>
           ),
@@ -93,13 +103,15 @@ function viewEvent(e: SensorEvent): EventView {
       }
       return {
         icon: ok ? CircleCheck : KeyRound,
-        label: ok ? "Login succeeded" : "Login attempt",
+        label: ok ? t("event_login_succeeded") : t("event_type_login_attempt"),
         summary: (
           <span className="inline-flex min-w-0 items-center gap-2">
-            <span className="shrink-0 text-fg-muted">{ok ? "Logged in as" : "Tried"}</span>
+            <span className="shrink-0 text-fg-muted">
+              {ok ? t("event_login_logged_in_as") : t("event_login_tried")}
+            </span>
             <Mono>{str(d.username) ?? "?"}</Mono>
             <span className="shrink-0 text-fg-subtle">/</span>
-            <Mono>{str(d.password) ?? "(no password)"}</Mono>
+            <Mono>{str(d.password) ?? t("event_login_no_password")}</Mono>
           </span>
         ),
       }
@@ -107,7 +119,7 @@ function viewEvent(e: SensorEvent): EventView {
     case "command":
       return {
         icon: SquareChevronRight,
-        label: "Command",
+        label: t("event_type_command"),
         summary: (
           <span className="inline-flex min-w-0 items-center gap-2">
             <span aria-hidden className="shrink-0 font-mono text-xs text-fg-subtle">
@@ -120,21 +132,23 @@ function viewEvent(e: SensorEvent): EventView {
     case "download_attempt":
       return {
         icon: Download,
-        label: "Download attempt",
+        label: t("event_type_download_attempt"),
         severe: true,
         summary: (
           <span className="inline-flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-fg-muted">
-              {str(d.tool) ? `${str(d.tool)} fetch` : "Download"}
+              {str(d.tool)
+                ? t("event_download_tool_fetch", { tool: str(d.tool) })
+                : t("event_download")}
             </span>
-            <Mono>{str(d.url) ?? "unknown URL"}</Mono>
+            <Mono>{str(d.url) ?? t("event_download_unknown_url")}</Mono>
           </span>
         ),
       }
     case "http_request":
       return {
         icon: Globe,
-        label: "HTTP request",
+        label: t("event_type_http_request"),
         summary: (
           <span className="inline-flex min-w-0 items-center gap-2">
             <span className="shrink-0 font-mono text-xs font-medium text-fg-muted">
@@ -150,16 +164,21 @@ function viewEvent(e: SensorEvent): EventView {
     case "disconnect":
       return {
         icon: LogOut,
-        label: "Disconnect",
+        label: t("event_type_disconnect"),
         summary: (
           <span className="text-fg-muted">
-            Disconnected
-            {typeof d.duration_s === "number" ? ` after ${formatDuration(d.duration_s)}` : ""}
+            {typeof d.duration_s === "number"
+              ? t("event_disconnected_after", { duration: formatDuration(d.duration_s) })
+              : t("event_disconnected")}
           </span>
         ),
       }
     case "scan":
-      return { icon: Radar, label: "Probe", summary: <span className="text-fg-muted">Probe</span> }
+      return {
+        icon: Radar,
+        label: t("event_type_scan"),
+        summary: <span className="text-fg-muted">{t("event_type_scan")}</span>,
+      }
     default:
       return {
         icon: Radar,
@@ -218,7 +237,7 @@ export function EventRow({
         <time
           dateTime={event.ts}
           className="w-16 shrink-0 font-mono text-xs text-fg-subtle"
-          title={new Date(event.ts).toString()}
+          title={formatAbsolute(event.ts)}
         >
           {formatClock(event.ts)}
         </time>

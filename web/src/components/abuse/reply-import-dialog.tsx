@@ -11,10 +11,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { t } from "@/i18n"
 import { abuseKeys } from "@/lib/abuse"
 import { describeRepliesError, repliesApi } from "@/lib/replies"
 
 const MAX_BYTES = 256 * 1024
+const MAX_LABEL = "256 KiB"
 
 interface Props {
   open: boolean
@@ -45,7 +47,7 @@ function ImportForm({ onOpenChange, report }: Omit<Props, "open">) {
   async function pick(file: File | undefined) {
     if (!file) return
     if (file.size > MAX_BYTES) {
-      setError("That file is too large (256 KiB at most).")
+      setError(t("replies_import_file_too_large", { size: MAX_LABEL }))
       return
     }
     setError(null)
@@ -54,11 +56,11 @@ function ImportForm({ onOpenChange, report }: Omit<Props, "open">) {
 
   async function submit() {
     if (!raw.trim()) {
-      setError("Paste the message or pick an .eml file first.")
+      setError(t("replies_import_empty", { ext: ".eml" }))
       return
     }
     if (new Blob([raw]).size > MAX_BYTES) {
-      setError("That message is too large (256 KiB at most).")
+      setError(t("replies_error_too_large", { size: MAX_LABEL }))
       return
     }
     setPending(true)
@@ -71,8 +73,8 @@ function ImportForm({ onOpenChange, report }: Omit<Props, "open">) {
         if (s.status === "failed") {
           setError(
             s.error_code === "not_a_message"
-              ? "That does not look like an email message."
-              : "The message could not be read.",
+              ? t("replies_error_not_a_message")
+              : t("replies_import_unreadable"),
           )
           return
         }
@@ -98,13 +100,14 @@ function ImportForm({ onOpenChange, report }: Omit<Props, "open">) {
       }}
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Add a reply</DialogTitle>
-        <DialogDescription>
-          Paste the whole message with its headers, or pick an .eml file. It is read as text and
-          never opened. Nothing is sent.
-        </DialogDescription>
+        <DialogTitle>{t("replies_import_title")}</DialogTitle>
+        <DialogDescription>{t("replies_import_description", { ext: ".eml" })}</DialogDescription>
       </DialogHeader>
-      <Field id={id} label="Message" hint="256 KiB at most.">
+      <Field
+        id={id}
+        label={t("replies_import_message")}
+        hint={t("replies_import_hint", { size: MAX_LABEL })}
+      >
         <Textarea
           id={id}
           rows={9}
@@ -122,20 +125,20 @@ function ImportForm({ onOpenChange, report }: Omit<Props, "open">) {
           type="file"
           accept=".eml,message/rfc822"
           className="sr-only"
-          aria-label="Pick an .eml file"
+          aria-label={t("replies_import_pick", { ext: ".eml" })}
           onChange={(e) => void pick(e.target.files?.[0])}
         />
         <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-          Pick an .eml file
+          {t("replies_import_pick", { ext: ".eml" })}
         </Button>
       </div>
       <FormError id={`${id}-err`} message={error} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Reading…" : "Add the reply"}
+          {pending ? t("replies_import_reading") : t("replies_import_submit")}
         </Button>
       </DialogFooter>
     </form>

@@ -26,7 +26,7 @@ export function SensorBadge({ sensor, variant = "badge", className }: SensorBadg
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs font-medium",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs font-medium",
         meta ? [meta.text, meta.tint] : "bg-surface-hover text-fg-muted",
         className,
       )}

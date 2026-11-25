@@ -1,4 +1,6 @@
 import { useState } from "react"
+import { t, tk } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { CodeBlock } from "@/components/defend/code-block"
 import { SegmentedControl } from "@/components/segmented-control"
 import {
@@ -17,10 +19,9 @@ const APPS = [
 ] as const
 
 const PICK: Record<FirewallApp, string> = {
-  opnsense: "Pick the plain text format (.txt). OPNsense reads one address per line.",
-  pfsense:
-    "Pick the plain text format (.txt). For pfBlockerNG use the IPv4-only and IPv6-only files.",
-  nftables: "Pick the nftables format (.nft). It loads in one step with nft -f.",
+  opnsense: tk("nfeed_howto_pick_opnsense"),
+  pfsense: tk("nfeed_howto_pick_pfsense"),
+  nftables: tk("nfeed_howto_pick_nftables"),
 }
 
 /** The steps to put the lists in a firewall. The lists are optional, and so is every step. */
@@ -39,16 +40,22 @@ export function HowToDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle>Use the lists in your firewall</SheetTitle>
-          <SheetDescription>
-            Optional. Your firewall fetches the public address itself, so it keeps working without
-            this dashboard. Start with the outbound list.
-          </SheetDescription>
+          <SheetTitle>{t("nfeed_howto_title")}</SheetTitle>
+          <SheetDescription>{t("nfeed_howto_description")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-4 px-4 pb-6">
-          <SegmentedControl label="Firewall" value={app} onChange={setApp} options={APPS} />
-          <p className="text-sm text-fg-muted">{PICK[app]}</p>
-          <CodeBlock text={url} label={`${app} address`} caption="Address to copy" />
+          <SegmentedControl
+            label={t("firewall_sheet_firewall")}
+            value={app}
+            onChange={setApp}
+            options={APPS}
+          />
+          <p className="text-sm text-fg-muted">{t(PICK[app])}</p>
+          <CodeBlock
+            text={url}
+            label={t("nfeed_howto_address", { app })}
+            caption={t("nfeed_howto_caption")}
+          />
           <ol className="list-decimal space-y-2 pl-5 text-sm text-pretty text-fg-muted marker:text-fg-subtle">
             {usageSteps(app, url).map((step) => (
               <li key={step} className="break-words">
@@ -57,9 +64,11 @@ export function HowToDrawer({
             ))}
           </ol>
           <p className="text-xs text-fg-muted">
-            More firewalls and the full steps are in{" "}
-            <code className="font-mono text-fg">docs/feeds.md</code>. Check the menu names against
-            your firewall version.
+            {tNodes(
+              "nfeed_howto_more",
+              {},
+              { file: <code className="font-mono text-fg">docs/feeds.md</code> },
+            )}
           </p>
         </div>
       </SheetContent>

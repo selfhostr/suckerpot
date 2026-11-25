@@ -12,6 +12,7 @@ test("blocklists", async ({ page }, info) => {
   await shootTall(page, "defend-blocklists", info.project.name)
   await page.evaluate(() => window.scrollTo(0, 0))
   await shoot(page, "defend-blocklists-top", info.project.name)
+  await page.getByRole("button", { name: "Export and your own rules" }).click()
   await page.locator("#export").scrollIntoViewIfNeeded()
   await page.locator("#export").screenshot({
     path: `screenshots/defend-blocklists-export-${info.project.name}.png`,
@@ -120,7 +121,12 @@ test("settings feeds off", async ({ page }, info) => {
   await expect(h1(page, "Settings")).toBeVisible()
   await expect(page.getByText(/FEEDS_ENABLED=true/)).toBeVisible()
   await expect(page.getByRole("button", { name: "Create token" })).toBeDisabled()
-  await expect(page.getByRole("tab", { name: "Feeds" })).toBeInViewport()
+  // The sections are a list beside the page on a computer, a select on a phone.
+  await expect(
+    page
+      .getByRole("tab", { name: "Feeds" })
+      .or(page.getByRole("combobox", { name: "Settings sections" })),
+  ).toBeInViewport()
   await settle(page)
   await shoot(page, "defend-feeds-off", info.project.name, true)
 })

@@ -29,7 +29,7 @@ Add tests for any behaviour you change. Sensor tests use a real client where pos
 
 - Keep them focused, one change each, and update the docs when behaviour or configuration changes.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/), for example `feat(ssh): ...` or `fix(web): ...`.
-- Everything is in English: code, comments, docs, commit messages and every UI string.
+- Code, comments, docs and commit messages are in English. UI strings are written in English in `web/src/i18n/locales/en.json` and translated in the other eight files there (see the Language section of [web/DESIGN.md](web/DESIGN.md)); never hardcode a visible string in a component.
 - Sensors never execute attacker input. No `subprocess`, `os.system`, `eval` or `exec` in sensor code.
 - UI work uses the design system in [web/DESIGN.md](web/DESIGN.md). Do not add one-off styles.
 

@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Globe, LogIn, LogOut, Star, type LucideIcon } from "lucide-react"
 import { useState } from "react"
 import { Link } from "react-router"
+import { t, tk } from "@/i18n"
 import { StatTile } from "@/components/stat-tile"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,7 +16,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useCopy } from "@/hooks/use-copy"
-import { formatNumber } from "@/lib/format"
 import {
   FORMAT_LABEL,
   formatsOf,
@@ -31,15 +31,15 @@ const ICON: Record<FeedListId, LucideIcon> = {
   "outbound-domains": Globe,
 }
 
-const TIERS: { tier: FeedTier; label: string }[] = [
-  { tier: "standard", label: "Every entry" },
-  { tier: "high", label: "High tier only" },
+const TIERS: { tier: FeedTier; labelKey: string }[] = [
+  { tier: "standard", labelKey: tk("nfeed_copy_every") },
+  { tier: "high", labelKey: tk("nfeed_copy_high") },
 ]
 
 function CopyMenu({ list, title }: { list: FeedList; title: string }) {
   const { copy } = useCopy()
   const [done, setDone] = useState<string | null>(null)
-  const groups = TIERS.map((t) => ({ ...t, files: formatsOf(list, t.tier) })).filter(
+  const groups = TIERS.map((x) => ({ ...x, files: formatsOf(list, x.tier) })).filter(
     (g) => g.files.length > 0,
   )
   if (groups.length === 0) return null
@@ -47,8 +47,12 @@ function CopyMenu({ list, title }: { list: FeedList; title: string }) {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" aria-label={`Copy a ${title.toLowerCase()} list URL`}>
-            Copy URL
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={t("nfeed_copy_aria", { title: title.toLowerCase() })}
+          >
+            {t("nfeed_copy_url")}
             <ChevronDown aria-hidden />
           </Button>
         </DropdownMenuTrigger>
@@ -56,13 +60,17 @@ function CopyMenu({ list, title }: { list: FeedList; title: string }) {
           {groups.map((g, i) => (
             <DropdownMenuGroup key={g.tier}>
               {i > 0 ? <DropdownMenuSeparator /> : null}
-              <DropdownMenuLabel>{g.label}</DropdownMenuLabel>
+              <DropdownMenuLabel>{t(g.labelKey)}</DropdownMenuLabel>
               {g.files.map((f) => (
                 <DropdownMenuItem
                   key={f.name}
                   onSelect={() => {
                     void copy(f.url)
-                    setDone(`${FORMAT_LABEL[f.format]}${g.tier === "high" ? ", high tier" : ""}`)
+                    setDone(
+                      g.tier === "high"
+                        ? t("nfeed_copied_high", { format: FORMAT_LABEL[f.format] })
+                        : FORMAT_LABEL[f.format],
+                    )
                   }}
                 >
                   {FORMAT_LABEL[f.format]}
@@ -76,10 +84,10 @@ function CopyMenu({ list, title }: { list: FeedList; title: string }) {
         {done ? (
           <span className="inline-flex items-center gap-1">
             <Check aria-hidden className="size-3.5" />
-            Copied: {done}
+            {t("nfeed_copied", { what: done })}
           </span>
         ) : (
-          "Most firewalls want plain text"
+          t("nfeed_copy_hint")
         )}
       </span>
     </div>
@@ -100,19 +108,19 @@ export function ListCard({
   return (
     <Card
       role="group"
-      aria-label={`${meta.title} list`}
-      className="gap-4 rounded-lg p-4 shadow-sm sm:p-5"
+      aria-label={t("nfeed_list_group", { title: meta.title })}
+      className="gap-4 p-4 sm:p-5"
     >
       <header className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="inline-flex items-center gap-2 text-base font-medium text-fg">
+          <h3 className="inline-flex items-center gap-2 type-card-title text-fg">
             <Icon aria-hidden className="size-4 text-fg-muted" strokeWidth={1.85} />
             {meta.title}
           </h3>
           {meta.startHere ? (
-            <Badge variant="outline" className="rounded-sm text-fg">
+            <Badge variant="outline" className="text-fg">
               <Star aria-hidden />
-              Start here
+              {t("nfeed_start_here")}
             </Badge>
           ) : null}
         </div>
@@ -121,8 +129,8 @@ export function ListCard({
       </header>
       {/* Pushed to the bottom so the figures line up across cards of different text length. */}
       <div className="mt-auto grid grid-cols-2 gap-3">
-        <StatTile label="Entries" value={list.entries} />
-        <StatTile label="High tier" value={list.high} />
+        <StatTile label={t("blocklists_entries")} value={list.entries} />
+        <StatTile label={t("nfeed_tier_high")} value={list.high} />
       </div>
       <p className="text-xs text-fg-muted">
         {list.seen_here > 0 ? (
@@ -130,12 +138,12 @@ export function ListCard({
             to={`/defend/blocklists?tab=network&list=${list.id}&seen_here=1`}
             className="text-fg underline-offset-2 hover:underline"
           >
-            {formatNumber(list.seen_here)} also reached this sensor
+            {t("nfeed_card_seen", { count: list.seen_here })}
           </Link>
         ) : (
-          "None reached this sensor yet"
+          t("nfeed_card_none_seen")
         )}
-        {list.helped !== null ? ` · you helped confirm ${formatNumber(list.helped)}` : ""}
+        {list.helped !== null ? ` · ${t("nfeed_card_helped", { count: list.helped })}` : ""}
       </p>
       <CopyMenu list={list} title={meta.title} />
       {mirrorLink ? (
@@ -143,7 +151,7 @@ export function ListCard({
           to="/settings?tab=feeds"
           className="text-xs text-fg-muted underline-offset-2 hover:text-fg hover:underline"
         >
-          Or let this dashboard serve a verified copy
+          {t("nfeed_card_mirror")}
         </Link>
       ) : null}
     </Card>

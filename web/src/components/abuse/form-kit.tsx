@@ -4,9 +4,9 @@ import { useMemo, useState } from "react"
 import { CopyField } from "@/components/abuse/copy-field"
 import { SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { abuseKeys, describeAbuseError, guardReason, guardReasonsOf } from "@/lib/abuse"
 import {
-  BROWSER_WARNING,
   formKeys,
   formLinkHref,
   formsApi,
@@ -18,13 +18,13 @@ import {
   type FormQueueItem,
   type Kit,
 } from "@/lib/abuse-forms"
-import { plural } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { todayKeys } from "@/lib/today"
 
 /** The field name, and the form's own label when the shared directory knows it. */
 function labelOf(kit: Kit, key: string, ours: string): string {
   const theirs = kit.labels[key]
-  return theirs && theirs !== ours ? `${ours} (the form says “${theirs}”)` : ours
+  return theirs && theirs !== ours ? t("abuse_form_kit_label_theirs", { ours, theirs }) : ours
 }
 
 function LinkRow({ link }: { link: FormLink }) {
@@ -41,11 +41,11 @@ function LinkRow({ link }: { link: FormLink }) {
             referrerPolicy="no-referrer"
             className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
           >
-            Open the form
+            {t("abuse_desk_open_form")}
             <ExternalLink aria-hidden className="size-3.5" />
           </a>
         ) : (
-          <span className="font-medium">Not opened as a link</span>
+          <span className="font-medium">{t("abuse_form_kit_not_link")}</span>
         )}
         <span className="font-mono text-xs text-fg-muted">{link.host}</span>
       </span>
@@ -84,7 +84,7 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
       <div role="alert" className="space-y-2 rounded-md border border-border-strong px-3 py-2.5">
         <p className="flex items-center gap-2 text-sm font-medium text-fg">
           <ShieldAlert aria-hidden className="size-4" />
-          {reasons ? "The identity check blocked this kit" : "The kit is not available"}
+          {reasons ? t("abuse_form_kit_blocked") : t("abuse_form_kit_unavailable")}
         </p>
         {reasons ? (
           <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
@@ -136,10 +136,10 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
         className="flex items-start gap-2.5 rounded-md border border-border-strong bg-surface-raised px-3 py-2.5 text-sm font-medium text-fg"
       >
         <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
-        {kit.warning || BROWSER_WARNING}
+        {kit.warning || t("abuse_form_browser_warning")}
       </p>
 
-      <section aria-label="Form link" className="space-y-2 text-sm">
+      <section aria-label={t("abuse_form_kit_link_aria")} className="space-y-2 text-sm">
         {kit.links.length > 0 ? (
           <ul className="space-y-2">
             {kit.links.map((l) => (
@@ -147,48 +147,55 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
             ))}
           </ul>
         ) : (
-          <p className="text-fg-muted">
-            No form link is known. Find the form on the provider&apos;s own website.
-          </p>
+          <p className="text-fg-muted">{t("abuse_form_kit_no_link")}</p>
         )}
         {kit.links_differ ? (
           <p role="alert" className="text-fg">
-            The shared directory and a reply point at different forms. Prefer the directory link,
-            and check the host before you open either.
+            {t("abuse_form_kit_links_differ")}
           </p>
         ) : null}
       </section>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <CopyField label={labelOf(kit, "email", "Your email")} value={kit.email} />
+        <CopyField label={labelOf(kit, "email", t("abuse_form_field_email"))} value={kit.email} />
         <div className="space-y-1">
-          <CopyField label={labelOf(kit, "name", "Your name")} value={kit.name} />
+          <CopyField label={labelOf(kit, "name", t("abuse_form_field_name"))} value={kit.name} />
           {kit.name ? null : (
-            <p className="text-xs text-fg-muted">
-              Empty. Set a name in Settings, Reporting, if the form asks for one.
-            </p>
+            <p className="text-xs text-fg-muted">{t("abuse_form_kit_name_empty")}</p>
           )}
         </div>
-        <CopyField label={labelOf(kit, "abuse_type", "Abuse type")} value={kit.abuse_type} />
+        <CopyField
+          label={labelOf(kit, "abuse_type", t("abuse_form_field_abuse_type"))}
+          value={kit.abuse_type}
+        />
         <div className="grid grid-cols-2 gap-4">
-          <CopyField label={labelOf(kit, "first_seen", "First seen")} value={kit.first_seen} />
-          <CopyField label={labelOf(kit, "last_seen", "Last seen")} value={kit.last_seen} />
+          <CopyField
+            label={labelOf(kit, "first_seen", t("abuse_form_field_first_seen"))}
+            value={kit.first_seen}
+          />
+          <CopyField
+            label={labelOf(kit, "last_seen", t("abuse_form_field_last_seen"))}
+            value={kit.last_seen}
+          />
         </div>
       </div>
-      <CopyField label={labelOf(kit, "addresses", "Addresses")} value={kit.addresses} multiline />
+      <CopyField
+        label={labelOf(kit, "addresses", t("abuse_form_field_addresses"))}
+        value={kit.addresses}
+        multiline
+      />
       <div className="space-y-1">
         <CopyField
-          label={labelOf(kit, "description", "Description")}
+          label={labelOf(kit, "description", t("abuse_form_field_description"))}
           value={kit.description}
           multiline
         />
         <p className="text-xs text-fg-muted">
-          At most {kit.max_chars.toLocaleString("en-GB")} characters. Keep the last line: it lets a
-          reply find this report.
+          {t("abuse_form_kit_max_chars", { max: formatNumber(kit.max_chars) })}
         </p>
       </div>
       <CopyField
-        label={labelOf(kit, "log_excerpt", "Log excerpt")}
+        label={labelOf(kit, "log_excerpt", t("abuse_form_field_log_excerpt"))}
         value={kit.log_excerpt}
         multiline
       />
@@ -198,18 +205,20 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
           variant="outline"
           onClick={() => saveText(kit.evidence.name, kit.evidence.media_type, kit.evidence.content)}
         >
-          <Download aria-hidden /> Download {kit.evidence.name}
+          <Download aria-hidden /> {t("abuse_form_kit_download", { name: kit.evidence.name })}
         </Button>
         <span className="text-xs text-fg-muted">
-          {labelOf(kit, "evidence", "Evidence file")}, for a form that takes an attachment.
+          {t("abuse_form_kit_evidence", {
+            label: labelOf(kit, "evidence", t("abuse_form_field_evidence")),
+          })}
         </span>
       </div>
 
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium text-fg">
           {kit.one_ip_per_submission
-            ? "This form takes one address at a time. Tick each address you submitted."
-            : "Addresses in this submission"}
+            ? t("abuse_form_kit_one_at_a_time")
+            : t("abuse_form_kit_addresses_legend")}
         </legend>
         <ul className="divide-y rounded-md border">
           {kit.sources.map((s) => {
@@ -228,15 +237,23 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
                   <span className="font-mono text-xs">{s.value}</span>
                   <span className="text-xs text-fg-muted">{s.abuse_type}</span>
                   {s.stale ? (
-                    <span className="text-xs text-fg-muted">older than 7 days</span>
+                    <span className="text-xs text-fg-muted">{t("abuse_form_kit_stale")}</span>
                   ) : null}
                 </label>
                 {kit.one_ip_per_submission ? (
                   <div className="grid gap-3 md:grid-cols-2">
-                    <CopyField label="Address" value={s.value} />
-                    <CopyField label="Abuse type" value={s.abuse_type} />
-                    <CopyField label="Description" value={s.description} multiline />
-                    <CopyField label="Log excerpt" value={s.log_excerpt} multiline />
+                    <CopyField label={t("abuse_form_field_address")} value={s.value} />
+                    <CopyField label={t("abuse_form_field_abuse_type")} value={s.abuse_type} />
+                    <CopyField
+                      label={t("abuse_form_field_description")}
+                      value={s.description}
+                      multiline
+                    />
+                    <CopyField
+                      label={t("abuse_form_field_log_excerpt")}
+                      value={s.log_excerpt}
+                      multiline
+                    />
                   </div>
                 ) : null}
               </li>
@@ -247,14 +264,14 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
 
       <div className="flex flex-wrap items-center gap-3">
         <Button size="sm" disabled={busy || chosen.size === 0} onClick={() => void submit()}>
-          <Check aria-hidden /> {busy ? "Saving…" : "Submitted"}
+          <Check aria-hidden /> {busy ? t("abuse_form_kit_saving") : t("abuse_form_kit_submitted")}
         </Button>
         <span className="text-xs text-fg-muted">
           {chosen.size === 0
-            ? "Tick at least one address."
+            ? t("abuse_form_kit_tick_one")
             : chosen.size === all.size
-              ? `Records ${plural(chosen.size, "address", "addresses")} as sent.`
-              : `Records ${plural(chosen.size, "address", "addresses")} as sent. The others wait for the next form report.`}
+              ? t("abuse_form_kit_records_all", { count: chosen.size })
+              : t("abuse_form_kit_records_some", { count: chosen.size })}
         </span>
       </div>
       <p role="alert" className="text-sm text-fg empty:hidden">

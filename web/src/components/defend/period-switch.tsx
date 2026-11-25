@@ -1,3 +1,4 @@
+import { t } from "@/i18n"
 import { SegmentedControl } from "@/components/segmented-control"
 import { PERIOD_DAYS } from "@/lib/defend"
 
@@ -10,10 +11,13 @@ export function PeriodSwitch({
 }) {
   return (
     <SegmentedControl
-      label="Period"
+      label={t("defend_period")}
       value={String(days)}
       onChange={(v) => onChange(Number(v))}
-      options={PERIOD_DAYS.map((d) => ({ value: String(d), label: `${d} days` }))}
+      options={PERIOD_DAYS.map((d) => ({
+        value: String(d),
+        label: t("defend_period_days", { count: d }),
+      }))}
     />
   )
 }

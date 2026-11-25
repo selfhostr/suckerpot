@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useSensorFilter, sensorParam } from "@/hooks/use-sensor-filter"
 import { useUrlParam } from "@/hooks/use-url-param"
-import { formatNumber } from "@/lib/format"
+import { t } from "@/i18n"
 import {
   describeScripts,
   scriptKeys,
@@ -60,9 +60,10 @@ function CommandSearch() {
         autoComplete="off"
         spellCheck={false}
         maxLength={128}
-        placeholder="Search commands, e.g. xmrig"
-        aria-label="Search commands"
-        className="h-8 pl-8 font-mono text-xs md:text-xs"
+        placeholder={t("scripts_search_placeholder")}
+        aria-label={t("scripts_search_label")}
+        size="sm"
+        className="pl-8 font-mono"
       />
     </div>
   )
@@ -125,12 +126,10 @@ export function ScriptsPage() {
     <>
       <PageHeader
         help="scripts"
-        title="Scripts"
+        title={t("scripts_page_title")}
         description={
           <span className="normal-nums">
-            {summary.data
-              ? describeScripts(summary.data)
-              : "Every distinct command sequence attackers ran, explained."}
+            {summary.data ? describeScripts(summary.data) : t("scripts_page_description")}
           </span>
         }
       />
@@ -140,38 +139,42 @@ export function ScriptsPage() {
         chips={[
           {
             param: "technique",
-            label: "Technique",
+            label: t("scripts_filter_technique"),
             render: (v) => <span className="font-mono">{v}</span>,
           },
-          { param: "campaign_id", label: "Campaign", render: (v) => <span>#{v}</span> },
+          {
+            param: "campaign_id",
+            label: t("scripts_filter_campaign"),
+            render: (v) => <span>#{v}</span>,
+          },
         ]}
         alsoClears={["q", "sensor", "view"]}
       >
         <SegmentedControl
-          label="Which scripts"
+          label={t("scripts_filter_which")}
           value={view}
           onChange={(v) => setView(v === "recent" ? null : v)}
           options={[
-            { value: "recent", label: "Latest" },
-            { value: "common", label: "Most common" },
-            { value: "new", label: "New this week" },
+            { value: "recent", label: t("scripts_view_latest") },
+            { value: "common", label: t("scripts_view_common") },
+            { value: "new", label: t("scripts_row_new") },
           ]}
         />
         <SensorFilter />
         <CommandSearch />
       </FilterBar>
 
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle md:grid",
             SCRIPT_GRID,
           )}
         >
-          <span>What it does</span>
-          <span className="text-right">Sessions</span>
-          <span className="text-right">Addresses</span>
-          <span className="text-right">Last seen</span>
+          <span>{t("scripts_col_what")}</span>
+          <span className="text-right">{t("campaign_meta_sessions")}</span>
+          <span className="text-right">{t("campaign_meta_addresses")}</span>
+          <span className="text-right">{t("campaign_meta_last_seen")}</span>
         </div>
         {query.isPending ? (
           <SkeletonList rows={6} />
@@ -179,11 +182,11 @@ export function ScriptsPage() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load scripts"
+            title={t("scripts_error_title")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -191,18 +194,14 @@ export function ScriptsPage() {
           <EmptyState
             variant="bare"
             icon={FileCode2}
-            title={filtered ? "No scripts match" : "No scripts yet"}
-            description={
-              filtered
-                ? "Try another view or a shorter search, or clear the filters."
-                : "When an attacker gets a shell and runs two or more commands, the sequence appears here with an explanation."
-            }
+            title={filtered ? t("scripts_empty_filtered_title") : t("scripts_empty_title")}
+            description={filtered ? t("scripts_empty_filtered_hint") : t("scripts_empty_hint")}
           />
         ) : (
           <div
             ref={listRef}
             role="list"
-            aria-label="Scripts"
+            aria-label={t("scripts_page_title")}
             aria-busy={isFetchingNextPage}
             className="relative w-full"
             style={{ height: virtualizer.getTotalSize() }}
@@ -229,7 +228,7 @@ export function ScriptsPage() {
       </div>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {formatNumber(rows.length)} scripts
+          {t("scripts_end_of_list", { count: rows.length })}
         </p>
       ) : null}
     </>

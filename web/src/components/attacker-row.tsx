@@ -1,5 +1,7 @@
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { useIpMask } from "@/app/ip-mask"
+import { markSubject } from "@/app/view-transitions"
 import { CountryFlag } from "@/components/country-flag"
 import { IPChip } from "@/components/ip-chip"
 import { RelativeTime } from "@/components/relative-time"
@@ -13,11 +15,15 @@ import {
   describeAttacker,
   describeAttackerText,
 } from "@/lib/describe-attacker"
-import { maskIpsInText } from "@/lib/format"
+import { countryName, formatNumber, maskIpsInText } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
+/**
+ * Desktop columns: IP address, country, what it did, tags, sessions, last seen; from 2xl the
+ * network and the event count join in (at xl, beside the unfolded sidebar, the tags had no room).
+ */
 export const ATTACKER_GRID =
-  "md:grid-cols-[9.5rem_minmax(22rem,1fr)_minmax(0,auto)_6rem] md:gap-x-4"
+  "md:grid-cols-[9.5rem_9rem_minmax(14rem,1fr)_minmax(0,auto)_4.5rem_6rem] md:gap-x-4 2xl:grid-cols-[9.5rem_9rem_12rem_minmax(16rem,1fr)_minmax(0,auto)_4.5rem_4.5rem_6rem]"
 
 /** One attacker as one line. The row opens the profile; chips and flags open filtered lists. */
 export function AttackerRow({
@@ -42,13 +48,6 @@ export function AttackerRow({
     </Link>
   ) : null
 
-  const story = (
-    <p className="min-w-0 text-sm text-fg">
-      {origin ? <span className="text-fg-muted">{origin} — </span> : null}
-      {describeAttacker(a)}
-    </p>
-  )
-
   return (
     <div
       className={cn(
@@ -56,15 +55,22 @@ export function AttackerRow({
         ATTACKER_GRID,
         className,
       )}
+      data-vt-row
     >
       <Link
         to={`/attackers/${encodeURIComponent(a.ip)}`}
+        onClick={(e) => markSubject(`attacker:${a.ip}`, e)}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
         aria-label={masked ? maskIpsInText(label) : label}
       />
       <div className="flex min-w-0 items-center gap-2 md:contents">
         <div className="flex min-w-0 items-center gap-2">
-          <IPChip ip={a.ip} variant="ghost" className="relative z-10 ml-0 md:-ml-1.5" />
+          <IPChip
+            ip={a.ip}
+            variant="ghost"
+            subject={`attacker:${a.ip}`}
+            className="relative z-10 ml-0 md:-ml-1.5"
+          />
           <span className="md:hidden">{flag}</span>
         </div>
         <span className="ml-auto flex shrink-0 items-center gap-2 md:hidden">
@@ -73,14 +79,47 @@ export function AttackerRow({
         </span>
       </div>
 
-      <div className="flex min-w-0 items-start gap-2.5 md:items-center">
-        <span className="mt-0.5 hidden min-w-[18px] shrink-0 md:mt-0 md:inline-flex">
-          {flag ?? <CountryFlag code={null} />}
-        </span>
-        {story}
+      <div className="hidden min-w-0 items-center gap-1.5 text-xs text-fg-muted md:flex">
+        {flag ? (
+          <>
+            {flag}
+            <span>{countryName(a.country) ?? a.country}</span>
+          </>
+        ) : (
+          <>
+            <CountryFlag code={null} />
+            <span>{t("common_unknown")}</span>
+          </>
+        )}
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5 md:flex-nowrap md:justify-end md:overflow-hidden">
+      <div className="hidden min-w-0 text-xs text-fg-muted 2xl:block">
+        {a.asn !== null ? (
+          <Link
+            to={`/attackers?asn=${a.asn}`}
+            className="relative z-10 block hover:text-fg"
+            title={`AS${a.asn}`}
+          >
+            <span className="block font-mono text-2xs text-fg-subtle">AS{a.asn}</span>
+            {a.org ?? t("filters_network_unknown")}
+          </Link>
+        ) : (
+          t("filters_network_unknown")
+        )}
+      </div>
+
+      <div className="flex min-w-0 items-start gap-2.5 md:items-center">
+        <p className="min-w-0 text-sm text-fg">
+          {origin ? (
+            <span className="text-fg-muted md:hidden">
+              {t("attackers_row_origin_prefix", { origin })}{" "}
+            </span>
+          ) : null}
+          <span className="md:first-letter:uppercase">{describeAttacker(a)}</span>
+        </p>
+      </div>
+
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 md:justify-end">
         {a.sensors.slice(0, 3).map((s) => (
           <SensorBadge key={s} sensor={s} variant="dot" className="shrink-0" />
         ))}
@@ -92,11 +131,11 @@ export function AttackerRow({
             +{a.sensors.length - 3}
           </span>
         ) : null}
-        {a.tags.slice(0, 2).map((t) => (
+        {a.tags.slice(0, 2).map((tag) => (
           <TagBadge
-            key={t}
-            tag={t}
-            href={`/attackers?tag=${encodeURIComponent(t)}`}
+            key={tag}
+            tag={tag}
+            href={`/attackers?tag=${encodeURIComponent(tag)}`}
             className="z-10"
           />
         ))}
@@ -104,6 +143,13 @@ export function AttackerRow({
           <SeverityBadge severity={severity} iconOnly className="z-10 hidden md:inline-flex" />
         ) : null}
       </div>
+
+      <span className="hidden text-right text-sm text-fg tabular-nums md:block">
+        {formatNumber(a.sessions)}
+      </span>
+      <span className="hidden text-right text-sm text-fg tabular-nums 2xl:block">
+        {formatNumber(a.events)}
+      </span>
 
       <div className="hidden justify-self-end md:block">
         <RelativeTime iso={a.last_seen} className="relative z-10 text-xs" />

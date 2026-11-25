@@ -5,15 +5,15 @@ import "./styles/index.css"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { RouterProvider } from "react-router"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "./app/auth"
 import { LiveFeedProvider } from "./app/live-feed"
 import { IpMaskProvider } from "./app/ip-mask"
 import { ScannerFilterProvider } from "./app/scanner-filter"
+import { initLocale } from "./i18n"
 import { applyMotionMode } from "./lib/motion"
 import { ThemeProvider } from "./app/theme"
-import { router } from "./app/router"
+import { LocalizedRouter } from "./app/localized-router"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,7 +34,7 @@ async function enableMocks() {
 
 applyMotionMode()
 
-void enableMocks().then(() => {
+void Promise.all([enableMocks(), initLocale()]).then(() => {
   const root = document.getElementById("root")
   if (!root) throw new Error("#root missing")
   createRoot(root).render(
@@ -46,7 +46,7 @@ void enableMocks().then(() => {
               <AuthProvider>
                 <LiveFeedProvider>
                   <ScannerFilterProvider>
-                    <RouterProvider router={router} />
+                    <LocalizedRouter />
                   </ScannerFilterProvider>
                 </LiveFeedProvider>
               </AuthProvider>

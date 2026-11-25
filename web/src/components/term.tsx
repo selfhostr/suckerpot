@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { GLOSSARY, splitTerms, type TermId } from "@/lib/glossary"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 interface TermProps {
@@ -61,7 +62,7 @@ export function Term({ id, children, className }: TermProps) {
           )}
         >
           {children ?? entry.term}
-          <span className="sr-only">, definition</span>
+          <span className="sr-only">{t("ui_term_definition_sr")}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent

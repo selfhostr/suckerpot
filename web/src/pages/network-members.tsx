@@ -10,6 +10,7 @@ import { JoinCard } from "@/components/network/join-card"
 import { MembersList } from "@/components/network/members-list"
 import { useNetworkStatus } from "@/components/network/use-network"
 import { useUrlParam } from "@/hooks/use-url-param"
+import { intlLocale, t } from "@/i18n"
 import { countryName } from "@/lib/format"
 import { isMember, memberName, membersFinding, networkApi, networkKeys } from "@/lib/network"
 
@@ -28,7 +29,7 @@ export function NetworkMembersPage() {
     const list = country ? all.filter((m) => m.country === country.toUpperCase()) : [...all]
     // Sorted by name, never by activity: the network has no ranking.
     return list.sort((a, b) =>
-      memberName(a).localeCompare(memberName(b), "en", { sensitivity: "base" }),
+      memberName(a).localeCompare(memberName(b), intlLocale(), { sensitivity: "base" }),
     )
   }, [s, country])
 
@@ -36,8 +37,8 @@ export function NetworkMembersPage() {
     <>
       <PageHeader
         help="network-members"
-        title="Members"
-        description="Who takes part: a pseudonym, a country if the member chose to show one, and how active the sensor was last week. Never an address."
+        title={t("network_members_title")}
+        description={t("network_members_description")}
       />
       {status.isPending || (member && summary.isPending) ? (
         <SkeletonCard />
@@ -45,31 +46,35 @@ export function NetworkMembersPage() {
         <div className="grid grid-cols-1 gap-4">
           <EmptyState
             icon={Users}
-            title="The member list is for members"
-            description="Join the network to see who else takes part. Members are listed by pseudonym only."
+            title={t("network_members_guest_title")}
+            description={t("network_members_guest_description")}
           />
           <JoinCard />
         </div>
       ) : !s ? (
         <EmptyState
           icon={Users}
-          title="The list is on its way"
-          description="The network publishes its member list once a day. It shows up here after the next count."
+          title={t("network_members_waiting_title")}
+          description={t("network_members_waiting_description")}
         />
       ) : (
         <FindingCard
-          eyebrow="Members"
+          eyebrow={t("network_members_eyebrow")}
           finding={
             country
-              ? `${shown.length} of ${s.totals.members} members share ${countryName(country) ?? country}.`
+              ? t("network_members_country_finding", {
+                  shown: shown.length,
+                  count: s.totals.members,
+                  country: countryName(country) ?? country,
+                })
               : membersFinding(s.totals)
           }
-          detail="Listed by name, not by activity: there is no ranking. A country appears only when the member chose to show it and at least 3 members share it."
+          detail={t("network_members_detail")}
           action={
             country ? (
               <Button variant="outline" size="sm" onClick={() => setCountry(null)}>
                 <X aria-hidden />
-                Clear country filter
+                {t("network_members_clear_country")}
               </Button>
             ) : null
           }
@@ -80,8 +85,8 @@ export function NetworkMembersPage() {
               <EmptyState
                 variant="bare"
                 icon={Users}
-                title="No member to show"
-                description="No member shows this country."
+                title={t("network_members_none_title")}
+                description={t("network_members_none_description")}
               />
             </div>
           ) : (

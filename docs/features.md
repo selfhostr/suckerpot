@@ -43,7 +43,7 @@ Each page opens with a plain-English finding. Every IP, country, tag or URL link
 
 - **Enrichment and tags.** GeoIP and ASN from DB-IP Lite (no key needed) or MaxMind GeoLite2, optional AbuseIPDB and GreyNoise Community reputation with a 24 h cache and enforced daily quotas (every key is optional, see [Provider API keys](api-keys.md)), and a declarative YAML rules engine (no regular expressions) for tags such as `recon`, `mirai`, `crypto-miner`, `malware-drop` and `php2shell`.
 - **Campaigns.** Sessions that share a script, a payload host, a file hash, a malware family, an exploit or a credential list are grouped into one campaign, with a plain-English story. A campaign needs at least two sources, and research scanners are never grouped. Campaigns that turn out to come from the same addresses are merged into the oldest one.
-- **Techniques.** Each session is labelled with the MITRE ATT&CK techniques it used, shown as a heatmap per day.
+- **Techniques.** Each session is labelled with the MITRE ATT&CK techniques it used, listed with the busiest first and a line of the days for each.
 - **Scripts.** The command sequences that attackers type are fingerprinted into a library, each with a plain-English explanation from a rules base.
 - **Payloads.** Optional, off by default: the collector fetches a download link through the VPN only, and the analyzer reads the file statically. Nothing is ever run.
 - **Today.** A home page that says what changed in the last 24 hours.

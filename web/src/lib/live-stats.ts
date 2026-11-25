@@ -1,5 +1,6 @@
 import { SENSORS, type LiveEvent, type LiveStats, type LiveWindow, type Sensor } from "@/lib/api"
-import { countryName, formatNumber, formatPercent, maskIp, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { countryName, formatPercent, maskIp } from "@/lib/format"
 import { SENSOR_META } from "@/lib/sensors"
 
 /** Counts for the last minute, computed from the buffer when the server sent none (polling). */
@@ -53,19 +54,18 @@ export function busiestSensor(stats: LiveStats): { sensor: Sensor; events: numbe
 
 /** The plain-English sentence that opens the Live page. */
 export function liveFinding(stats: LiveStats | null): string {
-  if (!stats) return "Waiting for the first events from the sensors."
+  if (!stats) return t("live_finding_waiting")
   const best = busiestSensor(stats)
-  if (!best) return "All quiet: no events in the last minute."
+  if (!best) return t("live_finding_quiet")
   const label = SENSOR_META[best.sensor].label
   const active = SENSORS.filter((s) => (stats.by_sensor[s]?.events ?? 0) > 0).length
-  if (active === 1) {
-    return `Only ${label} is seeing traffic right now: ${plural(best.events, "event")} in the last minute.`
-  }
-  return `${label} is the busiest sensor right now: ${plural(best.events, "event")} in the last minute.`
+  return active === 1
+    ? t("live_finding_only", { label, count: best.events })
+    : t("live_finding_busiest", { label, count: best.events })
 }
 
 export function formatSessions(n: number): string {
-  return `${formatNumber(n)} ${n === 1 ? "session" : "sessions"}`
+  return t("live_sessions", { count: n })
 }
 
 // --- "Right now" sentences for the Live page (last 15 minutes of the buffer).
@@ -104,25 +104,41 @@ export function liveHeadline(
   const first = liveFinding(stats)
   if (!top || windowEvents <= 0) return first
   const name = countryLabel(top.country) ?? top.country
-  return `${first} ${name} sent ${formatPercent(top.events / windowEvents)} of the last 15 minutes.`
+  return t("live_headline_top", {
+    finding: first,
+    country: name,
+    share: formatPercent(top.events / windowEvents),
+  })
 }
 
 export function addressFinding(top: LeaderLike | undefined, masked: boolean): string {
-  if (!top) return "No attacker in the last 15 minutes."
-  const ip = masked ? maskIp(top.key) : top.key
+  if (!top) return t("live_address_none")
   const where = countryLabel(top.country)
-  return `${ip}${where ? ` (${where})` : ""} is the busiest address: ${plural(top.events, "event")}, ${formatPercent(top.share)} of the total.`
+  return t("live_address_finding", {
+    ip: masked ? maskIp(top.key) : top.key,
+    hasWhere: where ? "yes" : "no",
+    where: where ?? "",
+    count: top.events,
+    share: formatPercent(top.share),
+  })
 }
 
 export function countryFinding(top: CountryLike | undefined, windowEvents: number): string {
-  if (!top || windowEvents <= 0) return "No located attacker in the last 15 minutes."
+  if (!top || windowEvents <= 0) return t("live_country_none")
   const name = countryLabel(top.country) ?? top.country
-  return `${name} leads with ${formatPercent(top.events / windowEvents)} of events, from ${plural(top.ips, "address", "addresses")}.`
+  return t("live_country_finding", {
+    name,
+    share: formatPercent(top.events / windowEvents),
+    count: top.ips,
+  })
 }
 
 export function networkFinding(top: LeaderLike | undefined): string {
-  if (!top) return "No known network in the last 15 minutes."
-  const name = top.org ?? `AS${top.key}`
-  const as = top.org ? ` (AS${top.key})` : ""
-  return `${name}${as} sends the most: ${formatPercent(top.share)} of events.`
+  if (!top) return t("live_network_none")
+  return t("live_network_finding", {
+    hasOrg: top.org ? "yes" : "no",
+    org: top.org ?? "",
+    asn: top.key,
+    share: formatPercent(top.share),
+  })
 }

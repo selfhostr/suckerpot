@@ -7,6 +7,7 @@ import { FindingCard } from "@/components/finding-card"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUrlParam } from "@/hooks/use-url-param"
+import { t } from "@/i18n"
 import { KIND_LABEL } from "@/lib/abuse"
 import { formatNumber, formatPercent } from "@/lib/format"
 import type { Outcome } from "@/lib/replies"
@@ -91,7 +92,7 @@ function ProviderName({ r }: { r: Row }) {
       <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
         <Link
           to={`/attackers?asn=${r.key}`}
-          className="inline-flex h-6 items-center rounded-sm border px-2 font-mono text-2xs text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
+          className="inline-flex h-(--chip) items-center rounded-sm border px-2 font-mono text-2xs text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
         >
           AS{r.key}
         </Link>
@@ -189,18 +190,18 @@ export function ProvidersCard({ groups, group, takedown }: ProvidersCardProps) {
     }
   }
   const finding = !groups
-    ? "Ranking the providers…"
+    ? t("results_providers_loading")
     : showTd
       ? describeTakedownProviders(takedown ?? [])
       : describeProviderAnswers(groups)
   const th = { sort, dir, onSort }
   return (
     <FindingCard
-      eyebrow="Providers"
+      eyebrow={t("results_providers_eyebrow")}
       finding={finding}
       action={
         <SegmentedControl
-          label="Group providers by"
+          label={t("results_providers_group_by")}
           value={group}
           onChange={(v) => setGroup(v === "asn" ? null : v)}
           options={GROUP_OPTIONS}
@@ -216,11 +217,14 @@ export function ProvidersCard({ groups, group, takedown }: ProvidersCardProps) {
         </div>
       ) : rows.length === 0 ? (
         <p className="border-t px-4 py-6 text-sm text-fg-muted sm:px-5">
-          No report sent yet. Results appear here once you send one.
+          {t("results_providers_empty")}
         </p>
       ) : (
         <>
-          <ul aria-label="Providers that received reports" className="divide-y border-t sm:hidden">
+          <ul
+            aria-label={t("results_providers_list_label")}
+            className="divide-y border-t sm:hidden"
+          >
             {rows.map((r) => (
               <li key={r.key} className="px-4 py-3">
                 <span className="flex flex-wrap items-center gap-2">
@@ -228,19 +232,24 @@ export function ProvidersCard({ groups, group, takedown }: ProvidersCardProps) {
                   <ProviderName r={r} />
                 </span>
                 <MetaLine className="mt-1.5">
-                  <span>{formatNumber(r.sent)} sent</span>
+                  <span>{t("results_providers_sent", { count: r.sent })}</span>
                   <span>
                     {r.answeredPct == null
-                      ? "too recent"
-                      : `${formatPercent(r.answeredPct)} answered`}
+                      ? t("results_providers_too_recent")
+                      : t("results_providers_answered", { percent: formatPercent(r.answeredPct) })}
                   </span>
                   {showTd && r.td && r.td.eligible_48h > 0 ? (
                     <span>
-                      {r.td.down_48h} of {r.td.eligible_48h} down in 48 h
+                      {t("results_providers_down_48h", {
+                        down: r.td.down_48h,
+                        eligible: r.td.eligible_48h,
+                      })}
                     </span>
                   ) : null}
                   {showTd && r.td?.ttd_p50_s != null ? (
-                    <span>median {shortDelay(r.td.ttd_p50_s)}</span>
+                    <span>
+                      {t("results_providers_median", { delay: shortDelay(r.td.ttd_p50_s) })}
+                    </span>
                   ) : null}
                   <OutcomeBadge outcome={r.best} noAnswer />
                 </MetaLine>
@@ -249,22 +258,22 @@ export function ProvidersCard({ groups, group, takedown }: ProvidersCardProps) {
           </ul>
           <div className="relative hidden overflow-x-auto border-t sm:block">
             <table className="w-full text-left text-sm">
-              <caption className="sr-only">Providers that received reports</caption>
+              <caption className="sr-only">{t("results_providers_list_label")}</caption>
               <thead className="text-xs text-fg-muted">
                 <tr className="border-b">
-                  <Th label="Provider" k="name" align="left" {...th} />
-                  <Th label="Sent" k="sent" {...th} />
-                  <Th label="Answered" k="answered" {...th} />
-                  <Th label="Median first reply" k="reply" {...th} />
+                  <Th label={t("results_providers_col_provider")} k="name" align="left" {...th} />
+                  <Th label={t("results_providers_col_sent")} k="sent" {...th} />
+                  <Th label={t("results_providers_col_answered")} k="answered" {...th} />
+                  <Th label={t("results_providers_col_reply")} k="reply" {...th} />
                   <th scope="col" className="px-2 py-2 font-medium whitespace-nowrap">
-                    Best outcome
+                    {t("results_providers_col_best")}
                   </th>
                   {showTd ? (
                     <>
-                      <Th label="Targets" k="targets" {...th} />
-                      <Th label="Down in 48 h" k="down" {...th} />
-                      <Th label="Median takedown" k="ttd" {...th} />
-                      <Th label="Still up" k="up" {...th} />
+                      <Th label={t("results_providers_col_targets")} k="targets" {...th} />
+                      <Th label={t("results_providers_col_down")} k="down" {...th} />
+                      <Th label={t("results_providers_col_ttd")} k="ttd" {...th} />
+                      <Th label={t("results_providers_col_up")} k="up" {...th} />
                     </>
                   ) : null}
                 </tr>
@@ -280,7 +289,9 @@ export function ProvidersCard({ groups, group, takedown }: ProvidersCardProps) {
                     </td>
                     <td className="px-2 py-2 text-right">{formatNumber(r.sent)}</td>
                     <td className="px-2 py-2 text-right">
-                      {r.answeredPct == null ? "too recent" : formatPercent(r.answeredPct)}
+                      {r.answeredPct == null
+                        ? t("results_providers_too_recent")
+                        : formatPercent(r.answeredPct)}
                     </td>
                     <td className="px-2 py-2 text-right whitespace-nowrap">
                       {r.replyS == null ? (
@@ -303,7 +314,10 @@ export function ProvidersCard({ groups, group, takedown }: ProvidersCardProps) {
                         </td>
                         <td className="px-2 py-2 text-right whitespace-nowrap">
                           {r.td && r.td.eligible_48h > 0 ? (
-                            `${r.td.down_48h} of ${r.td.eligible_48h}`
+                            t("results_providers_down_of", {
+                              down: r.td.down_48h,
+                              eligible: r.td.eligible_48h,
+                            })
                           ) : (
                             <span className="text-fg-subtle">—</span>
                           )}

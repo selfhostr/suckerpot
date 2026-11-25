@@ -4,8 +4,6 @@ import {
   defang,
   describeAnswers,
   describeBounds,
-  describeCurve,
-  describeDelay,
   describeOutcome,
   describeRepliesToCheck,
   describeSentOverTime,
@@ -14,6 +12,7 @@ import {
   describeTarget,
   describeTtd,
   longDelay,
+  monthComparison,
   shortDelay,
 } from "./results-sentences"
 import type {
@@ -103,6 +102,20 @@ describe("defang", () => {
 
 describe("describeSentOverTime", () => {
   const now = new Date(2026, 9, 20)
+  it("counts this month and the one before", () => {
+    const pts = [
+      point("2026-09-07T00:00:00", 9),
+      point("2026-10-05T00:00:00", 6),
+      point("2026-10-12T00:00:00", 8),
+    ]
+    expect(monthComparison(pts, now)).toEqual({
+      month: "October",
+      sent: 14,
+      previousMonth: "September",
+      previous: 9,
+      running: true,
+    })
+  })
   it("compares with the previous month", () => {
     const pts = [
       point("2026-09-07T00:00:00", 9),
@@ -147,17 +160,6 @@ describe("describeAnswers", () => {
       "None of the 2 providers has answered yet.",
     )
     expect(describeAnswers(totals({ sent: 0 }), [])).toBe("No report has been sent in this period.")
-  })
-})
-
-describe("describeDelay", () => {
-  it("states the median", () => {
-    expect(describeDelay(totals())).toBe(
-      "Half of the first answers came within 3 hours, nine in ten within 30 hours.",
-    )
-    expect(describeDelay(totals({ first_reply_p50_s: null }))).toMatch(
-      /No report has been answered/,
-    )
   })
 })
 
@@ -225,10 +227,6 @@ describe("takedown sentences", () => {
     expect(describeTakedownHeader(empty, null)).toBe(
       "Nothing reported yet. Takedowns appear here after your first report.",
     )
-  })
-  it("describes the curve with censoring", () => {
-    expect(describeCurve(summary())).toBe("12 of 31 reported malware URLs went down within 48 h.")
-    expect(describeCurve(summary({ urls: counts({ eligible_48h: 0 }) }))).toMatch(/too early/)
   })
   it("needs five values for a median", () => {
     expect(describeTtd({ ttd_p50_s: 19 * H, ttd_n: 12 })).toBe("Across 12 URLs taken down")

@@ -42,7 +42,8 @@ export function UrlSearch({
         maxLength={100}
         placeholder={placeholder}
         aria-label={label}
-        className="h-8 pl-8 text-xs md:text-xs"
+        size="sm"
+        className="pl-8"
       />
     </div>
   )

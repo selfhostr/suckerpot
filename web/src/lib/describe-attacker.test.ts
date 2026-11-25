@@ -25,7 +25,7 @@ const base: Attacker = {
 describe("describeAttacker", () => {
   it("tells the whole story in one line", () => {
     expect(describeAttackerText(base)).toBe(
-      "203.0.113.9 · Netherlands, Example Hosting — 14 sessions over 6 days on SSH and Telnet, got in twice, ran 9 commands, tried to download 1 file",
+      "203.0.113.9 · Netherlands, Example Hosting: 14 sessions over 6 days on SSH and Telnet, got in twice, ran 9 commands, tried to download 1 file",
     )
   })
   it("keeps a single probe short", () => {

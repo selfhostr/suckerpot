@@ -1,20 +1,16 @@
 /* eslint-disable react-refresh/only-export-components -- route table: lazy page components live next to the router on purpose. */
 import { Suspense, lazy } from "react"
-import { createBrowserRouter, type RouteObject } from "react-router"
+import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "react-router"
 import { PageSkeleton } from "@/components/skeletons"
-import { AttacksPage } from "@/pages/attacks"
 import { NotFoundPage, RouteError } from "@/pages/not-found"
-import { LoginPage } from "@/pages/login"
-import { SetPasswordPage } from "@/pages/set-password"
 import { AppShell } from "./app-shell"
 import { RequireAuth } from "./auth"
+import { ALERTS_SETTINGS } from "./nav"
+import type { RouteHandle } from "./page-width"
+import { installViewTransitions } from "./view-transitions"
 
 // Heavy pages (charts, terminal emulator, virtualised feeds) load on demand.
-const OverviewPage = lazy(() =>
-  import("@/pages/overview").then((m) => ({ default: m.OverviewPage })),
-)
 const TodayPage = lazy(() => import("@/pages/today").then((m) => ({ default: m.TodayPage })))
-const LivePage = lazy(() => import("@/pages/live").then((m) => ({ default: m.LivePage })))
 const SessionDetailPage = lazy(() =>
   import("@/pages/session-detail").then((m) => ({ default: m.SessionDetailPage })),
 )
@@ -35,6 +31,12 @@ const InfrastructurePage = lazy(() =>
 )
 const SettingsPage = lazy(() =>
   import("@/pages/settings").then((m) => ({ default: m.SettingsPage })),
+)
+const AttacksPage = lazy(() => import("@/pages/attacks").then((m) => ({ default: m.AttacksPage })))
+// Signed-out screens: not needed when a session already exists.
+const LoginPage = lazy(() => import("@/pages/login").then((m) => ({ default: m.LoginPage })))
+const SetPasswordPage = lazy(() =>
+  import("@/pages/set-password").then((m) => ({ default: m.SetPasswordPage })),
 )
 const SetupPage = lazy(() => import("@/pages/setup").then((m) => ({ default: m.SetupPage })))
 // The styleguide is for development and the mock builds only. Both flags are replaced by constants
@@ -81,7 +83,6 @@ const NetworkPage = lazy(() => import("@/pages/network").then((m) => ({ default:
 const NetworkMembersPage = lazy(() =>
   import("@/pages/network-members").then((m) => ({ default: m.NetworkMembersPage })),
 )
-const AlertsPage = lazy(() => import("@/pages/alerts").then((m) => ({ default: m.AlertsPage })))
 const ReportPage = lazy(() => import("@/pages/report").then((m) => ({ default: m.ReportPage })))
 
 /** Suspense with a skeleton in the final layout, so nothing jumps when the chunk lands. */
@@ -91,8 +92,22 @@ function Lazy({ children }: { children: React.ReactNode }) {
 
 export const router = createBrowserRouter(
   [
-    { path: "login", element: <LoginPage /> },
-    { path: "set-password", element: <SetPasswordPage /> },
+    {
+      path: "login",
+      element: (
+        <Suspense fallback={null}>
+          <LoginPage />
+        </Suspense>
+      ),
+    },
+    {
+      path: "set-password",
+      element: (
+        <Suspense fallback={null}>
+          <SetPasswordPage />
+        </Suspense>
+      ),
+    },
     {
       element: <RequireAuth />,
       errorElement: <RouteError />,
@@ -103,7 +118,20 @@ export const router = createBrowserRouter(
   { basename: import.meta.env.BASE_URL.replace(/\/$/, "") || undefined },
 )
 
-function appRoutes(): RouteObject {
+// Page changes animate with the View Transitions API (view-transitions.ts).
+installViewTransitions(router)
+
+/** Live and Overview became part of Today: keep the query string (a sensor filter) on the way. */
+function ToToday() {
+  const { search, hash } = useLocation()
+  return <Navigate to={{ pathname: "/", search, hash }} replace />
+}
+
+/**
+ * Every page fills the content column (page-width.ts); only the setup form declares
+ * `handle.width: "prose"`, which keeps its own column at reading width.
+ */
+export function appRoutes(): RouteObject {
   return {
     element: <AppShell />,
     errorElement: <RouteError />,
@@ -116,23 +144,17 @@ function appRoutes(): RouteObject {
           </Lazy>
         ),
       },
+      // The live map and the day's figures are part of Today now: old links land there.
+      { path: "live", element: <ToToday /> },
+      { path: "overview", element: <ToToday /> },
       {
-        path: "live",
+        path: "attacks",
         element: (
           <Lazy>
-            <LivePage />
+            <AttacksPage />
           </Lazy>
         ),
       },
-      {
-        path: "overview",
-        element: (
-          <Lazy>
-            <OverviewPage />
-          </Lazy>
-        ),
-      },
-      { path: "attacks", element: <AttacksPage /> },
       {
         path: "attacks/:sessionId",
         element: (
@@ -207,6 +229,7 @@ function appRoutes(): RouteObject {
       },
       {
         path: "setup",
+        handle: { width: "prose" } satisfies RouteHandle,
         element: (
           <Lazy>
             <SetupPage />
@@ -297,14 +320,8 @@ function appRoutes(): RouteObject {
           </Lazy>
         ),
       },
-      {
-        path: "defend/alerts",
-        element: (
-          <Lazy>
-            <AlertsPage />
-          </Lazy>
-        ),
-      },
+      // The alert rules moved next to the channels in Settings.
+      { path: "defend/alerts", element: <Navigate to={ALERTS_SETTINGS} replace /> },
       {
         path: "defend/abuse",
         element: (

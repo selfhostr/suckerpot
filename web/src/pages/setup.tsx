@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Minus } from "lucide-react"
 import { useEffect, useRef } from "react"
 import { Link, Navigate, useNavigate } from "react-router"
 import { useAuth } from "@/app/auth"
+import { t } from "@/i18n"
 import { useTour } from "@/app/tour"
 import { PageHeader } from "@/components/page-header"
 import { useStepReadiness } from "@/components/setup/readiness"
@@ -21,7 +22,7 @@ import { SkeletonCard } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { useUrlParam } from "@/hooks/use-url-param"
 import {
-  AFTER_SETUP,
+  afterSetup,
   firstOpenStep,
   stepIndex,
   WIZARD_STEPS,
@@ -84,12 +85,12 @@ function StepGuide({ skip, next }: { skip: string | null; next: string }) {
     <dl className="grid max-w-4xl gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
       {skip ? (
         <div className="space-y-0.5">
-          <dt className="text-xs font-medium text-fg-subtle">Can I skip it?</dt>
+          <dt className="text-xs font-medium text-fg-subtle">{t("setup_guide_skip")}</dt>
           <dd className="text-pretty text-fg-muted">{skip}</dd>
         </div>
       ) : null}
       <div className="space-y-0.5">
-        <dt className="text-xs font-medium text-fg-subtle">What happens next</dt>
+        <dt className="text-xs font-medium text-fg-subtle">{t("setup_guide_next")}</dt>
         <dd className="text-pretty text-fg-muted">{next}</dd>
       </div>
     </dl>
@@ -136,7 +137,7 @@ function Stepper() {
   // On phones the step list scrolls sideways: keep the current step in view.
   useEffect(() => {
     document
-      .querySelector<HTMLElement>('[aria-label="Setup steps"] [aria-current="step"]')
+      .querySelector<HTMLElement>('[data-setup-steps] [aria-current="step"]')
       // jsdom (vitest) has no scrollIntoView.
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       ?.scrollIntoView?.({ inline: "center", block: "nearest" })
@@ -144,10 +145,10 @@ function Stepper() {
 
   if (!progress || !step)
     return progressQ.isError ? (
-      <PageHeader title="Set up SuckerPot" description="The setup is not available right now." />
+      <PageHeader showTitle title={t("setup_title")} description={t("setup_unavailable")} />
     ) : (
       <>
-        <PageHeader title="Set up SuckerPot" />
+        <PageHeader showTitle title={t("setup_title")} />
         <SkeletonCard />
       </>
     )
@@ -188,9 +189,10 @@ function Stepper() {
   return (
     <>
       <PageHeader
+        showTitle
         help="setup"
-        title="Set up SuckerPot"
-        description="A few minutes, and every step can be skipped and reopened later from Settings."
+        title={t("setup_title")}
+        description={t("setup_description")}
         actions={
           <Button
             variant="ghost"
@@ -198,13 +200,13 @@ function Stepper() {
             disabled={change.isPending}
             onClick={() => leave({ skip: true })}
           >
-            Skip setup
+            {t("setup_skip_all")}
           </Button>
         }
       />
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10">
-        <nav aria-label="Setup steps" className="min-w-0">
+        <nav aria-label={t("setup_steps_label")} data-setup-steps className="min-w-0">
           <ol className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0">
             {steps.map((s, i) => {
               const current = i === index
@@ -216,7 +218,7 @@ function Stepper() {
                     onClick={() => go(i)}
                     aria-current={current ? "step" : undefined}
                     className={cn(
-                      "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium whitespace-nowrap transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none lg:h-8",
+                      "flex min-h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium whitespace-nowrap transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none lg:min-h-8 lg:py-1 lg:whitespace-normal",
                       current
                         ? "bg-surface-hover text-fg"
                         : "text-fg-muted hover:bg-surface-hover/60 hover:text-fg",
@@ -226,7 +228,8 @@ function Stepper() {
                     {s.title}
                     {status && !current ? (
                       <span className="sr-only">
-                        {status === "done" ? " (done)" : " (skipped)"}
+                        {" "}
+                        {status === "done" ? t("setup_step_sr_done") : t("setup_step_sr_skipped")}
                       </span>
                     ) : null}
                   </button>
@@ -239,13 +242,13 @@ function Stepper() {
         <section aria-labelledby="step-title" className="min-w-0 space-y-6">
           <header className="space-y-1.5">
             <p className="text-xs font-medium text-fg-muted tabular-nums">
-              Step {index + 1} of {steps.length}
+              {t("setup_step_counter", { current: index + 1, total: steps.length })}
             </p>
             <h2
               id="step-title"
               ref={heading}
               tabIndex={-1}
-              className="text-lg font-semibold text-pretty text-fg outline-none"
+              className="type-section-title text-pretty text-fg outline-none"
             >
               {step.sentence}
             </h2>
@@ -253,38 +256,38 @@ function Stepper() {
 
           {body}
 
-          <StepGuide skip={step.skip} next={steps[index + 1]?.teaser ?? AFTER_SETUP} />
+          <StepGuide skip={step.skip} next={steps[index + 1]?.teaser ?? afterSetup()} />
 
           <div className="sticky bottom-0 z-10 -mx-4 flex items-center gap-2 border-t bg-bg/90 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0">
             {index > 0 ? (
               <Button variant="outline" onClick={() => go(index - 1)}>
                 <ArrowLeft aria-hidden />
-                Back
+                {t("common_back")}
               </Button>
             ) : null}
             {last ? (
               <>
                 <Button variant="outline" className="ml-auto" onClick={tour.start}>
-                  Take the tour
+                  {t("setup_take_tour")}
                 </Button>
                 <Button disabled={change.isPending} onClick={() => leave({ finish: true })}>
-                  Go to Today
+                  {t("setup_go_today")}
                   <ArrowRight aria-hidden />
                 </Button>
               </>
             ) : (
               <>
                 <Button variant="ghost" asChild className="ml-auto">
-                  <Link to="/">Finish later</Link>
+                  <Link to="/">{t("setup_finish_later")}</Link>
                 </Button>
                 {step.optional && !satisfied ? (
                   <Button variant="outline" onClick={() => next("skipped")}>
-                    Skip for now
+                    {t("setup_skip_for_now")}
                     <ArrowRight aria-hidden />
                   </Button>
                 ) : (
                   <Button onClick={() => next("done")}>
-                    Next
+                    {t("common_next")}
                     <ArrowRight aria-hidden />
                   </Button>
                 )}

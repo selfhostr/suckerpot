@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 import { h1, settle, shoot, shootTall } from "./helpers"
 
-// M15: campaigns, the techniques heatmap and the "Part of campaign" chip, on mock data.
+// M15: campaigns, the techniques table and the "Part of campaign" chip, on mock data.
 
 test("campaigns list", async ({ page }, info) => {
   await page.goto("/campaigns")
@@ -31,9 +31,10 @@ test("campaign detail tells the attack in stages", async ({ page }, info) => {
     .first()
     .click()
   await expect(h1(page, "Mirai-style loader over Telnet #3")).toBeVisible()
-  const stages = page.getByRole("list", { name: "Stages of the attack" })
+  // The playbook at a glance: six slots, each said as seen or not seen.
+  const stages = page.getByRole("list", { name: /^Stages: / })
   await expect(stages).toBeVisible()
-  await expect(stages.getByRole("heading", { level: 4 }).first()).toBeVisible()
+  await expect(stages.getByRole("listitem")).toHaveCount(6)
   await expect(page.getByRole("list", { name: "Lines from a real session" })).toBeVisible()
   await settle(page)
   await shoot(page, "campaign-detail", info.project.name, true)
@@ -60,17 +61,15 @@ test("campaign whose sessions aged out keeps its counters", async ({ page }, inf
   await expect(page.getByRole("heading", { name: "Campaign not found" })).toBeVisible()
 })
 
-test("techniques heatmap", async ({ page }, info) => {
+test("techniques table", async ({ page }, info) => {
   await page.goto("/techniques")
   await expect(h1(page, "Techniques")).toBeVisible()
-  await expect(
-    page.getByRole("img", { name: /Heatmap of sessions per ATT&CK technique/ }),
-  ).toBeVisible()
+  await expect(page.getByRole("list", { name: /Techniques, most sessions first/ })).toBeVisible()
   await settle(page)
   await shootTall(page, "techniques", info.project.name)
 
   await page.goto("/techniques?sensor=ssh&window=7")
-  await expect(page.getByRole("img", { name: /over the last 7 days/ })).toBeVisible()
+  await expect(page.getByText("Last 7 days").first()).toBeVisible()
   await settle(page)
   await shoot(page, "techniques-ssh-7d", info.project.name)
 

@@ -1,18 +1,11 @@
 /**
  * Mock handlers for the M7 endpoints (insights, trends/new, trends/tags,
- * stats/heatmap, malware). Only synthetic data: documentation addresses
+ * malware). Only synthetic data: documentation addresses
  * (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) and example domains.
  */
 import { delay, http, HttpResponse } from "msw"
 import type { Session } from "@/lib/api"
-import type {
-  HeatmapResponse,
-  Insight,
-  MalwareItem,
-  NewField,
-  NewItem,
-  TagsResponse,
-} from "@/lib/trends"
+import type { Insight, MalwareItem, NewField, NewItem, TagsResponse } from "@/lib/trends"
 import { NEW_FIELDS } from "@/lib/trends"
 import { mockFetchState } from "./samples"
 
@@ -183,24 +176,6 @@ export function m7Handlers(sessions: readonly Session[]) {
         }),
       }
       return HttpResponse.json(body)
-    }),
-
-    http.get("/api/v1/stats/heatmap", async ({ request }) => {
-      await delay(LATENCY_MS)
-      const sensors = new URL(request.url).searchParams.getAll("sensor")
-      const cells: HeatmapResponse["cells"] = []
-      for (let dow = 0; dow < 7; dow++)
-        for (let hour = 0; hour < 24; hour++) {
-          const wave = 1 + 0.8 * Math.sin(((hour - 6) / 24) * 2 * Math.PI)
-          const boost = dow === 1 && hour >= 12 && hour <= 15 ? 2.4 : 1
-          const scale = sensors.length ? Math.min(1, 0.15 + 0.12 * sensors.length) : 1
-          cells.push({
-            dow,
-            hour,
-            events: Math.round(60 * scale * wave * boost * (0.5 + hash(`${dow}-${hour}`))),
-          })
-        }
-      return HttpResponse.json({ since: iso(now - 7 * DAY), until: iso(now), cells })
     }),
 
     http.get("/api/v1/malware", async ({ request }) => {

@@ -1,4 +1,6 @@
+import { CardHelp } from "@/components/page-help"
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { Check, ChevronRight, Copy, ExternalLink, Radio, SearchX } from "lucide-react"
 import { useIpMask } from "@/app/ip-mask"
 import { EmptyState } from "@/components/empty-state"
@@ -16,7 +18,9 @@ import {
   referenceLabel,
   type C2Address,
 } from "@/lib/c2"
-import { formatAbsolute, formatNumber, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
+import { formatAbsolute } from "@/lib/format"
 import { maskDefanged } from "@/lib/infrastructure"
 import { cn } from "@/lib/utils"
 
@@ -27,7 +31,7 @@ function CopyAddress({ text }: { text: string }) {
   const { copied, copy } = useCopy()
   const { masked } = useIpMask()
   if (masked) return null
-  const label = copied ? "Copied" : "Copy defanged address"
+  const label = copied ? t("common_copied") : t("c2_copy_address")
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -54,7 +58,7 @@ function ConfidenceBadge({ confidence }: { confidence: C2Address["confidence"] }
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center rounded-sm border px-2 text-xs font-medium whitespace-nowrap",
+        "inline-flex min-h-(--chip) items-center rounded-sm border px-2 text-xs font-medium",
         // Red is reserved for severe events: a ThreatFox-reported C2 qualifies, a sandbox contact does not.
         high ? "tint-severe border-sev-severe/30 text-sev-severe" : "border-border text-fg-muted",
       )}
@@ -82,12 +86,10 @@ function C2Row({ item }: { item: C2Address }) {
         {item.families.length > 0 ? (
           <span className="text-sm text-fg">{item.families.join(", ")}</span>
         ) : (
-          <span className="text-fg-subtle">No family named</span>
+          <span className="text-fg-subtle">{t("c2_no_family")}</span>
         )}
         <span className="tabular-nums">
-          {item.sessions > 0
-            ? `${plural(item.sessions, "session")} dropped this malware`
-            : "No session of ours dropped it"}
+          {item.sessions > 0 ? t("c2_sessions", { count: item.sessions }) : t("c2_no_sessions")}
         </span>
         {refs.map((url) => (
           <a
@@ -99,7 +101,7 @@ function C2Row({ item }: { item: C2Address }) {
           >
             {referenceLabel(url)}
             <ExternalLink aria-hidden className="size-3" />
-            <span className="sr-only">(opens in a new tab)</span>
+            <span className="sr-only">{t("c2_opens_new_tab")}</span>
           </a>
         ))}
       </div>
@@ -109,12 +111,12 @@ function C2Row({ item }: { item: C2Address }) {
             aria-hidden
             className="size-3.5 transition-transform duration-150 group-open/details:rotate-90"
           />
-          Technical details
+          {t("c2_technical_details")}
         </summary>
         <dl className="mt-2 space-y-2 pl-4 text-xs">
           <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">
-              Files that contact it ({formatNumber(item.hash_count)})
+            <dt className="type-column text-fg-subtle">
+              {t("c2_files_contact", { count: item.hash_count })}
             </dt>
             <dd className="mt-1 space-y-1">
               {item.hashes.map((h) => (
@@ -125,24 +127,38 @@ function C2Row({ item }: { item: C2Address }) {
               ))}
               {item.hash_count > item.hashes.length ? (
                 <p className="text-fg-subtle">
-                  and {formatNumber(item.hash_count - item.hashes.length)} more
+                  {t("c2_and_more", { count: item.hash_count - item.hashes.length })}
                 </p>
               ) : null}
             </dd>
           </div>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-fg-muted">
             <p>
-              First seen{" "}
-              <time dateTime={item.first_seen} className="text-fg tabular-nums">
-                {formatAbsolute(item.first_seen)}
-              </time>
+              {tNodes(
+                "c2_first_seen",
+                {},
+                {
+                  date: (
+                    <time dateTime={item.first_seen} className="text-fg tabular-nums">
+                      {formatAbsolute(item.first_seen)}
+                    </time>
+                  ),
+                },
+              )}
             </p>
             <p>
-              Last dropped here{" "}
-              <time dateTime={item.last_seen} className="text-fg tabular-nums">
-                {formatAbsolute(item.last_seen)}
-              </time>{" "}
-              (<RelativeTime iso={item.last_seen} className="text-xs" />)
+              {tNodes(
+                "c2_last_dropped",
+                {},
+                {
+                  date: (
+                    <time dateTime={item.last_seen} className="text-fg tabular-nums">
+                      {formatAbsolute(item.last_seen)}
+                    </time>
+                  ),
+                  relative: <RelativeTime iso={item.last_seen} className="text-xs" />,
+                },
+              )}
             </p>
           </div>
         </dl>
@@ -152,7 +168,7 @@ function C2Row({ item }: { item: C2Address }) {
 }
 
 /** Addresses that malware dropped on the decoys is said to contact. Text only, never a link. */
-export function C2Section() {
+export function C2Section({ className }: { className?: string }) {
   const query = useInfiniteQuery({
     queryKey: queryKeys.c2(),
     queryFn: ({ pageParam }) => api.c2(pageParam, PAGE_SIZE),
@@ -160,30 +176,39 @@ export function C2Section() {
     getNextPageParam: (last) => last.next_cursor,
   })
   const rows = query.data?.pages.flatMap((p) => p.items) ?? []
-  const sentence = query.isSuccess
-    ? describeC2(rows, query.hasNextPage)
-    : "Looking for control servers of the malware dropped here…"
+  const sentence = query.isSuccess ? describeC2(rows, query.hasNextPage) : t("c2_loading")
 
   return (
-    <section aria-labelledby="c2-heading" className="mb-8">
-      <div className="mb-3 space-y-1">
-        <h2 id="c2-heading" className="text-sm font-medium text-fg">
-          Probable <Explain term="c2">C2</Explain>
-        </h2>
-        <p className="text-sm text-fg-muted">{sentence}</p>
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+    // A card with its title inside, like the diagram's FindingCard beside it: both headers start
+    // on the same line and the two cards share one height.
+    <section
+      aria-labelledby="c2-heading"
+      className={cn(
+        "flex flex-col overflow-hidden rounded-lg border bg-surface shadow-sm",
+        className,
+      )}
+    >
+      <header className="space-y-1.5 px-4 pt-4 pb-4 sm:px-5 sm:pt-5">
+        <div className="-my-0.5 flex items-center gap-1">
+          <h2 id="c2-heading" className="type-eyebrow text-fg-muted">
+            {tNodes("c2_heading", {}, { c2: <Explain term="c2">C2</Explain> })}
+          </h2>
+          <CardHelp id="c2" />
+        </div>
+        <p className="type-card-title text-pretty text-fg">{sentence}</p>
+      </header>
+      <div className="flex-1 border-t">
         {query.isPending ? (
           <SkeletonList rows={3} />
         ) : query.isError ? (
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load the control servers"
+            title={t("c2_error")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -191,11 +216,11 @@ export function C2Section() {
           <EmptyState
             variant="bare"
             icon={Radio}
-            title="No C2 address known yet"
-            description="It appears once VirusTotal or ThreatFox has analysed a file dropped here."
+            title={t("c2_empty_title")}
+            description={t("c2_empty_description")}
           />
         ) : (
-          <ul aria-label="Probable C2 addresses" className="divide-y">
+          <ul aria-label={t("c2_list_label")} className="divide-y">
             {rows.map((item) => (
               <li key={`${item.kind}:${item.address}`}>
                 <C2Row item={item} />
@@ -204,18 +229,12 @@ export function C2Section() {
           </ul>
         )}
       </div>
-      {query.hasNextPage ? (
-        <div className="mt-3 flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={query.isFetchingNextPage}
-            onClick={() => void query.fetchNextPage()}
-          >
-            Show more
-          </Button>
-        </div>
-      ) : null}
+      <LoadMore
+        hasNextPage={query.hasNextPage}
+        isFetchingNextPage={query.isFetchingNextPage}
+        fetchNextPage={query.fetchNextPage}
+        label={t("common_show_more")}
+      />
     </section>
   )
 }

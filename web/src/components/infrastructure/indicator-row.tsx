@@ -4,7 +4,9 @@ import { IntelBadge } from "@/components/infrastructure/intel-badge"
 import { RelativeTime } from "@/components/relative-time"
 import { SensorBadge } from "@/components/sensor-badge"
 import { CopyDefanged } from "@/components/trends/copy-defanged"
-import { formatNumber, plural } from "@/lib/format"
+import { intlLocale, t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
+import { formatNumber } from "@/lib/format"
 import { maskDefanged, ROLE_LABELS, TYPE_LABELS, type IndicatorItem } from "@/lib/infrastructure"
 import { cn } from "@/lib/utils"
 
@@ -33,7 +35,11 @@ export function IndicatorRow({ item, onOpen }: IndicatorRowProps) {
       <button
         type="button"
         onClick={() => onOpen(item.id)}
-        aria-label={`Details for ${TYPE_LABELS[item.type].toLowerCase()} ${shown}: ${plural(item.ips, "address", "addresses")}`}
+        aria-label={t("infra_row_details", {
+          type: TYPE_LABELS[item.type].toLocaleLowerCase(intlLocale()),
+          value: shown,
+          count: item.ips,
+        })}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
       />
       <div className="min-w-0">
@@ -67,20 +73,28 @@ export function IndicatorRow({ item, onOpen }: IndicatorRowProps) {
             <Link
               to={`/infrastructure?family=${encodeURIComponent(item.family)}`}
               className="relative z-10 hidden min-w-0 justify-self-start truncate rounded-sm text-sm text-fg hover:underline hover:decoration-fg-subtle hover:underline-offset-4 md:block"
-              aria-label={`Show indicators of family ${item.family}`}
+              aria-label={t("infra_family_show", { name: item.family })}
             >
               {item.family}
             </Link>
           </>
         ) : (
-          <span className="text-sm text-fg-subtle">No family</span>
+          <span className="text-sm text-fg-subtle">{t("infra_row_no_family")}</span>
         )}
         <p className="flex items-center gap-4 text-xs text-fg-muted tabular-nums md:hidden">
           <span>
-            <span className="text-fg">{formatNumber(item.ips)}</span> addresses
+            {tNodes(
+              "infra_row_addresses",
+              { count: item.ips },
+              { number: <span className="text-fg">{formatNumber(item.ips)}</span> },
+            )}
           </span>
           <span>
-            <span className="text-fg">{formatNumber(item.sightings)}</span> sightings
+            {tNodes(
+              "infra_row_sightings",
+              { count: item.sightings },
+              { number: <span className="text-fg">{formatNumber(item.sightings)}</span> },
+            )}
           </span>
           <RelativeTime iso={item.last_seen} className="text-xs" />
         </p>

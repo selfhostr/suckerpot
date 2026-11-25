@@ -1,4 +1,6 @@
 import { Link } from "react-router"
+import { t } from "@/i18n"
+import { markSubject, subjectProps } from "@/app/view-transitions"
 import { CountryFlag } from "@/components/country-flag"
 import { FloodBadge } from "@/components/flood-badge"
 import { IPChip } from "@/components/ip-chip"
@@ -9,6 +11,7 @@ import { SessionStory } from "@/components/session-story"
 import { SeverityBadge } from "@/components/severity-badge"
 import { TagBadge } from "@/components/tag-badge"
 import type { Session } from "@/lib/api"
+import { countryName } from "@/lib/format"
 import { describeSession, describeSessionText } from "@/lib/describe-session"
 import { connectionsOf, floodSpan, floodSpanLong, isFlood } from "@/lib/floods"
 import { sessionSeverity } from "@/lib/severity"
@@ -18,11 +21,21 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
+/** The desktop columns of the Attacks list: sensor, source, what happened, tags, started. */
+export const SESSION_COLUMNS_GRID =
+  "md:grid-cols-[5.5rem_14rem_minmax(0,1fr)_minmax(0,auto)_7rem] md:gap-x-4"
+
 interface SessionRowProps {
   session: Session
   masked?: boolean
   /** Hide the address and origin, e.g. on an attacker profile where they are all the same. */
   showSource?: boolean
+  /**
+   * `story` (default): sensor, then one sentence with the address in it. `columns`: the address
+   * and country get a column of their own, and the sentence wraps instead of truncating; used
+   * under a column header.
+   */
+  layout?: "story" | "columns"
   /** Always the two-line layout, for narrow containers on wide screens (a side sheet). */
   compact?: boolean
   className?: string
@@ -54,8 +67,10 @@ export function SessionRow({
   masked,
   showSource = true,
   compact = false,
+  layout = "story",
   className,
 }: SessionRowProps) {
+  const columns = layout === "columns" && showSource && !compact
   const severity = sessionSeverity(session)
   const flagged = severity === "warning" || severity === "severe"
   const flood = isFlood(session)
@@ -64,22 +79,32 @@ export function SessionRow({
     <div
       className={cn(
         "group/row relative grid grid-cols-1 items-center gap-y-1.5 px-4 py-3 transition-colors duration-150 hover:bg-surface-hover/50 sm:px-5",
-        !compact && "md:grid-cols-[5.5rem_minmax(0,1fr)_auto_6rem] md:gap-x-4",
+        !compact &&
+          (columns
+            ? SESSION_COLUMNS_GRID
+            : "md:grid-cols-[5.5rem_minmax(0,1fr)_auto_6rem] md:gap-x-4"),
         className,
       )}
+      data-vt-row
     >
       <Link
         to={`/attacks/${encodeURIComponent(session.session_id)}`}
+        onClick={(e) => markSubject(`session:${session.session_id}`, e)}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
         aria-label={
           flood
-            ? `${describeSessionText(session)}, between ${floodSpan(session)}`
+            ? t("sessions_row_flood_label", {
+                story: describeSessionText(session),
+                span: floodSpan(session),
+              })
             : describeSessionText(session)
         }
       />
       {/* Mobile (< md): two lines. Badge, address and time first; the story below. */}
       <div className={cn("flex min-w-0 items-center gap-2.5", !compact && "md:hidden")}>
-        <SensorBadge sensor={session.sensor} />
+        <span {...subjectProps(`session:${session.session_id}`)} className="inline-flex shrink-0">
+          <SensorBadge sensor={session.sensor} />
+        </span>
         {showSource ? (
           <>
             <IPChip
@@ -114,6 +139,7 @@ export function SessionRow({
           session={session}
           masked={masked}
           showSource={showSource}
+          columns={columns}
           severity={severity}
           flagged={flagged}
         />
@@ -126,12 +152,14 @@ function DesktopLine({
   session,
   masked,
   showSource,
+  columns,
   severity,
   flagged,
 }: {
   session: Session
   masked?: boolean
   showSource: boolean
+  columns: boolean
   severity: ReturnType<typeof sessionSeverity>
   flagged: boolean
 }) {
@@ -139,8 +167,35 @@ function DesktopLine({
   return (
     <>
       {/* Desktop: one line. */}
-      <SensorBadge sensor={session.sensor} className="hidden justify-self-start md:inline-flex" />
-      {showSource ? (
+      <span
+        {...subjectProps(`session:${session.session_id}`)}
+        className="hidden justify-self-start md:inline-flex"
+      >
+        <SensorBadge sensor={session.sensor} />
+      </span>
+      {columns ? (
+        <>
+          <div className="hidden min-w-0 flex-col items-start gap-0.5 md:flex">
+            <IPChip
+              ip={session.src_ip}
+              masked={masked}
+              variant="ghost"
+              className="relative z-10 text-xs"
+            />
+            <span className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
+              <CountryFlag code={session.country} decorative />
+              <span title={session.org ?? undefined}>
+                {session.country
+                  ? (countryName(session.country) ?? session.country)
+                  : t("sessions_unknown_country")}
+              </span>
+            </span>
+          </div>
+          <p className="hidden text-fg md:block">
+            {capitalize(describeSession(session).predicate)}
+          </p>
+        </>
+      ) : showSource ? (
         <SessionStory
           session={session}
           masked={masked}
@@ -160,10 +215,15 @@ function DesktopLine({
         {session.benign ? <ScannerBadge name={session.scanner_name} className="z-10" /> : null}
         {/* The scanner badge already says it: the rules engine's "scanner" tag would repeat it. */}
         {/* A flood row keeps its room for the story: its tags are one click away on its page. */}
-        {(flood ? [] : session.benign ? session.tags.filter((t) => t !== "scanner") : session.tags)
+        {(flood
+          ? []
+          : session.benign
+            ? session.tags.filter((tag) => tag !== "scanner")
+            : session.tags
+        )
           .slice(0, 2)
-          .map((t) => (
-            <TagBadge key={t} tag={t} className="z-10" />
+          .map((tag) => (
+            <TagBadge key={tag} tag={tag} className="z-10" />
           ))}
         {flagged ? <SeverityBadge severity={severity} iconOnly className="z-10" /> : null}
       </div>

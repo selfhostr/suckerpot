@@ -37,6 +37,8 @@ Download from the Blocklists page, or `GET /api/v1/defend/export` while signed i
 | `txt` | One value per line (any kind) | Proxies, DNS filters, EDR import lists |
 | `csv` | Every column, with a header | Spreadsheets and reports |
 
+To keep a firewall current instead of downloading again, press **Firewall steps** under the download button: a side sheet gives the steps for OPNsense or pfSense and a button that copies them.
+
 Every value is validated again when it is written out. In CSV, a cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading apostrophe, and control characters are removed, so opening a file in a spreadsheet cannot run a formula. Demo entries are left out unless you ask for them.
 
 ### The subscription feed (optional)

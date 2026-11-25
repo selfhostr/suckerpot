@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { useId, useState, type SyntheticEvent } from "react"
+import { t } from "@/i18n"
 import { Field, FormError } from "@/components/form-parts"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
@@ -28,10 +29,30 @@ export interface OverrideTarget {
 }
 
 const EXPIRY = [
-  { value: "0", label: "Never" },
-  { value: "30", label: "30 days" },
-  { value: "90", label: "90 days" },
-  { value: "365", label: "1 year" },
+  {
+    value: "0",
+    get label() {
+      return t("defend_expiry_never")
+    },
+  },
+  {
+    value: "30",
+    get label() {
+      return t("defend_expiry_days", { count: 30 })
+    },
+  },
+  {
+    value: "90",
+    get label() {
+      return t("defend_expiry_days", { count: 90 })
+    },
+  },
+  {
+    value: "365",
+    get label() {
+      return t("defend_expiry_year")
+    },
+  },
 ] as const
 
 function OverrideForm({
@@ -66,11 +87,11 @@ function OverrideForm({
     setValueError(null)
     setPasswordError(null)
     if (!password) {
-      setPasswordError("Enter your password to confirm.")
+      setPasswordError(t("override_password_required"))
       return
     }
     if (!value.trim()) {
-      setValueError("Enter the value to " + (allow ? "allow" : "block") + ".")
+      setValueError(t(allow ? "override_value_required_allow" : "override_value_required_block"))
       return
     }
     setPending(true)
@@ -106,31 +127,30 @@ function OverrideForm({
       noValidate
     >
       <DialogHeader className="text-left">
-        <DialogTitle>{allow ? "Always allow" : "Always block"}</DialogTitle>
+        <DialogTitle>{allow ? t("override_action_allow") : t("override_action_block")}</DialogTitle>
         <DialogDescription>
-          {allow
-            ? "An allowed value is left out of every export and feed, whatever its score."
-            : "A blocked value is added to every export and feed, whatever its score."}{" "}
-          Posting the same value again replaces this rule.
+          {allow ? t("override_dialog_allow_description") : t("override_dialog_block_description")}
         </DialogDescription>
       </DialogHeader>
 
       {target ? null : (
         <>
           <SegmentedControl
-            label="What to list"
+            size="form"
+            label={t("override_what_to_list")}
             value={kind}
             onChange={setKind}
             options={BLOCK_KINDS.map((k) => ({ value: k, label: KIND_META[k].label }))}
             className="flex-wrap self-start"
           />
           <SegmentedControl
-            label="Rule"
+            size="form"
+            label={t("override_rule")}
             value={action}
             onChange={setAction}
             options={[
-              { value: "allow", label: "Always allow" },
-              { value: "block", label: "Always block" },
+              { value: "allow", label: t("override_action_allow") },
+              { value: "block", label: t("override_action_block") },
             ]}
             className="self-start"
           />
@@ -158,7 +178,7 @@ function OverrideForm({
         )}
       </Field>
 
-      <Field id={ids.note} label="Note (optional)" hint="Why, for the next person who wonders.">
+      <Field id={ids.note} label={t("override_note")} hint={t("override_note_hint")}>
         <Input
           id={ids.note}
           value={note}
@@ -171,9 +191,10 @@ function OverrideForm({
       </Field>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-fg">Lasts</span>
+        <span className="text-sm font-medium text-fg">{t("override_lasts")}</span>
         <SegmentedControl
-          label="Lasts"
+          size="form"
+          label={t("override_lasts")}
           value={expiry}
           onChange={setExpiry}
           options={EXPIRY}
@@ -183,8 +204,8 @@ function OverrideForm({
 
       <Field
         id={ids.pass}
-        label="Your password"
-        hint="Changing what the lists contain asks for your dashboard password again."
+        label={t("override_password")}
+        hint={t("override_password_hint")}
         error={passwordError ?? undefined}
       >
         <Input
@@ -203,10 +224,14 @@ function OverrideForm({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : allow ? "Always allow" : "Always block"}
+          {pending
+            ? t("inventory_saving")
+            : allow
+              ? t("override_action_allow")
+              : t("override_action_block")}
         </Button>
       </DialogFooter>
     </form>

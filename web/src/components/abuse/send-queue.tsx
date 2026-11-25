@@ -10,11 +10,12 @@ import { SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { abuseApi, abuseKeys, describeAbuseError, withSameDayConfirm } from "@/lib/abuse"
 import { buildMailto, describeQueue, type QueueItem } from "@/lib/abuse-send"
-import { formatNumber } from "@/lib/format"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 
-const isTyping = (t: EventTarget | null): boolean =>
-  t instanceof HTMLElement &&
-  (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))
+const isTyping = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
 
 function Kbd({ children }: { children: string }) {
   return (
@@ -29,24 +30,15 @@ function HandlerHelp() {
   return (
     <details className="group rounded-md border px-3 py-2 text-sm">
       <summary className="cursor-pointer rounded-sm text-fg-muted marker:text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-        Make Proton Mail open email links
+        {t("send_queue_handler_title")}
       </summary>
       <div className="mt-2 space-y-2 text-fg-muted">
-        <p>Free Proton addresses have no SMTP access: this queue is how to use them.</p>
-        <p>
-          The Open in mail app button uses a standard email link. Your browser decides which app
-          answers it.
-        </p>
+        <p>{t("send_queue_handler_free")}</p>
+        <p>{t("send_queue_handler_link")}</p>
         <ol className="list-decimal space-y-1 pl-5">
-          <li>
-            In your browser&apos;s settings, choose Proton Mail as the app for email links, if your
-            browser offers it. The setting is usually named after links, handlers or default apps.
-          </li>
-          <li>Or set the default mail app in your operating system.</li>
-          <li>
-            If nothing opens, use the copy buttons and paste the recipient, subject and message into
-            a new mail yourself.
-          </li>
+          <li>{t("send_queue_handler_browser")}</li>
+          <li>{t("send_queue_handler_os")}</li>
+          <li>{t("send_queue_handler_copy")}</li>
         </ol>
       </div>
     </details>
@@ -132,11 +124,11 @@ export function SendQueue() {
     return (
       <EmptyState
         icon={Info}
-        title="Could not load the queue"
+        title={t("send_queue_load_failed")}
         description={describeAbuseError(q.error)}
         action={
           <Button variant="outline" size="sm" onClick={() => void q.refetch()}>
-            Try again
+            {t("common_try_again")}
           </Button>
         }
       />
@@ -145,14 +137,13 @@ export function SendQueue() {
     return (
       <EmptyState
         icon={CircleCheck}
-        title={done > 0 ? "All done" : "Nothing to send"}
+        title={done > 0 ? t("send_queue_all_done") : t("send_queue_nothing")}
         description={
           done > 0
-            ? `You sent ${formatNumber(done)} ${done === 1 ? "report" : "reports"} in this session.`
-            : (q.data.missing.length > 0
-                ? "Set a reply contact in the Reporting settings first. "
-                : "") +
-              "A report appears here once it passes the identity check, your reply contact is set and it is still a draft or reviewed."
+            ? t("send_queue_sent_count", { count: done })
+            : t("send_queue_empty_explain", {
+                needContact: q.data.missing.length > 0 ? "yes" : "no",
+              })
         }
       />
     )
@@ -166,23 +157,27 @@ export function SendQueue() {
         className="flex items-start gap-2.5 rounded-md border border-dashed border-border-strong px-3 py-2.5 text-sm text-fg"
       >
         <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
-        Open your mailbox through your VPN and check the sender address before sending.
+        {t("send_queue_vpn_note")}
       </p>
       <FindingCard
-        eyebrow="To send"
+        eyebrow={t("send_queue_eyebrow")}
+        help="queue"
         finding={describeQueue(sorted.length)}
         action={
-          <span className="text-sm text-fg-muted tabular-nums" aria-label="Progress">
-            Report {formatNumber(done + 1)} of {formatNumber(total)}
+          <span
+            className="text-sm text-fg-muted tabular-nums"
+            aria-label={t("send_queue_progress_aria")}
+          >
+            {t("send_queue_progress", { current: done + 1, total })}
           </span>
         }
       >
         <div key={current.id} className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            <CopyField label="Recipient" value={current.recipient} />
-            <CopyField label="Subject" value={current.subject} />
+            <CopyField label={t("send_queue_field_recipient")} value={current.recipient} />
+            <CopyField label={t("send_queue_field_subject")} value={current.subject} />
           </div>
-          <CopyField label="Message" value={current.body_text} multiline />
+          <CopyField label={t("send_queue_field_message")} value={current.body_text} multiline />
           <SendControl
             reportId={current.id}
             ready
@@ -203,14 +198,14 @@ export function SendQueue() {
                       setCopiedNote({ id: current.id, full: mail.bodyIncluded })
                     }}
                   >
-                    <ExternalLink aria-hidden /> Open in mail app
+                    <ExternalLink aria-hidden /> {t("send_queue_open_mail")}
                   </a>
                 </Button>
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => void sentNext()}>
-                  <Check aria-hidden /> {busy ? "Saving…" : "Mark as sent, next"}
+                  <Check aria-hidden /> {busy ? t("send_queue_saving") : t("send_queue_mark_next")}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={sorted.length < 2} onClick={skip}>
-                  <SkipForward aria-hidden /> Skip
+                  <SkipForward aria-hidden /> {t("send_queue_skip")}
                 </Button>
               </>
             }
@@ -218,16 +213,19 @@ export function SendQueue() {
           <p role="status" className="text-sm text-fg-muted empty:hidden">
             {copiedNote?.id === current.id
               ? mail.bodyIncluded
-                ? "The full message was also copied to your clipboard."
-                : "The message is too long for an email link, so the mail opens without it. The full message was copied to your clipboard: paste it into the body."
+                ? t("send_queue_copied_full")
+                : t("send_queue_copied_too_long")
               : null}
           </p>
           <p role="alert" className="text-sm text-fg empty:hidden">
             {error}
           </p>
           <p className="hidden text-xs text-fg-muted md:block">
-            Shortcuts: <Kbd>o</Kbd> open in mail app, <Kbd>n</Kbd> mark as sent and go to the next,{" "}
-            <Kbd>s</Kbd> skip.
+            {tNodes(
+              "send_queue_shortcuts",
+              {},
+              { o: <Kbd>o</Kbd>, n: <Kbd>n</Kbd>, s: <Kbd>s</Kbd> },
+            )}
           </p>
         </div>
       </FindingCard>

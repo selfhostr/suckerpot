@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { t } from "@/i18n"
 import { describeSetup } from "@/lib/setup"
 import { TOUR_STEPS } from "@/lib/tour"
 import { cn } from "@/lib/utils"
@@ -23,20 +24,15 @@ const LAST = TOUR_STEPS.length - 1
 function LastStepChecklist({ onNavigate }: { onNavigate: () => void }) {
   const { canWrite } = useAuth()
   const q = useSetupStatus()
-  if (!canWrite)
-    return (
-      <p className="text-sm text-fg-muted">
-        An administrator can see what is left to set up in Settings.
-      </p>
-    )
+  if (!canWrite) return <p className="text-sm text-fg-muted">{t("tour_admin_only")}</p>
   return (
-    <section aria-label="What is left to set up" className="space-y-2">
+    <section aria-label={t("tour_setup_left")} className="space-y-2">
       <p className="text-sm font-medium text-fg">
         {q.data
           ? describeSetup(q.data)
           : q.isError
-            ? "The setup status is not available right now."
-            : "Checking the setup…"}
+            ? t("tour_setup_unavailable")
+            : t("tour_setup_checking")}
       </p>
       {q.data ? (
         <SetupItems
@@ -52,7 +48,7 @@ function LastStepChecklist({ onNavigate }: { onNavigate: () => void }) {
         onClick={onNavigate}
         className="inline-block rounded-sm text-sm font-medium text-fg underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
       >
-        See all in Settings
+        {t("tour_see_settings")}
       </Link>
       <p className="text-xs text-fg-muted">
         <FirewallNote />
@@ -98,9 +94,9 @@ function TourSteps({ onClose }: { onClose: () => void }) {
       <div className="grid min-h-0 min-w-0 gap-4 overflow-y-auto p-5 sm:p-6">
         <DialogHeader className="gap-1.5 text-left" aria-live="polite">
           <p className="text-xs font-medium text-fg-muted">
-            Step {index + 1} of {TOUR_STEPS.length}
+            {t("tour_step_of", { step: index + 1, total: TOUR_STEPS.length })}
           </p>
-          <DialogTitle className="text-lg leading-snug text-pretty">{step.title}</DialogTitle>
+          <DialogTitle className="text-pretty">{step.title}</DialogTitle>
           <DialogDescription className="text-sm text-pretty">{step.body}</DialogDescription>
         </DialogHeader>
 
@@ -111,7 +107,7 @@ function TourSteps({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <ol aria-label="Tour progress" className="flex items-center justify-center gap-1.5">
+        <ol aria-label={t("tour_progress")} className="flex items-center justify-center gap-1.5">
           {TOUR_STEPS.map((s, i) => (
             <li
               key={s.id}
@@ -122,8 +118,9 @@ function TourSteps({ onClose }: { onClose: () => void }) {
               )}
             >
               <span className="sr-only">
-                Step {i + 1}
-                {i === index ? " (current)" : ""}
+                {i === index
+                  ? t("tour_step_current", { step: i + 1 })
+                  : t("tour_step_n", { step: i + 1 })}
               </span>
             </li>
           ))}
@@ -131,19 +128,19 @@ function TourSteps({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-end gap-2">
           {!last ? (
             <Button variant="ghost" onClick={onClose} className="mr-auto sm:mr-0">
-              Skip tour
+              {t("tour_skip")}
             </Button>
           ) : null}
           {index > 0 ? (
             <Button variant="outline" onClick={() => setIndex(index - 1)}>
-              Back
+              {t("common_back")}
             </Button>
           ) : null}
           {last ? (
-            <Button onClick={onClose}>Done</Button>
+            <Button onClick={onClose}>{t("common_done")}</Button>
           ) : (
             <Button onClick={() => setIndex(index + 1)} autoFocus>
-              Next
+              {t("common_next")}
             </Button>
           )}
         </div>

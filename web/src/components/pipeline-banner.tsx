@@ -3,6 +3,8 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { usePipeline } from "@/hooks/use-pipeline"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import {
   dismissParked,
   parkedDismissed,
@@ -40,7 +42,7 @@ function Stalled({ p }: { p: PipelineStatus }) {
       className="tint-severe flex items-start gap-3 rounded-lg border border-sev-severe/40 px-4 py-3"
     >
       <span role="alert" className="sr-only">
-        Events are not being stored.
+        {t("pipeline_banner_alert")}
       </span>
       <OctagonAlert
         aria-hidden
@@ -53,13 +55,30 @@ function Stalled({ p }: { p: PipelineStatus }) {
         </p>
         {p.last_error ? (
           <p className="text-xs break-words text-fg-muted">
-            Last error: <span className="font-mono text-fg">{p.last_error}</span>
+            {tNodes(
+              "pipeline_banner_last_error",
+              {},
+              { error: <span className="font-mono text-fg">{p.last_error}</span> },
+            )}
           </p>
         ) : null}
         <p className="text-xs text-fg-muted">
-          Check the ingest service:{" "}
-          <code className="font-mono whitespace-nowrap text-fg">docker compose ps ingest</code> and{" "}
-          <code className="font-mono whitespace-nowrap text-fg">docker compose logs ingest</code>.
+          {tNodes(
+            "pipeline_banner_check",
+            {},
+            {
+              ps: (
+                <code className="font-mono whitespace-nowrap text-fg">
+                  docker compose ps ingest
+                </code>
+              ),
+              logs: (
+                <code className="font-mono whitespace-nowrap text-fg">
+                  docker compose logs ingest
+                </code>
+              ),
+            },
+          )}
         </p>
       </div>
     </div>
@@ -76,15 +95,15 @@ function Parked({ count, onDismiss }: { count: number; onDismiss: () => void }) 
       <p className="min-w-0 flex-1 text-pretty">
         {parkedSentence(count)}{" "}
         <Link to="/settings" className="font-medium text-fg underline underline-offset-2">
-          See Settings
+          {t("pipeline_banner_see_settings")}
         </Link>
       </p>
       <Button
         type="button"
         variant="ghost"
-        size="icon"
-        aria-label="Dismiss this notice"
-        className="size-8 shrink-0"
+        size="icon-sm"
+        aria-label={t("pipeline_banner_dismiss")}
+        className="shrink-0"
         onClick={onDismiss}
       >
         <X aria-hidden className="size-4" />

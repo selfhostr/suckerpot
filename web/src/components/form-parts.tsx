@@ -1,5 +1,6 @@
 import { CircleAlert } from "lucide-react"
 import type { ReactNode } from "react"
+import { t } from "@/i18n"
 
 /** A labelled form field with a hint, or an error that replaces the hint. */
 export function Field({
@@ -23,7 +24,7 @@ export function Field({
       <label htmlFor={id} className="text-sm font-medium text-fg">
         {label}
         {optional ? (
-          <span className="ml-1.5 text-xs font-normal text-fg-muted">Optional</span>
+          <span className="ml-1.5 text-xs font-normal text-fg-muted">{t("ui_optional")}</span>
         ) : null}
       </label>
       {children}
@@ -63,7 +64,7 @@ export function UnsavedHint({ show }: { show: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
       <span aria-hidden className="size-1.5 rounded-full bg-fg" />
-      Unsaved changes
+      {t("ui_unsaved_changes")}
     </span>
   )
 }

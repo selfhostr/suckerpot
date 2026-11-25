@@ -1,7 +1,11 @@
 import { Check, Copy } from "lucide-react"
 import { useIpMask } from "@/app/ip-mask"
+import { ExpandToggle } from "@/components/expand-toggle"
 import { Button } from "@/components/ui/button"
 import { useCopy } from "@/hooks/use-copy"
+import { useExpandable } from "@/hooks/use-expandable"
+import { t } from "@/i18n"
+import { lowerNoun } from "@/lib/abuse"
 import { maskIpsInText } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -20,36 +24,50 @@ interface CopyFieldProps {
 export function CopyField({ label, value, multiline = false, className }: CopyFieldProps) {
   const { copied, copy } = useCopy()
   const { masked } = useIpMask()
+  const { ref: boxRef, expanded, overflowing, toggle } = useExpandable<HTMLPreElement>()
   const shown = masked ? maskIpsInText(value) : value
   return (
     <div className={cn("min-w-0 space-y-1.5", className)}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-fg-muted">{label}</span>
+        <span className="min-w-0 text-xs font-medium text-fg-muted">{label}</span>
         {masked ? null : (
           <Button
             variant="ghost"
-            size="xs"
+            size="sm"
             onClick={() => void copy(value)}
-            aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
+            aria-label={
+              copied
+                ? t("abuse_copy_field_copied_aria", { label })
+                : t("abuse_copy_field_copy_aria", { label: lowerNoun(label) })
+            }
           >
             {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-            <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
+            <span aria-live="polite">{copied ? t("common_copied") : t("common_copy")}</span>
           </Button>
         )}
       </div>
       {/* The frame holds the border, so the scroll fade only fades the text. */}
       <div className="overflow-hidden rounded-md border bg-bg has-[pre:focus-visible]:ring-2 has-[pre:focus-visible]:ring-ring">
         <pre
+          ref={boxRef}
           aria-label={label}
           tabIndex={multiline ? 0 : undefined}
           className={cn(
             "scroll-fade-y overflow-auto px-3 py-2 font-mono text-xs/5 break-words whitespace-pre-wrap text-fg outline-none",
-            multiline ? "max-h-96 min-h-32" : "max-h-20",
+            multiline ? cn("min-h-32", !expanded && "max-h-80") : "max-h-20",
           )}
         >
           {shown || " "}
         </pre>
       </div>
+      {multiline ? (
+        <ExpandToggle
+          expanded={expanded}
+          overflowing={overflowing}
+          onToggle={toggle}
+          label={lowerNoun(label)}
+        />
+      ) : null}
     </div>
   )
 }

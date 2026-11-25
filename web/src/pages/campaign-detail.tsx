@@ -3,11 +3,12 @@ import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, ArrowRight, FileQuestion, GitMerge, ShieldCheck } from "lucide-react"
 import { Link, useParams } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { subjectProps } from "@/app/view-transitions"
 import { ExportMenu } from "@/components/abuse/export-menu"
 import { ExcerptBlock } from "@/components/campaigns/excerpt-block"
 import { IndicatorList } from "@/components/campaigns/indicator-list"
 import { StageTrail } from "@/components/campaigns/stage-trail"
-import { StoryStages } from "@/components/campaigns/story-stages"
+import { TechniqueChips } from "@/components/campaigns/technique-chips"
 import { DayBars } from "@/components/charts/day-bars"
 import { CountryFlag } from "@/components/country-flag"
 import { EmptyState } from "@/components/empty-state"
@@ -30,7 +31,8 @@ import {
   type Campaign,
   type CampaignTimeline,
 } from "@/lib/campaigns"
-import { formatNumber, maskDefangedText, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { formatNumber, maskDefangedText } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const TIMELINE_DAYS = 7
@@ -45,24 +47,27 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-function activityFinding(t: CampaignTimeline): string {
-  if (t.linked === 0) return `No sessions in the last ${TIMELINE_DAYS} days.`
-  const days = dailyFromHourly(t.points, TIMELINE_DAYS)
+function activityFinding(tl: CampaignTimeline): string {
+  if (tl.linked === 0) return t("campaign_activity_none", { days: TIMELINE_DAYS })
+  const days = dailyFromHourly(tl.points, TIMELINE_DAYS)
   const busiest = days.reduce(
     (best, d) => (d.events > best.events ? d : best),
     days[0] ?? { day: "", events: 0 },
   )
   const active = days.filter((d) => d.events > 0).length
-  const lead = `${plural(t.linked, "session")} in the last ${TIMELINE_DAYS} days`
-  if (active <= 1) return `${lead}, all on ${formatDay(busiest.day)}.`
-  return `${lead}, on ${active} different days. The busiest was ${formatDay(busiest.day)} with ${plural(busiest.events, "session")}.`
+  const values = {
+    sessions: tl.linked,
+    days: TIMELINE_DAYS,
+    busiest: formatDay(busiest.day),
+  }
+  if (active <= 1) return t("campaign_activity_one_day", values)
+  return t("campaign_activity_many_days", { ...values, active, events: busiest.events })
 }
 
 function sessionsFinding(total: number, shown: number | null): string {
-  if (shown === 0) return `None of the ${plural(total, "session")} is still stored.`
-  if (shown !== null && total > shown)
-    return `The latest ${shown} of ${formatNumber(total)} sessions.`
-  return `${plural(total, "session")}, newest first.`
+  if (shown === 0) return t("campaign_sessions_none_stored", { count: total })
+  if (shown !== null && total > shown) return t("campaign_sessions_latest", { shown, total })
+  return t("campaign_sessions_newest", { count: total })
 }
 
 /** The advice, first sentence as the finding and the rest as an ordered checklist. */
@@ -78,9 +83,9 @@ function WhatToDo({
   return (
     <FindingCard
       className={className}
-      eyebrow="What to do"
-      finding={tips?.[0] ? shown(tips[0]) : "Working out what to do…"}
-      detail={tips && tips.length > 1 ? "Then, in this order:" : undefined}
+      eyebrow={t("campaign_todo_eyebrow")}
+      finding={tips?.[0] ? shown(tips[0]) : t("campaign_todo_working")}
+      detail={tips && tips.length > 1 ? t("campaign_todo_then") : undefined}
     >
       {tips && tips.length > 1 ? (
         <ol className="space-y-2.5">
@@ -106,7 +111,7 @@ function Back() {
       to="/campaigns"
       className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
     >
-      <ArrowLeft aria-hidden className="size-3.5" /> Campaigns
+      <ArrowLeft aria-hidden className="size-3.5" /> {t("campaigns_page_title")}
     </Link>
   )
 }
@@ -153,15 +158,11 @@ export function CampaignDetailPage() {
         </div>
         <EmptyState
           icon={FileQuestion}
-          title={notFound ? "Campaign not found" : "Could not load this campaign"}
-          description={
-            notFound
-              ? "It may have been merged into another one, or removed to keep the database small."
-              : campaign.error?.message
-          }
+          title={notFound ? t("campaign_not_found_title") : t("campaign_error_title")}
+          description={notFound ? t("campaign_not_found_hint") : campaign.error?.message}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/campaigns">Back to campaigns</Link>
+              <Link to="/campaigns">{t("campaign_back_to_list")}</Link>
             </Button>
           }
         />
@@ -202,21 +203,26 @@ export function CampaignDetailPage() {
               ))}
             </div>
             <div className="flex items-start gap-1.5">
-              <h1 className="text-xl font-semibold tracking-tight text-pretty text-fg">{c.name}</h1>
+              <h1
+                {...subjectProps(`campaign:${c.id}`)}
+                className="type-page-title text-pretty text-fg"
+              >
+                {c.name}
+              </h1>
               <PageHelp id="campaign" className="mt-0.5" />
             </div>
-            <p className="max-w-2xl text-base text-pretty text-fg-muted">
-              {st?.headline ?? `${describeScale(c)}.`}
+            <p className="max-w-2xl type-lede text-pretty text-fg-muted">
+              {st?.headline ?? t("campaign_scale_sentence", { scale: describeScale(c) })}
             </p>
             {c.status === "merged" && c.merged_into ? (
               <p className="inline-flex items-center gap-2 rounded-md border border-dashed border-border-strong px-3 py-2 text-sm text-fg-muted">
                 <GitMerge aria-hidden className="size-4" />
-                This campaign was found to be part of another one.
+                {t("campaign_merged_note")}
                 <Link
                   className="font-medium text-fg underline underline-offset-4"
                   to={`/campaigns/${c.merged_into}`}
                 >
-                  Open the combined campaign
+                  {t("campaign_merged_open")}
                 </Link>
               </p>
             ) : null}
@@ -232,9 +238,9 @@ export function CampaignDetailPage() {
 
       {c ? (
         <dl className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border bg-surface p-4 shadow-sm sm:grid-cols-3 sm:p-5 lg:grid-cols-6">
-          <Meta label="Sessions">{formatNumber(c.sessions)}</Meta>
-          <Meta label="Addresses">{formatNumber(c.sources)}</Meta>
-          <Meta label="Countries">
+          <Meta label={t("campaign_meta_sessions")}>{formatNumber(c.sessions)}</Meta>
+          <Meta label={t("campaign_meta_addresses")}>{formatNumber(c.sources)}</Meta>
+          <Meta label={t("campaign_meta_countries")}>
             {c.countries.length === 0 ? (
               "–"
             ) : (
@@ -248,11 +254,11 @@ export function CampaignDetailPage() {
               </span>
             )}
           </Meta>
-          <Meta label="Networks">{formatNumber(c.asns.length)}</Meta>
-          <Meta label="First seen">
+          <Meta label={t("campaign_meta_networks")}>{formatNumber(c.asns.length)}</Meta>
+          <Meta label={t("campaign_meta_first_seen")}>
             <RelativeTime iso={c.first_seen} className="text-sm font-medium text-fg" />
           </Meta>
-          <Meta label="Last seen">
+          <Meta label={t("campaign_meta_last_seen")}>
             <RelativeTime iso={c.last_seen} className="text-sm font-medium text-fg" />
           </Meta>
         </dl>
@@ -261,31 +267,34 @@ export function CampaignDetailPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <FindingCard
-            eyebrow="How the attack unfolded"
+            eyebrow={t("campaign_story_eyebrow")}
             finding={
               c
-                ? `${plural(c.stages.length, "stage")}: ${stageTrailText(c.stages)}.`
-                : "Reading the story…"
+                ? t("campaign_story_finding", {
+                    count: c.stages.length,
+                    stages: stageTrailText(c.stages),
+                  })
+                : t("campaign_story_reading")
             }
-            detail="Each step in plain English, with the MITRE ATT&CK techniques behind it."
+            detail={t("campaign_story_detail")}
           >
             {c ? <StageTrail stages={c.stages} variant="steps" className="mb-6" /> : null}
             {story.isPending ? (
-              <div role="status" aria-label="Loading" className="space-y-4">
+              <div role="status" aria-label={t("common_loading")} className="space-y-4">
                 <Skeleton className="h-16 w-full" />
                 <Skeleton className="h-16 w-full" />
                 <Skeleton className="h-16 w-full" />
               </div>
             ) : story.isError ? (
-              <p className="text-sm text-fg-muted">Could not load the story.</p>
+              <p className="text-sm text-fg-muted">{t("campaign_story_error")}</p>
             ) : st && st.stages.length > 0 ? (
-              <StoryStages stages={st.stages} campaignId={id} className="border-t pt-5" />
+              <TechniqueChips stages={st.stages} campaignId={id} className="border-t pt-5" />
             ) : (
               <EmptyState
                 variant="bare"
                 icon={FileQuestion}
-                title="No techniques recorded"
-                description="ATT&CK labelling was off when these sessions arrived, so there is no story to tell yet."
+                title={t("campaign_no_techniques_title")}
+                description={t("campaign_no_techniques_hint")}
                 className="py-8"
               />
             )}
@@ -296,14 +305,14 @@ export function CampaignDetailPage() {
 
           {st?.excerpt ? (
             <FindingCard
-              eyebrow="From a real session"
-              finding={`This is what one of the ${formatNumber(st.counts.sessions)} sessions did.`}
+              eyebrow={t("campaign_excerpt_eyebrow")}
+              finding={t("campaign_excerpt_finding", { count: st.counts.sessions })}
               footer={
                 <Link
                   className="inline-flex items-center gap-1.5 font-medium text-fg hover:underline hover:underline-offset-4"
                   to={`/attacks/${encodeURIComponent(st.excerpt.session_id)}`}
                 >
-                  Open the full session <ArrowRight aria-hidden className="size-3.5" />
+                  {t("campaign_open_session")} <ArrowRight aria-hidden className="size-3.5" />
                 </Link>
               }
             >
@@ -312,17 +321,19 @@ export function CampaignDetailPage() {
           ) : null}
 
           <FindingCard
-            eyebrow="Activity"
-            finding={timeline.data ? activityFinding(timeline.data) : "Reading the activity…"}
+            eyebrow={t("campaign_activity_eyebrow")}
+            finding={
+              timeline.data ? activityFinding(timeline.data) : t("campaign_activity_reading")
+            }
           >
             {timeline.isPending ? (
               <Skeleton className="h-32 w-full" />
             ) : timeline.isError ? (
-              <p className="text-sm text-fg-muted">Could not load the activity.</p>
+              <p className="text-sm text-fg-muted">{t("campaign_activity_error")}</p>
             ) : (
               <DayBars
                 points={dailyFromHourly(timeline.data.points, TIMELINE_DAYS)}
-                unit="sessions"
+                unit={t("campaign_chart_unit")}
                 days={TIMELINE_DAYS}
               />
             )}
@@ -333,15 +344,15 @@ export function CampaignDetailPage() {
           <WhatToDo tips={st?.what_to_do} className="hidden lg:block" />
 
           <FindingCard
-            eyebrow="What ties it together"
+            eyebrow={t("campaign_ties_eyebrow")}
             finding={
               indicators.data
                 ? indicators.data.items.length
-                  ? "These are the clues that made ingest group these sessions."
-                  : "No shared servers or files yet."
-                : "Reading the clues…"
+                  ? t("campaign_ties_finding")
+                  : t("campaign_ties_none")
+                : t("campaign_ties_reading")
             }
-            detail="Hosts are shown defanged so they cannot be clicked by mistake."
+            detail={t("campaign_ties_detail")}
           >
             {indicators.isPending ? (
               <SkeletonText lines={4} />
@@ -354,7 +365,7 @@ export function CampaignDetailPage() {
         {/* Full width, so each session keeps its one-line story instead of a truncated stub. */}
         <FindingCard
           className="lg:col-span-3"
-          eyebrow="Sessions"
+          eyebrow={t("campaign_sessions_eyebrow")}
           finding={
             c ? sessionsFinding(c.sessions, sessions.isSuccess ? sessionItems.length : null) : "…"
           }
@@ -365,7 +376,7 @@ export function CampaignDetailPage() {
                 className="inline-flex items-center gap-1.5 font-medium text-fg hover:underline hover:underline-offset-4"
                 to={`/attacks?campaign_id=${id}`}
               >
-                See every session in Attacks <ArrowRight aria-hidden className="size-3.5" />
+                {t("campaign_see_all_sessions")} <ArrowRight aria-hidden className="size-3.5" />
               </Link>
             ) : undefined
           }
@@ -376,12 +387,12 @@ export function CampaignDetailPage() {
             <EmptyState
               variant="bare"
               icon={FileQuestion}
-              title="The raw sessions have aged out"
-              description="Sessions are kept for a limited time. The counters above stay."
+              title={t("campaign_sessions_aged_title")}
+              description={t("campaign_sessions_aged_hint")}
               className="py-8"
             />
           ) : (
-            <ul aria-label="Sessions" className="divide-y border-t">
+            <ul aria-label={t("campaign_sessions_eyebrow")} className="divide-y border-t">
               {sessionItems.map((s) => (
                 <li key={s.session_id}>
                   <SessionRow session={s} masked={masked} />

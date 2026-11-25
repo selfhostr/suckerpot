@@ -2,10 +2,9 @@ import { useQuery } from "@tanstack/react-query"
 import { ChartNoAxesCombined } from "lucide-react"
 import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router"
-import { AnswersCard, DelayCard } from "@/components/results/answers-cards"
-import { CurveCard } from "@/components/results/curve-card"
+import { AnswersCard } from "@/components/results/answers-cards"
 import { EffectCard } from "@/components/results/effect-card"
-import { OverTimeCard } from "@/components/results/over-time-card"
+import { MonthCard } from "@/components/results/month-card"
 import { ProvidersCard } from "@/components/results/providers-card"
 import { TargetsCard } from "@/components/results/targets-card"
 import { EmptyState } from "@/components/empty-state"
@@ -14,7 +13,8 @@ import { PageHeader } from "@/components/page-header"
 import { SegmentedControl } from "@/components/segmented-control"
 import { StatTile } from "@/components/stat-tile"
 import { Button } from "@/components/ui/button"
-import { formatNumber, formatPercent } from "@/lib/format"
+import { t, tk } from "@/i18n"
+import { formatPercent } from "@/lib/format"
 import {
   CHANNEL_LABEL,
   resultKeys,
@@ -23,27 +23,33 @@ import {
   type OutcomeGroup,
   type ResultFilters,
 } from "@/lib/results"
-import { describeTakedownHeader, describeTtd, shortDelay } from "@/lib/results-sentences"
+import { describeTakedownHeader, describeTtd, longDelay, shortDelay } from "@/lib/results-sentences"
+import { cn } from "@/lib/utils"
 
 /** Filters that arrive from links elsewhere (a target page, the takedown tiles). */
-const FILTER_CHIPS: FilterChipDef[] = [
+const filterChips = (): FilterChipDef[] => [
   {
     param: "kind",
-    label: "Kind",
-    render: (v) => (v === "url" ? "URLs" : v === "host" ? "Hosts" : v),
+    label: t("results_filter_kind"),
+    render: (v) =>
+      v === "url"
+        ? t("results_targets_role_urls")
+        : v === "host"
+          ? t("results_targets_role_hosts")
+          : v,
   },
-  { param: "provider", label: "Provider" },
+  { param: "provider", label: t("results_filter_provider") },
   {
     param: "channel",
-    label: "Channel",
+    label: t("results_filter_channel"),
     render: (v) => (v in CHANNEL_LABEL ? CHANNEL_LABEL[v as Channel] : v),
   },
 ]
 
 const PERIODS = [
-  { value: "30", label: "30 days" },
-  { value: "90", label: "90 days" },
-  { value: "365", label: "1 year" },
+  { value: "30", labelKey: tk("results_period_30") },
+  { value: "90", labelKey: tk("results_period_90") },
+  { value: "365", labelKey: tk("results_period_365") },
 ] as const
 
 const DEFAULT_DAYS = 90
@@ -134,104 +140,136 @@ export function ResultsPage() {
     <>
       <PageHeader
         help="abuse-results"
-        title="Results"
+        title={t("results_title")}
         description={
           <span className="normal-nums">
-            {summary.isError
-              ? "The results could not be loaded."
-              : describeTakedownHeader(s, since)}
+            {summary.isError ? t("results_load_error") : describeTakedownHeader(s, since)}
           </span>
         }
         actions={
           <SegmentedControl
-            label="Period"
+            label={t("results_period_label")}
             value={presetOf(sinceParam)}
             onChange={(v) =>
               setParam("since", v === String(DEFAULT_DAYS) ? null : daysAgo(Number(v)))
             }
-            options={PERIODS}
+            options={PERIODS.map((p) => ({ value: p.value, label: t(p.labelKey) }))}
             className="scroll-fade-x max-w-full overflow-x-auto"
           />
         }
       />
 
-      {active.length > 0 ? <FilterBar className="mb-4" chips={FILTER_CHIPS} /> : null}
+      {active.length > 0 ? <FilterBar className="mb-4" chips={filterChips()} /> : null}
 
       {nothing ? (
         <EmptyState
           icon={ChartNoAxesCombined}
-          title="No report sent yet"
-          description="Results appear here once you send one."
+          title={t("results_empty_title")}
+          description={t("results_empty_description")}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/defend/abuse">Open the reports</Link>
+              <Link to="/defend/abuse">{t("results_open_reports")}</Link>
             </Button>
           }
         />
       ) : (
         <div className="space-y-4 normal-nums">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/*
+           * The headline numbers are figures on a ruled band, not more cards: how many reports,
+           * how many got an answer, how fast, and (with tracking) what happened to the targets.
+           */}
+          <div
+            className={cn(
+              "grid grid-cols-2 gap-x-6 gap-y-3 border-y py-3 sm:py-4 lg:grid-cols-4",
+              tracking ? "2xl:grid-cols-7" : "2xl:grid-cols-5",
+            )}
+          >
             <StatTile
-              label="Reports sent"
+              variant="figure"
+              label={t("results_tile_sent")}
               value={totals?.sent}
               loading={!totals}
-              hint={totals ? `${formatNumber(totals.no_answer)} without an answer` : undefined}
+              hint={totals ? t("results_tile_sent_hint", { count: totals.no_answer }) : undefined}
               href="/defend/abuse?status=sent"
             />
             <StatTile
-              label="Answered"
+              variant="figure"
+              label={t("results_tile_answered")}
               value={totals?.answered}
               loading={!totals}
               hint={
                 totals && totals.eligible > 0
-                  ? `${formatPercent(totals.answered / totals.eligible)} of reports sent 3+ days ago`
-                  : "Reports are counted after 3 days"
+                  ? t("results_tile_answered_hint", {
+                      percent: formatPercent(totals.answered / totals.eligible),
+                    })
+                  : t("results_tile_answered_hint_none")
               }
+            />
+            <StatTile
+              variant="figure"
+              label={t("results_tile_half")}
+              value={totals?.first_reply_p50_s ?? 0}
+              loading={!totals}
+              format={(n) =>
+                totals?.first_reply_p50_s == null ? t("results_none_yet") : longDelay(n)
+              }
+              hint={t("results_tile_half_hint")}
+            />
+            <StatTile
+              variant="figure"
+              label={t("results_tile_nine")}
+              value={totals?.first_reply_p90_s ?? 0}
+              loading={!totals}
+              format={(n) =>
+                totals?.first_reply_p90_s == null ? t("results_none_yet") : longDelay(n)
+              }
+              hint={t("results_tile_nine_hint")}
+            />
+            <StatTile
+              variant="figure"
+              label={t("results_tile_resolve")}
+              value={totals?.resolved_p50_s ?? 0}
+              loading={!totals}
+              format={(n) =>
+                totals?.resolved_p50_s == null ? t("results_none_yet") : longDelay(n)
+              }
+              hint={t("results_tile_resolve_hint", { count: totals?.by_outcome.resolved ?? 0 })}
             />
             {tracking ? (
               <>
                 <StatTile
-                  label="Taken down within 48 h"
+                  variant="figure"
+                  label={t("results_tile_down")}
                   value={s.urls.down_48h}
-                  hint={`of ${formatNumber(s.urls.eligible_48h)} reported URLs`}
+                  hint={t("results_tile_down_hint", { count: s.urls.eligible_48h })}
                 />
                 <StatTile
-                  label="Median time to takedown"
+                  variant="figure"
+                  label={t("results_tile_ttd")}
                   value={s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? s.urls.ttd_p50_s : 0}
                   format={(n) =>
-                    s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? shortDelay(n) : "n/a"
+                    s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? shortDelay(n) : t("results_na")
                   }
                   hint={describeTtd(s.urls)}
                 />
               </>
-            ) : (
-              <>
-                <StatTile
-                  label="Median first reply"
-                  value={totals?.first_reply_p50_s ?? 0}
-                  loading={!totals}
-                  format={(n) => (totals?.first_reply_p50_s == null ? "n/a" : shortDelay(n))}
-                  hint="From the sending time"
-                />
-                <StatTile
-                  label="Resolved"
-                  value={totals?.by_outcome.resolved ?? 0}
-                  loading={!totals}
-                  hint="Providers that said they acted"
-                />
-              </>
-            )}
+            ) : null}
           </div>
 
-          <OverTimeCard />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AnswersCard data={byAsn.data} />
-            <DelayCard data={byAsn.data} />
+          {/* Who answered, how many went out this month, and whether the reports helped. */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3 [&>*]:grid [&>*]:min-w-0">
+            <div>
+              <AnswersCard data={byAsn.data} />
+            </div>
+            <div>
+              <MonthCard />
+            </div>
+            {effectWeek.isError ? null : (
+              <div className="lg:col-span-2 2xl:col-span-1">
+                <EffectCard week={effectWeek.data} month={effectMonth.data} />
+              </div>
+            )}
           </div>
-          {effectWeek.isError ? null : (
-            <EffectCard week={effectWeek.data} month={effectMonth.data} />
-          )}
-          {tracking ? <CurveCard summary={s} filters={filters} /> : null}
           <ProvidersCard
             groups={(group === "asn" ? byAsn.data : grouped.data)?.groups}
             group={group}

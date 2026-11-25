@@ -2,27 +2,26 @@ import { expect, test } from "@playwright/test"
 import { h1, settle, shoot, shootTall } from "./helpers"
 
 test("malware samples tab", async ({ page }, info) => {
-  await page.goto("/malware?view=samples")
-  await expect(h1(page, "Malware")).toBeVisible()
+  await page.goto("/malware")
+  await expect(h1(page, "Files")).toBeVisible()
   await expect(page.getByRole("list", { name: "Samples" })).toBeVisible()
   await settle(page)
   await shootTall(page, "malware-samples", info.project.name)
 
-  await page.goto("/malware?view=samples&kind=Script")
+  await page.goto("/malware?kind=Script")
   await expect(page.getByRole("list", { name: "Samples" })).toBeVisible()
   await settle(page)
   await shoot(page, "malware-samples-filtered", info.project.name)
 })
 
-test("malware urls show fetch status", async ({ page }, info) => {
-  await page.goto("/malware")
-  await expect(page.getByText("Fetched").first()).toBeVisible()
-  await settle(page)
-  await shoot(page, "malware-fetch-status", info.project.name)
+test("old download-URL links land on Hosts & URLs", async ({ page }) => {
+  await page.goto("/malware?url=http%3A%2F%2Ffiles.example.net%2Fx86.sh")
+  await expect(page).toHaveURL(/\/infrastructure\?q=/)
+  await expect(h1(page, "Hosts & URLs")).toBeVisible()
 })
 
 test("sample detail", async ({ page }, info) => {
-  await page.goto("/malware?view=samples")
+  await page.goto("/malware")
   const list = page.getByRole("list", { name: "Samples" })
   await list
     .getByRole("link", { name: /Mirai, ELF ARM 32-bit/ })
@@ -43,7 +42,7 @@ test("sample detail", async ({ page }, info) => {
   await page.keyboard.press("Escape")
 
   // A script with a decoded layer.
-  await page.goto("/malware?view=samples&kind=Script")
+  await page.goto("/malware?kind=Script")
   await page
     .getByRole("list", { name: "Samples" })
     .getByRole("link")

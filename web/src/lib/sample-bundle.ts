@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react"
 import { ApiError, sendForDownload } from "./api"
-import { plural } from "./format"
+import { t } from "@/i18n"
 import { UserError } from "./users"
 
 /** The server refuses more (§8.4 of the M22 design). */
@@ -65,9 +65,9 @@ export function useSampleBundle(): string[] {
 
 /** The sentence above the bundle. */
 export function describeBundle(n: number): string {
-  if (n === 0) return "The sample bundle is empty."
+  if (n === 0) return t("samples_bundle_empty")
   const room = BUNDLE_MAX - n
-  return `${plural(n, "sample")} in the bundle, ${room === 0 ? "which is full" : `room for ${room} more`}.`
+  return t(room === 0 ? "samples_bundle_full" : "samples_bundle_room", { count: n, room })
 }
 
 export interface BundleResult {

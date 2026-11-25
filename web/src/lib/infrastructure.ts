@@ -6,7 +6,7 @@
  * (`hxxp://files[.]host[.]tld/a.sh`) and nothing in the UI turns one into a link.
  */
 import { API_BASE } from "./api"
-import { plural } from "./format"
+import { t } from "@/i18n"
 
 export const INDICATOR_TYPES = ["url", "domain", "ip", "hash"] as const
 export type IndicatorType = (typeof INDICATOR_TYPES)[number]
@@ -14,16 +14,30 @@ export type IndicatorRole = "download_host" | "contacted_host" | "hash"
 export type IntelSource = "urlhaus" | "threatfox" | "virustotal"
 
 export const TYPE_LABELS: Record<IndicatorType, string> = {
-  url: "URL",
-  domain: "Domain",
-  ip: "IP address",
-  hash: "File hash",
+  get url() {
+    return t("infra_type_url")
+  },
+  get domain() {
+    return t("infra_type_domain")
+  },
+  get ip() {
+    return t("infra_type_ip")
+  },
+  get hash() {
+    return t("infra_type_hash")
+  },
 }
 
 export const ROLE_LABELS: Record<IndicatorRole, string> = {
-  download_host: "Payload source",
-  contacted_host: "Contacted",
-  hash: "File hash",
+  get download_host() {
+    return t("infra_role_download_host")
+  },
+  get contacted_host() {
+    return t("infra_role_contacted_host")
+  },
+  get hash() {
+    return t("infra_role_hash")
+  },
 }
 
 export const SOURCE_LABELS: Record<IntelSource, string> = {
@@ -150,9 +164,36 @@ export interface IndicatorFilters {
 // --- Time window ---------------------------------------------------------------
 
 export const WINDOWS = [
-  { value: "24", hours: 24, label: "24 hours", phrase: "in the last 24 hours" },
-  { value: "168", hours: 168, label: "7 days", phrase: "this week" },
-  { value: "720", hours: 720, label: "30 days", phrase: "this month" },
+  {
+    value: "24",
+    hours: 24,
+    get label() {
+      return t("infra_window_24_label")
+    },
+    get phrase() {
+      return t("infra_window_24_phrase")
+    },
+  },
+  {
+    value: "168",
+    hours: 168,
+    get label() {
+      return t("infra_window_168_label")
+    },
+    get phrase() {
+      return t("infra_window_168_phrase")
+    },
+  },
+  {
+    value: "720",
+    hours: 720,
+    get label() {
+      return t("infra_window_720_label")
+    },
+    get phrase() {
+      return t("infra_window_720_phrase")
+    },
+  },
 ] as const
 
 export function windowHours(raw: string | null): number {
@@ -161,7 +202,8 @@ export function windowHours(raw: string | null): number {
 
 export function windowPhrase(hours: number): string {
   return (
-    WINDOWS.find((w) => w.hours === hours)?.phrase ?? `in the last ${Math.round(hours / 24)} days`
+    WINDOWS.find((w) => w.hours === hours)?.phrase ??
+    t("infra_window_days_phrase", { count: Math.round(hours / 24) })
   )
 }
 
@@ -212,29 +254,25 @@ export function describeInfrastructure(s: GraphSummary, hours: number): Finding 
   const when = windowPhrase(hours)
   if (s.indicators === 0) {
     return {
-      finding: `No indicators were recorded ${when}.`,
-      detail:
-        "Indicators are the URLs, hosts and file hashes attackers use. They appear here once a session mentions one.",
+      finding: t("infra_finding_none", { when }),
+      detail: t("infra_detail_none"),
     }
   }
   if (s.shared_hosts > 0) {
-    const finding = `${plural(s.sources_on_shared_hosts, "scanning IP")} fetched payloads from ${plural(
-      s.shared_hosts,
-      "shared host",
-    )} ${when}.`
+    const finding = t("infra_finding_shared", {
+      sources: s.sources_on_shared_hosts,
+      hosts: s.shared_hosts,
+      when,
+    })
     const top = s.top_host
-      ? `The busiest, ${s.top_host}, was used by ${plural(s.top_host_sources, "address", "addresses")}.`
+      ? t("infra_detail_top_host", { host: s.top_host, count: s.top_host_sources })
       : ""
-    const families =
-      s.families > 0 ? ` ${plural(s.families, "malware family", "malware families")} linked.` : ""
-    return { finding, detail: `${top}${families}`.trim() }
+    const families = s.families > 0 ? t("infra_detail_families", { count: s.families }) : ""
+    return { finding, detail: [top, families].filter(Boolean).join(" ") }
   }
   return {
-    finding: `${plural(s.sources, "address", "addresses")} used ${plural(
-      s.indicators,
-      "indicator",
-    )} ${when}, and no two shared a payload host.`,
-    detail: "Hosts used by two or more addresses show up here as shared infrastructure.",
+    finding: t("infra_finding_isolated", { sources: s.sources, indicators: s.indicators, when }),
+    detail: t("infra_detail_isolated"),
   }
 }
 
@@ -246,9 +284,15 @@ export function intelState(i: Pick<IndicatorItem, "checked" | "known">): IntelSt
 }
 
 export const INTEL_LABELS: Record<IntelState, string> = {
-  known: "Known malicious",
-  "listed-none": "Not listed",
-  unchecked: "Not checked",
+  get known() {
+    return t("infra_intel_known")
+  },
+  get "listed-none"() {
+    return t("infra_intel_not_listed")
+  },
+  get unchecked() {
+    return t("infra_intel_not_checked")
+  },
 }
 
 // --- Flow diagram layout ------------------------------------------------------------------
@@ -321,7 +365,7 @@ export function buildFlow(
     sources.push({
       id: "s:folded",
       kind: "source",
-      label: `${foldedCount} more ${foldedCount === 1 ? "address" : "addresses"}`,
+      label: t("infra_flow_more_addresses", { count: foldedCount }),
       weight: [...folded.values()].reduce((a, b) => a + b, 0),
       folded: foldedCount,
     })

@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
+import { t } from "@/i18n"
 import { useIpMask } from "@/app/ip-mask"
 import { FindingCard } from "@/components/finding-card"
 import { TopList, type TopListItem } from "@/components/top-list"
 import { api, queryKeys, type CredentialCount } from "@/lib/api"
 import { credentialsFinding } from "@/lib/floods"
-import { formatNumber, maskIpsInText } from "@/lib/format"
+import { maskIpsInText } from "@/lib/format"
 
 const TOP = 10
 
@@ -19,8 +20,8 @@ function toItems(
     if (v.value === "") {
       return {
         key: `${param}-empty`,
-        name: `No ${param} captured`,
-        label: <span className="text-fg-muted">(none captured)</span>,
+        name: t("creds_none_captured", { field: param }),
+        label: <span className="text-fg-muted">{t("creds_none_label")}</span>,
         count: v.count,
         share: attempts ? v.count / attempts : 0,
       }
@@ -59,50 +60,52 @@ export function CredentialsCard({
   if (c) {
     if (c.distinct_usernames > c.usernames.length)
       notes.push(
-        `Top ${c.usernames.length} of ${formatNumber(c.distinct_usernames)} different usernames`,
+        t("creds_top_of", {
+          shown: c.usernames.length,
+          total: c.distinct_usernames,
+          field: "username",
+        }),
       )
     if (c.distinct_passwords > c.passwords.length)
       notes.push(
-        `Top ${c.passwords.length} of ${formatNumber(c.distinct_passwords)} different passwords`,
+        t("creds_top_of", {
+          shown: c.passwords.length,
+          total: c.distinct_passwords,
+          field: "password",
+        }),
       )
-    if (c.truncated) notes.push("Counted from the first 50,000 attempts")
+    if (c.truncated) notes.push(t("creds_truncated", { limit: 50_000 }))
   }
 
   return (
     <FindingCard
       className={className}
-      eyebrow="Credentials tried"
-      finding={
-        query.isError
-          ? "Could not load the credentials."
-          : c
-            ? credentialsFinding(c)
-            : "Loading the credentials…"
-      }
+      eyebrow={t("creds_eyebrow")}
+      finding={query.isError ? t("creds_error") : c ? credentialsFinding(c) : t("creds_loading")}
       footer={notes.length ? notes.join(" · ") : undefined}
     >
       {query.isError ? (
         <p className="text-sm text-fg-muted">{query.error.message}</p>
       ) : (
         <div className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
-          <section aria-label="Usernames tried">
-            <h4 className="mb-2 text-xs font-medium text-fg-muted">Usernames</h4>
+          <section aria-label={t("creds_usernames_label")}>
+            <h4 className="mb-2 type-eyebrow text-fg-muted">{t("creds_usernames")}</h4>
             <TopList
               loading={!c}
               rows={3}
               scale="total"
               items={c ? toItems(c.usernames, "username", c.attempts, masked) : []}
-              empty="No usernames."
+              empty={t("creds_usernames_empty")}
             />
           </section>
-          <section aria-label="Passwords tried">
-            <h4 className="mb-2 text-xs font-medium text-fg-muted">Passwords</h4>
+          <section aria-label={t("creds_passwords_label")}>
+            <h4 className="mb-2 type-eyebrow text-fg-muted">{t("creds_passwords")}</h4>
             <TopList
               loading={!c}
               rows={3}
               scale="total"
               items={c ? toItems(c.passwords, "password", c.attempts, masked) : []}
-              empty="No passwords."
+              empty={t("creds_passwords_empty")}
             />
           </section>
         </div>

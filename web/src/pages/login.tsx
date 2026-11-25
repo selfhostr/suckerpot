@@ -7,14 +7,19 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { t, tk } from "@/i18n"
+import { withText } from "@/lib/utils"
 import { LoginError, safeNext, type LoginFailure } from "@/lib/auth-api"
 
-const MESSAGES: Record<LoginFailure, string> = {
-  invalid: "Invalid username or password",
-  "rate-limited": "Too many attempts. Wait a minute, then try again.",
-  origin: "This address is not allowed to sign in. Open the dashboard at its usual address.",
-  network: "The server could not be reached. Try again in a moment.",
-}
+const MESSAGES: Record<LoginFailure, string> = withText(
+  {
+    invalid: tk("login_invalid"),
+    "rate-limited": tk("auth_rate_limited"),
+    origin: tk("login_origin"),
+    network: tk("auth_network"),
+  },
+  {},
+)
 
 export function LoginPage() {
   const { status, signedOut, login } = useAuth()
@@ -56,8 +61,8 @@ export function LoginPage() {
         <Logo />
         <Card className="w-full gap-6 border bg-surface p-6 shadow-none sm:p-8">
           <div className="space-y-1.5 text-center">
-            <h1 className="text-xl font-semibold tracking-tight text-fg">Sign in</h1>
-            <p className="text-sm text-fg-muted">Enter your credentials to open the dashboard.</p>
+            <h1 className="type-page-title text-fg">{t("login_title")}</h1>
+            <p className="text-sm text-fg-muted">{t("login_intro")}</p>
           </div>
           <form
             onSubmit={(event: SyntheticEvent) => {
@@ -69,7 +74,7 @@ export function LoginPage() {
           >
             <div className="flex flex-col gap-1.5">
               <label htmlFor={userId} className="text-sm font-medium text-fg">
-                Username
+                {t("login_username")}
               </label>
               <Input
                 id={userId}
@@ -88,7 +93,7 @@ export function LoginPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor={passId} className="text-sm font-medium text-fg">
-                Password
+                {t("login_password")}
               </label>
               <Input
                 id={passId}
@@ -111,7 +116,7 @@ export function LoginPage() {
               ) : null}
             </div>
             <Button type="submit" size="lg" disabled={pending || !username || !password}>
-              {pending ? "Signing in…" : "Sign in"}
+              {pending ? t("login_signing_in") : t("login_title")}
             </Button>
           </form>
         </Card>

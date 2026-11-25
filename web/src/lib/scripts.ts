@@ -4,7 +4,7 @@
  */
 
 import { getJson, type Param, type Session } from "./api"
-import { formatNumber, plural } from "./format"
+import { t } from "@/i18n"
 import type { Severity } from "./severity"
 
 export type ScriptSort = "recent" | "common" | "newest"
@@ -105,10 +105,18 @@ export const scriptKeys = {
 
 /** Words for a risk level, as used in the row tooltips and the legend. */
 export const RISK_WORDS: Record<Severity, string> = {
-  info: "Harmless looking around",
-  notice: "Changes things a little",
-  warning: "Weakens or hides something",
-  severe: "Drops or runs code",
+  get info() {
+    return t("scripts_risk_info")
+  },
+  get notice() {
+    return t("scripts_risk_notice")
+  },
+  get warning() {
+    return t("scripts_risk_warning")
+  },
+  get severe() {
+    return t("scripts_risk_severe")
+  },
 }
 
 function lower(text: string): string {
@@ -117,44 +125,46 @@ function lower(text: string): string {
 
 /** The sentence under the Scripts title. */
 export function describeScripts(s: ScriptsSummary): string {
-  if (s.total === 0) return "No attacker has typed a command sequence yet."
-  const head = `${plural(s.total, "distinct script")} so far`
-  const fresh =
-    s.new_this_week === 0
-      ? "none of them new this week"
-      : `${formatNumber(s.new_this_week)} new this week`
-  const tail =
+  if (s.total === 0) return t("scripts_summary_empty")
+  const top =
     s.top_summary && s.top_sessions
-      ? `. The most common one ${lower(s.top_summary)
+      ? lower(s.top_summary)
           .replace(/^a \d+-step script that /, "")
-          .replace(/\.$/, "")} (seen ${plural(s.top_sessions, "time")}).`
-      : "."
-  return `${head}, ${fresh}${tail}`
+          .replace(/\.$/, "")
+      : ""
+  return t("scripts_summary", {
+    total: s.total,
+    fresh: s.new_this_week,
+    withTop: top ? "yes" : "no",
+    top,
+    times: s.top_sessions ?? 0,
+  })
 }
 
 /** The opening sentence of a script page: what it does, how often, how widely. */
 export function describeScript(item: ScriptItem, summary: string | null): string {
-  const seen = `Seen ${plural(item.sessions, "time")} from ${plural(item.sources, "address", "addresses")}`
   const what = summary
     ? summary
         .replace(/^A (\d+)-step script that /, "This $1-step script ")
-        .replace(
-          /^A (\d+)-step script; none of .*$/,
-          "This $1-step script has no built-in explanation yet.",
+        .replace(/^A (\d+)-step script; none of .*$/, (_m, n: string) =>
+          t("scripts_no_explanation", { count: Number(n) }),
         )
-    : `This ${item.line_count}-step script has no built-in explanation yet.`
-  return `${what} ${seen}${item.campaign_name ? `, as part of the campaign "${item.campaign_name}"` : ""}.`
+    : t("scripts_no_explanation", { count: item.line_count })
+  return t("scripts_describe", {
+    what,
+    sessions: item.sessions,
+    sources: item.sources,
+    withCampaign: item.campaign_name ? "yes" : "no",
+    campaign: item.campaign_name ?? "",
+  })
 }
 
 /** What to do about it, in one line. Advice, never a command to run. */
 export function nextStep(lines: readonly ExplainedLine[]): string {
   const download = lines.some((l) => l.rule === "download" || l.rule === "download-and-run")
   const persist = lines.some((l) => l.risk === "severe" && l.technique?.startsWith("T1098"))
-  if (download)
-    return "Block the download host at your firewall or proxy, and check that your servers cannot fetch and run files from the internet."
-  if (persist)
-    return "Check authorized_keys files, scheduled jobs and new accounts on exposed servers."
-  if (lines.every((l) => l.risk === "info" || l.risk === null))
-    return "This only looks around. Nothing to fix by itself, but it shows what attackers check first."
-  return "Review whether the commands above could run on your exposed systems, and restrict shell access."
+  if (download) return t("scripts_next_download")
+  if (persist) return t("scripts_next_persist")
+  if (lines.every((l) => l.risk === "info" || l.risk === null)) return t("scripts_next_harmless")
+  return t("scripts_next_review")
 }

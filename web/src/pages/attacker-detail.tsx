@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, SearchX } from "lucide-react"
 import { Link, useParams } from "react-router"
+import { intlLocale, t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { useIpMask } from "@/app/ip-mask"
+import { subjectProps } from "@/app/view-transitions"
 import { Term } from "@/components/term"
 import { DayBars } from "@/components/charts/day-bars"
 import { CountryFlag } from "@/components/country-flag"
@@ -25,11 +28,14 @@ import {
 } from "@/lib/api"
 import { attackerOrigin, describeAttacker } from "@/lib/describe-attacker"
 import { describeTimeline } from "@/lib/findings"
+import { LATEST_ROWS } from "@/lib/latest"
 import { floodSentence, isFlood, totalConnections } from "@/lib/floods"
 import { formatNumber, maskIp, maskIpsInText } from "@/lib/format"
 
-const dayFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-const formatDay = (d: string) => dayFmt.format(new Date(`${d}T00:00:00Z`))
+const formatDay = (d: string) =>
+  new Intl.DateTimeFormat(intlLocale(), { month: "short", day: "numeric", timeZone: "UTC" }).format(
+    new Date(`${d}T00:00:00Z`),
+  )
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -42,19 +48,23 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 
 function Reputation({ a }: { a: Attacker }) {
   if (a.abuse_score === null && a.known_scanner === null) {
-    return <span className="text-fg-muted">Not checked yet</span>
+    return <span className="text-fg-muted">{t("attacker_not_checked")}</span>
   }
   return (
     <span className="flex flex-wrap items-center gap-x-2">
       {a.abuse_score !== null ? (
         <span>
-          <Term id="abuse-score">Abuse score</Term>{" "}
+          <Term id="abuse-score">{t("session_abuse_score")}</Term>{" "}
           <span className="tabular-nums">{a.abuse_score}</span> / 100
         </span>
       ) : null}
       {a.known_scanner !== null ? (
         <span className="text-fg-muted">
-          {a.known_scanner ? <Term id="known-scanner">Known scanner</Term> : "Not a known scanner"}
+          {a.known_scanner ? (
+            <Term id="known-scanner">{t("session_known_scanner")}</Term>
+          ) : (
+            t("attacker_not_known_scanner")
+          )}
         </span>
       ) : null}
     </span>
@@ -101,7 +111,7 @@ export function AttackerDetailPage() {
       to="/attackers"
       className="inline-flex items-center gap-1 rounded-sm text-fg-muted transition-colors hover:text-fg"
     >
-      <ArrowLeft aria-hidden className="size-3.5" /> All attackers
+      <ArrowLeft aria-hidden className="size-3.5" /> {t("attacker_all")}
     </Link>
   )
 
@@ -112,15 +122,11 @@ export function AttackerDetailPage() {
         <PageHeader help="attacker" title={shownIp} eyebrow={back} />
         <EmptyState
           icon={SearchX}
-          title={missing ? "No sensor has seen this address" : "Could not load this attacker"}
-          description={
-            missing
-              ? "It may be older than the retention window, or the address is mistyped."
-              : q.error.message
-          }
+          title={missing ? t("attacker_missing_title") : t("attacker_error_title")}
+          description={missing ? t("attacker_missing_description") : q.error.message}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/attackers">Back to attackers</Link>
+              <Link to="/attackers">{t("attacker_back")}</Link>
             </Button>
           }
         />
@@ -129,9 +135,16 @@ export function AttackerDetailPage() {
   }
 
   const d = q.data
+  const latest = d?.recent_sessions.slice(0, LATEST_ROWS) ?? []
   const a = d?.attacker
   const origin = a ? attackerOrigin(a) : null
-  const story = a ? `${origin ? `${origin} — ` : ""}${describeAttacker(a)}.` : undefined
+  const story = a
+    ? t("attacker_story", {
+        hasOrigin: origin ? "yes" : "no",
+        origin: origin ?? "",
+        description: describeAttacker(a),
+      })
+    : undefined
   const timeline = d ? describeTimeline(d.timeline, formatDay) : null
   const firstCommand = d?.top_commands[0]?.value
   const sessionsHref = `/attacks?src_ip=${encodeURIComponent(ip)}`
@@ -141,52 +154,58 @@ export function AttackerDetailPage() {
       <PageHeader
         help="attacker"
         eyebrow={back}
-        title={shownIp}
-        description={story ? (masked ? maskIpsInText(story) : story) : "Loading the profile…"}
+        title={
+          <span {...subjectProps(`attacker:${ip}`)} className="inline-block">
+            {shownIp}
+          </span>
+        }
+        description={story ? (masked ? maskIpsInText(story) : story) : t("attacker_loading")}
         actions={
           <Button asChild variant="outline" size="sm">
-            <Link to={sessionsHref}>All sessions</Link>
+            <Link to={sessionsHref}>{t("attacker_all_sessions")}</Link>
           </Button>
         }
       />
 
       {!a ? (
-        <div className="space-y-4" role="status" aria-label="Loading">
+        <div className="space-y-4" role="status" aria-label={t("common_loading")}>
           <SkeletonCard />
           <SkeletonCard />
         </div>
       ) : (
         <div className="space-y-4">
           <FindingCard
-            eyebrow="Profile"
+            eyebrow={t("attacker_profile")}
             finding={
               // The flood clause follows the sessions it counts, never the events.
-              <>
-                {`${formatNumber(a.sessions)} ${a.sessions === 1 ? "session" : "sessions"}`}
-                {floodConnections > 0 ? (
-                  <>
-                    {", "}
+              tNodes(
+                "attacker_profile_finding",
+                {
+                  sessions: a.sessions,
+                  events: a.events,
+                  hasFloods: floodConnections > 0 ? "yes" : "no",
+                },
+                {
+                  floods: (
                     <Link
                       to={`${sessionsHref}&kind=burst`}
                       className="underline decoration-border-strong underline-offset-4 transition-colors hover:decoration-fg"
                     >
                       {floodSentence(floodConnections, floods.data?.next_cursor != null)}
                     </Link>
-                    {","}
-                  </>
-                ) : null}
-                {` and ${formatNumber(a.events)} events recorded.`}
-              </>
+                  ),
+                },
+              )
             }
           >
             <dl className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-4">
-              <Fact label="First seen">
+              <Fact label={t("attacker_first_seen")}>
                 <RelativeTime iso={a.first_seen} className="text-sm text-fg" />
               </Fact>
-              <Fact label="Last seen">
+              <Fact label={t("attacker_last_seen")}>
                 <RelativeTime iso={a.last_seen} className="text-sm text-fg" />
               </Fact>
-              <Fact label="Sensors targeted">
+              <Fact label={t("attacker_sensors")}>
                 <span className="flex flex-wrap gap-1.5">
                   {a.sensors.map((s) => (
                     <Link
@@ -199,7 +218,7 @@ export function AttackerDetailPage() {
                   ))}
                 </span>
               </Fact>
-              <Fact label="Origin">
+              <Fact label={t("attacker_origin")}>
                 <span className="flex flex-wrap items-center gap-2">
                   {a.country ? (
                     <Link
@@ -209,12 +228,12 @@ export function AttackerDetailPage() {
                       <CountryFlag code={a.country} showName className="text-fg" />
                     </Link>
                   ) : (
-                    <span className="text-fg-muted">Unknown</span>
+                    <span className="text-fg-muted">{t("common_unknown")}</span>
                   )}
                   {a.city ? <span className="text-fg-muted">{a.city}</span> : null}
                 </span>
               </Fact>
-              <Fact label="Network">
+              <Fact label={t("attacker_network")}>
                 {a.asn !== null ? (
                   <Link
                     to={`/attackers?asn=${a.asn}`}
@@ -223,34 +242,45 @@ export function AttackerDetailPage() {
                     <span className="font-mono text-xs text-fg-muted">AS{a.asn}</span> {a.org}
                   </Link>
                 ) : (
-                  <span className="text-fg-muted">Unknown</span>
+                  <span className="text-fg-muted">{t("common_unknown")}</span>
                 )}
               </Fact>
-              <Fact label="Reputation">
+              <Fact label={t("attacker_reputation")}>
                 <Reputation a={a} />
               </Fact>
-              <Fact label="Login attempts">
+              <Fact label={t("attacker_logins")}>
                 <span className="tabular-nums">{formatNumber(a.login_attempts)}</span>
                 <span className="text-fg-muted">
                   {" "}
-                  ·{" "}
-                  {a.login_success > 0
-                    ? `${formatNumber(a.login_success)} succeeded`
-                    : "none succeeded"}
+                  · {t("attacker_logins_succeeded", { count: a.login_success })}
                 </span>
               </Fact>
-              <Fact label="Commands and downloads">
-                <span className="tabular-nums">{formatNumber(a.commands)}</span>
-                <span className="text-fg-muted"> commands · </span>
-                <span className="tabular-nums">{formatNumber(a.downloads)}</span>
-                <span className="text-fg-muted"> files</span>
+              <Fact label={t("attacker_cmds_downloads")}>
+                <span className="text-fg-muted">
+                  {tNodes(
+                    "attacker_cmds_files",
+                    { commandsCount: a.commands, filesCount: a.downloads },
+                    {
+                      commands: (
+                        <span className="text-fg tabular-nums">{formatNumber(a.commands)}</span>
+                      ),
+                      files: (
+                        <span className="text-fg tabular-nums">{formatNumber(a.downloads)}</span>
+                      ),
+                    },
+                  )}
+                </span>
               </Fact>
               {a.tags.length ? (
                 <div className="col-span-2 space-y-1 md:col-span-4">
-                  <dt className="text-xs text-fg-subtle">Tags</dt>
+                  <dt className="text-xs text-fg-subtle">{t("attacker_tags")}</dt>
                   <dd className="flex flex-wrap gap-1.5">
-                    {a.tags.map((t) => (
-                      <TagBadge key={t} tag={t} href={`/attackers?tag=${encodeURIComponent(t)}`} />
+                    {a.tags.map((tag) => (
+                      <TagBadge
+                        key={tag}
+                        tag={tag}
+                        href={`/attackers?tag=${encodeURIComponent(tag)}`}
+                      />
                     ))}
                   </dd>
                 </div>
@@ -258,56 +288,61 @@ export function AttackerDetailPage() {
             </dl>
           </FindingCard>
 
-          <FindingCard eyebrow="Activity, last 30 days" finding={timeline?.finding ?? ""}>
+          <FindingCard eyebrow={t("attacker_activity")} finding={timeline?.finding ?? ""}>
             <DayBars points={d.timeline} />
           </FindingCard>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <FindingCard
-              eyebrow="Usernames tried"
+              eyebrow={t("creds_usernames_label")}
               finding={
                 d.top_usernames[0]
-                  ? `"${d.top_usernames[0].value}" was its favourite username.`
-                  : "It never tried a username."
+                  ? t("attacker_favourite_username", { value: d.top_usernames[0].value })
+                  : t("attacker_no_username")
               }
             >
               <TopList
                 items={countItems(d.top_usernames, "username", masked)}
-                empty="No login attempts."
+                empty={t("attacker_no_logins")}
               />
             </FindingCard>
             <FindingCard
-              eyebrow="Commands run"
+              eyebrow={t("attacker_commands_eyebrow")}
               finding={
                 firstCommand
-                  ? `Its most common command was "${masked ? maskIpsInText(firstCommand) : firstCommand}".`
-                  : "It never got a shell, so it ran no commands."
+                  ? t("attacker_top_command", {
+                      value: masked ? maskIpsInText(firstCommand) : firstCommand,
+                    })
+                  : t("attacker_no_shell")
               }
             >
-              <TopList items={countItems(d.top_commands, "command", masked)} empty="No commands." />
+              <TopList
+                items={countItems(d.top_commands, "command", masked)}
+                empty={t("attacker_no_commands")}
+              />
             </FindingCard>
           </div>
 
           <FindingCard
-            eyebrow="Recent sessions"
+            eyebrow={t("attacker_recent")}
             finding={
-              d.recent_sessions.length === 1
-                ? d.recent_sessions.some(isFlood)
-                  ? "Its only flood group so far."
-                  : "Its only session so far."
-                : d.recent_sessions.some(isFlood)
-                  ? `Its last ${d.recent_sessions.length} sessions and flood groups, newest first.`
-                  : `Its last ${d.recent_sessions.length} sessions, newest first.`
+              latest.length === 1
+                ? latest.some(isFlood)
+                  ? t("attacker_recent_only_flood")
+                  : t("attacker_recent_only")
+                : latest.some(isFlood)
+                  ? t("attacker_recent_last_with_floods", { count: latest.length })
+                  : t("attacker_recent_last", { count: latest.length })
             }
             action={
               <Button asChild variant="ghost" size="sm">
-                <Link to={sessionsHref}>View all</Link>
+                <Link to={sessionsHref}>{t("attacker_see_all")}</Link>
               </Button>
             }
             bodyClassName="p-0 sm:p-0 pt-4 sm:pt-4"
           >
-            <ul aria-label="Recent sessions" className="border-t">
-              {d.recent_sessions.map((s, i) => (
+            <ul aria-label={t("attacker_recent")} className="border-t">
+              {latest.map((s, i) => (
                 <li key={s.session_id} className={i > 0 ? "border-t" : undefined}>
                   <SessionRow session={s} showSource={false} />
                 </li>

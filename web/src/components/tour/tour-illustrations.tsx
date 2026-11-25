@@ -20,13 +20,14 @@ import {
   Waypoints,
   type LucideIcon,
 } from "lucide-react"
+import { t, tk } from "@/i18n"
 import { FAMILY_META, type SensorFamily } from "@/lib/sensors"
 import type { TourStep } from "@/lib/tour"
 import { cn } from "@/lib/utils"
 
 interface FlowNode {
   icon: LucideIcon
-  label: string
+  labelKey: string
   /** A sensor family colours the node; the label is always there too. */
   family?: SensorFamily
 }
@@ -45,16 +46,24 @@ function Node({ node }: { node: FlowNode }) {
       )}
     >
       <Icon aria-hidden className="size-3.5 shrink-0" strokeWidth={2} />
-      <span className={fam ? "text-fg" : undefined}>{node.label}</span>
+      <span className={fam ? "text-fg" : undefined}>{t(node.labelKey)}</span>
     </span>
   )
 }
 
-function Flow({ stages, label, className }: { stages: Stages; label: string; className?: string }) {
+function Flow({
+  stages,
+  labelKey,
+  className,
+}: {
+  stages: Stages
+  labelKey: string
+  className?: string
+}) {
   return (
     <div
       role="img"
-      aria-label={label}
+      aria-label={t(labelKey)}
       className={cn(
         "flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed bg-surface px-3 py-4 sm:flex-row sm:flex-wrap sm:gap-2",
         className,
@@ -70,7 +79,7 @@ function Flow({ stages, label, className }: { stages: Stages; label: string; cla
           ) : null}
           <span className="flex flex-col items-stretch gap-1.5">
             {stage.map((n) => (
-              <Node key={n.label} node={n} />
+              <Node key={n.labelKey} node={n} />
             ))}
           </span>
         </span>
@@ -80,74 +89,73 @@ function Flow({ stages, label, className }: { stages: Stages; label: string; cla
 }
 
 const SENSOR_STAGE: readonly FlowNode[] = [
-  { icon: SquareTerminal, label: "Remote shells", family: "shell" },
-  { icon: Globe, label: "Web and APIs", family: "web" },
-  { icon: Database, label: "Databases", family: "data" },
-  { icon: Monitor, label: "Windows and VoIP", family: "windows" },
+  { icon: SquareTerminal, labelKey: tk("tour_node_remote_shells"), family: "shell" },
+  { icon: Globe, labelKey: tk("tour_node_web_and_apis"), family: "web" },
+  { icon: Database, labelKey: tk("tour_node_databases"), family: "data" },
+  { icon: Monitor, labelKey: tk("tour_node_windows_and_voip"), family: "windows" },
 ]
 
-const FLOWS: Record<TourStep["id"], { label: string; stages: Stages }> = {
+const FLOWS: Record<TourStep["id"], { labelKey: string; stages: Stages }> = {
   what: {
-    label: "Attackers on the internet reach fake sensors, which record events.",
+    labelKey: tk("tour_flow_what"),
     stages: [
-      [{ icon: Globe, label: "Internet" }],
+      [{ icon: Globe, labelKey: tk("tour_node_internet") }],
       SENSOR_STAGE,
-      [{ icon: Database, label: "Events and sessions" }],
+      [{ icon: Database, labelKey: tk("tour_node_events_and_sessions") }],
     ],
   },
   daily: {
-    label: "Today leads to Attacks, then to one session with its replay.",
+    labelKey: tk("tour_flow_daily"),
     stages: [
-      [{ icon: Sun, label: "Today" }],
-      [{ icon: Crosshair, label: "Attacks" }],
-      [{ icon: Play, label: "Session and replay" }],
+      [{ icon: Sun, labelKey: tk("nav_today") }],
+      [{ icon: Crosshair, labelKey: tk("nav_attacks") }],
+      [{ icon: Play, labelKey: tk("tour_node_session_and_replay") }],
     ],
   },
   group: {
-    label: "Sessions are grouped into campaigns, tools and trends.",
+    labelKey: tk("tour_flow_group"),
     stages: [
-      [{ icon: Crosshair, label: "Sessions" }],
+      [{ icon: Crosshair, labelKey: tk("nav_sessions") }],
       [
-        { icon: Flag, label: "Campaigns" },
-        { icon: FileCode2, label: "Tools" },
-        { icon: TrendingUp, label: "Trends" },
+        { icon: Flag, labelKey: tk("nav_campaigns") },
+        { icon: FileCode2, labelKey: tk("nav_payloads") },
+        { icon: TrendingUp, labelKey: tk("nav_patterns") },
       ],
     ],
   },
   payloads: {
-    label:
-      "A recorded URL is fetched by the collector through the VPN into quarantine, then read by the analyzer with no network.",
+    labelKey: tk("tour_flow_payloads"),
     stages: [
-      [{ icon: Waypoints, label: "Recorded URL" }],
-      [{ icon: Shield, label: "Collector (VPN)" }],
-      [{ icon: Archive, label: "Quarantine" }],
-      [{ icon: ScanSearch, label: "Analyzer (offline)" }],
+      [{ icon: Waypoints, labelKey: tk("tour_node_recorded_url") }],
+      [{ icon: Shield, labelKey: tk("tour_node_collector_vpn") }],
+      [{ icon: Archive, labelKey: tk("tour_node_quarantine") }],
+      [{ icon: ScanSearch, labelKey: tk("tour_node_analyzer_offline") }],
     ],
   },
   egress: {
-    label: "The stack has no route out except the vpn service, behind a gate and a kill switch.",
+    labelKey: tk("tour_flow_egress"),
     stages: [
-      [{ icon: Database, label: "Ingest + collector" }],
-      [{ icon: Shield, label: "Gate" }],
-      [{ icon: Waypoints, label: "VPN + kill switch" }],
-      [{ icon: Globe, label: "Internet" }],
+      [{ icon: Database, labelKey: tk("tour_node_ingest_collector") }],
+      [{ icon: Shield, labelKey: tk("tour_node_gate") }],
+      [{ icon: Waypoints, labelKey: tk("tour_node_vpn_kill_switch") }],
+      [{ icon: Globe, labelKey: tk("tour_node_internet") }],
     ],
   },
   abuse: {
-    label: "A contact is found, a draft is built, you review it and send it from your own mailbox.",
+    labelKey: tk("tour_flow_abuse"),
     stages: [
-      [{ icon: ScanSearch, label: "RDAP lookup" }],
-      [{ icon: MailWarning, label: "Draft" }],
-      [{ icon: UserCheck, label: "You review" }],
-      [{ icon: Mail, label: "Your mailbox" }],
+      [{ icon: ScanSearch, labelKey: tk("tour_node_rdap_lookup") }],
+      [{ icon: MailWarning, labelKey: tk("tour_node_draft") }],
+      [{ icon: UserCheck, labelKey: tk("tour_node_you_review") }],
+      [{ icon: Mail, labelKey: tk("tour_node_your_mailbox") }],
     ],
   },
   alerts: {
-    label: "Rules send messages to your channels, and a weekly report summarises the week.",
+    labelKey: tk("tour_flow_alerts"),
     stages: [
-      [{ icon: Bell, label: "Rules" }],
-      [{ icon: Mail, label: "Discord, Teams, email" }],
-      [{ icon: UserCheck, label: "You" }],
+      [{ icon: Bell, labelKey: tk("tour_node_rules") }],
+      [{ icon: Mail, labelKey: tk("tour_node_discord_teams_email") }],
+      [{ icon: UserCheck, labelKey: tk("tour_node_you") }],
     ],
   },
 }
@@ -161,5 +169,5 @@ export function TourIllustration({
   className?: string
 }) {
   const f = FLOWS[step]
-  return <Flow stages={f.stages} label={f.label} className={className} />
+  return <Flow stages={f.stages} labelKey={f.labelKey} className={className} />
 }

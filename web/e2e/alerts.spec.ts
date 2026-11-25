@@ -1,11 +1,24 @@
 import { expect, test } from "@playwright/test"
 import { h1, settle, shoot } from "./helpers"
 
-// M18: alerts and weekly reports. Mock data only (src/mocks/alerts.ts).
+// M18: alerts and weekly reports, in the Settings Alerts tab. Mock data only (src/mocks/alerts.ts).
+
+const ALERTS = "/settings?tab=alert-rules"
 
 test("alerts and reports", async ({ page }, info) => {
+  // The old address leads to the Settings tab.
   await page.goto("/defend/alerts")
-  await expect(h1(page, "Alerts and reports")).toBeVisible()
+  await expect(page).toHaveURL(/\/settings\?tab=alert-rules$/)
+  await expect(h1(page, "Settings")).toBeVisible()
+  if (info.project.name.startsWith("mobile")) {
+    // A phone has a select, not a list of tabs.
+    await expect(page.getByRole("combobox", { name: "Settings sections" })).toHaveText("Alerts")
+  } else {
+    await expect(page.getByRole("tab", { name: "Alerts", exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    )
+  }
   await expect(page.getByRole("list", { name: "Alert rules" })).toBeVisible()
   await expect(page.getByRole("list", { name: "Recent alerts" })).toBeVisible()
   await expect(page.getByRole("list", { name: "Weekly reports" })).toBeVisible()
@@ -14,7 +27,7 @@ test("alerts and reports", async ({ page }, info) => {
 })
 
 test("alerts: switch a rule on", async ({ page }, info) => {
-  await page.goto("/defend/alerts")
+  await page.goto(ALERTS)
   const rules = page.getByRole("list", { name: "Alert rules" })
   await expect(rules).toBeVisible()
   const row = rules.getByRole("listitem").filter({ hasText: "A new malware download host" })
@@ -26,7 +39,7 @@ test("alerts: switch a rule on", async ({ page }, info) => {
 })
 
 test("weekly report", async ({ page }, info) => {
-  await page.goto("/defend/alerts")
+  await page.goto(ALERTS)
   await page.getByRole("list", { name: "Weekly reports" }).getByRole("link").first().click()
   await expect(page).toHaveURL(/\/reports\/\d{4}-\d{2}-\d{2}$/)
   await expect(page.getByRole("heading", { level: 1, name: /^Week of/ })).toBeVisible()
@@ -34,6 +47,8 @@ test("weekly report", async ({ page }, info) => {
   await expect(page.getByRole("link", { name: /Print or save as PDF/ })).toBeVisible()
   await settle(page)
   await shoot(page, "report", info.project.name, true)
+  await page.getByRole("link", { name: "Alerts and reports" }).click()
+  await expect(page).toHaveURL(/\/settings\?tab=alert-rules$/)
 })
 
 test("settings alert channels", async ({ page }, info) => {

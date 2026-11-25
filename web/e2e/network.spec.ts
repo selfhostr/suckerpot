@@ -6,7 +6,7 @@ import { h1, settle, shoot } from "./helpers"
 
 test("network, not a member", async ({ page }, info) => {
   await page.goto("/network")
-  await expect(h1(page, "Network")).toBeVisible()
+  await expect(h1(page, "SuckerPot network")).toBeVisible()
   await expect(page.getByText("You are not part of the SuckerPot network.")).toBeVisible()
   await expect(page.getByText("What is never shared")).toBeVisible()
   await settle(page)
@@ -26,7 +26,7 @@ test("network join dialog", async ({ page }, info) => {
 
 test("network, member overview", async ({ page }, info) => {
   await page.goto("/network?network=member")
-  await expect(h1(page, "Network")).toBeVisible()
+  await expect(h1(page, "SuckerPot network")).toBeVisible()
   await expect(
     page.getByText(/The network took down 141 malware hosts and attack sources/),
   ).toBeVisible()

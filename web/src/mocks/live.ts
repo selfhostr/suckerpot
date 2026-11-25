@@ -4,6 +4,7 @@
  * on a row opens a real fixture session. The wire format mirrors
  * api/api/live.py: backfill, stats, then one event at a time.
  */
+import { mockRandom } from "./random"
 import { ws } from "msw"
 import {
   SENSORS,
@@ -121,19 +122,19 @@ const link = ws.link("*/api/v1/live")
 export const liveHandlers = [
   link.addEventListener("connection", ({ client }) => {
     client.send(JSON.stringify({ kind: "backfill", events: backfill() }))
-    client.send(JSON.stringify({ kind: "stats", stats: stats(Math.random) }))
+    client.send(JSON.stringify({ kind: "stats", stats: stats(mockRandom) }))
 
     const statsTimer = setInterval(() => {
-      client.send(JSON.stringify({ kind: "stats", stats: stats(Math.random) }))
+      client.send(JSON.stringify({ kind: "stats", stats: stats(mockRandom) }))
     }, 5_000)
 
     let stopped = false
     let eventTimer: ReturnType<typeof setTimeout> | undefined
     const tick = () => {
       if (stopped) return
-      const event = toLive(sample(Math.random), Date.now())
+      const event = toLive(sample(mockRandom), Date.now())
       client.send(JSON.stringify({ kind: "event", event }))
-      eventTimer = setTimeout(tick, 700 + Math.random() * 2_300)
+      eventTimer = setTimeout(tick, 700 + mockRandom() * 2_300)
     }
     eventTimer = setTimeout(tick, 1_500)
 

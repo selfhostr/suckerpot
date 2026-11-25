@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test"
 import { h1, settle, shoot } from "./helpers"
 
-// M19: the Today home page, the search palette, glossary terms and the research-scanner switch.
+// M19: the Today home page (with the live map), the search palette, glossary terms and the
+// research-scanner switch.
 
 /** Entrance motion is frozen (reduced motion is already on; this also covers the fallback). */
 async function freezeMotion(page: Page) {
@@ -15,48 +16,66 @@ async function freezeMotion(page: Page) {
 async function openToday(page: Page, path = "/") {
   await page.goto(path)
   await expect(h1(page, "Today")).toBeVisible()
-  await expect(page.getByRole("region", { name: "Stories of the day" })).toBeVisible()
-  await expect(page.locator("[data-card]").first()).toBeVisible()
+  await expect(page.getByRole("group", { name: "Visits per hour, last 24 hours" })).toBeVisible()
+  await expect(page.locator("[data-todo]").first()).toBeVisible()
   await settle(page)
 }
 
 test("today", async ({ page }, info) => {
+  await page.addInitScript(() => {
+    ;(window as unknown as { __SUCKERPOT_MAP__: { freeze: boolean } }).__SUCKERPOT_MAP__ = {
+      freeze: true,
+    }
+  })
   await freezeMotion(page)
   await openToday(page)
 
-  // A headline, five numbers, the flow, the hour strip, 3 to 5 stories, then the to-do cards.
+  // The day's sentence, the live map with its ticker and rankings, five numbers, the hours and at
+  // most three things to do.
   await expect(page.getByText(/knocked on your decoy doors/)).toBeVisible()
-  await expect(page.getByRole("slider", { name: /hour of the last day/i })).toBeVisible()
-  const stories = page.locator("[data-story]")
-  expect(await stories.count()).toBeGreaterThanOrEqual(3)
-  expect(await stories.count()).toBeLessThanOrEqual(5)
-  await expect(page.getByText(/left out\./)).toBeVisible()
+  await expect(page.getByRole("list", { name: "Top addresses" })).toBeVisible()
+  const day = page.getByRole("region", { name: "Last 24 hours" })
+  for (const label of ["Visits", "Machines", "Countries", "Got in", "Tried to install"])
+    await expect(day.getByText(label, { exact: true })).toBeVisible()
+  expect(await page.locator("[data-todo]").count()).toBeLessThanOrEqual(3)
+
+  // The map has a World toggle and a continent dropdown, and expands to the whole window and back.
+  const regions = page.getByRole("group", { name: "Region" })
+  await regions.getByRole("combobox", { name: "Continent" }).click()
+  await page.getByRole("option", { name: "Africa" }).click()
+  await expect(regions.getByRole("combobox", { name: "Continent" })).toHaveText("Africa")
+  await page.getByRole("button", { name: "Expand the map" }).click()
+  const expanded = page.getByRole("dialog", { name: "Live map" })
+  await expect(expanded).toBeVisible()
+  await expect(expanded.getByRole("combobox", { name: "Continent" })).toHaveText("Africa")
+  await page.keyboard.press("Escape")
+  await expect(expanded).toBeHidden()
+  await expect(page.getByRole("button", { name: "Expand the map" })).toBeFocused()
+  await regions.getByRole("button", { name: "World" }).click()
+
+  // On a desktop screen everything fits: the page does not scroll.
+  if (info.project.name.startsWith("desktop")) {
+    const scroll = await page.evaluate(
+      () => document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    )
+    expect(scroll, "Today scrolls on desktop").toBeLessThanOrEqual(0)
+  }
   await shoot(page, "today", info.project.name, true)
 
-  // Technical details are one click away.
-  const first = stories.first()
-  await first.getByRole("button", { name: "Technical details" }).click()
-  await expect(first.getByText(/login_attempt/)).toBeVisible()
-  await shoot(page, "today-story-technical", info.project.name)
-
-  // Everything opens a filtered view.
-  await first.getByRole("link", { name: "Open the full session" }).click()
-  await expect(page).toHaveURL(/\/attacks\/demo-story-/)
+  // Every hour opens its visits.
+  await page
+    .getByRole("group", { name: "Visits per hour, last 24 hours" })
+    .getByRole("link")
+    .last()
+    .click()
+  await expect(page).toHaveURL(/\/attacks\?since=.+&until=/)
 })
 
-test("today in the navigation", async ({ page }, info) => {
+test("live opens today", async ({ page }) => {
   await freezeMotion(page)
-  await page.goto("/live")
-  if (info.project.name.startsWith("mobile")) {
-    await page.getByRole("button", { name: "Open navigation" }).click()
-  }
-  await page
-    .getByRole("link", { name: "Today", exact: true })
-    .locator("visible=true")
-    .first()
-    .click()
+  await page.goto("/live?sensor=ssh")
   await expect(h1(page, "Today")).toBeVisible()
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/\?sensor=ssh$/)
 })
 
 test("search palette", async ({ page }, info) => {
@@ -96,15 +115,16 @@ test("search palette", async ({ page }, info) => {
 
 test("glossary term", async ({ page }, info) => {
   await freezeMotion(page)
-  await openToday(page)
-  const term = page.locator('dl [data-term="exploit"]').first()
-  await term.scrollIntoViewIfNeeded()
+  await page.goto("/networks")
+  await expect(h1(page, "Attacker networks")).toBeVisible()
+  await settle(page)
+  const term = page.locator('[data-term="asn"]').first()
   await term.focus()
   await page.keyboard.press("Enter")
-  await expect(page.getByText(/A request or program built to abuse a specific flaw/)).toBeVisible()
+  await expect(page.getByText(/Autonomous System Number: the ID of the network/)).toBeVisible()
   await shoot(page, "term-open", info.project.name)
   await page.keyboard.press("Escape")
-  await expect(page.getByText(/A request or program built to abuse a specific flaw/)).toHaveCount(0)
+  await expect(page.getByText(/Autonomous System Number: the ID of the network/)).toHaveCount(0)
 })
 
 test("hide research scanners", async ({ page }, info) => {
@@ -115,7 +135,8 @@ test("hide research scanners", async ({ page }, info) => {
   const badge = page.locator('[title^="Known research scanner"]')
   await expect(badge).toHaveCount(0)
 
-  // The switch sits in the sidebar footer (desktop) or the navigation drawer (phones).
+  // The switch sits in the header (desktop) or the navigation drawer (phones); the count is its
+  // description (a tooltip in the header, a line under it in the drawer).
   if (info.project.name.startsWith("mobile")) {
     await page.getByRole("button", { name: "Open navigation" }).click()
   }
@@ -123,14 +144,12 @@ test("hide research scanners", async ({ page }, info) => {
     .getByRole("switch", { name: /Hide research scanners/ })
     .locator("visible=true")
   await expect(toggle).toBeChecked()
-  await expect(
-    page.getByText(/sessions? hidden \(last 24 h\)/).locator("visible=true"),
-  ).toBeVisible()
+  await expect(toggle).toHaveAccessibleDescription(/sessions? hidden \(last 24 h\)/)
   await shoot(page, "scanner-toggle-on", info.project.name)
 
   await toggle.click()
   await expect(toggle).not.toBeChecked()
-  await expect(page.getByText(/from scanners \(last 24 h\)/).locator("visible=true")).toBeVisible()
+  await expect(toggle).toHaveAccessibleDescription(/from scanners \(last 24 h\)/)
   if (info.project.name.startsWith("mobile")) await page.keyboard.press("Escape")
   await expect(badge.locator("visible=true").first()).toBeVisible()
   await settle(page)

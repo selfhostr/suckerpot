@@ -16,7 +16,7 @@ describe("safeNext", () => {
     "/\\evil",
     "/login",
     "/login?next=/a",
-  ])("falls back for %s", (raw) => expect(safeNext(raw)).toBe("/overview"))
+  ])("falls back for %s", (raw) => expect(safeNext(raw)).toBe("/"))
   it.each([
     "/a b",
     "/a\tb",
@@ -26,7 +26,7 @@ describe("safeNext", () => {
     "/.//evil.example",
     "/x/..//evil.example",
   ])("rejects whitespace, control characters and dot-segment tricks: %j", (raw) =>
-    expect(safeNext(raw)).toBe("/overview"),
+    expect(safeNext(raw)).toBe("/"),
   )
   it("keeps encoded slashes, which stay inside the path", () => {
     expect(safeNext("/%2f%2fevil")).toBe("/%2f%2fevil")

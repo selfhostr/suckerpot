@@ -31,7 +31,8 @@
   /* Primary action is neutral (no brand hue). */
   --primary: #ecedef;
   --primary-hover: #d4d6da;
-  --ring: #8a8e98;
+  /* Focus outline: the ink colour, as in the selfhostr guidelines (2 px, 2 px offset). */
+  --ring: #ecedef;
 
   /*
    * One hue per sensor FAMILY (Okabe-Ito sky blue, reddish purple, bluish
@@ -79,6 +80,8 @@
   --shadow-md: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 8px 24px -8px rgb(0 0 0 / 0.6);
   --shadow-lg: 0 1px 0 0 rgb(255 255 255 / 0.05) inset, 0 24px 48px -12px rgb(0 0 0 / 0.7);
   --overlay: rgb(0 0 0 / 0.6);
+  /* The highlight that sweeps across a loading skeleton. */
+  --skeleton-shine: rgb(255 255 255 / 0.035);
 
   /* Opacity of the tinted background behind sensor/severity badges. */
   --tint: 14%;
@@ -101,7 +104,7 @@
 
   --primary: #16171b;
   --primary-hover: #2b2d33;
-  --ring: #6a6d76;
+  --ring: #0f1013;
 
   --family-shell: #1c6bc9;
   --family-web: #a6458f;
@@ -136,17 +139,34 @@
   --shadow-md: 0 1px 2px 0 rgb(16 17 20 / 0.05), 0 8px 24px -8px rgb(16 17 20 / 0.12);
   --shadow-lg: 0 1px 2px 0 rgb(16 17 20 / 0.06), 0 24px 48px -12px rgb(16 17 20 / 0.18);
   --overlay: rgb(16 17 20 / 0.35);
+  --skeleton-shine: rgb(255 255 255 / 0.65);
 
   --tint: 10%;
 }
 
 :root {
-  /* Motion: calm and short. */
+  /*
+   * Motion (DESIGN.md "Motion"). Calm and precise: an enter decelerates into place, an exit is
+   * shorter than its enter and accelerates away, a move (an underline, a reordered row, a bar)
+   * starts gently and lands without a tail. Only transform and opacity move, except a disclosure's
+   * height. Nothing blinks: a swap is a cross-fade over the page background, never a flash.
+   */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --dur-fast: 150ms;
-  --dur-base: 200ms;
-  --dur-slow: 250ms;
-  --dur-tween: 600ms;
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-move: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-instant: 100ms;
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --motion-slow: 320ms;
+  /* Numbers counting to a new value, bars rescaling after a filter change. */
+  --motion-tween: 600ms;
+  /* Overlays, menus, tooltips: in on the base duration, out on the fast one. */
+  --motion-enter: var(--motion-base);
+  --motion-exit: var(--motion-fast);
+  /* Route changes (View Transitions): the old page fades out, the new one rises in. */
+  --motion-route-out: var(--motion-instant);
+  --motion-route-in: var(--motion-base);
+  --motion-route-distance: 6px;
   /* Entrance of cards and pages (M19): a short fade with a few pixels of travel. */
   --motion-card-duration: 320ms;
   --motion-card-distance: 8px;
@@ -154,4 +174,37 @@
   --motion-stagger-max: 5;
   --motion-page-duration: 200ms;
   --motion-page-distance: 4px;
+
+  /*
+   * Component sizes. Three control heights, one per context (DESIGN.md, "Sizes"): sm 32 px in
+   * dense rows (filter bars, card headers, table rows), md 36 px in forms, lg 40 px for the one
+   * action of a full-page flow (the selfhostr button). A status chip is 22 px.
+   */
+  --control-sm: 2rem;
+  --control-md: 2.25rem;
+  --control-lg: 2.5rem;
+  --chip: 1.375rem;
+}
+
+/* Touch screens: every control is a 40 px target (selfhostr guidelines, 3.8). */
+@media (pointer: coarse) {
+  :root {
+    --control-sm: 2.5rem;
+    --control-md: 2.5rem;
+  }
+}
+
+/*
+ * Calm mode, phones (below `sm`): a screen read in a glance, on a small GPU. No cascades, no
+ * travel; what is left is a short fade. Components ask `calmMotion()` (src/lib/motion.ts) for
+ * the tweens and reorders they drive from script.
+ */
+@media (max-width: 639px) {
+  :root {
+    --motion-stagger: 0ms;
+    --motion-card-distance: 0px;
+    --motion-page-distance: 0px;
+    --motion-route-distance: 0px;
+    --motion-tween: 0ms;
+  }
 }

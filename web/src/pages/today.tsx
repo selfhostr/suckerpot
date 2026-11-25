@@ -1,271 +1,307 @@
-import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Radar, SearchX } from "lucide-react"
+import { Pause, Play, Radio, SearchX, WifiOff } from "lucide-react"
+import { Link } from "react-router"
+import { intlLocale, t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { useScannerFilter } from "@/app/scanner-filter"
-import { EmptyState } from "@/components/empty-state"
+import { AnimatedNumber } from "@/components/animated-number"
+import { HourlyActivity } from "@/components/charts/hourly-activity"
+import { SensorFilter } from "@/components/filter-bar"
+import { LiveLeaders } from "@/components/live-leaders"
+import { LiveTicker } from "@/components/live-ticker"
+import { LiveMap } from "@/components/map/live-map"
 import { PageHeader } from "@/components/page-header"
-import { StageLegend } from "@/components/story/stage-legend"
-import { StoryCard, StoryCardSkeleton } from "@/components/story/story-card"
-import { StoryFlow } from "@/components/story/story-flow"
-import { TimelineScrubber } from "@/components/story/timeline-scrubber"
-import { StatTile } from "@/components/stat-tile"
-import { Term, TermText } from "@/components/term"
-import { FormQueueNotice } from "@/components/today/form-queue-notice"
-import { TodayCard, TodayCardSkeleton } from "@/components/today/today-card"
+import { TermText } from "@/components/term"
+import { TodoList } from "@/components/today/todo-list"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { plural } from "@/lib/format"
-import {
-  flowFinding,
-  scopeFlow,
-  storyApi,
-  storyKeys,
-  windowSince,
-  withWindow,
-  type StoryResponse,
-} from "@/lib/story"
+import { useLivePicture } from "@/hooks/use-live-picture"
+import { sensorSetPhrase } from "@/lib/sensors"
+import { storyApi, storyKeys, windowSince, withWindow, type StoryResponse } from "@/lib/story"
 import { todayApi, todayKeys } from "@/lib/today"
+import { cn } from "@/lib/utils"
 
 const HOURS = 24
 
-const time = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-})
+const timeFormats = new Map<string, Intl.DateTimeFormat>()
 
-function Section({
-  id,
-  title,
-  finding,
+/** "14:02" in the browser's time zone, in the active language. */
+function formatTime(iso: string): string {
+  const locale = intlLocale()
+  let f = timeFormats.get(locale)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    timeFormats.set(locale, f)
+  }
+  return f.format(new Date(iso))
+}
+
+/**
+ * On desktop the page fills the window and never scrolls: the shell's header (3.5 rem) and top
+ * padding (1 rem) above; below, 1 rem of air, then the version line (1.75 rem) where the
+ * shell's 2.5 rem bottom padding would be (pulled up by 1.5 rem). Under the header, two rows: now
+ * (the map, and who is behind it) and the day (five numbers and the hour strip, and what to do).
+ * The right column has one width in both rows, so the cards line up on both edges. Below 40 rem
+ * of height the page scrolls rather than crush the map.
+ */
+const BOARD =
+  "grid grid-cols-1 gap-4 lg:-mb-6 lg:h-[calc(100dvh-7.25rem)] lg:min-h-[40rem] lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26%,26rem)] lg:grid-rows-[auto_minmax(0,1fr)_clamp(16rem,25dvh,17rem)]"
+
+/** One number of the day: label above, value below, a link to the matching list. */
+function Figure({ label, value, href }: { label: string; value: number; href?: string }) {
+  const body = (
+    <>
+      <AnimatedNumber
+        value={value}
+        className="text-lg leading-6 font-semibold tracking-tight text-fg"
+      />
+      <span className="min-w-0 truncate type-eyebrow text-fg-muted">{label}</span>
+    </>
+  )
+  const classes = "-mx-1.5 flex min-w-0 items-baseline gap-1.5 rounded-md px-1.5 py-0.5"
+  return href ? (
+    <Link
+      to={href}
+      className={cn(classes, "transition-colors duration-150 hover:bg-surface-hover/50")}
+    >
+      {body}
+    </Link>
+  ) : (
+    <div className={classes}>{body}</div>
+  )
+}
+
+/** The last 24 hours: five numbers, then visits per hour by sensor family. */
+function DayCard({
+  story,
+  error,
+  onRetry,
+  sensors,
+  className,
+}: {
+  story: StoryResponse | undefined
+  error: boolean
+  onRetry: () => void
+  sensors: readonly string[]
+  className?: string
+}) {
+  const totals = story?.totals
+  const hrefOf = (key: string) => story?.flow.nodes.find((n) => n.id === `stage:${key}`)?.href
+  return (
+    <Card
+      role="region"
+      aria-label={t("today_day_aria")}
+      className={cn("min-h-0 gap-2.5 overflow-hidden p-3 sm:px-4", className)}
+    >
+      {error ? (
+        <div className="flex h-full flex-col items-start justify-center gap-3">
+          <p className="text-sm text-fg-muted">{t("today_day_error")}</p>
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            {t("common_try_again")}
+          </Button>
+        </div>
+      ) : !story || !totals ? (
+        <div role="status" aria-label={t("common_loading")} className="flex h-full flex-col gap-4">
+          <div className="grid grid-cols-3 gap-4 sm:grid-cols-5">
+            {Array.from({ length: 5 }, (_, i) => (
+              <Skeleton key={i} className="h-7" />
+            ))}
+          </div>
+          <Skeleton className="min-h-24 flex-1" />
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <div className="grid flex-1 grid-cols-3 gap-x-3 gap-y-1 sm:grid-cols-5">
+              <Figure
+                label={t("today_figure_visits")}
+                value={totals.sessions}
+                href={withWindow("/attacks", windowSince(story.as_of, story.hours))}
+              />
+              <Figure label={t("today_figure_machines")} value={totals.sources} href="/attackers" />
+              <Figure label={t("today_figure_countries")} value={totals.countries} />
+              <Figure
+                label={t("today_figure_got_in")}
+                value={totals.got_in}
+                href={hrefOf("got_in")}
+              />
+              <Figure
+                label={t("today_figure_tried_install")}
+                value={totals.downloads}
+                href={hrefOf("download")}
+              />
+            </div>
+            <p className="text-xs text-fg-subtle max-sm:w-full">
+              {tNodes(
+                "today_updated",
+                {},
+                { time: <time dateTime={story.as_of}>{formatTime(story.as_of)}</time> },
+              )}
+            </p>
+          </div>
+          <HourlyActivity
+            timeline={story.timeline}
+            sensors={sensors}
+            className="flex-1 border-t pt-2.5"
+            plotClassName="max-lg:h-36 max-lg:flex-none"
+          />
+        </>
+      )}
+    </Card>
+  )
+}
+
+function TickerNote({
+  icon: Icon,
   children,
 }: {
-  id: string
-  title: string
-  finding: React.ReactNode
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>
   children: React.ReactNode
 }) {
   return (
-    <section aria-labelledby={id} className="mt-10">
-      <h2 id={id} className="text-xs font-medium text-fg-muted">
-        {title}
-      </h2>
-      <p className="mt-1.5 mb-4 max-w-3xl text-base text-pretty text-fg">{finding}</p>
-      {children}
-    </section>
-  )
-}
-
-function Numbers({ story }: { story: StoryResponse }) {
-  const t = story.totals
-  const hrefOf = (key: string) => story.flow.nodes.find((n) => n.id === `stage:${key}`)?.href
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      <StatTile
-        label="Visits"
-        value={t.sessions}
-        href={withWindow("/attacks", windowSince(story.as_of, story.hours))}
-        hint="Doors knocked on"
-        className="col-span-2 sm:col-span-1"
-      />
-      <StatTile label="Machines" value={t.sources} href="/attackers" hint="Different senders" />
-      <StatTile label="Countries" value={t.countries} hint="They came from" />
-      <StatTile label="Got in" value={t.got_in} href={hrefOf("got_in")} hint="A password worked" />
-      <StatTile
-        label="Tried to install"
-        value={t.downloads}
-        href={hrefOf("download")}
-        hint="A program, usually malware"
-      />
-    </div>
-  )
-}
-
-function StoryLoading() {
-  return (
-    <div role="status" aria-label="Loading" className="space-y-8">
-      <Skeleton className="h-6 w-3/4" />
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-24" />
-        ))}
-      </div>
-      <Skeleton className="h-80 w-full" />
-      <Skeleton className="h-36 w-full" />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <StoryCardSkeleton />
-        <StoryCardSkeleton />
-      </div>
-    </div>
-  )
-}
-
-/** GET /today, shared by the to-do cards and the form queue notice (one request). */
-function useToday() {
-  return useQuery({
-    queryKey: todayKeys.today,
-    queryFn: todayApi.today,
-    refetchInterval: 120_000,
-  })
-}
-
-/** What to do about it: the cards of GET /today that are about action, not about the past. */
-function ToDo() {
-  const query = useToday()
-  if (query.isError) return null
-  const cards = query.data?.cards.filter((c) => c.id !== "happened") ?? []
-  if (query.data && cards.length === 0) return null
-  return (
-    <Section
-      id="todo"
-      title="What you can do about it"
-      finding="The short list: what to block, what is new, and what you expose."
-    >
-      {query.isPending ? (
-        <div role="status" aria-label="Loading" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <TodayCardSkeleton />
-          <TodayCardSkeleton />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {cards.map((card, i) => (
-            <TodayCard
-              key={card.id}
-              card={card}
-              index={i}
-              className={
-                i === cards.length - 1 && cards.length % 2 === 1 ? "lg:col-span-2" : undefined
-              }
-            />
-          ))}
-        </div>
-      )}
-    </Section>
+    <p className="flex min-w-0 items-center gap-2 text-xs text-fg-muted max-sm:px-4 max-sm:pt-1 max-sm:pb-4">
+      <Icon aria-hidden className="size-3.5 shrink-0 text-fg-subtle" />
+      <span className="min-w-0">{children}</span>
+    </p>
   )
 }
 
 /**
- * Today: the last 24 hours as a story. A plain sentence first, then the numbers, the flow from
- * country to door to how far they got, an hour-by-hour strip, a few stories, and what to do.
- * Each technical detail is one click away.
+ * Today: the screen to glance at, and to leave running. Under one plain sentence about the day,
+ * the live map of the last 15 minutes is the hero, with the newest events as a ticker under it and
+ * who is behind them beside it; below, the day in five numbers and one chart, and the few things
+ * that need the operator. Everything else is one click away: every number, row and column opens
+ * its list.
  */
 export function TodayPage() {
-  const { hide, setHide } = useScannerFilter()
-  const todo = useToday()
-  const query = useQuery({
+  const { hide } = useScannerFilter()
+  const live = useLivePicture()
+  const todo = useQuery({
+    queryKey: todayKeys.today,
+    queryFn: todayApi.today,
+    refetchInterval: 120_000,
+  })
+  const story = useQuery({
     queryKey: [...storyKeys.story(HOURS), hide],
     queryFn: () => storyApi.story(HOURS),
     refetchInterval: 120_000,
   })
-  const raw = query.data
-  const story = useMemo(
-    () =>
-      raw ? { ...raw, flow: scopeFlow(raw.flow, windowSince(raw.as_of, raw.hours)) } : undefined,
-    [raw],
-  )
+  const { sensors, paused, setPaused } = live
+
+  const placeholder = live.connecting ? (
+    <div
+      role="status"
+      aria-label={t("common_loading")}
+      className="flex gap-2 max-sm:flex-col max-sm:p-4"
+    >
+      {Array.from({ length: 4 }, (_, i) => (
+        <Skeleton key={i} className="h-9 w-[300px] max-w-full shrink-0 rounded-md" />
+      ))}
+    </div>
+  ) : live.down ? (
+    <TickerNote icon={WifiOff}>{t("today_ticker_down")}</TickerNote>
+  ) : live.waiting ? (
+    <TickerNote icon={Radio}>{t("today_ticker_waiting")}</TickerNote>
+  ) : live.ticker.length === 0 ? (
+    <TickerNote icon={SearchX}>
+      {sensors.length === 1 ? t("today_ticker_empty_one") : t("today_ticker_empty_many")}{" "}
+      <span className="max-sm:hidden">
+        {t("today_ticker_buffer", { sensors: sensorSetPhrase(sensors) })}
+      </span>{" "}
+      <Link to="/" className="font-medium text-fg underline-offset-4 hover:underline">
+        {t("today_ticker_show_all")}
+      </Link>
+    </TickerNote>
+  ) : undefined
+
+  const headline = story.data
+    ? story.data.totals.sessions === 0
+      ? t("today_quiet_day")
+      : story.data.headline
+    : null
 
   return (
-    <>
+    <div className={BOARD}>
       <PageHeader
         help="today"
-        title="Today"
-        description="The last 24 hours on your decoy servers, in plain words. Click anything to dig deeper."
-      />
-
-      <FormQueueNotice count={todo.data?.form_queue} className="mb-6" />
-
-      {query.isPending || !story ? (
-        <StoryLoading />
-      ) : query.isError ? (
-        <EmptyState
-          icon={SearchX}
-          title="Could not load Today"
-          description={query.error.message}
-          action={
-            <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-              Try again
-            </Button>
-          }
-        />
-      ) : story.totals.sessions === 0 ? (
-        <>
-          <EmptyState
-            icon={Radar}
-            title="A quiet day"
-            description="Nobody knocked on your decoy servers in the last 24 hours."
-          />
-          <ToDo />
-        </>
-      ) : (
-        <>
-          <p className="max-w-3xl text-lg font-medium text-pretty text-fg">
+        title={t("today_title")}
+        className="pb-0 lg:col-span-2"
+        description={
+          headline ? (
             <TermText
-              text={story.headline}
+              text={headline}
               terms={["botnet", "brute-force", "exploit", "malware", "research-scanner"]}
             />
-          </p>
-          <p className="mt-2 text-xs text-fg-muted">
-            Updated <time dateTime={story.as_of}>{time.format(new Date(story.as_of))}</time>
-            {hide ? (
-              <>
-                <span aria-hidden className="px-1.5 text-fg-subtle">
-                  ·
-                </span>
-                <Term id="research-scanner">Research scanners</Term> are left out.{" "}
-                <button
-                  type="button"
-                  onClick={() => setHide(false)}
-                  className="rounded-xs text-fg underline underline-offset-4 hover:text-fg-muted"
-                >
-                  Show them
-                </button>
-              </>
-            ) : null}
-          </p>
-          <div className="mt-6">
-            <Numbers story={story} />
-          </div>
-
-          <Section
-            id="flow"
-            title="Where they come from, which door they knock on, how far they got"
-            finding={flowFinding(story.totals)}
-          >
-            <div className="rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
-              <StoryFlow flow={story.flow} />
-              <div className="mt-6 border-t pt-4">
-                <StageLegend />
-              </div>
-            </div>
-          </Section>
-
-          <Section
-            id="hours"
-            title="Hour by hour"
-            finding={`The busiest hour is picked below. Drag, click or use the arrow keys to look at another one.`}
-          >
-            <div className="rounded-lg border bg-surface p-4 shadow-sm sm:p-5">
-              <TimelineScrubber timeline={story.timeline} />
-            </div>
-          </Section>
-
-          {story.stories.length > 0 ? (
-            <Section
-              id="stories"
-              title="Stories of the day"
-              finding={`${plural(story.stories.length, "visit")} worth a closer look, the most serious first.`}
+          ) : story.isError ? (
+            t("today_summary_error")
+          ) : (
+            <span aria-hidden className="skeleton block h-5 w-[min(36rem,80vw)] rounded-md" />
+          )
+        }
+        actions={
+          <>
+            <SensorFilter align="end" />
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={paused}
+              onClick={() => setPaused((p) => !p)}
             >
-              <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-                {story.stories.map((s, i) => (
-                  <StoryCard key={s.session_id} story={s} index={i} />
-                ))}
-              </div>
-            </Section>
-          ) : null}
+              {paused ? <Play aria-hidden /> : <Pause aria-hidden />}
+              {paused ? t("today_resume") : t("today_pause")}
+            </Button>
+          </>
+        }
+      />
 
-          <ToDo />
-        </>
-      )}
-    </>
+      <LiveMap
+        events={live.shown}
+        activity={live.activity}
+        now={live.now}
+        paused={paused}
+        bySensor={live.stats?.by_sensor}
+        focus={live.focus}
+        onFocusChange={live.setFocus}
+        className="min-h-0 lg:col-start-1 lg:row-start-2"
+        // Phones: the bar (region switch) plus a map area about as tall as the whole world is wide.
+        mapClassName="h-[16rem] sm:h-[28rem] lg:h-auto lg:flex-1"
+        footer={
+          <LiveTicker
+            events={live.ticker}
+            pending={live.pending}
+            held={live.tickerHeld}
+            freshAbove={live.freshAbove}
+            focus={live.focus}
+            onFocusChange={live.setFocus}
+            onHoverChange={live.setHovering}
+            onResume={live.resume}
+            polling={live.polling}
+            placeholder={placeholder}
+          />
+        }
+      />
+
+      <TodoList
+        cards={todo.data?.cards}
+        error={todo.isError}
+        className="lg:col-start-2 lg:row-start-3"
+      />
+
+      <DayCard
+        story={story.data}
+        error={story.isError}
+        onRetry={() => void story.refetch()}
+        sensors={sensors}
+        className="lg:col-start-1 lg:row-start-3"
+      />
+
+      <LiveLeaders
+        leaders={live.leaders}
+        focus={live.focus}
+        onFocusChange={live.setFocus}
+        className="lg:col-start-2 lg:row-start-2"
+      />
+    </div>
   )
 }

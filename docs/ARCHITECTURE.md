@@ -439,7 +439,7 @@ The WebSocket checks the `Origin` header. Requests with no `Origin` (non-browser
 | Database | PostgreSQL 17 with TimescaleDB 2.31.0 |
 | Enrichment | MaxMind GeoLite2 or DB-IP Lite (local files), AbuseIPDB, GreyNoise Community, abuse.ch URLhaus and ThreatFox, VirusTotal (hashes only) |
 | Alerts and reports | Discord and Microsoft Teams webhooks, SMTP over TLS |
-| Web UI | React, Vite, TypeScript (strict), Tailwind, shadcn/ui, TanStack Query. The Live page is a flat SVG map, with no WebGL. Terminal replay planned. |
+| Web UI | React, Vite, TypeScript (strict), Tailwind, shadcn/ui, TanStack Query. The live map on Today is a flat SVG map, with no WebGL. Terminal replay planned. |
 | Python tooling | uv, ruff, mypy (strict), pytest |
 | Web tooling | pnpm, eslint, prettier, vitest, Playwright |
 | Task runner | `justfile`. See [Development](dev/development.md). |

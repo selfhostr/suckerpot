@@ -1,6 +1,7 @@
 import { Link } from "react-router"
 import { AnimatedNumber } from "@/components/animated-number"
 import { Skeleton } from "@/components/ui/skeleton"
+import { t } from "@/i18n"
 import type { SensorCounts } from "@/lib/api"
 import { formatNumber } from "@/lib/format"
 import { FAMILY_META, SENSOR_META, sensorsHref, type SensorFamily } from "@/lib/sensors"
@@ -47,9 +48,13 @@ export function FamilyTile({
       <Link
         to={sensorsHref(fam.sensors)}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-offset-[-2px]"
-        aria-label={`${fam.label}: ${formatNumber(total)} ${unit ?? metric}. Open these attacks.`}
+        aria-label={t("family_tile_aria", {
+          label: fam.label,
+          total: formatNumber(total),
+          unit: unit ?? (metric === "events" ? t("family_tile_events") : t("family_tile_sessions")),
+        })}
       />
-      <div className={cn("inline-flex items-center gap-2 text-xs font-medium", fam.text)}>
+      <div className={cn("inline-flex items-center gap-2 type-eyebrow", fam.text)}>
         <span aria-hidden className={cn("size-2 rounded-full", fam.fill)} />
         {fam.label}
       </div>
@@ -57,7 +62,7 @@ export function FamilyTile({
         <Skeleton className="h-8 w-24" />
       ) : (
         <span className="flex items-baseline gap-1.5">
-          <AnimatedNumber value={total} className="text-2xl font-semibold tracking-tight text-fg" />
+          <AnimatedNumber value={total} className="type-kpi text-fg" />
           {unit ? (
             <span className="text-xs text-fg-muted">
               <span className={cn(unitShort && "hidden sm:inline")}>{unit}</span>
@@ -70,7 +75,10 @@ export function FamilyTile({
           ) : null}
         </span>
       )}
-      <ul className="-mx-1.5 mt-auto space-y-px border-t pt-2" aria-label={`${fam.label} sensors`}>
+      <ul
+        className="-mx-1.5 mt-auto space-y-px border-t pt-2"
+        aria-label={t("family_tile_sensors_aria", { label: fam.label })}
+      >
         {rows.map(({ id, n }) => {
           const m = SENSOR_META[id]
           return (

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Flag } from "lucide-react"
 import { Link } from "react-router"
+import { t } from "@/i18n"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api, queryKeys } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -33,12 +34,12 @@ export function CampaignChip({ id, className }: { id: number; className?: string
     <Link
       to={`/campaigns/${campaign.id}`}
       className={cn(
-        "inline-flex h-6 max-w-full animate-fade-in items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted transition-colors duration-150 hover:border-fg-subtle hover:text-fg",
+        "inline-flex h-(--chip) max-w-full animate-fade-in items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted transition-colors duration-150 hover:border-fg-subtle hover:text-fg",
         className,
       )}
     >
       <Flag aria-hidden className="size-3.5 shrink-0" strokeWidth={2} />
-      <span className="shrink-0">Part of campaign</span>
+      <span className="shrink-0">{t("campaign_chip_part_of")}</span>
       <span className="truncate font-medium text-fg">{campaign.name}</span>
     </Link>
   )

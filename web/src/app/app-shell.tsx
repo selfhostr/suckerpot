@@ -1,16 +1,10 @@
-import { Menu } from "lucide-react"
-import { useState } from "react"
-import { Link, Outlet, ScrollRestoration, useLocation } from "react-router"
-import { LiveIndicator } from "@/components/live-indicator"
+import { ChevronRight, Menu } from "lucide-react"
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
+import { Link, Outlet, ScrollRestoration, useLocation, useMatches } from "react-router"
 import { PipelineBanner } from "@/components/pipeline-banner"
-import { MaskToggle } from "@/components/mask-toggle"
-import { ReadOnlyBadge } from "@/components/read-only-badge"
 import { ScannerToggle } from "@/components/scanner-toggle"
 import { SetupRedirect } from "@/components/setup/redirect"
-import { VersionLabel } from "@/components/setup/version-label"
 import { SearchPaletteProvider, SearchTrigger } from "@/components/search/search-palette"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { TourButton } from "@/components/tour/tour-button"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -19,227 +13,214 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
-import { AccountMenu } from "./account-menu"
 import { Logo } from "./logo"
-import { HubTabs } from "@/components/hub-tabs"
-import { NAV, NAV_ITEMS, hubForPath, itemForPath } from "./nav"
+import { crumbsFor } from "./nav"
+import { PAGE_FRAME_CLASS, PAGE_WIDTH_CLASS, pageWidth } from "./page-width"
+import { HelpSlotContext } from "./help-slot"
+import { PageSwitch } from "./page-switch"
+import { Sidebar } from "./sidebar"
+import { useSidebarCollapsed } from "./sidebar-state"
 import { TourProvider } from "./tour"
-import { useLiveStatus } from "./use-live-status"
+import { VersionFooter } from "./version-footer"
 
-const MOCK = import.meta.env.VITE_MOCK === "1"
-
-/** The three spaces, then System (Settings and Styleguide). */
-function NavList({ onNavigate }: { onNavigate?: () => void }) {
-  const { pathname } = useLocation()
-  // A hub entry lights up on all of its routes, detail pages included.
-  const activeTo = itemForPath(pathname)?.to
+/** Is the key press meant for a text field (or anything else that edits text)? */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
   return (
-    <nav aria-label="Main" className="flex flex-col gap-5 lg:gap-4">
-      {NAV.map((group) => (
-        <div
-          key={group.space}
-          role="group"
-          aria-labelledby={`nav-${group.space}`}
-          className="flex flex-col gap-0.5"
-        >
-          <div
-            id={`nav-${group.space}`}
-            className="px-2.5 pb-1.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase"
-          >
-            {group.label}
-          </div>
-          {group.items.map(({ to, label, icon: Icon, badge }) => {
-            const isActive = to === activeTo
-            return (
-              <Link
-                key={to}
-                to={to}
-                onClick={onNavigate}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-150 lg:h-7",
-                  isActive
-                    ? "bg-surface-hover text-fg"
-                    : "text-fg-muted hover:bg-surface-hover/60 hover:text-fg",
+    target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT"
+  )
+}
+
+/**
+ * Ctrl B (⌘B on a Mac) folds and unfolds the desktop sidebar, as in editors; never while typing,
+ * under a dialog, or on a phone, where the sidebar is a drawer.
+ */
+function useFoldShortcut(toggle: () => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat || e.altKey || e.shiftKey) return
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "b") return
+      if (isTyping(e.target) || document.querySelector('[role="dialog"], [role="alertdialog"]'))
+        return
+      if (!window.matchMedia("(min-width: 64rem)").matches) return
+      e.preventDefault()
+      toggle()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [toggle])
+}
+
+/**
+ * "Observe / Attacks / Attackers": where you are, the page a link back to its list on a detail
+ * route.
+ */
+function Breadcrumb({ pathname }: { pathname: string }) {
+  const crumbs = crumbsFor(pathname)
+  if (!crumbs.length) return <div className="min-w-0 flex-1" />
+  return (
+    <nav aria-label={t("shell_breadcrumb")} className="min-w-0 flex-1">
+      <ol className="flex min-w-0 items-center gap-1.5 text-sm">
+        {crumbs.map((c, i) => {
+          const last = i === crumbs.length - 1
+          return (
+            <Fragment key={c.label}>
+              {i > 0 ? (
+                <li aria-hidden className="text-fg-subtle">
+                  <ChevronRight className="size-3.5" />
+                </li>
+              ) : null}
+              <li className="min-w-0 truncate">
+                {c.to ? (
+                  <Link
+                    to={c.to}
+                    className={cn(
+                      "rounded-sm transition-colors duration-150 hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
+                      last ? "font-medium text-fg" : "text-fg-muted",
+                    )}
+                  >
+                    {c.label}
+                  </Link>
+                ) : (
+                  <span
+                    aria-current={last ? "page" : undefined}
+                    className={last ? "font-medium text-fg" : "text-fg-muted"}
+                  >
+                    {c.label}
+                  </span>
                 )}
-              >
-                {
-                  <>
-                    <Icon
-                      aria-hidden
-                      className={cn(
-                        "size-4",
-                        isActive ? "text-fg" : "text-fg-subtle group-hover:text-fg-muted",
-                      )}
-                      strokeWidth={1.85}
-                    />
-                    {label}
-                    {badge ? (
-                      <span className="ml-auto rounded-full border px-1.5 text-2xs font-medium text-fg-muted">
-                        {badge}
-                      </span>
-                    ) : null}
-                  </>
-                }
-              </Link>
-            )
-          })}
-        </div>
-      ))}
+              </li>
+            </Fragment>
+          )
+        })}
+      </ol>
     </nav>
   )
 }
 
-function MockBadge() {
-  return MOCK ? (
-    <span className="rounded-sm border px-1.5 py-0.5 text-2xs font-medium text-fg-muted">
-      Mock data
-    </span>
-  ) : null
-}
-
-/**
- * Desktop: theme, masking and the account (live status and the scanner switch sit in the header,
- * so the navigation keeps its height). The phone drawer carries everything.
- */
-function StatusFooter({
-  drawer = false,
-  onNavigate,
-}: {
-  drawer?: boolean
-  onNavigate?: () => void
-}) {
-  const { status, detail } = useLiveStatus()
-  return (
-    <div className="flex flex-col gap-3 border-t px-3 pt-4">
-      {drawer ? (
-        <div className="flex items-center justify-between gap-2 px-1">
-          <LiveIndicator status={status} detail={detail} />
-          <MockBadge />
-        </div>
-      ) : null}
-      <div className="flex items-center justify-between gap-2 px-1">
-        <span className="text-xs text-fg-muted">Theme</span>
-        <ThemeToggle />
-      </div>
-      {drawer ? <ScannerToggle className="px-1" /> : null}
-      <MaskToggle className="px-1" />
-      <div className="flex flex-col gap-2 border-t pt-3">
-        <ReadOnlyBadge className="mx-1 self-start" />
-        <AccountMenu />
-      </div>
-      <VersionLabel onNavigate={onNavigate} />
-    </div>
-  )
-}
-
-function currentLabel(pathname: string): string {
-  const item = itemForPath(pathname, NAV_ITEMS)
-  if (!item) return ""
-  const tab = item.tabs?.find((t) => pathname === t.to || pathname.startsWith(`${t.to}/`))
-  return tab?.label ?? item.label
-}
-
 export function AppShell() {
   const [open, setOpen] = useState(false)
+  const [collapsed, setCollapsed] = useSidebarCollapsed()
+  const [helpNode, setHelpNode] = useState<HTMLElement | null>(null)
+  const helpSlot = useMemo(() => ({ node: helpNode, setNode: setHelpNode }), [helpNode])
   const { pathname } = useLocation()
-  const hub = hubForPath(pathname)
-  const { status, detail: liveDetail } = useLiveStatus()
+  const width = pageWidth(useMatches())
+  const toggle = useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed])
+  useFoldShortcut(toggle)
+  const here = crumbsFor(pathname).at(-1)?.label ?? ""
 
   return (
     <SearchPaletteProvider>
       <TourProvider>
         <SetupRedirect />
-        <div className="min-h-dvh bg-bg">
+        <div className="min-h-dvh bg-bg lg:flex">
           <a
             href="#main"
             className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
           >
-            Skip to content
+            {t("shell_skip_to_content")}
           </a>
 
-          {/* Desktop sidebar */}
-          {/* The whole sidebar scrolls when the window is short, so a group is never cut in half;
-            on tall windows the spacer keeps System and the status footer at the bottom. */}
-          <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto overscroll-contain border-r bg-bg py-4 lg:flex">
-            <div className="px-5 pt-1 pb-5">
-              <Logo />
+          {/*
+           * Desktop sidebar: sticky in the page flow at the height of the window, so the content
+           * column takes whatever width is left. Unfolded 240 px, folded to a 56 px icon rail.
+           */}
+          <aside
+            id="sidebar"
+            data-collapsed={collapsed ? "" : undefined}
+            className={cn(
+              "vt-sidebar sticky top-0 z-30 hidden h-dvh shrink-0 self-start overflow-hidden border-r bg-bg lg:block",
+              collapsed ? "w-14" : "w-60",
+            )}
+          >
+            <div className={cn("h-full", collapsed ? "w-14" : "w-60")}>
+              <Sidebar variant={collapsed ? "rail" : "expanded"} onToggle={toggle} />
             </div>
-            {/* One scroll area, System last: on a 900 px laptop screen Defend stays in view. */}
-            <div className="flex-1 px-3 pb-3">
-              <NavList />
-            </div>
-            <StatusFooter />
           </aside>
 
-          {/* Mobile top bar */}
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-bg/85 px-2 backdrop-blur-md lg:hidden">
-            <Sheet open={open} onOpenChange={setOpen}>
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Open navigation"
-                  className="size-10"
-                >
-                  <Menu aria-hidden className="size-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-72 gap-0 border-r bg-bg p-0 py-4">
-                <SheetTitle className="px-5 pt-1 pb-6">
-                  <Logo />
-                </SheetTitle>
-                <SheetDescription className="sr-only">Main navigation</SheetDescription>
-                <div className="flex-1 overflow-y-auto px-3">
-                  <NavList onNavigate={() => setOpen(false)} />
-                </div>
-                <StatusFooter drawer onNavigate={() => setOpen(false)} />
-              </SheetContent>
-            </Sheet>
-            {/* Mark only: the name does not fit next to five controls at 390 px. */}
-            <Logo withName={false} />
-            <span className="sr-only">{currentLabel(pathname)}</span>
-            <div className="min-w-0 flex-1" />
-            <SearchTrigger compact />
-            <TourButton className="size-10" />
-            <ReadOnlyBadge short />
-            <LiveIndicator status={status} className="mx-1" />
-            <AccountMenu variant="compact" />
-          </header>
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* Phone and tablet top bar: the drawer, the mark, where you are, search. */}
+            <header className="vt-mobilebar sticky top-0 z-30 flex h-14 items-center gap-1 border-b bg-bg px-2 lg:hidden">
+              <Sheet open={open} onOpenChange={setOpen}>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("shell_open_navigation")}
+                    className="size-10"
+                  >
+                    <Menu aria-hidden className="size-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-72 gap-0 border-r bg-bg p-0">
+                  <SheetTitle className="flex h-14 shrink-0 items-center px-5">
+                    <Logo />
+                  </SheetTitle>
+                  <SheetDescription className="sr-only">
+                    {t("shell_main_navigation")}
+                  </SheetDescription>
+                  <div className="min-h-0 flex-1">
+                    <Sidebar variant="drawer" onNavigate={() => setOpen(false)} />
+                  </div>
+                </SheetContent>
+              </Sheet>
+              <Link
+                to="/"
+                aria-label={t("nav_today")}
+                className="grid size-10 shrink-0 place-items-center rounded-md"
+              >
+                <Logo withName={false} />
+              </Link>
+              <span className="min-w-0 flex-1 truncate pl-1 text-sm font-medium text-fg">
+                {here}
+              </span>
+              <SearchTrigger compact />
+            </header>
 
-          <main id="main" className="lg:pl-60">
             {/*
-             * Desktop header: search on the left; on the right what applies to every page (the
-             * scanner filter) and whether the feed is live. Phones get these in the top bar and drawer.
+             * Desktop header: where you are on the left; on the right what applies to every page
+             * (the research-scanner switch) and, flush right, the search box. Opaque on purpose: a
+             * backdrop blur under a sticky bar costs a repaint on every scrolled frame.
              */}
-            <div className="sticky top-0 z-20 hidden h-14 items-center gap-6 border-b bg-bg/85 px-10 backdrop-blur-md lg:flex">
-              <SearchTrigger className="max-w-md min-w-0 flex-1" />
-              <div className="ml-auto flex shrink-0 items-center gap-5">
-                <TourButton />
+            <header className="vt-topbar sticky top-0 z-20 hidden h-14 items-center gap-6 border-b bg-bg px-10 lg:flex">
+              <Breadcrumb pathname={pathname} />
+              <div className="flex shrink-0 items-center gap-5">
                 <ScannerToggle inline />
                 <span aria-hidden className="h-4 w-px bg-border" />
-                <div className="flex items-center gap-2">
-                  <LiveIndicator status={status} detail={liveDetail} />
-                  <MockBadge />
-                </div>
+                <SearchTrigger className="w-72 xl:w-80" />
               </div>
-            </div>
-            <div
-              className={cn(
-                "mx-auto w-full px-4 pt-6 pb-16 sm:px-6 lg:px-10 lg:pt-8",
-                // Live is the wall screen: its map uses the whole width. Other pages stay readable.
-                pathname.startsWith("/live") ? "max-w-[2400px]" : "max-w-[1200px]",
-              )}
-            >
-              {/* A new route fades in softly (off under reduced motion and for screenshots). */}
-              <PipelineBanner />
-              {hub ? <HubTabs hub={hub} pathname={pathname} /> : null}
-              <div key={pathname} className="animate-page-in">
-                <Outlet />
+            </header>
+
+            <main id="main" className="min-w-0 flex-1">
+              <div
+                data-page-width={width}
+                className={cn(
+                  // Every page fills the column, with the same gutters; the cap is for ultra-wide
+                  // screens only. A `prose` page caps its own column (route table, `handle.width`).
+                  "mx-auto w-full px-4 pt-3 pb-10 sm:px-6 lg:px-10 lg:pt-4",
+                  PAGE_FRAME_CLASS,
+                )}
+              >
+                <HelpSlotContext value={helpSlot}>
+                  <div className={PAGE_WIDTH_CLASS[width]}>
+                    <PipelineBanner />
+                    {/* Outside the fading page: it stays put while you switch between its pages. */}
+                    <PageSwitch pathname={pathname} />
+                    {/* A new route fades in softly (off with reduced motion and for screenshots). */}
+                    <div key={pathname} className="animate-page-in">
+                      <Outlet />
+                    </div>
+                  </div>
+                </HelpSlotContext>
               </div>
-            </div>
-          </main>
+            </main>
+            <VersionFooter className="mx-auto w-full max-w-page-wide px-4 pb-3 sm:px-6 lg:px-10" />
+          </div>
           <ScrollRestoration />
         </div>
       </TourProvider>

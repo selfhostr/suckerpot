@@ -1,5 +1,6 @@
 import { Check } from "lucide-react"
 import { useId } from "react"
+import { t } from "@/i18n"
 import { CONSENTS } from "@/lib/network"
 
 /**
@@ -10,8 +11,8 @@ export function WhatYouShare() {
   const title = `${useId()}-title`
   return (
     <section className="space-y-2" aria-labelledby={title}>
-      <h4 id={title} className="text-sm font-medium text-fg">
-        What you share
+      <h4 id={title} className="type-subtitle text-fg">
+        {t("network_what_you_share_title")}
       </h4>
       <ul className="space-y-1.5">
         {CONSENTS.map((c) => (
@@ -25,9 +26,7 @@ export function WhatYouShare() {
           </li>
         ))}
       </ul>
-      <p className="text-xs text-fg-muted">
-        Never your passwords, commands, ports, exact times or your own address.
-      </p>
+      <p className="text-xs text-fg-muted">{t("network_what_you_share_never")}</p>
     </section>
   )
 }

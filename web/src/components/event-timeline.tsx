@@ -2,15 +2,16 @@ import { ChevronsUpDown } from "lucide-react"
 import { useState } from "react"
 import { EventRow } from "@/components/event-row"
 import type { SensorEvent } from "@/lib/api"
-import { formatDuration, plural } from "@/lib/format"
-import { NOUN, foldEvents } from "@/lib/fold-events"
+import { t } from "@/i18n"
+import { formatDuration } from "@/lib/format"
+import { NOUN, NOUN_FALLBACK, foldEvents } from "@/lib/fold-events"
 
 export function EventTimeline({ events }: { events: readonly SensorEvent[] }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const items = foldEvents(events)
 
   return (
-    <ol aria-label="Events" className="divide-y">
+    <ol aria-label={t("events_timeline_label")} className="divide-y">
       {items.flatMap((item) => {
         if (item.kind === "event") {
           return [
@@ -42,7 +43,7 @@ export function EventTimeline({ events }: { events: readonly SensorEvent[] }) {
                 <ChevronsUpDown aria-hidden className="size-3.5" />
               </span>
               <span>
-                Show {plural(item.events.length, `more ${NOUN[item.type] ?? "event"}`)}
+                {t(NOUN[item.type] ?? NOUN_FALLBACK, { count: item.events.length })}
                 {span ? <span className="whitespace-nowrap text-fg-subtle"> · {span}</span> : null}
               </span>
             </button>

@@ -33,16 +33,14 @@ test.describe("guided tour", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0)
   })
 
-  test("Escape closes it and the ? button plays it again", async ({ page }) => {
+  test("Escape closes it and Settings plays it again", async ({ page }) => {
     await page.goto("/")
     await expect(page.getByRole("dialog")).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(page.getByRole("dialog")).toBeHidden()
-    await page
-      .getByRole("button", { name: "Take the tour" })
-      .locator("visible=true")
-      .first()
-      .click()
+    await page.goto("/settings")
+    await expect(h1(page, "Settings")).toBeVisible()
+    await page.getByRole("button", { name: "Take the tour" }).click()
     await expect(page.getByRole("dialog").getByText(`Step 1 of ${STEPS}`)).toBeVisible()
   })
 })

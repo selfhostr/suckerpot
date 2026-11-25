@@ -2,6 +2,7 @@ import { useId, useRef, useState, type SyntheticEvent } from "react"
 import { Field, FormError } from "@/components/form-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { t } from "@/i18n"
 import {
   changePasswordRequest,
   describePasswordError,
@@ -28,8 +29,8 @@ interface ChangePasswordFormProps {
  */
 export function ChangePasswordForm({
   username,
-  currentLabel = "Current password",
-  submitLabel = "Change password",
+  currentLabel = t("pwd_current"),
+  submitLabel = t("pwd_change"),
   layout = "dialog",
   onDone,
   onCancel,
@@ -48,10 +49,10 @@ export function ChangePasswordForm({
     if (pending) return
     setFormError(null)
     const found: typeof errors = {}
-    if (!current) found.current = "Enter your current password."
+    if (!current) found.current = t("pwd_enter_current")
     const weak = validateNewPassword(next, username, current)
     if (weak) found.next = weak
-    else if (again !== next) found.again = "The two passwords do not match."
+    else if (again !== next) found.again = t("pwd_mismatch")
     setErrors(found)
     if (found.current) return currentRef.current?.focus()
     if (found.next) return nextRef.current?.focus()
@@ -99,8 +100,8 @@ export function ChangePasswordForm({
       </Field>
       <Field
         id={ids.next}
-        label="New password"
-        hint={`At least ${MIN_PASSWORD_LENGTH} characters. A few ordinary words make a good passphrase.`}
+        label={t("pwd_new")}
+        hint={t("pwd_new_hint", { count: MIN_PASSWORD_LENGTH })}
         error={errors.next}
       >
         <Input
@@ -115,7 +116,7 @@ export function ChangePasswordForm({
           aria-describedby={errors.next ? `${ids.next}-error` : `${ids.next}-hint`}
         />
       </Field>
-      <Field id={ids.again} label="Repeat the new password" error={errors.again}>
+      <Field id={ids.again} label={t("pwd_repeat")} error={errors.again}>
         <Input
           id={ids.again}
           name="repeat-password"
@@ -130,17 +131,17 @@ export function ChangePasswordForm({
       <FormError id={ids.err} message={formError} />
       {layout === "page" ? (
         <Button type="submit" size="lg" disabled={pending}>
-          {pending ? "Saving…" : submitLabel}
+          {pending ? t("pwd_saving") : submitLabel}
         </Button>
       ) : (
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {onCancel ? (
             <Button type="button" variant="outline" onClick={onCancel}>
-              Cancel
+              {t("common_cancel")}
             </Button>
           ) : null}
           <Button type="submit" disabled={pending}>
-            {pending ? "Saving…" : submitLabel}
+            {pending ? t("pwd_saving") : submitLabel}
           </Button>
         </div>
       )}

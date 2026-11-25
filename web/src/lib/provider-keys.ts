@@ -3,15 +3,24 @@
  * one request and are never kept in the browser, and nothing here ever reads one back.
  */
 import { ApiError, sendJson } from "@/lib/api"
+import { t } from "@/i18n"
 import type { ProviderId } from "@/lib/settings"
 
 export const PROVIDER_NAMES: Record<ProviderId, string> = {
   abuseipdb: "AbuseIPDB",
-  greynoise: "GreyNoise Community",
+  get greynoise() {
+    return t("providerkey_name_greynoise")
+  },
   maxmind: "MaxMind GeoLite2",
-  nvd: "NVD (CVE watch)",
-  github: "GitHub advisories (CVE watch)",
-  abusech: "abuse.ch (URLhaus, ThreatFox)",
+  get nvd() {
+    return t("providerkey_name_nvd")
+  },
+  get github() {
+    return t("providerkey_name_github")
+  },
+  get abusech() {
+    return t("providerkey_name_abusech")
+  },
   virustotal: "VirusTotal",
 }
 
@@ -31,13 +40,12 @@ export function validateKeyInput(
   { key, accountId }: KeyInput,
 ): Partial<Record<KeyField, string>> {
   const errors: Partial<Record<KeyField, string>> = {}
-  if (!key) errors.key = "Enter the key."
-  else if (!/^[\x21-\x7e]+$/.test(key))
-    errors.key = "The key may only contain letters, digits and symbols, with no spaces."
+  if (!key) errors.key = t("providerkey_error_required")
+  else if (!/^[\x21-\x7e]+$/.test(key)) errors.key = t("providerkey_error_chars")
   else if (key.length < MIN_KEY_LENGTH || key.length > MAX_KEY_LENGTH)
-    errors.key = `The key must be ${MIN_KEY_LENGTH} to ${MAX_KEY_LENGTH} characters long.`
+    errors.key = t("providerkey_error_length", { min: MIN_KEY_LENGTH, max: MAX_KEY_LENGTH })
   if (provider === "maxmind" && !/^[0-9]{1,16}$/.test(accountId))
-    errors.accountId = "The account ID is a number of up to 16 digits."
+    errors.accountId = t("providerkey_error_account_id")
   return errors
 }
 
@@ -62,13 +70,24 @@ export class KeyError extends Error {
 }
 
 export const KEY_MESSAGES: Record<Exclude<KeyFailure, "invalid-key">, string> = {
-  "wrong-password": "That password is not correct.",
-  "rate-limited": "Too many attempts. Wait a minute, then try again.",
-  "editing-disabled": "Editing keys here is turned off on this server.",
-  origin:
-    "This address is not allowed to change settings. Open the dashboard at its usual address.",
-  session: "Your session has expired. Sign in again.",
-  network: "The server could not be reached. Try again in a moment.",
+  get "wrong-password"() {
+    return t("providerkey_msg_wrong_password")
+  },
+  get "rate-limited"() {
+    return t("providerkey_msg_rate_limited")
+  },
+  get "editing-disabled"() {
+    return t("providerkey_msg_editing_disabled")
+  },
+  get origin() {
+    return t("providerkey_msg_origin")
+  },
+  get session() {
+    return t("providerkey_msg_session")
+  },
+  get network() {
+    return t("providerkey_msg_network")
+  },
 }
 
 /** Explains a failure in plain words; never repeats what was typed. */
@@ -76,7 +95,7 @@ export function describeKeyError(e: unknown): string {
   if (e instanceof KeyError) {
     if (e.detail) return e.detail
     if (e.reason !== "invalid-key") return KEY_MESSAGES[e.reason]
-    return "The key is not valid."
+    return t("providerkey_msg_invalid")
   }
   return KEY_MESSAGES.network
 }
@@ -125,9 +144,9 @@ export async function requestKeyTest(provider: ProviderId): Promise<void> {
     await sendJson("POST", `${path(provider)}/test`, undefined)
   } catch (e) {
     if (e instanceof ApiError && e.code === "cooldown")
-      throw new KeyError("rate-limited", "A test was just requested. Wait a few seconds.")
+      throw new KeyError("rate-limited", t("providerkey_msg_cooldown"))
     if (e instanceof ApiError && e.code === "no_key")
-      throw new KeyError("invalid-key", "There is no key to test.")
+      throw new KeyError("invalid-key", t("settings_test_no_key"))
     throw toKeyError(e)
   }
 }

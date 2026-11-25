@@ -4,6 +4,7 @@ import { JoinCard } from "./join-card"
 import { NodeCard } from "./node-card"
 import { useNetworkStatus } from "./use-network"
 import { isMember } from "@/lib/network"
+import { t } from "@/i18n"
 
 /**
  * Settings, Network tab: the place to join and to leave. A member sees their node and the two
@@ -16,12 +17,8 @@ export function NetworkTab() {
     <>
       {member && q.data ? <NodeCard status={q.data} /> : <JoinCard />}
       <FindingCard
-        eyebrow="What is shared"
-        finding={
-          member
-            ? "This is everything your node shares, and everything it never does."
-            : "Nothing is shared until you join. This is exactly what would be."
-        }
+        eyebrow={t("network_tab_eyebrow")}
+        finding={member ? t("network_tab_finding_member") : t("network_tab_finding_guest")}
       >
         <SharedExplainer />
       </FindingCard>

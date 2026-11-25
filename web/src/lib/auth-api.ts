@@ -1,5 +1,7 @@
 /** Client for /api/v1/auth/*. Cookies are httpOnly: the UI only ever learns who is signed in. */
 import { ApiError, API_BASE, sendJson } from "@/lib/api"
+import { t, tk } from "@/i18n"
+import { withText } from "@/lib/utils"
 
 export type Role = "admin" | "viewer"
 
@@ -70,7 +72,7 @@ export async function logoutRequest(): Promise<void> {
 
 /** Only same-app paths are valid redirect targets (no open redirect, no loop through /login). */
 export function safeNext(raw: string | null | undefined): string {
-  const fallback = "/overview"
+  const fallback = "/"
   // eslint-disable-next-line no-control-regex -- control characters and whitespace are the point
   if (!raw || /[\x00-\x20\x7f]/.test(raw) || !raw.startsWith("/") || raw.startsWith("//")) {
     return fallback
@@ -101,17 +103,20 @@ export class PasswordError extends Error {
   }
 }
 
-export const PASSWORD_MESSAGES: Record<Exclude<PasswordFailure, "weak">, string> = {
-  "wrong-password": "That password is not correct.",
-  owner: "This account's password is changed in .env, not here.",
-  "rate-limited": "Too many attempts. Wait a minute, then try again.",
-  session: "Your session has ended. Sign in again.",
-  network: "The server could not be reached. Try again in a moment.",
-}
+export const PASSWORD_MESSAGES: Record<Exclude<PasswordFailure, "weak">, string> = withText(
+  {
+    "wrong-password": tk("auth_pwd_wrong"),
+    owner: tk("auth_pwd_owner"),
+    "rate-limited": tk("auth_rate_limited"),
+    session: tk("auth_pwd_session"),
+    network: tk("auth_network"),
+  },
+  {},
+)
 
 export function describePasswordError(e: unknown): string {
   if (e instanceof PasswordError) {
-    if (e.reason === "weak") return e.detail ?? "Choose a different password."
+    if (e.reason === "weak") return e.detail ?? t("auth_pwd_choose_different")
     return PASSWORD_MESSAGES[e.reason]
   }
   return PASSWORD_MESSAGES.network
@@ -144,11 +149,11 @@ export function validateNewPassword(
   current?: string,
 ): string | null {
   if (password.length < MIN_PASSWORD_LENGTH)
-    return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
-  if (password.length > MAX_PASSWORD_LENGTH) return `Use at most ${MAX_PASSWORD_LENGTH} characters.`
+    return t("auth_pwd_min_length", { count: MIN_PASSWORD_LENGTH })
+  if (password.length > MAX_PASSWORD_LENGTH)
+    return t("auth_pwd_max_length", { count: MAX_PASSWORD_LENGTH })
   if (username && password.toLowerCase().includes(username.trim().toLowerCase()))
-    return "The password must not contain the username."
-  if (current !== undefined && password === current)
-    return "Choose a password different from the current one."
+    return t("auth_pwd_contains_username")
+  if (current !== undefined && password === current) return t("auth_pwd_same_as_current")
   return null
 }

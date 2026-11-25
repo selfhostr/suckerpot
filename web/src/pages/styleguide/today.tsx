@@ -4,54 +4,73 @@ import { ScannerBadge } from "@/components/scanner-badge"
 import { ScannerToggle } from "@/components/scanner-toggle"
 import { SearchTrigger } from "@/components/search/search-palette"
 import { Term } from "@/components/term"
-import { TodayCard } from "@/components/today/today-card"
+import { HourlyActivity } from "@/components/charts/hourly-activity"
+import { TodoList } from "@/components/today/todo-list"
 import { Button } from "@/components/ui/button"
 import { TERM_IDS } from "@/lib/glossary"
+import type { TimelineBucket } from "@/lib/story"
 import type { TodayCardData } from "@/lib/today"
 import { Section, Specimen } from "./parts"
 import type { FeatureSection } from "./registry"
 
-const HAPPENED: TodayCardData = {
-  id: "happened",
-  sentence:
-    "1,204 attacks came from 312 addresses in the last 24 hours, 38% more than the day before. 41 sessions ran commands on a fake shell.",
-  items: [
-    {
-      kind: "sensor",
-      value: "ssh",
-      label: "Most targeted: SSH",
-      detail: null,
-      count: 702,
-      to: "/attacks?sensor=ssh",
-    },
-    {
-      kind: "country",
-      value: "NL",
-      label: "Most active country: NL",
-      detail: null,
-      count: 311,
-      to: "/attackers?country=NL",
-    },
-    {
-      kind: "tag",
-      value: "recon",
-      label: "Most common behaviour: Reconnaissance sessions",
-      detail: null,
-      count: 244,
-      to: "/attacks?tag=recon",
-    },
-  ],
-  action: { label: "See all attacks", to: "/attacks" },
-  empty: false,
-}
+const TODO: TodayCardData[] = [
+  {
+    id: "forms",
+    sentence: "1 report to submit by web form, for 1 provider.",
+    items: [],
+    action: { label: "Open the form queue", to: "/abuse?status=forms" },
+    empty: false,
+  },
+  {
+    id: "act",
+    sentence: "2 servers handed out malware today. Block them before a real machine fetches it.",
+    items: [],
+    action: { label: "Open the blocklists", to: "/defend/blocklists" },
+    empty: false,
+  },
+  {
+    id: "exposure",
+    sentence: "No service inventory yet, so there is no exposure to report.",
+    items: [],
+    action: { label: "Open your exposure", to: "/defend/exposure" },
+    empty: true,
+  },
+]
 
-const ACT_EMPTY: TodayCardData = {
-  id: "act",
-  sentence: "Nothing urgent today: no malware downloads and no exploit payloads.",
-  items: [],
-  action: { label: "Open the blocklists", to: "/defend/blocklists" },
-  empty: true,
-}
+const QUIET: TodayCardData[] = [
+  {
+    id: "act",
+    sentence: "Nothing urgent today: no malware downloads and no exploit payloads.",
+    items: [],
+    action: { label: "Open the blocklists", to: "/defend/blocklists" },
+    empty: true,
+  },
+  {
+    id: "campaigns",
+    sentence: "No new campaign in the last 24 hours.",
+    items: [],
+    action: { label: "See all campaigns", to: "/campaigns" },
+    empty: true,
+  },
+]
+
+/** A fixed day: a calm night, a busy evening and one spike, on four doors. */
+const HOUR = 3_600_000
+const DAY: TimelineBucket[] = Array.from({ length: 24 }, (_, i) => {
+  const sessions = Math.round(
+    120 + 90 * Math.sin((i / 24) * Math.PI * 2 - 1) + (i === 19 ? 260 : 0),
+  )
+  const ssh = Math.round(sessions * 0.5)
+  const web = Math.round(sessions * 0.2)
+  const redis = Math.round(sessions * 0.12)
+  return {
+    start: new Date(Date.UTC(2026, 0, 1) + i * HOUR).toISOString(),
+    sessions,
+    by_door: { ssh, web, redis, rdp: sessions - ssh - web - redis },
+    by_stage: {},
+    severe: 0,
+  }
+})
 
 function Motion() {
   const [run, setRun] = useState(0)
@@ -88,11 +107,19 @@ function TodayStyleguide() {
     <Section
       id="today"
       title="Today, search and glossary"
-      description="The home page cards (a sentence, up to three items, one action), the header search, glossary terms, the research-scanner switch and the entrance motion."
+      description="The to-do card and the hourly chart of the home page, the header search, glossary terms, the research-scanner switch and the entrance motion."
     >
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <TodayCard card={HAPPENED} index={0} />
-        <TodayCard card={ACT_EMPTY} index={1} />
+        <Specimen label="TodoList · the three most pressing items, then a quiet day">
+          <div className="grid w-full gap-4 sm:grid-cols-2">
+            <TodoList cards={TODO} />
+            <TodoList cards={QUIET} />
+          </div>
+        </Specimen>
+
+        <Specimen label="HourlyActivity · visits per hour, stacked by family">
+          <HourlyActivity timeline={DAY} className="w-full" plotClassName="h-36 flex-none" />
+        </Specimen>
 
         <Specimen label="Term: hover, tap, or press Enter">
           <p className="text-base text-fg">

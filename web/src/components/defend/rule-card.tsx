@@ -1,5 +1,7 @@
 import { ChevronDown } from "lucide-react"
 import { useId, useState } from "react"
+import { t } from "@/i18n"
+import { Collapse } from "@/components/collapse"
 import { CodeBlock } from "@/components/defend/code-block"
 import { SeverityBadge } from "@/components/severity-badge"
 import { evidenceLine, RULE_KIND_META, SOURCE_LABELS, type DetectionRule } from "@/lib/defend"
@@ -30,22 +32,20 @@ export function RuleCard({ rule }: { rule: DetectionRule }) {
           </span>
         </span>
         <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 text-xs text-fg-muted">
-          <span className="hidden sm:inline">{open ? "Hide rule" : "Show rule"}</span>
+          <span className="hidden sm:inline">{open ? t("rule_hide") : t("rule_show")}</span>
           <ChevronDown
             aria-hidden
             className={cn("size-4 transition-transform duration-200", open && "rotate-180")}
           />
         </span>
       </button>
-      {open ? (
-        <div id={panelId} className="animate-fade-in border-t px-4 py-4 sm:px-5">
-          <CodeBlock
-            text={rule.text}
-            label={`${RULE_KIND_META[rule.kind].label} rule: ${rule.title}`}
-            caption={`${RULE_KIND_META[rule.kind].label} rule`}
-          />
-        </div>
-      ) : null}
+      <Collapse open={open} id={panelId} className="border-t px-4 py-4 sm:px-5">
+        <CodeBlock
+          text={rule.text}
+          label={t("rule_code_label", { kind: RULE_KIND_META[rule.kind].label, title: rule.title })}
+          caption={t("rule_code_caption", { kind: RULE_KIND_META[rule.kind].label })}
+        />
+      </Collapse>
     </li>
   )
 }

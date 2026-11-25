@@ -22,7 +22,7 @@ export function IntelBadge({
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm border px-2 text-xs font-medium whitespace-nowrap",
+        "inline-flex min-h-(--chip) items-center gap-1.5 rounded-sm border px-2 text-xs font-medium",
         tone,
         className,
       )}

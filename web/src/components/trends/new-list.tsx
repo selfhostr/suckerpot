@@ -1,5 +1,6 @@
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
+import { t } from "@/i18n"
 import { RelativeTime } from "@/components/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatNumber, maskIpsInText } from "@/lib/format"
@@ -21,7 +22,7 @@ export function NewList({ field, items, loading, empty }: NewListProps) {
   const { masked } = useIpMask()
   if (loading)
     return (
-      <div role="status" aria-label="Loading" className="space-y-3">
+      <div role="status" aria-label={t("common_loading")} className="space-y-3">
         {Array.from({ length: 6 }, (_, i) => (
           <Skeleton key={i} className="h-8 w-full" />
         ))}
@@ -31,15 +32,12 @@ export function NewList({ field, items, loading, empty }: NewListProps) {
   const link = LINKS[field]
   return (
     <>
-      <div
-        aria-hidden
-        className="flex gap-3 border-b pb-2 text-2xs font-medium tracking-wide text-fg-subtle uppercase"
-      >
-        <span className="flex-1">Value</span>
-        <span>Seen</span>
-        <span className="w-24 text-right">First seen</span>
+      <div aria-hidden className="flex gap-3 border-b pb-2 type-column text-fg-subtle">
+        <span className="flex-1">{t("trends_new_col_value")}</span>
+        <span>{t("trends_new_col_seen")}</span>
+        <span className="w-24 text-right">{t("trends_new_col_first_seen")}</span>
       </div>
-      <ul aria-label="New values" className="divide-y">
+      <ul aria-label={t("trends_new_list_label")} className="divide-y">
         {items.map((i) => {
           const shown = masked ? maskIpsInText(i.value) : i.value
           const label = (
@@ -58,7 +56,7 @@ export function NewList({ field, items, loading, empty }: NewListProps) {
               )}
               <span className="text-sm text-fg tabular-nums">{formatNumber(i.count)}</span>
               <span className="w-24 shrink-0 text-right text-xs">
-                <span className="sr-only">First seen </span>
+                <span className="sr-only">{t("trends_new_col_first_seen")} </span>
                 <RelativeTime iso={i.first_seen} />
               </span>
             </li>

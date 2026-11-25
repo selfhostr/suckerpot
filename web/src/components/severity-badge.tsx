@@ -1,12 +1,25 @@
 import { CircleDot, Info, OctagonAlert, TriangleAlert, type LucideIcon } from "lucide-react"
+import { t, tk } from "@/i18n"
 import type { Severity } from "@/lib/severity"
 import { cn } from "@/lib/utils"
 
 const META: Record<Severity, { label: string; icon: LucideIcon; className: string }> = {
-  info: { label: "Info", icon: Info, className: "text-sev-info tint-info" },
-  notice: { label: "Notice", icon: CircleDot, className: "text-sev-notice tint-notice" },
-  warning: { label: "Warning", icon: TriangleAlert, className: "text-sev-warning tint-warning" },
-  severe: { label: "Severe", icon: OctagonAlert, className: "text-sev-severe tint-severe" },
+  info: { label: tk("severity_info"), icon: Info, className: "text-sev-info tint-info" },
+  notice: {
+    label: tk("severity_notice"),
+    icon: CircleDot,
+    className: "text-sev-notice tint-notice",
+  },
+  warning: {
+    label: tk("severity_warning"),
+    icon: TriangleAlert,
+    className: "text-sev-warning tint-warning",
+  },
+  severe: {
+    label: tk("severity_severe"),
+    icon: OctagonAlert,
+    className: "text-sev-severe tint-severe",
+  },
 }
 
 interface SeverityBadgeProps {
@@ -17,11 +30,12 @@ interface SeverityBadgeProps {
 }
 
 export function SeverityBadge({ severity, iconOnly = false, className }: SeverityBadgeProps) {
-  const { label, icon: Icon, className: tone } = META[severity]
+  const { label: labelKey, icon: Icon, className: tone } = META[severity]
+  const label = t(labelKey)
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm text-xs font-medium",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm text-xs font-medium",
         iconOnly ? "w-6 justify-center" : "px-2",
         severity === "severe" && "font-semibold",
         tone,

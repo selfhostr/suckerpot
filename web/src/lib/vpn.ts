@@ -3,6 +3,7 @@
  * contract), the plain-English sentences of the tab, and the calls. The uploaded file text is
  * only ever passed through: it is never stored or logged here.
  */
+import { t } from "@/i18n"
 import { ApiError, getJson, sendJson } from "./api"
 import { UserError } from "./users"
 
@@ -65,58 +66,104 @@ export const vpnKeys = { status: ["settings", "vpn"] as const }
 // --- Sentences -------------------------------------------------------------------
 
 /** Parser problem codes (422 `problems`), as readable sentences. Unknown codes fall back. */
-const PROBLEMS: Record<string, string> = {
-  too_large: "The file is bigger than 4 KiB.",
-  not_ascii: "The file contains characters that are not plain text.",
-  empty: "The file is empty.",
-  missing_private_key: "The [Interface] section has no PrivateKey.",
-  bad_private_key: "The PrivateKey is not a valid WireGuard key.",
-  missing_public_key: "The [Peer] section has no PublicKey.",
-  bad_public_key: "The peer PublicKey is not a valid WireGuard key.",
-  missing_address: "The [Interface] section has no Address.",
-  no_ipv4_address: "The Address list needs at least one IPv4 address.",
-  bad_address: "An Address entry is not a valid network address.",
-  missing_endpoint: "The [Peer] section has no Endpoint.",
-  endpoint_not_ip: "The Endpoint must be an IPv4 address and a port, not a host name.",
-  endpoint_not_global: "The Endpoint must be a public address.",
-  bad_port: "The Endpoint port must be between 1 and 65535.",
-  not_full_tunnel: "AllowedIPs must contain 0.0.0.0/0, so that all traffic uses the tunnel.",
-  preshared_key_refused: "A PresharedKey is not supported yet.",
-  forbidden_key: "The file uses a setting that is not allowed (such as PostUp or Table).",
-  unknown_key: "The file uses a setting that is not recognised.",
-  unknown_section: "The file has a section other than [Interface] and [Peer].",
-  duplicate_section: "The file has more than one [Interface] or [Peer] section.",
-  missing_section: "The file needs one [Interface] and one [Peer] section.",
-  duplicate_key: "A setting appears twice in the same section.",
-  syntax: "A line in the file is not in the form key = value.",
+function problemText(code: string): string | null {
+  switch (code) {
+    case "too_large":
+      return t("vpn_problem_too_large")
+    case "not_ascii":
+      return t("vpn_problem_not_ascii")
+    case "empty":
+      return t("vpn_problem_empty")
+    case "missing_private_key":
+      return t("vpn_problem_missing_private_key")
+    case "bad_private_key":
+      return t("vpn_problem_bad_private_key")
+    case "missing_public_key":
+      return t("vpn_problem_missing_public_key")
+    case "bad_public_key":
+      return t("vpn_problem_bad_public_key")
+    case "missing_address":
+      return t("vpn_problem_missing_address")
+    case "no_ipv4_address":
+      return t("vpn_problem_no_ipv4_address")
+    case "bad_address":
+      return t("vpn_problem_bad_address")
+    case "missing_endpoint":
+      return t("vpn_problem_missing_endpoint")
+    case "endpoint_not_ip":
+      return t("vpn_problem_endpoint_not_ip")
+    case "endpoint_not_global":
+      return t("vpn_problem_endpoint_not_global")
+    case "bad_port":
+      return t("vpn_problem_bad_port")
+    case "not_full_tunnel":
+      return t("vpn_problem_not_full_tunnel")
+    case "preshared_key_refused":
+      return t("vpn_problem_preshared_key_refused")
+    case "forbidden_key":
+      return t("vpn_problem_forbidden_key")
+    case "unknown_key":
+      return t("vpn_problem_unknown_key")
+    case "unknown_section":
+      return t("vpn_problem_unknown_section")
+    case "duplicate_section":
+      return t("vpn_problem_duplicate_section")
+    case "missing_section":
+      return t("vpn_problem_missing_section")
+    case "duplicate_key":
+      return t("vpn_problem_duplicate_key")
+    case "syntax":
+      return t("vpn_problem_syntax")
+    default:
+      return null
+  }
 }
 
-const GENERIC_PROBLEM = "The file is not a valid WireGuard configuration."
-
 export function describeProblem(code: string): string {
-  return PROBLEMS[code] ?? GENERIC_PROBLEM
+  return problemText(code) ?? t("vpn_problem_generic")
 }
 
 /** One sentence per distinct problem, at most five. */
 export function describeProblems(codes: readonly string[]): string {
   const unique = [...new Set(codes.map(describeProblem))]
-  if (unique.length === 0) return GENERIC_PROBLEM
+  if (unique.length === 0) return t("vpn_problem_generic")
   return unique.slice(0, 5).join(" ")
 }
 
 export const VPN_MESSAGES = {
-  tooLarge: "The file is bigger than 4 KiB. A WireGuard configuration is much smaller.",
-  noCandidate: "There is no new exit to trust right now. The status has been refreshed.",
-  tooMany: "Eight exits are already trusted. Remove one first.",
-  unavailable:
-    "The VPN configuration store is not available. Check that the vpn-config volume is mounted.",
-  exitIsSelf: "This exit is the address of this system itself, so it cannot be trusted.",
-  exitAsnDenied: "This exit network is on your deny list, so it cannot be trusted.",
-  forbidden: "Only an administrator can change the VPN.",
-  notFound: "That entry no longer exists. The status has been refreshed.",
-  generic: "The change could not be made. Try again in a moment.",
-  checkTooSoon: "Just asked, wait a few seconds.",
-  reconnectTooSoon: "The tunnel was restarted a moment ago. Wait a minute, then try again.",
+  get tooLarge() {
+    return t("vpn_msg_too_large")
+  },
+  get noCandidate() {
+    return t("vpn_msg_no_candidate")
+  },
+  get tooMany() {
+    return t("vpn_msg_too_many")
+  },
+  get unavailable() {
+    return t("vpn_msg_unavailable")
+  },
+  get exitIsSelf() {
+    return t("vpn_msg_exit_is_self")
+  },
+  get exitAsnDenied() {
+    return t("vpn_msg_exit_asn_denied")
+  },
+  get forbidden() {
+    return t("vpn_msg_forbidden")
+  },
+  get notFound() {
+    return t("vpn_msg_not_found")
+  },
+  get generic() {
+    return t("vpn_msg_generic")
+  },
+  get checkTooSoon() {
+    return t("vpn_msg_check_too_soon")
+  },
+  get reconnectTooSoon() {
+    return t("vpn_msg_reconnect_too_soon")
+  },
 } as const
 
 /** The machine-readable reason, wherever the API put it (`code`, `error` or a string `detail`). */
@@ -168,14 +215,16 @@ export function describeVpn(v: VpnStatus): string {
   const ip = v.gate.egress_ip
   if (v.gate.state === "closed") {
     if (v.trust_blocked)
-      return `The gate is closed: the exit ${ip ?? "address"} looks like ${
-        v.trust_blocked === "exit_is_self" ? "your own connection" : "a network you denied"
-      }.`
-    if (v.trust_candidate && ip) return `The gate is closed: the new exit ${ip} is not trusted yet.`
-    return "The gate is closed: outbound lookups are paused."
+      return t("vpn_describe_blocked", {
+        hasIp: ip ? "yes" : "no",
+        ip,
+        reason: v.trust_blocked === "exit_is_self" ? "self" : "denied",
+      })
+    if (v.trust_candidate && ip) return t("vpn_describe_untrusted", { ip })
+    return t("vpn_describe_paused")
   }
-  const how = v.source === "upload" ? "uploaded configuration" : "settings from .env"
-  return ip ? `Traffic leaves through ${ip} (${how}).` : `Using the ${how}.`
+  const source = v.source === "upload" ? "upload" : "env"
+  return ip ? t("vpn_describe_leaves", { ip, source }) : t("vpn_describe_using", { source })
 }
 
 // --- Calls -----------------------------------------------------------------------

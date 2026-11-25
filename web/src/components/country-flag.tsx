@@ -1,16 +1,42 @@
+import { useSyncExternalStore } from "react"
+import { t } from "@/i18n"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { countryName } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-// Each flag is its own small asset (see vite.config.ts), loaded only when shown.
-const FLAGS = import.meta.glob<string>("/node_modules/country-flag-icons/3x2/*.svg", {
-  query: "?url",
-  import: "default",
-  eager: true,
-})
+// The url table is a separate chunk, fetched once on the first flag; until it lands the neutral
+// placeholder shows, which has the same size, so nothing shifts.
+type FlagLookup = (code: string) => string | null
+let lookup: FlagLookup | null = null
+const waiting = new Set<() => void>()
+let loading = false
 
-function flagUrl(code: string): string | null {
-  return FLAGS[`/node_modules/country-flag-icons/3x2/${code.toUpperCase()}.svg`] ?? null
+function loadFlags() {
+  if (lookup || loading) return
+  loading = true
+  void import("./country-flag-urls").then((m) => {
+    lookup = m.flagUrl
+    waiting.forEach((notify) => notify())
+    waiting.clear()
+  })
+}
+
+function subscribeFlags(notify: () => void) {
+  waiting.add(notify)
+  loadFlags()
+  return () => {
+    waiting.delete(notify)
+  }
+}
+
+function useFlagUrl(code: string | null | undefined): string | null | undefined {
+  const ready = useSyncExternalStore(
+    subscribeFlags,
+    () => lookup,
+    () => null,
+  )
+  if (!code) return null
+  return ready ? ready(code) : undefined // undefined: table still loading
 }
 
 interface CountryFlagProps {
@@ -30,10 +56,16 @@ export function CountryFlag({
   className,
 }: CountryFlagProps) {
   const name = countryName(code)
-  const url = code ? flagUrl(code) : null
-  const label = name ?? (code ? code.toUpperCase() : "Unknown country")
+  const url = useFlagUrl(code)
+  const loading = url === undefined
+  const label = name ?? (code ? code.toUpperCase() : t("sessions_unknown_country"))
 
-  const flag = url ? (
+  const flag = loading ? (
+    <span
+      aria-hidden
+      className="inline-block h-3 w-[18px] shrink-0 rounded-[2px] bg-surface-hover"
+    />
+  ) : url ? (
     <img
       src={url}
       alt=""

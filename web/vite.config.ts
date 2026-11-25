@@ -81,14 +81,22 @@ export default defineConfig(({ mode }) => {
                 name: "react",
                 test: /node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/,
                 priority: 20,
+                includeDependenciesRecursively: false,
               },
               // Heavy libraries get their own chunks, loaded only by the pages that need them.
               {
                 name: "charts",
+                // Its CommonJS dependencies (decimal.js, use-sync-external-store) must travel with it:
+                // splitting them off breaks `require_*` helpers across chunks at run time.
                 test: /node_modules[\\/](recharts|d3-[a-z-]+|victory-vendor)[\\/]/,
                 priority: 15,
               },
-              { name: "xterm", test: /node_modules[\\/]@xterm[\\/]/, priority: 15 },
+              {
+                name: "xterm",
+                test: /node_modules[\\/]@xterm[\\/]/,
+                priority: 15,
+                includeDependenciesRecursively: false,
+              },
             ],
           },
         },

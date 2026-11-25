@@ -6,6 +6,7 @@ import { UserError } from "@/lib/users"
 import { ProfileFields, type Profile } from "./profile-fields"
 import { useRefreshNetwork } from "./use-network"
 import { WhatYouShare } from "./what-you-share"
+import { t } from "@/i18n"
 
 const EMPTY: Profile = { pseudonym: "", country: "", showCountry: false }
 
@@ -42,18 +43,18 @@ export function JoinDialog({
         if (!next) reset()
         onOpenChange(next)
       }}
-      title="Join the SuckerPot network"
-      description="Help the network take down attack sources. You can leave at any time with one button."
-      hint="Joining asks for your own dashboard password again."
+      title={t("network_join_title")}
+      description={t("network_join_description")}
+      hint={t("network_join_password_hint")}
       focusPassword={false}
-      confirmLabel="Join the network"
-      pendingLabel="Joining…"
+      confirmLabel={t("network_join_button")}
+      pendingLabel={t("network_join_pending")}
       validate={() => {
         const problem = validatePseudonym(profile.pseudonym)
         setNameError(problem ?? undefined)
         if (problem) {
           setMore(true)
-          return "Check the pseudonym and try again."
+          return t("network_join_check_pseudonym")
         }
         return null
       }}
@@ -94,7 +95,7 @@ export function JoinDialog({
               more ? "size-4 rotate-90 transition-transform" : "size-4 transition-transform"
             }
           />
-          Optional: pseudonym and country
+          {t("network_join_optional_profile")}
         </button>
         <div id={`${group}-profile`} hidden={!more}>
           <ProfileFields value={profile} onChange={setProfile} pseudonymError={nameError} />

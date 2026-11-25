@@ -1,12 +1,14 @@
 import { ArrowRight, Play } from "lucide-react"
+import { memo } from "react"
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
 import { CountryFlag } from "@/components/country-flag"
 import { LiveEventRow } from "@/components/live-event-row"
 import { useMediaQuery } from "@/hooks/use-media-query"
+import { t } from "@/i18n"
 import type { LiveEvent } from "@/lib/api"
 import { eventTypeMeta } from "@/lib/event-type"
-import { countryName, maskIp, maskIpsInText, plural } from "@/lib/format"
+import { countryName, maskIp, maskIpsInText } from "@/lib/format"
 import { isSevereEvent } from "@/lib/severity"
 import { sessionHref } from "@/lib/floods"
 import { sensorMeta } from "@/lib/sensors"
@@ -17,8 +19,8 @@ const CHIP_W = 300
 const CHIP_GAP = 8
 /** Chips kept in the row: enough to fill a 4K wall, the rest is history in Attacks. */
 const ROW_CHIPS = 10
-/** Rows kept in the stacked (phone) layout. */
-const STACK_ROWS = 5
+/** Rows kept in the stacked (phone) layout: Today stays short on a phone. */
+const STACK_ROWS = 3
 
 interface LiveTickerProps {
   /** Newest first, already filtered and held by the page. */
@@ -44,10 +46,10 @@ interface LiveTickerProps {
 /**
  * The newest events as a calm ticker under the map. On wide screens, one row
  * of fixed-width chips: a new event fades in on the left while the others
- * glide right. On phones, the latest five as stacked rows. Each chip opens its
+ * glide right. On phones, the latest three as stacked rows. Each chip opens its
  * session; hovering one lights its source on the map.
  */
-export function LiveTicker({
+export const LiveTicker = memo(function LiveTicker({
   events,
   pending,
   held,
@@ -71,12 +73,14 @@ export function LiveTicker({
           className="inline-flex h-7 items-center gap-1.5 rounded-full border bg-surface-raised px-2.5 text-xs font-medium text-fg shadow-sm transition-colors duration-150 hover:bg-surface-hover"
         >
           <Play aria-hidden className="size-3" />
-          {plural(pending, "new event")}
+          {t("live_ticker_new_events", { count: pending })}
         </button>
       ) : (
         <span className="text-xs font-medium text-fg-muted">
-          Latest
-          {polling ? <span className="font-normal text-fg-subtle"> · every 10 s</span> : null}
+          {t("live_ticker_latest")}
+          {polling ? (
+            <span className="font-normal text-fg-subtle"> · {t("live_ticker_polling")}</span>
+          ) : null}
         </span>
       )}
     </div>
@@ -87,7 +91,7 @@ export function LiveTicker({
       to="/attacks"
       className="inline-flex shrink-0 items-center gap-1 rounded-sm text-xs text-fg-muted transition-colors duration-150 hover:text-fg"
     >
-      All attacks
+      {t("live_ticker_all_attacks")}
       <ArrowRight aria-hidden className="size-3" />
     </Link>
   )
@@ -102,7 +106,7 @@ export function LiveTicker({
         {placeholder ?? (
           <div
             role="list"
-            aria-label="Latest events"
+            aria-label={t("live_ticker_list_aria")}
             onFocus={() => onHoverChange(true)}
             onBlur={() => onHoverChange(false)}
           >
@@ -139,7 +143,7 @@ export function LiveTicker({
         {placeholder ? (
           <div className="flex h-full items-center">{placeholder}</div>
         ) : (
-          <ol aria-label="Latest events" className="h-full">
+          <ol aria-label={t("live_ticker_list_aria")} className="h-full">
             {events.slice(0, ROW_CHIPS).map((e, i) => (
               <li
                 key={e.id}
@@ -160,9 +164,10 @@ export function LiveTicker({
       {allLink}
     </div>
   )
-}
+})
 
-function TickerChip({
+/** Memoized: a new event renders its own chip, the others only glide (their props are unchanged). */
+const TickerChip = memo(function TickerChip({
   event,
   isNew,
   lit,
@@ -185,7 +190,14 @@ function TickerChip({
   return (
     <Link
       to={sessionHref(event.session_id, event.ts)}
-      aria-label={`${label}${severe ? " (severe)" : ""}: ${summary}, from ${ip}${country ? ` (${countryName(country) ?? country})` : ""}. Open session`}
+      aria-label={t("live_ticker_chip_aria", {
+        label,
+        severe: severe ? "yes" : "no",
+        summary,
+        ip,
+        hasCountry: country ? "yes" : "no",
+        country: country ? (countryName(country) ?? country) : "",
+      })}
       onPointerEnter={() => country && onFocusChange(country)}
       onPointerLeave={() => onFocusChange(null)}
       onFocus={() => country && onFocusChange(country)}
@@ -208,4 +220,4 @@ function TickerChip({
       <span className="min-w-0 flex-1 truncate text-fg-muted">{summary}</span>
     </Link>
   )
-}
+})

@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react"
 import { useIpMask } from "@/app/ip-mask"
+import { t } from "@/i18n"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useCopy } from "@/hooks/use-copy"
 import { defangUrl } from "@/lib/trends"
@@ -28,7 +29,7 @@ export function CopyDefanged({ url, className }: { url: string; className?: stri
             "inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors duration-150 hover:bg-surface-raised hover:text-fg",
             className,
           )}
-          aria-label={copied ? "Copied" : "Copy defanged URL"}
+          aria-label={copied ? t("common_copied") : t("trends_copy_defanged")}
         >
           {copied ? (
             <Check aria-hidden className="size-3.5" />
@@ -37,7 +38,9 @@ export function CopyDefanged({ url, className }: { url: string; className?: stri
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">{copied ? "Copied" : "Copy defanged URL"}</TooltipContent>
+      <TooltipContent side="top">
+        {copied ? t("common_copied") : t("trends_copy_defanged")}
+      </TooltipContent>
     </Tooltip>
   )
 }

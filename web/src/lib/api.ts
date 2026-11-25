@@ -4,7 +4,6 @@
  */
 
 import type {
-  HeatmapResponse,
   InsightsResponse,
   MalwareDetail,
   MalwareItem,
@@ -330,7 +329,9 @@ export interface AttackerFilters {
   /** Sent as repeated `sensor=` params; one sensor is a plain `sensor=ssh`. */
   sensor?: readonly Sensor[] | undefined
   tag?: string | undefined
+  /** IP prefix, e.g. `203.0.113`. */
   q?: string | undefined
+  order?: "asc" | "desc" | undefined
 }
 
 export interface StatsRange {
@@ -351,6 +352,10 @@ export interface SessionFilters {
   campaign_id?: string | undefined
   /** How far the session got: looked, guessed, got_in, commands, download or exploit. */
   stage?: string | undefined
+  /** Exact value of one event of the session (the API matches equality, not substrings). */
+  username?: string | undefined
+  command?: string | undefined
+  url?: string | undefined
   /** `session` for single connections, `burst` for flood groups; absent for both. */
   kind?: "session" | "burst" | undefined
 }
@@ -545,6 +550,9 @@ export async function sendJson<T = undefined>(
   return (await res.json()) as T
 }
 
+/** The most networks one `/asns` call returns (the API's page ceiling). */
+export const ASN_LIMIT = 200
+
 export const api = {
   sessions: (filters: SessionFilters, cursor?: string | null, limit = 50) =>
     getJson<Page<Session>>("/sessions", { ...filters, cursor: cursor ?? undefined, limit }),
@@ -565,14 +573,14 @@ export const api = {
     getJson<TopResponse>("/stats/top", { field, ...range, limit }),
   attackers: (filters: AttackerFilters, cursor?: string | null, limit = 50) =>
     getJson<Page<Attacker>>("/attackers", {
-      ...filters,
       order: "desc",
+      ...filters,
       cursor: cursor ?? undefined,
       limit,
     }),
   attacker: (ip: string) => getJson<AttackerDetail>(`/attackers/${encodeURIComponent(ip)}`),
-  asns: (sort: "sessions" | "ips" | "events" = "sessions", limit = 100) =>
-    getJson<{ items: AsnItem[] }>("/asns", { sort, limit }),
+  asns: (sort: "sessions" | "ips" | "events" = "sessions", limit = ASN_LIMIT, since?: string) =>
+    getJson<{ items: AsnItem[] }>("/asns", { sort, limit, since }),
   liveWindow: (sensors: readonly string[] = [], minutes = 15) =>
     getJson<LiveWindow>("/live/window", { minutes, sensor: sensors.length ? sensors : undefined }),
   recentEvents: (limit = 50) => getJson<{ items: LiveEvent[] }>("/events/recent", { limit }),
@@ -582,7 +590,6 @@ export const api = {
     getJson<NewResponse>("/trends/new", { field, days, limit }),
   trendsTags: (range: StatsRange = {}) =>
     getJson<TagsResponse>("/trends/tags", { bucket: "1d", ...range }),
-  heatmap: (range: StatsRange = {}) => getJson<HeatmapResponse>("/stats/heatmap", { ...range }),
   malware: (
     filters: { tool?: string | undefined; q?: string | undefined },
     cursor?: string | null,
@@ -638,11 +645,10 @@ export const queryKeys = {
   top: (field: TopField, range: StatsRange) => ["stats", "top", field, range] as const,
   attackers: (filters: AttackerFilters) => ["attackers", filters] as const,
   attacker: (ip: string) => ["attacker", ip] as const,
-  asns: (sort: string) => ["asns", sort] as const,
+  asns: (sort: string, since?: string) => ["asns", sort, since ?? null] as const,
   insights: (range: StatsRange) => ["insights", range] as const,
   trendsNew: (field: string, days: number) => ["trends", "new", field, days] as const,
   trendsTags: (range: StatsRange) => ["trends", "tags", range] as const,
-  heatmap: (range: StatsRange) => ["stats", "heatmap", range] as const,
   malware: (filters: object) => ["malware", filters] as const,
   malwareDetail: (url: string) => ["malware", "detail", url] as const,
   cves: (filters: object, limit: number) => ["cves", filters, limit] as const,

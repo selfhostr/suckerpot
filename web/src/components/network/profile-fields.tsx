@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { countryOptions } from "@/lib/network"
+import { t } from "@/i18n"
 
 const NONE = "none"
 
@@ -38,9 +39,9 @@ export function ProfileFields({
     <div className="flex flex-col gap-4">
       <Field
         id={ids.name}
-        label="Pseudonym"
+        label={t("network_node_field_pseudonym")}
         optional
-        hint="Do not use a name you use anywhere else. Left empty, you are listed as a node number."
+        hint={t("network_profile_pseudonym_hint")}
         error={pseudonymError}
       >
         <Input
@@ -56,9 +57,9 @@ export function ProfileFields({
       </Field>
       <Field
         id={ids.country}
-        label="Country"
+        label={t("network_node_field_country")}
         optional
-        hint="Never detected for you. It is shown to members only when at least 3 members share it."
+        hint={t("network_profile_country_hint")}
       >
         <Select
           value={value.country || NONE}
@@ -71,10 +72,10 @@ export function ProfileFields({
           }
         >
           <SelectTrigger id={ids.country} className="w-full">
-            <SelectValue placeholder="No country" />
+            <SelectValue placeholder={t("network_profile_no_country")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE}>No country</SelectItem>
+            <SelectItem value={NONE}>{t("network_profile_no_country")}</SelectItem>
             {options.map((c) => (
               <SelectItem key={c.code} value={c.code}>
                 {c.name}
@@ -92,9 +93,9 @@ export function ProfileFields({
           className="mt-0.5"
         />
         <label htmlFor={ids.show} className="text-sm text-fg">
-          Show my country next to my pseudonym
+          {t("network_profile_show_country")}
           <span className="block text-xs text-fg-muted">
-            Off by default. Without it, no country is listed for you.
+            {t("network_profile_show_country_hint")}
           </span>
         </label>
       </div>

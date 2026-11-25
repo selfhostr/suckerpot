@@ -1,5 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { useId, useState, type SyntheticEvent } from "react"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { Field, FormError } from "@/components/form-parts"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,7 +42,7 @@ function RemoveForm({
     setError(null)
     setPasswordError(null)
     if (!password) {
-      setPasswordError("Enter your password to confirm.")
+      setPasswordError(t("override_password_required"))
       return
     }
     setPending(true)
@@ -66,16 +68,19 @@ function RemoveForm({
       noValidate
     >
       <DialogHeader className="text-left">
-        <DialogTitle>Remove this override?</DialogTitle>
+        <DialogTitle>{t("override_remove_title")}</DialogTitle>
         <DialogDescription>
-          The score decides again for{" "}
-          <span className="font-mono text-xs break-all text-fg">{target.label}</span>.
+          {tNodes(
+            "override_remove_description",
+            {},
+            { value: <span className="font-mono text-xs break-all text-fg">{target.label}</span> },
+          )}
         </DialogDescription>
       </DialogHeader>
       <Field
         id={ids.pass}
-        label="Your password"
-        hint="Changing what the lists contain asks for your dashboard password again."
+        label={t("override_password")}
+        hint={t("override_password_hint")}
         error={passwordError ?? undefined}
       >
         <Input
@@ -93,10 +98,10 @@ function RemoveForm({
       <FormError id={ids.err} message={error} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common_cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Removing…" : "Remove"}
+          {pending ? t("override_removing") : t("common_remove")}
         </Button>
       </DialogFooter>
     </form>

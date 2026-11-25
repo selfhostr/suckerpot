@@ -1,4 +1,5 @@
 import { Check } from "lucide-react"
+import { t } from "@/i18n"
 import { STATUS_LABEL, STEPS, type ReportStatus } from "@/lib/abuse"
 import { cn } from "@/lib/utils"
 
@@ -9,7 +10,7 @@ export function StatusStepper({ status }: { status: ReportStatus }) {
   return (
     <div className="space-y-2">
       <ol
-        aria-label="Report status"
+        aria-label={t("abuse_stepper_aria")}
         className="flex flex-wrap items-center gap-x-3.5 gap-y-1 sm:gap-x-2"
       >
         {STEPS.map((s, i) => {
@@ -35,7 +36,13 @@ export function StatusStepper({ status }: { status: ReportStatus }) {
                 {done ? <Check className="size-3" strokeWidth={2.5} /> : i + 1}
               </span>
               {STATUS_LABEL[s]}
-              <span className="sr-only">{current ? " (current)" : done ? " (done)" : ""}</span>
+              <span className="sr-only">
+                {current
+                  ? ` ${t("abuse_stepper_current")}`
+                  : done
+                    ? ` ${t("abuse_stepper_done")}`
+                    : ""}
+              </span>
               {i < STEPS.length - 1 ? (
                 <span aria-hidden className="ml-1 hidden h-px w-8 bg-border-strong sm:block" />
               ) : null}
@@ -45,9 +52,7 @@ export function StatusStepper({ status }: { status: ReportStatus }) {
       </ol>
       {off ? (
         <p className="text-sm text-fg-muted">
-          {status === "discarded"
-            ? "This report was discarded and will not be sent."
-            : "This draft was replaced by a newer one."}
+          {status === "discarded" ? t("abuse_stepper_discarded") : t("abuse_stepper_replaced")}
         </p>
       ) : null}
     </div>

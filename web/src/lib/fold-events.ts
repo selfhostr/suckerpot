@@ -1,3 +1,4 @@
+import { tk } from "@/i18n"
 import type { SensorEvent } from "./api"
 
 export type TimelineItem =
@@ -9,12 +10,18 @@ const FOLD_OVER = 6
 const HEAD = 3
 const TAIL = 1
 
-/** Only repetitive noise folds; commands and downloads are the story and stay visible. */
+/**
+ * Only repetitive noise folds; commands and downloads are the story and stay visible. The value
+ * is the message key of the "Show N more ..." button for that event type.
+ */
 export const NOUN: Record<string, string> = {
-  login_attempt: "login attempt",
-  http_request: "HTTP request",
-  scan: "probe",
+  login_attempt: tk("event_fold_show_login_attempt"),
+  http_request: tk("event_fold_show_http_request"),
+  scan: tk("event_fold_show_scan"),
 }
+
+/** Key of the fold button for an event type that has no entry in NOUN. */
+export const NOUN_FALLBACK = tk("event_fold_show_event")
 
 /** Fold long runs of identical event types, so a brute force is one line, not ninety. */
 export function foldEvents(events: readonly SensorEvent[]): TimelineItem[] {

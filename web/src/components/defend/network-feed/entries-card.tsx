@@ -2,6 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
 import { SearchX } from "lucide-react"
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { t } from "@/i18n"
 import { UrlSearch } from "@/components/defend/url-search"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar } from "@/components/filter-bar"
@@ -10,7 +11,6 @@ import { SkeletonList, SkeletonRow } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { useUrlParam } from "@/hooks/use-url-param"
-import { formatNumber } from "@/lib/format"
 import {
   entriesFinding,
   FEED_LIST_IDS,
@@ -29,15 +29,45 @@ const isListId = (v: string | null): v is FeedListId =>
   v !== null && (FEED_LIST_IDS as readonly string[]).includes(v)
 
 const LIST_OPTIONS = [
-  { value: "all", label: "All" },
-  { value: "outbound", label: "Outbound" },
-  { value: "inbound", label: "Inbound" },
-  { value: "outbound-domains", label: "Domains" },
+  {
+    value: "all",
+    get label() {
+      return t("common_all")
+    },
+  },
+  {
+    value: "outbound",
+    get label() {
+      return t("nfeed_list_outbound")
+    },
+  },
+  {
+    value: "inbound",
+    get label() {
+      return t("nfeed_list_inbound")
+    },
+  },
+  {
+    value: "outbound-domains",
+    get label() {
+      return t("nfeed_list_domains")
+    },
+  },
 ] as const
 
 const TIER_OPTIONS = [
-  { value: "all", label: "All tiers" },
-  { value: "high", label: "High tier" },
+  {
+    value: "all",
+    get label() {
+      return t("nfeed_tier_all")
+    },
+  },
+  {
+    value: "high",
+    get label() {
+      return t("nfeed_tier_high")
+    },
+  },
 ] as const
 
 /** The entries of the lists: filters in the URL (`list`, `tier`, `seen_here`, `q`), loaded by page. */
@@ -96,39 +126,46 @@ export function EntriesCard() {
 
   return (
     <section aria-labelledby="feed-entries-title">
-      <h2 id="feed-entries-title" className="text-lg font-semibold tracking-tight text-fg">
-        Entries
+      <h2 id="feed-entries-title" className="type-section-title text-fg">
+        {t("blocklists_entries")}
       </h2>
-      <p className="mt-1.5 max-w-2xl text-base text-fg-muted">{entriesFinding(filters)}</p>
+      <p className="mt-1.5 max-w-2xl type-lede text-fg-muted">{entriesFinding(filters)}</p>
 
       <FilterBar
         className="mt-4 mb-4"
         chips={[
           {
             param: "list",
-            label: "List",
+            label: t("nfeed_filter_list"),
             render: (v) => (isListId(v) ? LIST_META[v].title : v),
           },
-          { param: "tier", label: "Tier", render: (v) => (v === "high" ? "High tier" : v) },
+          {
+            param: "tier",
+            label: t("nfeed_filter_tier"),
+            render: (v) => (v === "high" ? t("nfeed_tier_high") : v),
+          },
         ]}
         alsoClears={["q", "seen_here"]}
       >
         <SegmentedControl
-          label="List"
+          label={t("nfeed_filter_list")}
           value={list ?? "all"}
           onChange={(v) => setListParam(v === "all" ? null : v)}
           options={LIST_OPTIONS}
         />
         <SegmentedControl
-          label="Tier"
+          label={t("nfeed_filter_tier")}
           value={tier ?? "all"}
           onChange={(v) => setTierParam(v === "all" ? null : v)}
           options={TIER_OPTIONS}
         />
-        <UrlSearch label="Search the lists" placeholder="Search a value" />
+        <UrlSearch
+          label={t("nfeed_search_label")}
+          placeholder={t("blocklists_search_placeholder")}
+        />
         <label
           htmlFor={seenId}
-          className="inline-flex h-8 items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
+          className="inline-flex h-(--control-sm) items-center gap-2 rounded-md border bg-bg px-2.5 text-xs text-fg-muted"
         >
           <Switch
             id={seenId}
@@ -136,21 +173,21 @@ export function EntriesCard() {
             checked={seenHere}
             onCheckedChange={(on) => setSeenParam(on ? "1" : null)}
           />
-          Only entries seen here
+          {t("nfeed_only_seen")}
         </label>
       </FilterBar>
 
-      <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "hidden border-b px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase",
+            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 type-column text-fg-subtle",
             FEED_GRID,
           )}
         >
-          <span>Value</span>
-          <span>What it is</span>
-          <span>Dates</span>
-          <span className="sr-only">Badges</span>
+          <span>{t("blocklists_col_value")}</span>
+          <span>{t("nfeed_col_what")}</span>
+          <span>{t("nfeed_col_dates")}</span>
+          <span className="sr-only">{t("nfeed_col_badges")}</span>
         </div>
         {query.isPending ? (
           <SkeletonList rows={6} />
@@ -158,11 +195,11 @@ export function EntriesCard() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title="Could not load the entries"
+            title={t("nfeed_load_error")}
             description={query.error.message}
             action={
               <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-                Try again
+                {t("common_try_again")}
               </Button>
             }
           />
@@ -170,18 +207,14 @@ export function EntriesCard() {
           <EmptyState
             variant="bare"
             icon={SearchX}
-            title={filtered ? "Nothing matches" : "No entries yet"}
-            description={
-              filtered
-                ? "Clear a filter to see more."
-                : "An entry appears once enough independent sensors confirm the same host."
-            }
+            title={filtered ? t("blocklists_no_match") : t("nfeed_no_entries")}
+            description={filtered ? t("nfeed_no_match_hint") : t("nfeed_no_entries_hint")}
           />
         ) : (
           <div
             ref={listRef}
             role="list"
-            aria-label="Community list entries"
+            aria-label={t("nfeed_entries_list")}
             aria-busy={isFetchingNextPage}
             className="relative w-full"
             style={{ height: virtualizer.getTotalSize() }}
@@ -208,7 +241,7 @@ export function EntriesCard() {
       </div>
       {query.isSuccess && rows.length > 0 && !hasNextPage ? (
         <p className="mt-4 text-center text-xs text-fg-subtle">
-          End of the list · {formatNumber(rows.length)} {rows.length === 1 ? "entry" : "entries"}
+          {t("blocklists_end", { count: rows.length })}
         </p>
       ) : null}
     </section>

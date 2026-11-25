@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react"
 import { networkApi } from "@/lib/network"
 import { AdminActionDialog } from "@/components/users/admin-action-dialog"
 import { markLeft, useRefreshNetwork } from "./use-network"
+import { t } from "@/i18n"
 
 /** Leaving is one click plus the password. The text says what is deleted, and where. */
 export function LeaveDialog({
@@ -17,11 +18,11 @@ export function LeaveDialog({
     <AdminActionDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Leave the SuckerPot network?"
-      description="Nothing more is sent from this moment, and your data is deleted on both sides. You can join again at any time."
-      hint="Leaving asks for your own dashboard password again."
-      confirmLabel="Leave the network"
-      pendingLabel="Leaving…"
+      title={t("network_leave_title")}
+      description={t("network_leave_description")}
+      hint={t("network_leave_password_hint")}
+      confirmLabel={t("network_leave_button")}
+      pendingLabel={t("network_leave_pending")}
       run={async (password) => {
         await networkApi.leave(password)
       }}
@@ -32,22 +33,25 @@ export function LeaveDialog({
     >
       <div className="grid gap-3 text-sm sm:grid-cols-2">
         <DeletedList
-          title="Deleted on this system"
+          title={t("network_leave_local_title")}
           items={[
-            "The node key",
-            "Your pseudonym",
-            "The list of sent batches",
-            "The network figures",
+            t("network_leave_local_key"),
+            t("network_leave_local_pseudonym"),
+            t("network_leave_local_batches"),
+            t("network_leave_local_figures"),
           ]}
         />
         <DeletedList
-          title="Deleted at the hub"
-          items={["Your node", "What it sent", "Your takedown checks", "Your member entry"]}
+          title={t("network_leave_hub_title")}
+          items={[
+            t("network_leave_hub_node"),
+            t("network_leave_hub_sent"),
+            t("network_leave_hub_checks"),
+            t("network_leave_hub_entry"),
+          ]}
         />
       </div>
-      <p className="text-xs text-fg-muted">
-        If the hub cannot be reached now, SuckerPot keeps trying for 7 days.
-      </p>
+      <p className="text-xs text-fg-muted">{t("network_leave_retry_note")}</p>
     </AdminActionDialog>
   )
 }

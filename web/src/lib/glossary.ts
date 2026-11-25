@@ -3,6 +3,9 @@
  * Written for IT staff who are not security specialists: one or two short sentences, no jargon
  * inside the definition itself, nothing that needs a second lookup.
  */
+import { tk } from "@/i18n"
+import { withText } from "@/lib/utils"
+
 export interface GlossaryEntry {
   /** The word as shown when a screen does not give its own text. */
   term: string
@@ -11,170 +14,99 @@ export interface GlossaryEntry {
 }
 
 export const GLOSSARY = {
-  asn: {
-    term: "ASN",
-    short:
-      "Autonomous System Number: the ID of the network (an ISP, a hosting company, a cloud) an address belongs to. Blocking an ASN blocks every address that network owns.",
-  },
-  cve: {
-    term: "CVE",
-    short:
-      "A public ID for one known software flaw, such as CVE-2026-109618. Look it up to see which versions are affected and whether a patch exists.",
-  },
-  kev: {
-    term: "KEV",
-    short:
-      "Known Exploited Vulnerabilities: a list by the US cyber agency CISA of flaws that attackers are using right now. Patch these first.",
-  },
-  rce: {
-    term: "RCE",
-    short:
-      "Remote code execution: a flaw that lets a stranger run commands on your server over the network. The most serious kind.",
-  },
-  exploit: {
-    term: "Exploit",
-    short:
-      "A request or program built to abuse a specific flaw, so the attacker gets access they should not have.",
-  },
-  payload: {
-    term: "Payload",
-    short: "The harmful program or script an attacker tries to drop on a machine after getting in.",
-  },
-  "brute-force": {
-    term: "Brute force",
-    short:
-      "Trying many passwords, one after another, until one works. Strong, unique passwords and lockouts stop it.",
-  },
-  "credential-stuffing": {
-    term: "Credential stuffing",
-    short:
-      "Trying username and password pairs leaked from other sites, hoping people reused them. A second factor stops it.",
-  },
-  botnet: {
-    term: "Botnet",
-    short:
-      "A crowd of hacked devices, often routers and cameras, controlled by one attacker and used to scan, attack or mine coins.",
-  },
-  c2: {
-    term: "C2 server",
-    short:
-      "Command and control: the server that remote-controls infected machines. They call home to it for orders or more malware. Blocking it cuts the attacker off.",
-  },
-  campaign: {
-    term: "Campaign",
-    short:
-      "Several attacks that share the same tools, scripts or servers, so they are probably one operation rather than random noise.",
-  },
-  technique: {
-    term: "ATT&CK technique",
-    short:
-      'A named attacker behaviour from the MITRE ATT&CK catalogue, such as "brute force" or "download a tool". Security teams use the same names, so you can match them to your detections.',
-  },
-  indicator: {
-    term: "Indicator",
-    short:
-      "A trace of an attack that you can look for or block: an address, a domain, a web link or a file fingerprint (hash).",
-  },
-  hash: {
-    term: "Hash",
-    short:
-      "A short fingerprint of a file. Two files with the same hash are the same file, so you can search for it without sharing the file.",
-  },
-  defanged: {
-    term: "Defanged",
-    short:
-      "Written so it cannot be clicked or looked up by accident, for example hxxp://bad[.]example. Safe to paste into a chat or a ticket.",
-  },
-  "research-scanner": {
-    term: "Research scanner",
-    short:
-      "A harmless crawler that maps the internet and publishes what it finds, such as Censys or Shodan. It is hidden by default; turn the switch off to see it.",
-  },
-  honeypot: {
-    term: "Honeypot",
-    short:
-      "A decoy server with no real data. Nobody has a reason to visit it, so every visit is a probe or an attack, and everything is recorded.",
-  },
-  "known-scanner": {
-    term: "Known scanner",
-    short:
-      "An address that GreyNoise has seen scanning the whole internet. It is noise aimed at everyone, not at you in particular.",
-  },
-  "abuse-score": {
-    term: "Abuse score",
-    short:
-      "AbuseIPDB's 0 to 100 rating of how often an address was reported for abuse. Above 75 is usually worth blocking.",
-  },
-  blocklist: {
-    term: "Blocklist",
-    short:
-      "A list of addresses or domains that your firewall or proxy should refuse. SuckerPot builds one from what it saw.",
-  },
-  malware: {
-    term: "Malware",
-    short:
-      "A harmful program, such as a virus or a crypto-miner, that an attacker tries to put on a machine that is not theirs.",
-  },
-  scanner: {
-    term: "Scanner",
-    short:
-      "A robot that knocks on every address and every door of the internet to see what answers. Most visits are just this.",
-  },
-  ssh: {
-    term: "SSH",
-    short:
-      "Secure Shell: the usual way to log in to a server and type commands from far away. Attackers love to guess its passwords.",
-  },
-  telnet: {
-    term: "Telnet",
-    short:
-      "An old, unprotected way to log in to a device remotely. Cheap cameras and routers still use it, which is why robots target it.",
-  },
-  rdp: {
-    term: "RDP",
-    short:
-      "Remote Desktop Protocol: the way to control a Windows computer's screen from far away. A common way in for ransomware gangs.",
-  },
-  consensus: {
-    term: "Consensus",
-    short:
-      "Agreement between independent sensors. The network treats an address or file as a real threat only when at least five separate sensors saw it.",
-  },
-  "blinded-indicator": {
-    term: "Blinded indicator",
-    short:
-      "A link or domain turned into a scrambled fingerprint before it leaves your system. Nobody can read it back unless several sensors already saw the same one.",
-  },
-  "eligible-node": {
-    term: "Eligible node",
-    short:
-      "A sensor the network trusts enough to count: old enough by the hub's published rules, sending a batch most days, and not often wrong. New sensors become eligible by waiting.",
-  },
-  "inbound-list": {
-    term: "Inbound list",
-    short:
-      "A list of addresses to block when they connect to you. Useful in front of services you expose to the internet, such as a web server or a VPN.",
-  },
-  "outbound-list": {
-    term: "Outbound list",
-    short:
-      "A list of malware and command servers to block when your own devices connect to them. A hit usually means a device inside is infected.",
-  },
-  "high-tier": {
-    term: "High tier",
-    short:
-      "The entries confirmed by the most sensors. A smaller list that is safer to block without reviewing it.",
-  },
-  "k-support": {
-    term: "k-support",
-    short:
-      "How many independent sensors must agree before something is listed or shown. Below that number nothing is published, to protect everyone's privacy.",
-  },
-  "ip-address": {
-    term: "IP address",
-    short:
-      "The number that identifies a machine on the internet, a bit like a phone number. Here it is the machine that knocked on your doors.",
-  },
+  asn: withText({ term: tk("glossary_asn_term"), short: tk("glossary_asn_short") }, {}),
+  cve: withText({ term: tk("glossary_cve_term"), short: tk("glossary_cve_short") }, {}),
+  kev: withText({ term: tk("glossary_kev_term"), short: tk("glossary_kev_short") }, {}),
+  rce: withText({ term: tk("glossary_rce_term"), short: tk("glossary_rce_short") }, {}),
+  exploit: withText({ term: tk("glossary_exploit_term"), short: tk("glossary_exploit_short") }, {}),
+  payload: withText({ term: tk("glossary_payload_term"), short: tk("glossary_payload_short") }, {}),
+  "brute-force": withText(
+    { term: tk("glossary_brute_force_term"), short: tk("glossary_brute_force_short") },
+    {},
+  ),
+  "credential-stuffing": withText(
+    {
+      term: tk("glossary_credential_stuffing_term"),
+      short: tk("glossary_credential_stuffing_short"),
+    },
+    {},
+  ),
+  botnet: withText({ term: tk("glossary_botnet_term"), short: tk("glossary_botnet_short") }, {}),
+  c2: withText({ term: tk("glossary_c2_term"), short: tk("glossary_c2_short") }, {}),
+  campaign: withText(
+    { term: tk("glossary_campaign_term"), short: tk("glossary_campaign_short") },
+    {},
+  ),
+  technique: withText(
+    { term: tk("glossary_technique_term"), short: tk("glossary_technique_short") },
+    {},
+  ),
+  indicator: withText(
+    { term: tk("glossary_indicator_term"), short: tk("glossary_indicator_short") },
+    {},
+  ),
+  hash: withText({ term: tk("glossary_hash_term"), short: tk("glossary_hash_short") }, {}),
+  defanged: withText(
+    { term: tk("glossary_defanged_term"), short: tk("glossary_defanged_short") },
+    {},
+  ),
+  "research-scanner": withText(
+    { term: tk("glossary_research_scanner_term"), short: tk("glossary_research_scanner_short") },
+    {},
+  ),
+  honeypot: withText(
+    { term: tk("glossary_honeypot_term"), short: tk("glossary_honeypot_short") },
+    {},
+  ),
+  "known-scanner": withText(
+    { term: tk("glossary_known_scanner_term"), short: tk("glossary_known_scanner_short") },
+    {},
+  ),
+  "abuse-score": withText(
+    { term: tk("glossary_abuse_score_term"), short: tk("glossary_abuse_score_short") },
+    {},
+  ),
+  blocklist: withText(
+    { term: tk("glossary_blocklist_term"), short: tk("glossary_blocklist_short") },
+    {},
+  ),
+  malware: withText({ term: tk("glossary_malware_term"), short: tk("glossary_malware_short") }, {}),
+  scanner: withText({ term: tk("glossary_scanner_term"), short: tk("glossary_scanner_short") }, {}),
+  ssh: withText({ term: tk("glossary_ssh_term"), short: tk("glossary_ssh_short") }, {}),
+  telnet: withText({ term: tk("glossary_telnet_term"), short: tk("glossary_telnet_short") }, {}),
+  rdp: withText({ term: tk("glossary_rdp_term"), short: tk("glossary_rdp_short") }, {}),
+  consensus: withText(
+    { term: tk("glossary_consensus_term"), short: tk("glossary_consensus_short") },
+    {},
+  ),
+  "blinded-indicator": withText(
+    { term: tk("glossary_blinded_indicator_term"), short: tk("glossary_blinded_indicator_short") },
+    {},
+  ),
+  "eligible-node": withText(
+    { term: tk("glossary_eligible_node_term"), short: tk("glossary_eligible_node_short") },
+    {},
+  ),
+  "inbound-list": withText(
+    { term: tk("glossary_inbound_list_term"), short: tk("glossary_inbound_list_short") },
+    {},
+  ),
+  "outbound-list": withText(
+    { term: tk("glossary_outbound_list_term"), short: tk("glossary_outbound_list_short") },
+    {},
+  ),
+  "high-tier": withText(
+    { term: tk("glossary_high_tier_term"), short: tk("glossary_high_tier_short") },
+    {},
+  ),
+  "k-support": withText(
+    { term: tk("glossary_k_support_term"), short: tk("glossary_k_support_short") },
+    {},
+  ),
+  "ip-address": withText(
+    { term: tk("glossary_ip_address_term"), short: tk("glossary_ip_address_short") },
+    {},
+  ),
 } as const satisfies Record<string, GlossaryEntry>
 
 export type TermId = keyof typeof GLOSSARY

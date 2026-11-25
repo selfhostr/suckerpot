@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { LoadMore } from "@/components/load-more"
 import { CornerDownRight } from "lucide-react"
 import { useMemo } from "react"
 import { Link } from "react-router"
@@ -7,11 +8,11 @@ import { MetaLine } from "@/components/meta-line"
 import { FindingCard } from "@/components/finding-card"
 import { RelativeTime } from "@/components/relative-time"
 import { SegmentedControl } from "@/components/segmented-control"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUrlParam } from "@/hooks/use-url-param"
+import { t, tk } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { cn } from "@/lib/utils"
-import { formatNumber } from "@/lib/format"
 import {
   CHANNEL_LABEL,
   resultKeys,
@@ -29,19 +30,19 @@ type RoleFilter = "all" | TargetRole
 type StateFilter = "all" | TargetState
 
 const ROLE_OPTIONS = [
-  { value: "all", label: "All" },
-  { value: "payload_url", label: "URLs" },
-  { value: "payload_host", label: "Hosts" },
-  { value: "attack_source", label: "Addresses" },
-  { value: "c2", label: "C2" },
-] as const satisfies readonly { value: RoleFilter; label: string }[]
+  { value: "all", labelKey: tk("common_all") },
+  { value: "payload_url", labelKey: tk("results_targets_role_urls") },
+  { value: "payload_host", labelKey: tk("results_targets_role_hosts") },
+  { value: "attack_source", labelKey: tk("results_targets_role_addresses") },
+  { value: "c2", labelKey: tk("results_targets_role_c2") },
+] as const satisfies readonly { value: RoleFilter; labelKey: string }[]
 
 const STATE_OPTIONS = [
-  { value: "all", label: "Any state" },
-  { value: "up", label: "Up" },
-  { value: "down", label: "Down" },
-  { value: "changed", label: "Changed" },
-] as const satisfies readonly { value: StateFilter; label: string }[]
+  { value: "all", labelKey: tk("results_targets_state_any") },
+  { value: "up", labelKey: tk("results_targets_state_up") },
+  { value: "down", labelKey: tk("results_targets_state_down") },
+  { value: "changed", labelKey: tk("results_targets_state_changed") },
+] as const satisfies readonly { value: StateFilter; labelKey: string }[]
 
 const isRole = (v: string | null): v is TargetRole => v !== null && v in ROLE_LABEL
 const isState = (v: string | null): v is TargetState =>
@@ -49,47 +50,54 @@ const isState = (v: string | null): v is TargetState =>
 
 /** Children (a URL on a tracked host) follow their parent; the page order is kept otherwise. */
 function groupChildren(items: readonly Target[]): Target[] {
-  const ids = new Set(items.map((t) => t.id))
+  const ids = new Set(items.map((tg) => tg.id))
   const kids = new Map<number, Target[]>()
-  for (const t of items)
-    if (t.parent_id && ids.has(t.parent_id))
-      kids.set(t.parent_id, [...(kids.get(t.parent_id) ?? []), t])
+  for (const tg of items)
+    if (tg.parent_id && ids.has(tg.parent_id))
+      kids.set(tg.parent_id, [...(kids.get(tg.parent_id) ?? []), tg])
   return items
-    .filter((t) => !(t.parent_id && ids.has(t.parent_id)))
-    .flatMap((t) => [t, ...(kids.get(t.id) ?? [])])
+    .filter((tg) => !(tg.parent_id && ids.has(tg.parent_id)))
+    .flatMap((tg) => [tg, ...(kids.get(tg.id) ?? [])])
 }
 
-const ttdText = (t: Target) =>
-  t.ttd_s == null ? "not down yet" : `down within ${shortDelay(t.ttd_s)}`
-const channelText = (t: Target) => t.channels.map((c) => CHANNEL_LABEL[c]).join(", ")
+const ttdText = (tg: Target) =>
+  tg.ttd_s == null
+    ? t("results_targets_not_down_yet")
+    : t("results_targets_down_within", { delay: shortDelay(tg.ttd_s) })
+const channelText = (tg: Target) => tg.channels.map((c) => CHANNEL_LABEL[c]).join(", ")
 
 /** Below sm a row is two lines instead of six columns. */
 function TargetCards({ items, ids }: { items: readonly Target[]; ids: ReadonlySet<number> }) {
   return (
-    <ul aria-label="Tracked targets" className="divide-y border-t sm:hidden">
-      {items.map((t) => {
-        const child = Boolean(t.parent_id && ids.has(t.parent_id))
+    <ul aria-label={t("results_targets_list_label")} className="divide-y border-t sm:hidden">
+      {items.map((tg) => {
+        const child = Boolean(tg.parent_id && ids.has(tg.parent_id))
         return (
-          <li key={t.id} className={cn("px-4 py-3", child && "ml-4 border-l pl-3")}>
+          <li key={tg.id} className={cn("px-4 py-3", child && "ml-4 border-l pl-3")}>
             <div className="flex items-start justify-between gap-3">
               <Link
-                to={`/defend/results/targets/${t.id}`}
+                to={`/defend/results/targets/${tg.id}`}
                 className="min-w-0 font-mono text-xs break-all text-fg underline-offset-4 hover:underline"
               >
-                {defang(t.value)}
+                {defang(tg.value)}
               </Link>
-              <TargetStateBadge state={t.state} role={t.role} />
+              <TargetStateBadge state={tg.state} role={tg.role} />
             </div>
             <MetaLine className="mt-1.5">
-              <span>{ROLE_LABEL[t.role]}</span>
+              <span>{ROLE_LABEL[tg.role]}</span>
               <span className="inline-flex items-center gap-1.5">
-                {t.country ? <CountryFlag code={t.country} /> : null}
-                {t.provider_name ?? (t.asn ? `AS${t.asn}` : "unknown provider")}
+                {tg.country ? <CountryFlag code={tg.country} /> : null}
+                {tg.provider_name ??
+                  (tg.asn ? `AS${tg.asn}` : t("results_targets_unknown_provider"))}
               </span>
               <span>
-                reported <RelativeTime iso={t.reported_at} />
+                {tNodes(
+                  "results_targets_reported_ago",
+                  {},
+                  { time: <RelativeTime iso={tg.reported_at} /> },
+                )}
               </span>
-              <span>{ttdText(t)}</span>
+              <span>{ttdText(tg)}</span>
             </MetaLine>
           </li>
         )
@@ -119,32 +127,32 @@ export function TargetsCard({ filters }: { filters: ResultFilters }) {
     () => groupChildren((q.data?.pages ?? []).flatMap((p) => p.items)),
     [q.data],
   )
-  const ids = useMemo(() => new Set(items.map((t) => t.id)), [items])
-  const down = items.filter((t) => t.state === "down").length
+  const ids = useMemo(() => new Set(items.map((tg) => tg.id)), [items])
+  const down = items.filter((tg) => tg.state === "down").length
   const finding = q.isPending
-    ? "Listing the targets…"
+    ? t("results_targets_loading")
     : items.length === 0
-      ? "No tracked target matches these filters."
-      : `${formatNumber(items.length)} ${items.length === 1 ? "target" : "targets"} listed; ${formatNumber(down)} ${down === 1 ? "is" : "are"} down.`
+      ? t("results_targets_none")
+      : t("results_targets_finding", { count: items.length, down })
   return (
     <FindingCard
-      eyebrow="Targets"
+      eyebrow={t("results_targets_eyebrow")}
       finding={finding}
-      detail="Addresses are shown defanged and are never links. A row opens its timeline."
+      detail={t("results_targets_detail")}
       action={
         <div className="flex flex-wrap gap-2">
           <SegmentedControl
-            label="Target type"
+            label={t("results_targets_filter_type")}
             value={role}
             onChange={(v) => setRole(v === "all" ? null : v)}
-            options={ROLE_OPTIONS}
+            options={ROLE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
             className="scroll-fade-x max-w-full overflow-x-auto"
           />
           <SegmentedControl
-            label="Target state"
+            label={t("results_targets_filter_state")}
             value={state}
             onChange={(v) => setState(v === "all" ? null : v)}
-            options={STATE_OPTIONS}
+            options={STATE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
             className="scroll-fade-x max-w-full overflow-x-auto"
           />
         </div>
@@ -158,87 +166,91 @@ export function TargetsCard({ filters }: { filters: ResultFilters }) {
         </div>
       ) : q.isError ? (
         <p role="alert" className="border-t px-4 py-6 text-sm text-fg-muted sm:px-5">
-          The targets could not be loaded.
+          {t("results_targets_error")}
         </p>
       ) : items.length === 0 ? null : (
         <>
           <TargetCards items={items} ids={ids} />
-          <div className="relative hidden overflow-x-auto border-t sm:block">
+          <div className="relative hidden border-t sm:block">
             <table className="w-full text-left text-sm">
-              <caption className="sr-only">Tracked targets</caption>
-              <thead className="text-xs text-fg-muted">
-                <tr className="border-b">
+              <caption className="sr-only">{t("results_targets_list_label")}</caption>
+              <thead className="text-xs text-fg-muted [&_th]:sticky [&_th]:top-14 [&_th]:z-10 [&_th]:border-b [&_th]:bg-surface">
+                <tr>
                   <th scope="col" className="px-4 py-2 font-medium sm:px-5">
-                    Target
+                    {t("results_targets_col_target")}
                   </th>
                   <th scope="col" className="px-2 py-2 font-medium">
-                    Provider
+                    {t("results_targets_col_provider")}
                   </th>
                   <th scope="col" className="px-2 py-2 font-medium">
-                    Reported
+                    {t("results_targets_col_reported")}
                   </th>
                   <th scope="col" className="px-2 py-2 font-medium">
-                    Channel
+                    {t("results_targets_col_channel")}
                   </th>
                   <th scope="col" className="px-2 py-2 font-medium">
-                    State
+                    {t("results_targets_col_state")}
                   </th>
                   <th scope="col" className="px-4 py-2 text-right font-medium sm:px-5">
-                    Time to takedown
+                    {t("results_targets_col_ttd")}
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {items.map((t) => (
-                  <tr key={t.id} className="hover:bg-surface-hover/50">
+                {items.map((tg) => (
+                  <tr key={tg.id} className="hover:bg-surface-hover/50">
                     <td className="max-w-[22rem] px-4 py-2 sm:px-5">
                       <div
-                        className={cn(t.parent_id && ids.has(t.parent_id) && "ml-1 border-l pl-3")}
+                        className={cn(
+                          tg.parent_id && ids.has(tg.parent_id) && "ml-1 border-l pl-3",
+                        )}
                       >
                         <Link
-                          to={`/defend/results/targets/${t.id}`}
+                          to={`/defend/results/targets/${tg.id}`}
                           className="block truncate font-mono text-xs text-fg underline-offset-4 hover:underline"
-                          title={defang(t.value)}
+                          title={defang(tg.value)}
                         >
-                          {t.parent_id && ids.has(t.parent_id) ? (
+                          {tg.parent_id && ids.has(tg.parent_id) ? (
                             <CornerDownRight
                               aria-hidden
                               className="mr-1 inline size-3 text-fg-subtle"
                             />
                           ) : null}
-                          {defang(t.value)}
+                          {defang(tg.value)}
                         </Link>
-                        <span className="text-2xs text-fg-subtle">{ROLE_LABEL[t.role]}</span>
+                        <span className="text-2xs text-fg-subtle">{ROLE_LABEL[tg.role]}</span>
                       </div>
                     </td>
                     <td className="px-2 py-2 whitespace-nowrap">
                       <span className="inline-flex max-w-[16rem] items-center gap-2 text-fg-muted">
-                        {t.country ? <CountryFlag code={t.country} /> : null}
-                        {t.asn ? (
+                        {tg.country ? <CountryFlag code={tg.country} /> : null}
+                        {tg.asn ? (
                           <Link
-                            to={`/attackers?asn=${t.asn}`}
+                            to={`/attackers?asn=${tg.asn}`}
                             className="shrink-0 font-mono text-xs hover:text-fg"
                           >
-                            AS{t.asn}
+                            AS{tg.asn}
                           </Link>
                         ) : null}
-                        <span className="truncate text-xs">{t.provider_name ?? "unknown"}</span>
+                        <span className="truncate text-xs">
+                          {tg.provider_name ?? t("results_targets_unknown")}
+                        </span>
                       </span>
                     </td>
                     <td className="px-2 py-2">
-                      <RelativeTime iso={t.reported_at} />
+                      <RelativeTime iso={tg.reported_at} />
                     </td>
                     <td className="px-2 py-2">
-                      <span className="text-xs text-fg-muted">{channelText(t)}</span>
+                      <span className="text-xs text-fg-muted">{channelText(tg)}</span>
                     </td>
                     <td className="px-2 py-2">
-                      <TargetStateBadge state={t.state} role={t.role} />
+                      <TargetStateBadge state={tg.state} role={tg.role} />
                     </td>
                     <td className="px-4 py-2 text-right whitespace-nowrap sm:px-5">
-                      {t.ttd_s == null ? (
-                        <span className="text-fg-subtle">none yet</span>
+                      {tg.ttd_s == null ? (
+                        <span className="text-fg-subtle">{t("results_targets_none_yet")}</span>
                       ) : (
-                        `within ${shortDelay(t.ttd_s)}`
+                        t("results_targets_within", { delay: shortDelay(tg.ttd_s) })
                       )}
                     </td>
                   </tr>
@@ -248,18 +260,13 @@ export function TargetsCard({ filters }: { filters: ResultFilters }) {
           </div>
         </>
       )}
-      {q.hasNextPage ? (
-        <div className="border-t px-4 py-3 sm:px-5">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={q.isFetchingNextPage}
-            onClick={() => void q.fetchNextPage()}
-          >
-            {q.isFetchingNextPage ? "Loading…" : "Show more"}
-          </Button>
-        </div>
-      ) : null}
+      <LoadMore
+        hasNextPage={q.hasNextPage}
+        isFetchingNextPage={q.isFetchingNextPage}
+        fetchNextPage={q.fetchNextPage}
+        label={t("common_show_more")}
+        className="border-t"
+      />
     </FindingCard>
   )
 }

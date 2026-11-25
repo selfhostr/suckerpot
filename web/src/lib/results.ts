@@ -3,6 +3,7 @@
  * docs/dev/design/m27.md section 11): shapes, vocabulary and calls. Percentages are ratios (0 to 1);
  * durations are seconds. Target values (URLs, hosts) are shown defanged and never as links.
  */
+import { t, tk } from "@/i18n"
 import { getJson, sendJson, type Page } from "./api"
 import type { ReportKind } from "./abuse"
 import type { Outcome } from "./replies"
@@ -73,10 +74,30 @@ export const ANSWER_ROWS = [
 ] as const satisfies readonly Outcome[]
 
 export const GROUP_OPTIONS = [
-  { value: "asn", label: "Provider (ASN)" },
-  { value: "recipient", label: "Mailbox" },
-  { value: "country", label: "Country" },
-  { value: "kind", label: "Report kind" },
+  {
+    value: "asn",
+    get label() {
+      return t("results_group_asn")
+    },
+  },
+  {
+    value: "recipient",
+    get label() {
+      return t("results_group_recipient")
+    },
+  },
+  {
+    value: "country",
+    get label() {
+      return t("results_group_country")
+    },
+  },
+  {
+    value: "kind",
+    get label() {
+      return t("results_group_kind")
+    },
+  },
 ] as const satisfies readonly { value: OutcomeGroup; label: string }[]
 
 // --- M27: takedown ------------------------------------------------------------------
@@ -87,17 +108,29 @@ export type TargetState = "up" | "down" | "changed" | "unknown"
 export type Channel = "mail" | "form" | "urlhaus" | "threatfox"
 
 export const CHANNEL_LABEL: Record<Channel, string> = {
-  mail: "Mail",
+  get mail() {
+    return t("results_channel_mail")
+  },
   /** Submitted by hand through the provider's web form (M38). */
-  form: "Form",
+  get form() {
+    return t("results_channel_form")
+  },
   urlhaus: "URLhaus",
   threatfox: "ThreatFox",
 }
 export const ROLE_LABEL: Record<TargetRole, string> = {
-  payload_url: "Payload URL",
-  payload_host: "Payload host",
-  c2: "C2 server",
-  attack_source: "Attack source",
+  get payload_url() {
+    return t("results_role_payload_url")
+  },
+  get payload_host() {
+    return t("results_role_payload_host")
+  },
+  get c2() {
+    return t("results_role_c2")
+  },
+  get attack_source() {
+    return t("results_role_attack_source")
+  },
 }
 
 /** Counts behind "N of M went down within H". Eligible = old enough to judge (right-censoring). */
@@ -213,40 +246,55 @@ export interface TargetCheck {
 }
 
 export const METHOD_LABEL: Record<CheckMethod, string> = {
-  http: "Direct request",
-  urlhaus: "URLhaus lookup",
-  threatfox: "ThreatFox lookup",
-  abuseipdb: "AbuseIPDB lookup",
-  sightings: "Our own sensors",
-  samples: "Samples we collected",
+  get http() {
+    return t("results_method_http")
+  },
+  get urlhaus() {
+    return t("results_method_urlhaus")
+  },
+  get threatfox() {
+    return t("results_method_threatfox")
+  },
+  get abuseipdb() {
+    return t("results_method_abuseipdb")
+  },
+  get sightings() {
+    return t("results_method_sightings")
+  },
+  get samples() {
+    return t("results_method_samples")
+  },
 }
 
-/** What a check found, in words. Unknown codes fall back to the code itself. */
+/** What a check found, in words (message keys). Unknown codes fall back to the code itself. */
 export const RESULT_WORD: Record<string, string> = {
-  same: "Still serving the same file",
-  changed: "Serving a different file",
-  changed_not_stored: "Serving a different file",
-  up_unhashed: "Answering, file not compared",
-  http_404: "Not found (404)",
-  http_410: "Gone (410)",
-  http_4xx: "Refused (client error)",
-  http_5xx: "Server error",
-  suspended_page: "Account suspended page",
-  empty: "Empty answer",
-  unreachable: "Not reachable",
-  timeout: "No answer in time",
-  refused: "Check refused for safety",
-  redirect_limit: "Too many redirects",
-  bad_redirect: "Redirected somewhere not allowed",
-  online: "Listed as online",
-  offline: "Listed as offline",
-  listed: "Still listed",
-  seen: "Seen attacking again",
-  not_seen: "Not seen since",
-  new_sample: "New malware points to it",
+  same: tk("results_word_same"),
+  changed: tk("results_word_changed"),
+  changed_not_stored: tk("results_word_changed_not_stored"),
+  up_unhashed: tk("results_word_up_unhashed"),
+  http_404: tk("results_word_http_404"),
+  http_410: tk("results_word_http_410"),
+  http_4xx: tk("results_word_http_4xx"),
+  http_5xx: tk("results_word_http_5xx"),
+  suspended_page: tk("results_word_suspended_page"),
+  empty: tk("results_word_empty"),
+  unreachable: tk("results_word_unreachable"),
+  timeout: tk("results_word_timeout"),
+  refused: tk("results_word_refused"),
+  redirect_limit: tk("results_word_redirect_limit"),
+  bad_redirect: tk("results_word_bad_redirect"),
+  online: tk("results_word_online"),
+  offline: tk("results_word_offline"),
+  listed: tk("results_word_listed"),
+  seen: tk("results_word_seen"),
+  not_seen: tk("results_word_not_seen"),
+  new_sample: tk("results_word_new_sample"),
 }
 
-export const resultWord = (code: string): string => RESULT_WORD[code] ?? code.replaceAll("_", " ")
+export const resultWord = (code: string): string => {
+  const key = RESULT_WORD[code]
+  return key ? t(key) : code.replaceAll("_", " ")
+}
 
 /** Results that mean the target is gone or quiet. */
 export const DOWN_RESULTS: readonly string[] = [
@@ -339,7 +387,8 @@ export interface ReportEffectResponse {
 }
 
 /** A share as a whole percentage, half up (the server rounds the same way). */
-export const wholePercent = (share: number): string => `${Math.floor(share * 100 + 0.5)} %`
+export const wholePercent = (share: number): string =>
+  t("results_percent_whole", { n: Math.floor(share * 100 + 0.5) })
 
 // --- Calls --------------------------------------------------------------------------
 

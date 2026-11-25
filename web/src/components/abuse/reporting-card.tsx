@@ -28,7 +28,14 @@ import {
   type SelfTerm,
   type Tlp,
 } from "@/lib/abuse"
-import { plural } from "@/lib/format"
+import { t, tk } from "@/i18n"
+
+const TERM_KIND: Record<SelfTerm["kind"], string> = {
+  address: tk("reporting_never_kind_address"),
+  cidr: tk("reporting_never_kind_cidr"),
+  name: tk("reporting_never_kind_name"),
+  text: tk("reporting_never_kind_text"),
+}
 
 const blank = (v: string): string | null => (v.trim() === "" ? null : v.trim())
 
@@ -85,7 +92,7 @@ function SettingsForm({
   // The server names the reply contact when it is the one thing missing; it stays flagged until set.
   const needContact =
     flagged.has("reply_contact") && !(s.reply_contact ?? "").trim()
-      ? "Required: reports need a way to be answered."
+      ? t("reporting_contact_required")
       : undefined
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -143,7 +150,7 @@ function SettingsForm({
   const summary =
     error ??
     (blocking > 0
-      ? `${refused ? "Nothing was saved. " : ""}${blocking === 1 ? "The text marked below blocks" : "The texts marked below block"} every report. Change ${blocking === 1 ? "it" : "them"} and save: your drafts are checked again within a minute.`
+      ? t("reporting_blocking_summary", { refused: refused ? "yes" : "no", count: blocking })
       : null)
   return (
     <form
@@ -157,8 +164,8 @@ function SettingsForm({
       <div className="grid gap-4 md:grid-cols-2">
         <Field
           id={ids.reply}
-          label="Reply contact"
-          hint="Required. A mailbox that does not point to you, so the recipient can answer."
+          label={t("reporting_reply_contact")}
+          hint={t("reporting_reply_contact_hint")}
           error={needContact ?? issueOf("reply_contact")}
         >
           <Input
@@ -174,9 +181,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.sig}
-          label="Signature"
+          label={t("reporting_signature")}
           optional
-          hint="One line at the end of the message. Leave empty to send only the facts."
+          hint={t("reporting_signature_hint")}
           error={issueOf("signature")}
         >
           <Input
@@ -190,9 +197,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.intro}
-          label="Introduction"
+          label={t("reporting_intro")}
           optional
-          hint="Shown before the facts. Leave empty to send only the facts."
+          hint={t("reporting_intro_hint")}
           error={issueOf("intro")}
         >
           <Textarea
@@ -206,9 +213,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.outro}
-          label="Closing"
+          label={t("reporting_outro")}
           optional
-          hint="Shown after the facts. Leave empty to send only the facts."
+          hint={t("reporting_outro_hint")}
           error={issueOf("outro")}
         >
           <Textarea
@@ -222,9 +229,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.ua}
-          label="X-ARF user agent"
+          label={t("reporting_user_agent")}
           optional
-          hint="Sent with X-ARF reports. Leave empty to use a generic value (Mozilla/5.0)."
+          hint={t("reporting_user_agent_hint", { example: "Mozilla/5.0" })}
           error={issueOf("xarf_user_agent")}
         >
           <Input
@@ -239,9 +246,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.org}
-          label="Organisation in X-ARF reports"
+          label={t("reporting_org")}
           optional
-          hint="Leave empty to use the domain of the reply contact. No name is shipped with the software."
+          hint={t("reporting_org_hint")}
           error={issueOf("xarf_org")}
         >
           <Input
@@ -255,9 +262,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.formName}
-          label="Your name for web forms"
+          label={t("reporting_form_name")}
           optional
-          hint="Some abuse desks only take a web form, and many ask for a name. It is shown in the copy kit of those forms, never in a mail. Leave empty if you prefer."
+          hint={t("reporting_form_name_hint")}
           error={issueOf("form_name")}
         >
           <Input
@@ -271,9 +278,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.note}
-          label="Note about the destination and ports"
+          label={t("reporting_note")}
           optional
-          hint="For example that the destination address is withheld. Leave empty to send only the facts."
+          hint={t("reporting_note_hint")}
           error={issueOf("note")}
         >
           <Textarea
@@ -287,9 +294,9 @@ function SettingsForm({
         </Field>
         <Field
           id={ids.subj}
-          label="Subject template"
+          label={t("reporting_subject_template")}
           optional
-          hint="Leave empty to use the plain subject Abuse report for {value}."
+          hint={t("reporting_subject_template_hint", { example: "Abuse report for {value}" })}
           error={issueOf("subject_template")}
         >
           <Input
@@ -302,11 +309,10 @@ function SettingsForm({
           />
         </Field>
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-fg">
-            Default sharing level for CERT exports
-          </span>
+          <span className="text-sm font-medium text-fg">{t("reporting_default_tlp")}</span>
           <SegmentedControl
-            label="Default sharing level"
+            size="form"
+            label={t("reporting_default_tlp_aria")}
             value={s.default_tlp}
             onChange={(v: Tlp) => set("default_tlp", v)}
             options={TLP_OPTIONS}
@@ -314,50 +320,49 @@ function SettingsForm({
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-fg">Reply reference</span>
+          <span className="text-sm font-medium text-fg">{t("reporting_reference")}</span>
           <SegmentedControl
-            label="Reply reference"
+            size="form"
+            label={t("reporting_reference")}
             value={s.reference_style}
             onChange={(v: ReferenceStyle) => set("reference_style", v)}
             options={REFERENCE_STYLE_OPTIONS}
             className="scroll-fade-x max-w-full self-start overflow-x-auto"
           />
-          <span className="text-xs text-fg-muted">
-            A random code that lets a reply find its report. Off means only SMTP sends can match.
-          </span>
+          <span className="text-xs text-fg-muted">{t("reporting_reference_hint")}</span>
         </div>
       </div>
       <fieldset className="grid gap-3">
-        <legend className="mb-1 text-sm font-medium text-fg">Defaults for new drafts</legend>
+        <legend className="mb-1 text-sm font-medium text-fg">{t("reporting_defaults")}</legend>
         <Toggle
-          label="Round times to the minute"
-          hint="On by default. Exact seconds make it easier to match flow logs, and so to recognise you."
+          label={t("reporting_round_times")}
+          hint={t("reporting_round_times_hint")}
           checked={s.round_times}
           onChange={(on) => set("round_times", on)}
         />
         <Toggle
-          label="Defang URLs and addresses"
-          hint="hxxp://203.0.113[.]9 instead of a live link."
+          label={t("reporting_defang")}
+          hint={t("reporting_defang_hint", { example: "hxxp://203.0.113[.]9" })}
           checked={s.default_options.defang}
           onChange={(on) => set("default_options", { ...s.default_options, defang: on })}
         />
         <Toggle
-          label="Include the usernames tried"
-          hint="Never the passwords."
+          label={t("reporting_usernames")}
+          hint={t("reporting_usernames_hint")}
           checked={s.default_options.include_usernames}
           onChange={(on) => set("default_options", { ...s.default_options, include_usernames: on })}
         />
         <Toggle
-          label="Include the reply contact"
-          hint="Only when a reply contact is set."
+          label={t("reporting_include_contact")}
+          hint={t("reporting_include_contact_hint")}
           checked={s.default_options.include_reply_contact}
           onChange={(on) =>
             set("default_options", { ...s.default_options, include_reply_contact: on })
           }
         />
         <Toggle
-          label="Add the redaction counter line"
-          hint="How many values were masked and lines left out. Off by default."
+          label={t("reporting_redaction")}
+          hint={t("reporting_redaction_hint")}
           checked={s.default_options.show_redaction_counts}
           onChange={(on) =>
             set("default_options", { ...s.default_options, show_redaction_counts: on })
@@ -366,11 +371,11 @@ function SettingsForm({
       </fieldset>
       <FormError id={ids.err} message={summary} />
       <div className="flex items-center gap-3">
-        <Button type="submit" size="sm" disabled={save.isPending}>
-          {save.isPending ? "Saving…" : "Save"}
+        <Button type="submit" disabled={save.isPending}>
+          {save.isPending ? t("reporting_saving") : t("common_save")}
         </Button>
         <span role="status" className="text-sm text-fg-muted empty:hidden">
-          {saved ? "Saved." : null}
+          {saved ? t("reporting_saved") : null}
         </span>
         <UnsavedHint show={unsaved} />
       </div>
@@ -405,20 +410,21 @@ export function NeverInReport() {
   })
   const del = useMutation({ mutationFn: abuseApi.deleteTerm, onSuccess: refresh, onError: fail })
   const terms = [...(q.data ?? [])].sort((a, b) => Number(a.confirmed) - Number(b.confirmed))
+  const confirmed = terms.filter((term) => term.confirmed).length
   return (
     <FindingCard
-      eyebrow="Never in a report"
+      eyebrow={t("reporting_nav_never")}
       finding={
         q.isPending
-          ? "Checking what reports must never contain…"
-          : terms.some((t) => t.confirmed)
-            ? `${plural(terms.filter((t) => t.confirmed).length, "term")} ${terms.filter((t) => t.confirmed).length === 1 ? "is" : "are"} checked for in every report, and the report is blocked if one appears.${pendingTerms(terms)}`
-            : "Nothing is known yet, so reports stay locked until traffic teaches the address of the monitored system, or you add it here."
+          ? t("reporting_never_checking")
+          : confirmed > 0
+            ? t("reporting_never_finding", { count: confirmed, pending: terms.length - confirmed })
+            : t("reporting_never_unknown")
       }
       action={
         <Button variant="outline" size="sm" onClick={() => setReveal((r) => !r)}>
           {reveal ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-          {reveal ? "Hide values" : "Reveal values"}
+          {reveal ? t("reporting_never_hide") : t("reporting_never_reveal")}
         </Button>
       }
       bodyClassName="px-0 sm:px-0 pb-0 sm:pb-0"
@@ -430,46 +436,44 @@ export function NeverInReport() {
       ) : (
         <>
           <p className="border-t px-4 py-3 text-xs text-fg-muted sm:px-5">
-            A learned term does nothing until you confirm it: an attacker can plant text in traffic
-            to make a report refuse a word. Confirm only what is yours.
+            {t("reporting_never_learned_note")}
           </p>
           <ul className="divide-y border-t">
-            {terms.map((t) => (
+            {terms.map((term) => (
               <li
-                key={t.id}
+                key={term.id}
                 className={cn(
                   "flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 sm:px-5",
-                  !t.confirmed && "tint-warning",
+                  !term.confirmed && "tint-warning",
                 )}
               >
-                {!t.confirmed ? (
+                {!term.confirmed ? (
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium text-sev-warning">
                     <TriangleAlert aria-hidden className="size-3.5" />
-                    Needs confirmation
+                    {t("reporting_never_needs_confirmation")}
                   </span>
                 ) : null}
-                <code className="font-mono text-xs text-fg">{t.value}</code>
+                <code className="font-mono text-xs text-fg">{term.value}</code>
                 <span className="text-xs text-fg-muted">
-                  {t.kind} ·{" "}
-                  {t.source === "learned"
-                    ? `learned from traffic (${plural(t.distinct_sources, "source")})`
-                    : t.source === "sensor"
-                      ? "declared by a sensor"
-                      : "added by hand"}
-                  {t.confirmed ? "" : " · inactive until you confirm it"}
+                  {t("reporting_never_term_meta", {
+                    kind: t(TERM_KIND[term.kind]),
+                    source: term.source,
+                    sources: term.distinct_sources,
+                    confirmed: term.confirmed ? "yes" : "no",
+                  })}
                 </span>
                 <span className="ml-auto flex gap-2">
-                  {!t.confirmed ? (
-                    <Button size="xs" variant="outline" onClick={() => confirm.mutate(t.id)}>
-                      Confirm
+                  {!term.confirmed ? (
+                    <Button size="sm" variant="outline" onClick={() => confirm.mutate(term.id)}>
+                      {t("common_confirm")}
                     </Button>
                   ) : null}
-                  {t.source !== "sensor" ? (
+                  {term.source !== "sensor" ? (
                     <Button
-                      size="icon-xs"
+                      size="icon-sm"
                       variant="ghost"
-                      aria-label={`Delete ${t.value}`}
-                      onClick={() => del.mutate(t.id)}
+                      aria-label={t("reporting_never_delete_aria", { value: term.value })}
+                      onClick={() => del.mutate(term.id)}
                     >
                       <Trash2 aria-hidden />
                     </Button>
@@ -485,29 +489,30 @@ export function NeverInReport() {
         onSubmit={(e) => {
           e.preventDefault()
           if (value.trim().length < 2) {
-            setError("Enter at least two characters.")
+            setError(t("reporting_never_too_short"))
             return
           }
           add.mutate()
         }}
       >
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-fg-muted">Add</span>
+          <span className="text-xs font-medium text-fg-muted">{t("common_add")}</span>
           <SegmentedControl
-            label="Kind"
+            size="form"
+            label={t("reporting_never_kind")}
             value={kind}
             onChange={setKind}
             options={[
-              { value: "address", label: "Address" },
-              { value: "cidr", label: "Network" },
-              { value: "name", label: "Name" },
-              { value: "text", label: "Text" },
+              { value: "address", label: t("reporting_never_kind_address_label") },
+              { value: "cidr", label: t("reporting_never_kind_cidr_label") },
+              { value: "name", label: t("reporting_never_kind_name_label") },
+              { value: "text", label: t("reporting_never_kind_text_label") },
             ]}
           />
         </div>
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">
           <label htmlFor={id} className="text-xs font-medium text-fg-muted">
-            Value
+            {t("reporting_never_value")}
           </label>
           <Input
             id={id}
@@ -518,8 +523,8 @@ export function NeverInReport() {
             onChange={(e) => setValue(e.target.value)}
           />
         </div>
-        <Button type="submit" size="sm" variant="outline" disabled={add.isPending}>
-          Add
+        <Button type="submit" variant="outline" disabled={add.isPending}>
+          {t("common_add")}
         </Button>
         <p role="alert" className="w-full text-sm text-fg empty:hidden">
           {error}
@@ -538,19 +543,19 @@ export function ReportingCard() {
     <>
       <section id="reporting-message" className="scroll-mt-16">
         <FindingCard
-          eyebrow="Reporting"
+          eyebrow={t("reporting_eyebrow")}
           finding={
             q.isPending
-              ? "Loading the reporting settings…"
+              ? t("reporting_loading")
               : q.isError
-                ? "The reporting settings could not be loaded."
+                ? t("reporting_load_failed")
                 : Object.keys(q.data.field_issues ?? {}).length > 0
-                  ? "Some of these texts block every report until you change them."
+                  ? t("reporting_finding_issues")
                   : q.data.reply_contact
-                    ? "Reports are ready to write. The texts around the facts are optional."
-                    : "Set a reply contact so reports can be answered. The texts are optional."
+                    ? t("reporting_finding_ready")
+                    : t("reporting_finding_no_contact")
           }
-          detail="Saving these words sends nothing. By default you copy a draft into your own mailbox; SMTP sending is optional, further down."
+          detail={t("reporting_detail")}
         >
           {q.isPending ? (
             <SkeletonText lines={4} />
@@ -558,13 +563,12 @@ export function ReportingCard() {
             <>
               {stale ? (
                 <p role="alert" className="mb-4 text-sm text-fg">
-                  The settings were changed somewhere else, so they were reloaded. Read them again,
-                  then save your edit.
+                  {t("reporting_stale")}
                 </p>
               ) : null}
               {recheck ? (
                 <p role="status" className="mb-4 text-sm text-fg">
-                  Saved. Your open drafts are checked again within a minute.
+                  {t("reporting_recheck")}
                 </p>
               ) : null}
               <SettingsForm
@@ -588,11 +592,4 @@ export function ReportingCard() {
       </section>
     </>
   )
-}
-
-/** " 1 learned term waits for your confirmation." or nothing. */
-function pendingTerms(terms: { confirmed: boolean }[]): string {
-  const n = terms.filter((t) => !t.confirmed).length
-  if (n === 0) return ""
-  return ` ${plural(n, "learned term")} ${n === 1 ? "waits" : "wait"} for your confirmation.`
 }

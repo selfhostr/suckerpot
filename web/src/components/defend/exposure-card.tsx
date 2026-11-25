@@ -10,6 +10,8 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { Link } from "react-router"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { RelativeTime } from "@/components/relative-time"
 import { SensorBadge } from "@/components/sensor-badge"
 import { TagBadge } from "@/components/tag-badge"
@@ -29,7 +31,7 @@ import {
   type InventoryItem,
   type Verdict,
 } from "@/lib/defend"
-import { formatNumber, plural } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const VERDICT_ICON: Record<Verdict, { icon: LucideIcon; className: string }> = {
@@ -39,11 +41,11 @@ const VERDICT_ICON: Record<Verdict, { icon: LucideIcon; className: string }> = {
   private_quiet: { icon: ShieldCheck, className: "text-fg-muted" },
 }
 
-export function Checks({ checks, title = "Checks to run" }: { checks: string[]; title?: string }) {
+export function Checks({ checks, title }: { checks: string[]; title?: string }) {
   if (checks.length === 0) return null
   return (
     <div className="space-y-1.5">
-      <h5 className="text-xs font-medium text-fg-muted">{title}</h5>
+      <h5 className="type-eyebrow text-fg-muted">{title ?? t("exposure_checks_title")}</h5>
       <ul className="list-disc space-y-1 pl-4 text-sm text-fg marker:text-fg-subtle">
         {checks.map((c) => (
           <li key={c} className="pl-1 text-pretty">
@@ -90,7 +92,7 @@ export function ExposureCard({
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-medium text-fg">{item.name}</h3>
+            <h3 className="type-card-title text-fg">{item.name}</h3>
             <SensorBadge sensor={item.service} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">
@@ -104,18 +106,22 @@ export function ExposureCard({
         {canWrite ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-xs" aria-label={`Actions for ${item.name}`}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("exposure_card_actions", { name: item.name })}
+              >
                 <Ellipsis aria-hidden />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => onEdit(item)}>
                 <Pencil aria-hidden />
-                Edit
+                {t("common_edit")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onRemove(item)}>
                 <Trash2 aria-hidden />
-                Remove from my list
+                {t("exposure_card_remove")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -130,25 +136,31 @@ export function ExposureCard({
       {/* Label left, number right: three rows that read like a sentence and always line up. */}
       <div>
         <dl className="divide-y border-y">
-          <Stat label="Attacks on this kind of service">
+          <Stat label={t("exposure_card_attacks")}>
             <Link
               to={`/attacks?sensor=${item.service}`}
               className="font-medium underline-offset-4 hover:underline"
             >
-              {plural(attacks.sessions, "session")}
+              {t("exposure_card_sessions", { count: attacks.sessions })}
             </Link>
           </Stat>
-          <Stat label="From">{plural(attacks.sources, "source")}</Stat>
-          <Stat label="Ran commands or fetched files">
-            {plural(attacks.deep_sessions, "session")}
+          <Stat label={t("exposure_card_from")}>
+            {t("exposure_card_sources", { count: attacks.sources })}
+          </Stat>
+          <Stat label={t("exposure_card_deep")}>
+            {t("exposure_card_sessions", { count: attacks.deep_sessions })}
           </Stat>
         </dl>
         <p className="mt-2 text-xs text-fg-muted">
           {capitalize(previousComparison(attacks.sessions, attacks.previous_sessions))}
           {attacks.last_attack_at ? (
             <>
-              {" · last attack "}
-              <RelativeTime iso={attacks.last_attack_at} className="text-xs" />
+              {" · "}
+              {tNodes(
+                "exposure_card_last_attack",
+                {},
+                { time: <RelativeTime iso={attacks.last_attack_at} className="text-xs" /> },
+              )}
             </>
           ) : null}
         </p>
@@ -156,12 +168,12 @@ export function ExposureCard({
 
       {service.top_tags.length > 0 ? (
         <div className="space-y-1.5">
-          <h5 className="text-xs font-medium text-fg-muted">What the attackers did</h5>
-          <ul aria-label="Top tags" className="flex flex-wrap gap-1.5">
-            {service.top_tags.map((t) => (
-              <li key={t.tag} className="inline-flex items-center gap-1.5">
-                <TagBadge tag={t.tag} />
-                <span className="text-xs text-fg-subtle">{formatNumber(t.sessions)}</span>
+          <h5 className="type-eyebrow text-fg-muted">{t("exposure_card_did")}</h5>
+          <ul aria-label={t("exposure_card_top_tags")} className="flex flex-wrap gap-1.5">
+            {service.top_tags.map((x) => (
+              <li key={x.tag} className="inline-flex items-center gap-1.5">
+                <TagBadge tag={x.tag} />
+                <span className="text-xs text-fg-subtle">{formatNumber(x.sessions)}</span>
               </li>
             ))}
           </ul>
@@ -170,7 +182,7 @@ export function ExposureCard({
 
       {service.cves.length > 0 ? (
         <div className="space-y-1.5">
-          <h5 className="text-xs font-medium text-fg-muted">Known flaws that match</h5>
+          <h5 className="type-eyebrow text-fg-muted">{t("exposure_card_flaws")}</h5>
           <ul className="space-y-1.5">
             {service.cves.map((c) => (
               <li key={c.cve_id} className="space-y-0.5">
@@ -182,11 +194,13 @@ export function ExposureCard({
                     {c.cve_id}
                   </Link>
                   {c.cvss_score !== null ? (
-                    <span className="text-xs text-fg-muted">CVSS {c.cvss_score.toFixed(1)}</span>
+                    <span className="text-xs text-fg-muted">
+                      {t("exposure_card_cvss", { score: c.cvss_score.toFixed(1) })}
+                    </span>
                   ) : null}
                   {c.in_kev ? (
-                    <Badge variant="outline" className="rounded-sm text-fg">
-                      Exploited in the wild
+                    <Badge variant="outline" className="text-fg">
+                      {t("exposure_card_kev")}
                     </Badge>
                   ) : null}
                 </div>
@@ -201,7 +215,9 @@ export function ExposureCard({
 
       <Checks checks={service.checks} />
 
-      {item.notes ? <p className="text-xs text-fg-subtle">Your note: {item.notes}</p> : null}
+      {item.notes ? (
+        <p className="text-xs text-fg-subtle">{t("exposure_card_note", { note: item.notes })}</p>
+      ) : null}
     </article>
   )
 }

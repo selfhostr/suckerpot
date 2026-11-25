@@ -1,5 +1,6 @@
 import { Waves } from "lucide-react"
-import { formatNumber, plural } from "@/lib/format"
+import { t } from "@/i18n"
+import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /**
@@ -16,18 +17,18 @@ export function FloodBadge({
 }) {
   return (
     <span
-      title={`${plural(connections, "connection")} from one address in one hour, shown as one row`}
+      title={t("flood_badge_title", { count: connections })}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm border border-border-strong px-2 text-2xs font-medium text-fg-muted",
+        "inline-flex h-(--chip) shrink-0 items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs font-medium text-fg-muted",
         className,
       )}
     >
-      <Waves aria-hidden className="size-3" strokeWidth={2} />
-      <span>flood</span>
+      <Waves aria-hidden className="size-3.5" strokeWidth={2} />
+      <span>{t("flood_badge_word")}</span>
       <span aria-hidden className="font-mono text-fg tabular-nums">
         x{formatNumber(connections)}
       </span>
-      <span className="sr-only">of {plural(connections, "connection")}</span>
+      <span className="sr-only">{t("flood_badge_sr", { count: connections })}</span>
     </span>
   )
 }

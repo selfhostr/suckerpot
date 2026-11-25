@@ -3,6 +3,7 @@
  * and `GET /api/v1/setup/ports`, the step list, and the host commands the dashboard shows but never
  * runs (it does not edit `.env`).
  */
+import { t } from "@/i18n"
 import { getJson, sendJson } from "./api"
 import { isSensor, SENSORS, type Sensor } from "./sensors"
 
@@ -61,84 +62,156 @@ export interface WizardStep {
 }
 
 /** "What happens next" on the last step, where there is no next step to announce. */
-export const AFTER_SETUP =
-  "Go to Today to watch attacks arrive, or take the tour. Settings keeps this checklist."
+export function afterSetup(): string {
+  return t("setup_after")
+}
 
-/** Order of the steps. `network` (M29) shows only when the network status endpoint answers. */
+/**
+ * Order of the steps. `network` (M29) shows only when the network status endpoint answers.
+ * The texts are getters, read when a step renders, so they follow the active language.
+ */
 export const WIZARD_STEPS: readonly WizardStep[] = [
   {
     id: "welcome",
-    title: "Welcome",
-    sentence: "SuckerPot is a trap: fake servers that attackers find on the internet.",
+    get title() {
+      return t("setup_step_welcome_title")
+    },
+    get sentence() {
+      return t("setup_step_welcome_sentence")
+    },
     optional: false,
-    skip: "Yes. Nothing is set here: this step only explains what SuckerPot is.",
-    teaser: "Read the three rules that keep your network safe.",
+    get skip() {
+      return t("setup_step_welcome_skip")
+    },
+    get teaser() {
+      return t("setup_step_welcome_teaser")
+    },
   },
   {
     id: "sensors",
-    title: "Your sensors",
-    sentence: "Each sensor pretends to be one service, so pick the ones you want to catch.",
+    get title() {
+      return t("setup_step_sensors_title")
+    },
+    get sentence() {
+      return t("setup_step_sensors_sentence")
+    },
     optional: false,
-    skip: "Yes. The sensors already switched on keep running.",
-    teaser: "Pick which fake services to run.",
+    get skip() {
+      return t("setup_step_sensors_skip")
+    },
+    get teaser() {
+      return t("setup_step_sensors_teaser")
+    },
   },
   {
     id: "ports",
-    title: "Open the ports",
-    sentence: "Attackers only reach a sensor once your router forwards its port to this machine.",
+    get title() {
+      return t("setup_step_ports_title")
+    },
+    get sentence() {
+      return t("setup_step_ports_sentence")
+    },
     optional: false,
-    skip: "Yes, but attackers cannot reach a sensor until its port is forwarded. The same table stays under Settings, Sensors & ports.",
-    teaser: "Forward the sensor ports on your router, and only those.",
+    get skip() {
+      return t("setup_step_ports_skip")
+    },
+    get teaser() {
+      return t("setup_step_ports_teaser")
+    },
   },
   {
     id: "vpn",
-    title: "Anonymous egress",
-    sentence:
-      "Every lookup and download leaves through a VPN, so none of them uses your home address.",
+    get title() {
+      return t("setup_step_vpn_title")
+    },
+    get sentence() {
+      return t("setup_step_vpn_sentence")
+    },
     optional: true,
-    skip: "Yes. The sensors keep recording attacks, and nothing leaves this machine: lookups, payload fetching and alerts wait for a VPN.",
-    teaser: "Set up the VPN, so nothing ever leaves from your home address.",
+    get skip() {
+      return t("setup_step_vpn_skip")
+    },
+    get teaser() {
+      return t("setup_step_vpn_teaser")
+    },
   },
   {
     id: "self",
-    title: "Your own address",
-    sentence: "SuckerPot must know your own address so it never ends up in a report or an alert.",
+    get title() {
+      return t("setup_step_self_title")
+    },
+    get sentence() {
+      return t("setup_step_self_sentence")
+    },
     optional: true,
-    skip: "Yes. Abuse reports and alerts stay locked until one address is confirmed.",
-    teaser: "Confirm your own address, so it never ends up in a report or an alert.",
+    get skip() {
+      return t("setup_step_self_skip")
+    },
+    get teaser() {
+      return t("setup_step_self_teaser")
+    },
   },
   {
     id: "reporting",
-    title: "Abuse reports",
-    sentence:
-      "Abuse reports are drafts you send yourself, and they need one thing: a reply contact.",
+    get title() {
+      return t("setup_step_reporting_title")
+    },
+    get sentence() {
+      return t("setup_step_reporting_sentence")
+    },
     optional: true,
-    skip: "Yes. Reports are optional, and nothing is sent without you.",
-    teaser: "Choose where abuse desks can answer you, if you want to send reports.",
+    get skip() {
+      return t("setup_step_reporting_skip")
+    },
+    get teaser() {
+      return t("setup_step_reporting_teaser")
+    },
   },
   {
     id: "alerts",
-    title: "Alerts",
-    sentence: "Alerts tell you when something matters, by Discord, Teams or email.",
+    get title() {
+      return t("setup_step_alerts_title")
+    },
+    get sentence() {
+      return t("setup_step_alerts_sentence")
+    },
     optional: true,
-    skip: "Yes. Attacks still show on the dashboard; no message is sent.",
-    teaser: "Choose where alerts reach you: Discord, Teams or email.",
+    get skip() {
+      return t("setup_step_alerts_skip")
+    },
+    get teaser() {
+      return t("setup_step_alerts_teaser")
+    },
   },
   {
     id: "network",
-    title: "The SuckerPot network",
-    sentence: "Joining the network is recommended, and always your choice.",
+    get title() {
+      return t("setup_step_network_title")
+    },
+    get sentence() {
+      return t("setup_step_network_sentence")
+    },
     optional: true,
-    skip: "Yes. Nothing is shared unless you join, and you can join or leave later in Settings, Network.",
-    teaser: "Decide whether to join the SuckerPot network.",
+    get skip() {
+      return t("setup_step_network_skip")
+    },
+    get teaser() {
+      return t("setup_step_network_teaser")
+    },
   },
   {
     id: "done",
-    title: "You are set",
-    sentence: "That is everything: here is what is left, and the tour if you want it.",
+    get title() {
+      return t("setup_step_done_title")
+    },
+    get sentence() {
+      return t("setup_step_done_sentence")
+    },
     optional: false,
     skip: null,
-    teaser: "See what is done and what is left, then open the dashboard.",
+    get teaser() {
+      return t("setup_step_done_teaser")
+    },
   },
 ]
 
@@ -161,10 +234,10 @@ export function firstOpenStep(
 export function describeProgress(progress: WizardProgress, steps: readonly WizardStep[]): string {
   const real = steps.filter((s) => s.id !== "done")
   const done = real.filter((s) => progress.steps[s.id]).length
-  if (progress.state === "finished") return "The setup is finished."
-  if (progress.state === "skipped") return "The setup was skipped."
-  if (done === 0) return "The setup has not been started yet."
-  return `${done} of ${real.length} setup steps ${done === 1 ? "is" : "are"} done.`
+  if (progress.state === "finished") return t("setup_progress_finished")
+  if (progress.state === "skipped") return t("setup_progress_skipped")
+  if (done === 0) return t("setup_progress_not_started")
+  return t("setup_progress_done", { done, total: real.length })
 }
 
 const STATES: readonly string[] = ["new", "in_progress", "finished", "skipped"]
@@ -196,9 +269,15 @@ export const wizardApi = {
 /* --- Ports ---------------------------------------------------------------- */
 
 export const PORT_STATE_LABEL: Record<PortState, string> = {
-  receiving: "Receiving",
-  waiting: "Waiting for the first connection",
-  off: "Off",
+  get receiving() {
+    return t("setup_port_state_receiving")
+  },
+  get waiting() {
+    return t("setup_port_state_waiting")
+  },
+  get off() {
+    return t("common_off")
+  },
 }
 
 /** "TCP 22", "UDP + TCP 5060". Port numbers are never grouped with thousands separators. */
@@ -210,14 +289,12 @@ export function describePort(p: Pick<PortItem, "protocols" | "external_port">): 
 /** One sentence for the top of the ports table. */
 export function describePorts(items: readonly PortItem[]): string {
   const on = items.filter((i) => i.enabled)
-  if (on.length === 0) return "No sensor is switched on, so there is nothing to open yet."
+  if (on.length === 0) return t("setup_ports_none_on")
   const receiving = on.filter((i) => i.state === "receiving").length
   const waiting = on.length - receiving
-  if (waiting === 0)
-    return `All ${on.length} enabled ${on.length === 1 ? "sensor is" : "sensors are"} receiving traffic.`
-  if (receiving === 0)
-    return `None of the ${on.length} enabled ${on.length === 1 ? "sensor has" : "sensors have"} had a connection yet: open the ports below on your router.`
-  return `${receiving} of ${on.length} enabled sensors are receiving traffic, ${waiting} ${waiting === 1 ? "is" : "are"} still waiting for a first connection.`
+  if (waiting === 0) return t("setup_ports_all_receiving", { count: on.length })
+  if (receiving === 0) return t("setup_ports_none_receiving", { count: on.length })
+  return t("setup_ports_some_receiving", { receiving, total: on.length, waiting })
 }
 
 /* --- Host commands (copied by the owner; the dashboard never runs them) ---- */

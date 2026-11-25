@@ -3,7 +3,7 @@
  * Pure helpers, unit-tested. An older API (404) or a network error counts as `unknown`.
  */
 import { getJson } from "./api"
-import { plural } from "./format"
+import { t } from "@/i18n"
 
 export type PipelineState = "ok" | "stalled" | "unknown"
 
@@ -45,40 +45,38 @@ export async function fetchPipeline(): Promise<PipelineStatus> {
   }
 }
 
+/** The duration as a unit and a count, for the `{unit, select, ...}` of the messages below. */
+function stalledParts(seconds: number): { unit: string; n: number } {
+  const s = Math.max(0, Math.floor(seconds))
+  if (s < 60) return { unit: "under_minute", n: 0 }
+  if (s < 3600) return { unit: "minute", n: Math.floor(s / 60) }
+  if (s < 86_400) return { unit: "hour", n: Math.floor(s / 3600) }
+  return { unit: "day", n: Math.floor(s / 86_400) }
+}
+
 /** "less than a minute", "42 minutes", "3 hours", "2 days". */
 export function formatStalledFor(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds))
-  if (s < 60) return "less than a minute"
-  if (s < 3600) {
-    const m = Math.floor(s / 60)
-    return plural(m, "minute")
-  }
-  if (s < 86_400) {
-    const h = Math.floor(s / 3600)
-    return plural(h, "hour")
-  }
-  const d = Math.floor(s / 86_400)
-  return plural(d, "day")
+  return t("pipeline_stalled_for", stalledParts(seconds))
 }
 
 export function stalledSentence(seconds: number): string {
-  const d = formatStalledFor(seconds)
-  return `Events have not been stored for ${d}. They are waiting in a queue for now, but once it fills up, the oldest attacks are lost.`
+  return t("pipeline_stalled_sentence", stalledParts(seconds))
 }
 
 export function parkedSentence(n: number): string {
-  return `${plural(n, "event")} could not be stored and ${n === 1 ? "was" : "were"} set aside.`
+  return t("pipeline_parked_sentence", { count: n })
 }
 
 /** Settings finding sentence. */
 export function pipelineFinding(p: PipelineStatus): string {
-  if (p.status === "stalled")
-    return `Ingest has not checked in for ${formatStalledFor(p.stalled_for_seconds)}.`
+  if (p.status === "stalled") {
+    return t("pipeline_finding_stalled", stalledParts(p.stalled_for_seconds))
+  }
   if (p.status === "ok")
     return p.parked_events > 0
-      ? `Events are being stored, but ${plural(p.parked_events, "event")} had to be set aside.`
-      : "Events are being stored normally."
-  return "The pipeline status is not available."
+      ? t("pipeline_finding_ok_parked", { count: p.parked_events })
+      : t("pipeline_finding_ok")
+  return t("pipeline_finding_unknown")
 }
 
 const DISMISS_KEY = "suckerpot.pipeline.parked-dismissed"

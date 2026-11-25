@@ -5,7 +5,8 @@ import { API_BASE } from "@/lib/api"
 export interface SiteHome {
   lat: number
   lon: number
-  label: string
+  /** Country name served by the API; absent when the operator set none. */
+  label?: string | undefined
 }
 
 async function fetchSite(): Promise<SiteHome> {
@@ -17,7 +18,7 @@ async function fetchSite(): Promise<SiteHome> {
   const body = (await res.json()) as { home?: Partial<SiteHome> }
   const { lat, lon, label } = body.home ?? {}
   if (typeof lat !== "number" || typeof lon !== "number") throw new Error("site settings: bad home")
-  return { lat, lon, label: typeof label === "string" && label ? label : "the sensors" }
+  return { lat, lon, label: typeof label === "string" && label ? label : undefined }
 }
 
 /** Where the arcs land. Never refetched: it only changes with the server configuration. */

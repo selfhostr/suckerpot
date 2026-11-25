@@ -3,7 +3,7 @@
  * finding for the page, and the trap-sheet template. Everything here is pure.
  */
 
-import { plural } from "./format"
+import { t } from "@/i18n"
 
 export type Relevance = "high" | "medium" | "none"
 export type CvssSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
@@ -80,15 +80,40 @@ export interface CveFilters {
 }
 
 export const RELEVANCE_FILTERS = [
-  { value: "relevant", label: "Our services" },
-  { value: "all", label: "All" },
+  {
+    value: "relevant",
+    get label() {
+      return t("cves_filter_our_services")
+    },
+  },
+  {
+    value: "all",
+    get label() {
+      return t("common_all")
+    },
+  },
 ] as const
 
 export const SEVERITY_FILTERS = ["critical", "high", "medium", "low"] as const
 export const SINCE_OPTIONS = [
-  { value: "7", label: "7 days" },
-  { value: "30", label: "30 days" },
-  { value: "all", label: "Any time" },
+  {
+    value: "7",
+    get label() {
+      return t("campaigns_window_7")
+    },
+  },
+  {
+    value: "30",
+    get label() {
+      return t("campaigns_window_30")
+    },
+  },
+  {
+    value: "all",
+    get label() {
+      return t("cves_since_any_time")
+    },
+  },
 ] as const
 
 /** Service ids come from ingest/rules/cve/relevance.yaml; unknown ids fall back to the id. */
@@ -130,7 +155,11 @@ export function severityLevel(sev: string | null): number {
 }
 
 export function severityLabel(sev: string | null): string {
-  if (!sev) return "Unrated"
+  if (!sev) return t("cves_severity_unrated")
+  if (sev === "CRITICAL") return t("cves_severity_critical")
+  if (sev === "HIGH") return t("cves_severity_high")
+  if (sev === "MEDIUM") return t("cves_severity_medium")
+  if (sev === "LOW") return t("cves_severity_low")
   return sev.charAt(0) + sev.slice(1).toLowerCase()
 }
 
@@ -156,26 +185,18 @@ export interface CveFindingInput {
  * week that match our services), so "3 critical" and "2 exploited" never read as overlapping.
  */
 export function describeCves(f: CveFindingInput): string {
-  if (f.relevant === 0) return "No new CVE this week affects the services we emulate."
-  const verb = f.relevant === 1 ? "affects" : "affect"
-  let head: string
-  if (f.critical > 0 && f.critical === f.relevant) {
-    head = `${plural(f.critical, "new critical CVE")} this week ${verb} services we emulate`
-  } else {
-    head = `${plural(f.relevant, "new CVE")} this week ${verb} services we emulate`
-    if (f.critical > 0) head += `, ${f.critical} of them critical`
-  }
-  const tail: string[] = []
-  if (f.kevRelevant > 0)
-    tail.push(
-      `${f.kevRelevant} ${f.kevRelevant === 1 ? "is" : "are"} already exploited in the wild (CISA KEV)`,
-    )
-  if (f.seen > 0) tail.push(`${f.seen} ${f.seen === 1 ? "was" : "were"} seen in our traffic`)
-  return tail.length > 0 ? `${head}. ${capitalize(tail.join(" and "))}.` : `${head}.`
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
+  if (f.relevant === 0) return t("cves_finding_none")
+  const allCritical = f.critical > 0 && f.critical === f.relevant
+  const kev = f.kevRelevant > 0
+  const tail = kev && f.seen > 0 ? "both" : kev ? "kev" : f.seen > 0 ? "seen" : "none"
+  return t("cves_finding", {
+    head: allCritical ? "critical" : f.critical > 0 ? "some_critical" : "plain",
+    count: allCritical ? f.critical : f.relevant,
+    critical: f.critical,
+    kev: f.kevRelevant,
+    seen: f.seen,
+    tail,
+  })
 }
 
 const SENSOR_PORT: Record<string, string> = {
@@ -231,44 +252,51 @@ export const UNTRUSTED_END = "--- End of untrusted data ---"
 export function trapSheet(d: CveDetail): string {
   const c = d.item
   const services = c.matched_services.length
-    ? c.matched_services.map(
-        (s) => `${oneLine(serviceLabel(s), 80)} -> ${SENSOR_PORT[s] ?? "to be decided"}`,
-      )
-    : ["(no emulated service matches; decide where it would run)"]
+    ? c.matched_services.map((s) => {
+        const where = SENSOR_PORT[s] ?? t("cves_sheet_to_be_decided")
+        return `${oneLine(serviceLabel(s), 80)} -> ${where}`
+      })
+    : [t("cves_sheet_no_service")]
   const refs = d.refs.filter(safeUrl).slice(0, 6)
   const lines = [
-    `Trap proposal: ${c.cve_id}`,
-    `Severity: ${c.cvss_score !== null ? `${c.cvss_score.toFixed(1)} ${severityLabel(c.cvss_severity)}` : "unrated"}${c.in_kev ? ", in the CISA KEV catalogue" : ""}`,
+    t("cves_sheet_title", { id: c.cve_id }),
+    t("cves_sheet_severity", {
+      rating:
+        c.cvss_score !== null
+          ? `${c.cvss_score.toFixed(1)} ${severityLabel(c.cvss_severity)}`
+          : t("cves_sheet_unrated"),
+      inKev: c.in_kev ? "yes" : "no",
+    }),
     "",
-    "Service to emulate:",
+    t("cves_sheet_service_heading"),
     ...services.map((s) => `  - ${s}`),
-    `Version to emulate: <a vulnerable version, from the advisory>`,
+    t("cves_sheet_version", { hint: `<${t("cves_sheet_version_hint")}>` }),
     "",
-    "URLs / commands to watch (fill in from the advisory and the references):",
-    "  - <request path, header or command that triggers the flaw>",
-    `Tag name: ${proposedTag(c.cve_id)}`,
+    t("cves_sheet_watch_heading"),
+    `  - <${t("cves_sheet_trigger_hint")}>`,
+    t("cves_sheet_tag", { tag: proposedTag(c.cve_id) }),
     "",
-    "Seen in our traffic: " +
-      (d.traffic.sessions > 0
-        ? `${plural(d.traffic.sessions, "session")} from ${plural(d.traffic.ips, "address", "addresses")}`
-        : "not yet"),
+    t(d.traffic.sessions > 0 ? "cves_sheet_seen" : "cves_sheet_seen_not_yet", {
+      sessions: d.traffic.sessions,
+      ips: d.traffic.ips,
+    }),
     "",
     UNTRUSTED_START,
-    `Title: ${JSON.stringify(oneLine(cveTitle(c)))}`,
-    "References:",
-    ...(refs.length ? refs.map((r) => `  - ${r}`) : ["  - (none recorded)"]),
+    t("cves_sheet_title_line", { title: JSON.stringify(oneLine(cveTitle(c))) }),
+    t("cves_sheet_refs_heading"),
+    ...(refs.length ? refs.map((r) => `  - ${r}`) : [`  - ${t("cves_sheet_no_refs")}`]),
     UNTRUSTED_END,
     "",
-    "Review with the owner first. Nothing is built or deployed from this sheet.",
+    t("cves_sheet_review"),
   ]
   return lines.join("\n")
 }
 
 /** Plain-English state of one source for the status card. */
 export function describeSource(s: CveSourceState): string {
-  if (s.last_error) return `Last attempt failed (${s.last_error.replace(/_/g, " ")}).`
-  if (!s.last_success_at) return "Has not run yet."
-  return `${plural(s.items_last_run, "entry", "entries")} on the last run.`
+  if (s.last_error) return t("cves_source_failed", { error: s.last_error.replace(/_/g, " ") })
+  if (!s.last_success_at) return t("cves_source_not_run")
+  return t("cves_source_entries", { count: s.items_last_run })
 }
 
 export const SOURCE_LABELS: Record<CveSourceState["source"], string> = {

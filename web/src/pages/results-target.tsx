@@ -12,7 +12,9 @@ import { RelativeTime } from "@/components/relative-time"
 import { SkeletonCard } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
 import { ApiError } from "@/lib/api"
-import { formatAbsolute, formatClock, plural } from "@/lib/format"
+import { intlLocale, t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
+import { formatAbsolute, formatClock } from "@/lib/format"
 import {
   CHANNEL_LABEL,
   DOWN_RESULTS,
@@ -21,19 +23,20 @@ import {
   resultsApi,
   resultWord,
   ROLE_LABEL,
+  type Channel,
   type TargetCheck,
   type TargetDetail,
 } from "@/lib/results"
 import { defang, describeBounds, describeTarget, shortDelay } from "@/lib/results-sentences"
 import { cn } from "@/lib/utils"
 
-const back = (
+const back = () => (
   <Link
     to="/defend/results"
     className="inline-flex items-center gap-1.5 text-fg-muted transition-colors hover:text-fg"
   >
     <ArrowLeft aria-hidden className="size-3.5" />
-    Results
+    {t("results_title")}
   </Link>
 )
 
@@ -51,6 +54,18 @@ function steps(d: TargetDetail): Step[] {
     ...d.checks.map((c): Step => ({ kind: "check", at: c.checked_at, check: c })),
   ]
   return out.sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/** "email, web form, ThreatFox": where the report went, in the active language. */
+function channelList(channels: readonly Channel[]): string {
+  const names = channels.map((c) =>
+    c === "mail"
+      ? t("results_target_channel_email")
+      : c === "form"
+        ? t("results_target_channel_form")
+        : CHANNEL_LABEL[c],
+  )
+  return new Intl.ListFormat(intlLocale(), { style: "long", type: "unit" }).format(names)
 }
 
 function StepRow({ s, last }: { s: Step; last: boolean }) {
@@ -74,13 +89,20 @@ function StepRow({ s, last }: { s: Step; last: boolean }) {
       <div className="min-w-0 space-y-0.5 pt-1">
         {s.kind === "report" ? (
           <p className="text-sm text-fg">
-            Report sent:{" "}
-            <Link
-              to={`/defend/abuse/${s.id}`}
-              className="font-mono text-xs underline underline-offset-4"
-            >
-              {s.id.slice(0, 8)}
-            </Link>
+            {tNodes(
+              "results_target_report_sent",
+              {},
+              {
+                id: (
+                  <Link
+                    to={`/defend/abuse/${s.id}`}
+                    className="font-mono text-xs underline underline-offset-4"
+                  >
+                    {s.id.slice(0, 8)}
+                  </Link>
+                ),
+              },
+            )}
           </p>
         ) : (
           <>
@@ -101,7 +123,7 @@ function StepRow({ s, last }: { s: Step; last: boolean }) {
                     to={`/malware/samples/${s.check.sha256}`}
                     className="underline underline-offset-4"
                   >
-                    new sample
+                    {t("results_target_new_sample")}
                   </Link>
                 </>
               ) : null}
@@ -151,22 +173,22 @@ function fold(list: readonly Step[]): Row[] {
   return rows
 }
 
-const dayFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" })
+const dayFmt = () => new Intl.DateTimeFormat(intlLocale(), { month: "short", day: "numeric" })
 
 function Body({ d }: { d: TargetDetail }) {
-  const t = d.target
+  const tg = d.target
   const { canWrite } = useAuth()
   const qc = useQueryClient()
   const [error, setError] = useState<string | null>(null)
-  const done = () => void qc.invalidateQueries({ queryKey: resultKeys.target(t.id) })
+  const done = () => void qc.invalidateQueries({ queryKey: resultKeys.target(tg.id) })
   const fail = (e: unknown) =>
     setError(
       e instanceof ApiError && e.status === 429
-        ? "It was checked less than an hour ago. Try again later."
-        : "That did not work. Try again.",
+        ? t("results_target_recheck_limit")
+        : t("results_target_failed"),
     )
   const recheck = useMutation({
-    mutationFn: () => resultsApi.recheck(t.id),
+    mutationFn: () => resultsApi.recheck(tg.id),
     onSuccess: () => {
       setError(null)
       done()
@@ -174,7 +196,7 @@ function Body({ d }: { d: TargetDetail }) {
     onError: fail,
   })
   const stop = useMutation({
-    mutationFn: () => resultsApi.stop(t.id),
+    mutationFn: () => resultsApi.stop(tg.id),
     onSuccess: () => {
       setError(null)
       done()
@@ -184,35 +206,44 @@ function Body({ d }: { d: TargetDetail }) {
   const bounds = describeBounds(d.ttd, formatClock)
   const list = steps(d)
   const rows = fold(list)
-  const since = d.checks.filter((c) => c.checked_at >= t.reported_at).length
-  const isUrlTarget = t.role === "payload_url" || t.role === "payload_host"
+  const since = d.checks.filter((c) => c.checked_at >= tg.reported_at).length
+  const isUrlTarget = tg.role === "payload_url" || tg.role === "payload_host"
   return (
     <div className="space-y-4 normal-nums">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-fg-muted">
-        <TargetStateBadge state={t.state} role={t.role} />
+        <TargetStateBadge state={tg.state} role={tg.role} />
         {/* Role and provider name are in the header line; this row adds what it does not say. */}
-        {t.asn ? (
-          <Link to={`/attackers?asn=${t.asn}`} className="font-mono hover:text-fg">
-            AS{t.asn}
+        {tg.asn ? (
+          <Link to={`/attackers?asn=${tg.asn}`} className="font-mono hover:text-fg">
+            AS{tg.asn}
           </Link>
         ) : null}
         <span>
-          Reported <RelativeTime iso={t.reported_at} />
-          {t.channels.length > 0
-            ? ` via ${t.channels.map((c) => (c === "mail" ? "email" : c === "form" ? "web form" : CHANNEL_LABEL[c])).join(", ")}`
-            : ""}
+          {tg.channels.length > 0
+            ? tNodes(
+                "results_target_reported_via",
+                { channels: channelList(tg.channels) },
+                { time: <RelativeTime iso={tg.reported_at} /> },
+              )
+            : tNodes(
+                "results_target_reported",
+                {},
+                { time: <RelativeTime iso={tg.reported_at} /> },
+              )}
         </span>
-        {!t.tracking ? <span>Tracking stopped</span> : null}
+        {!tg.tracking ? <span>{t("results_target_tracking_stopped")}</span> : null}
       </div>
 
       <FindingCard
-        eyebrow="What we see"
+        eyebrow={t("results_target_what_we_see")}
         finding={describeTarget(d)}
         detail={
           bounds
-            ? `${bounds[0]?.toUpperCase()}${bounds.slice(1)}.`
+            ? t("results_target_bounds_detail", {
+                bounds: `${bounds.charAt(0).toLocaleUpperCase(intlLocale())}${bounds.slice(1)}`,
+              })
             : isUrlTarget
-              ? "We only re-check this exact address, through the VPN, and never run what it serves."
+              ? t("results_target_recheck_note")
               : undefined
         }
         action={
@@ -221,18 +252,18 @@ function Body({ d }: { d: TargetDetail }) {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={recheck.isPending || !t.tracking || t.role === "c2"}
+                disabled={recheck.isPending || !tg.tracking || tg.role === "c2"}
                 onClick={() => recheck.mutate()}
               >
-                Check now
+                {t("results_target_check_now")}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={stop.isPending || !t.tracking}
+                disabled={stop.isPending || !tg.tracking}
                 onClick={() => stop.mutate()}
               >
-                Stop tracking
+                {t("results_target_stop")}
               </Button>
             </div>
           ) : undefined
@@ -241,19 +272,22 @@ function Body({ d }: { d: TargetDetail }) {
         <p role="alert" className="text-sm text-fg empty:hidden">
           {error}
         </p>
-        {t.first_down_at ? (
+        {tg.first_down_at ? (
           <p className="text-sm text-fg-muted">
-            First confirmed down: {formatAbsolute(t.first_down_at)}
-            {t.ttd_s != null ? ` (${shortDelay(t.ttd_s)} after the report)` : ""}.
+            {t("results_target_first_down", {
+              date: formatAbsolute(tg.first_down_at),
+              hasDelay: tg.ttd_s != null ? "yes" : "no",
+              delay: tg.ttd_s != null ? shortDelay(tg.ttd_s) : "",
+            })}
           </p>
         ) : null}
       </FindingCard>
 
       <FindingCard
-        eyebrow="Timeline"
-        finding={`${plural(since, "check")} since the report, newest first.`}
+        eyebrow={t("results_target_timeline")}
+        finding={t("results_target_timeline_finding", { count: since })}
       >
-        <ol className="space-y-4" aria-label="Timeline of this target">
+        <ol className="space-y-4" aria-label={t("results_target_timeline_label")}>
           {rows.map((r, i) => (
             <Fragment key={`${r.step.kind}-${r.step.at}-${i}`}>
               <StepRow s={r.step} last={i === rows.length - 1 && r.folded.length === 0} />
@@ -261,10 +295,13 @@ function Body({ d }: { d: TargetDetail }) {
                 <li className="ml-11">
                   <details className="text-sm text-fg-muted">
                     <summary className="cursor-pointer rounded-sm hover:text-fg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                      Show {r.folded.length} more identical checks ·{" "}
-                      {dayFmt.format(new Date(r.folded[r.folded.length - 1]?.at ?? r.step.at))}
-                      {" to "}
-                      {dayFmt.format(new Date(r.folded[0]?.at ?? r.step.at))}
+                      {t("results_target_folded", {
+                        count: r.folded.length,
+                        from: dayFmt().format(
+                          new Date(r.folded[r.folded.length - 1]?.at ?? r.step.at),
+                        ),
+                        to: dayFmt().format(new Date(r.folded[0]?.at ?? r.step.at)),
+                      })}
                     </summary>
                     <ol className="mt-3 space-y-4">
                       {r.folded.map((f, k) => (
@@ -281,8 +318,8 @@ function Body({ d }: { d: TargetDetail }) {
 
       {d.children.length > 0 ? (
         <FindingCard
-          eyebrow="URLs on this host"
-          finding={`${plural(d.children.length, "URL")} served files from this host.`}
+          eyebrow={t("results_target_children")}
+          finding={t("results_target_children_finding", { count: d.children.length })}
           bodyClassName="px-0 sm:px-0 pb-1 sm:pb-1"
         >
           <ul className="divide-y border-t">
@@ -319,14 +356,14 @@ export function ResultsTargetPage() {
     const gone = !(q.error instanceof ApiError) || q.error.status === 404
     return (
       <>
-        <PageHeader title="Target" eyebrow={back} />
+        <PageHeader title={t("results_target_title")} eyebrow={back()} />
         <EmptyState
           icon={FileSearch}
-          title={gone ? "This target does not exist" : "Could not load this target"}
-          description={gone ? "The link may be wrong, or tracking was cleaned up." : undefined}
+          title={gone ? t("results_target_gone") : t("results_target_load_error")}
+          description={gone ? t("results_target_gone_description") : undefined}
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/defend/results">Back to the results</Link>
+              <Link to="/defend/results">{t("results_target_back")}</Link>
             </Button>
           }
         />
@@ -336,7 +373,7 @@ export function ResultsTargetPage() {
   if (!q.data) {
     return (
       <>
-        <PageHeader title="Target" eyebrow={back} />
+        <PageHeader title={t("results_target_title")} eyebrow={back()} />
         <div className="space-y-4" aria-busy>
           <SkeletonCard />
           <SkeletonCard />
@@ -348,7 +385,7 @@ export function ResultsTargetPage() {
     <>
       <PageHeader
         help="abuse-target"
-        eyebrow={back}
+        eyebrow={back()}
         title={<span className="font-mono text-lg break-all">{defang(q.data.target.value)}</span>}
         description={
           <span className="normal-nums">
