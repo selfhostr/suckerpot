@@ -611,12 +611,9 @@ export function blockedReason(status: AbuseStatus | undefined): string | null {
   if (!status) return null
   if (!status.enabled)
     return t("abuse_blocked_worker_off", { setting: "ABUSE_REPORTS_ENABLED=true", file: ".env" })
-  if (!status.self_address_known)
-    return t("abuse_blocked_address_unknown")
-  if (!status.self_address_fresh)
-    return t("abuse_blocked_address_stale")
-  if (status.gate === "closed")
-    return t("abuse_blocked_gate_closed")
+  if (!status.self_address_known) return t("abuse_blocked_address_unknown")
+  if (!status.self_address_fresh) return t("abuse_blocked_address_stale")
+  if (status.gate === "closed") return t("abuse_blocked_gate_closed")
   return null
 }
 

@@ -101,15 +101,9 @@ function Method({ method, running }: { method: ReportEffectMethod; running: bool
         {t("results_effect_method_title")}
       </summary>
       <div className="mt-2 space-y-2 pl-4 text-xs text-fg-muted">
-        <p>
-          {t("results_effect_method_pairing")}
-        </p>
-        <p>
-          {t("results_effect_method_caveat")}
-        </p>
-        {!running ? (
-          <p>{t("results_effect_method_off")}</p>
-        ) : null}
+        <p>{t("results_effect_method_pairing")}</p>
+        <p>{t("results_effect_method_caveat")}</p>
+        {!running ? <p>{t("results_effect_method_off")}</p> : null}
         <ul className="space-y-1">
           <li>
             {t("results_effect_method_pairs_made", {

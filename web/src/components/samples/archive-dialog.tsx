@@ -1,6 +1,7 @@
 import { Download } from "lucide-react"
 import { useState } from "react"
-import { t, tNodes } from "@/i18n"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { AdminActionDialog } from "@/components/users/admin-action-dialog"
 import { Button } from "@/components/ui/button"
 import { saveBlob, samplesApi } from "@/lib/samples"
@@ -21,13 +22,11 @@ export function ArchiveButton({ sha256 }: { sha256: string }) {
         open={open}
         onOpenChange={setOpen}
         title={t("samples_archive_title")}
-        description={
-          tNodes(
-            "samples_archive_description",
-            {},
-            { password: <code className="font-mono text-fg">infected</code> },
-          )
-        }
+        description={tNodes(
+          "samples_archive_description",
+          {},
+          { password: <code className="font-mono text-fg">infected</code> },
+        )}
         hint={t("samples_download_hint")}
         confirmLabel={t("common_download")}
         pendingLabel={t("samples_preparing")}

@@ -22,7 +22,10 @@ export function TechniqueChips({ stages, campaignId, className }: TechniqueChips
     .filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)))
   if (techniques.length === 0) return null
   return (
-    <ul className={cn("flex flex-wrap gap-1.5", className)} aria-label={tr("campaign_techniques_label")}>
+    <ul
+      className={cn("flex flex-wrap gap-1.5", className)}
+      aria-label={tr("campaign_techniques_label")}
+    >
       {techniques.map((t) => (
         <li key={t.id} className="inline-flex max-w-full min-w-0 items-center">
           <Link

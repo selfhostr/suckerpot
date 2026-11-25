@@ -147,9 +147,7 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
             ))}
           </ul>
         ) : (
-          <p className="text-fg-muted">
-            {t("abuse_form_kit_no_link")}
-          </p>
+          <p className="text-fg-muted">{t("abuse_form_kit_no_link")}</p>
         )}
         {kit.links_differ ? (
           <p role="alert" className="text-fg">
@@ -163,9 +161,7 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
         <div className="space-y-1">
           <CopyField label={labelOf(kit, "name", t("abuse_form_field_name"))} value={kit.name} />
           {kit.name ? null : (
-            <p className="text-xs text-fg-muted">
-              {t("abuse_form_kit_name_empty")}
-            </p>
+            <p className="text-xs text-fg-muted">{t("abuse_form_kit_name_empty")}</p>
           )}
         </div>
         <CopyField

@@ -59,9 +59,7 @@ function ProfileForm({ status, onClose }: { status: NetworkStatus; onClose: () =
     >
       <DialogHeader className="text-left">
         <DialogTitle>{t("network_profile_title")}</DialogTitle>
-        <DialogDescription>
-          {t("network_profile_description")}
-        </DialogDescription>
+        <DialogDescription>{t("network_profile_description")}</DialogDescription>
       </DialogHeader>
       <ProfileFields value={profile} onChange={setProfile} pseudonymError={nameError} />
       <FormError id={errId} message={formError} />

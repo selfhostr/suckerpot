@@ -257,9 +257,7 @@ export function InfrastructurePage() {
               </div>
               <div className="md:hidden">
                 <FlowList graph={graph.data} onOpenIndicator={open} />
-                <p className="mt-3 text-xs text-fg-muted">
-                  {t("infra_diagram_narrow")}
-                </p>
+                <p className="mt-3 text-xs text-fg-muted">{t("infra_diagram_narrow")}</p>
               </div>
             </>
           )}
@@ -356,9 +354,7 @@ export function InfrastructurePage() {
             icon={Network}
             title={filtered ? t("infra_empty_filtered_title") : t("infra_empty_title")}
             description={
-              filtered
-                ? t("infra_empty_filtered_description")
-                : t("infra_empty_description")
+              filtered ? t("infra_empty_filtered_description") : t("infra_empty_description")
             }
           />
         ) : (
@@ -395,9 +391,7 @@ export function InfrastructurePage() {
           {t("infra_end_of_list", { count: rows.length })}
         </p>
       ) : null}
-      <p className="mt-4 text-xs text-fg-subtle">
-        {t("infra_passive_note")}
-      </p>
+      <p className="mt-4 text-xs text-fg-subtle">{t("infra_passive_note")}</p>
 
       <IndicatorDrawer id={openNumber} onClose={() => setOpenId(null)} onSelect={open} />
     </>

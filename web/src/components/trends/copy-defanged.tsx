@@ -38,7 +38,8 @@ export function CopyDefanged({ url, className }: { url: string; className?: stri
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">{copied ? t("common_copied") : t("trends_copy_defanged")}
+      <TooltipContent side="top">
+        {copied ? t("common_copied") : t("trends_copy_defanged")}
       </TooltipContent>
     </Tooltip>
   )

@@ -62,9 +62,7 @@ export function ExposurePage() {
 
       <div className="mb-6 flex items-start gap-2.5 rounded-lg border border-dashed px-4 py-3 text-sm text-fg-muted">
         <ShieldQuestion aria-hidden className="mt-0.5 size-4 shrink-0" />
-        <p>
-          {t("exposure_privacy")}
-        </p>
+        <p>{t("exposure_privacy")}</p>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -104,7 +102,10 @@ export function ExposurePage() {
               }
             />
           ) : (
-            <ul aria-label={t("exposure_services")} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <ul
+              aria-label={t("exposure_services")}
+              className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+            >
               {r.services.map((s) => (
                 <li key={s.item.id} className="flex *:w-full">
                   <ExposureCard

@@ -49,7 +49,7 @@ export function ExportPanel({
         ? counts.listed
         : counts.total
     : null
-  
+
   const formatOptions: { value: Format; label: string }[] = [
     { value: "txt", label: t("export_format_txt") },
     ...(kind === "ip" ? [{ value: "alias" as const, label: t("export_format_alias") }] : []),
@@ -118,9 +118,7 @@ export function ExportPanel({
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-4">
             <div className="min-w-0">
               <h4 className="type-subtitle text-fg">{t("firewall_sheet_title")}</h4>
-              <p className="text-xs text-fg-muted">
-                {t("export_keep_hint")}
-              </p>
+              <p className="text-xs text-fg-muted">{t("export_keep_hint")}</p>
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Button

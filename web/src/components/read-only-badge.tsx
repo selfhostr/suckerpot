@@ -36,9 +36,7 @@ export function ReadOnlyBadge({
           )}
         </span>
       </TooltipTrigger>
-      <TooltipContent side="top">
-        {t("ui_read_only_tip")}
-      </TooltipContent>
+      <TooltipContent side="top">{t("ui_read_only_tip")}</TooltipContent>
     </Tooltip>
   )
 }

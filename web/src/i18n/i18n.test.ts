@@ -38,7 +38,7 @@ function argumentsOf(message: string): string[] {
       if (n.children) walk(n.children)
     }
   }
-  walk(new IntlMessageFormat(message, "en").getAst() as unknown as AstNode[])
+  walk(new IntlMessageFormat(message, "en").getAst())
   return [...names].sort()
 }
 
@@ -47,7 +47,12 @@ function usedKeys(): Map<string, string> {
   const found = new Map<string, string>()
   const re = /(?<![\w.])(?:t|tk|tNodes)\(\s*["`]([A-Za-z0-9_]+)["`]/g
   for (const [path, text] of Object.entries(sources)) {
-    if (path.includes(".test.") || path.startsWith("../i18n/") || path.startsWith("../mocks/")) {
+    if (
+      path.includes(".test.") ||
+      path.startsWith("./") ||
+      path.startsWith("../i18n/") ||
+      path.startsWith("../mocks/")
+    ) {
       continue
     }
     for (const m of text.matchAll(re)) if (m[1]) found.set(m[1], path)
@@ -57,11 +62,15 @@ function usedKeys(): Map<string, string> {
 
 describe("string files", () => {
   it("has one file per locale and no other", () => {
-    expect(Object.keys(bundles).sort()).toEqual(LOCALES.map((l) => `./locales/${l.code}.json`).sort())
+    expect(Object.keys(bundles).sort()).toEqual(
+      LOCALES.map((l) => `./locales/${l.code}.json`).sort(),
+    )
   })
 
   it("uses only keys that exist in en.json", () => {
-    const missing = [...usedKeys()].filter(([key]) => !(key in en)).map(([key, file]) => `${key} (${file})`)
+    const missing = [...usedKeys()]
+      .filter(([key]) => !(key in en))
+      .map(([key, file]) => `${key} (${file})`)
     expect(missing).toEqual([])
   })
 
@@ -72,20 +81,24 @@ describe("string files", () => {
     },
   )
 
-  it.each(LOCALES.map((l) => l.code))("%s messages parse and keep the placeholders of en", (code) => {
-    const problems: string[] = []
-    for (const [key, message] of Object.entries(locale(code))) {
-      const source = en[key]
-      if (source === undefined) continue
-      try {
-        if (argumentsOf(message).join() !== argumentsOf(source).join()) problems.push(`${key}: placeholders`)
-      } catch {
-        problems.push(`${key}: does not parse`)
+  it.each(LOCALES.map((l) => l.code))(
+    "%s messages parse and keep the placeholders of en",
+    (code) => {
+      const problems: string[] = []
+      for (const [key, message] of Object.entries(locale(code))) {
+        const source = en[key]
+        if (source === undefined) continue
+        try {
+          if (argumentsOf(message).join() !== argumentsOf(source).join())
+            problems.push(`${key}: placeholders`)
+        } catch {
+          problems.push(`${key}: does not parse`)
+        }
+        if (message.includes("—")) problems.push(`${key}: em dash`)
       }
-      if (message.includes("—")) problems.push(`${key}: em dash`)
-    }
-    expect(problems).toEqual([])
-  })
+      expect(problems).toEqual([])
+    },
+  )
 })
 
 describe("locale choice", () => {
@@ -112,7 +125,7 @@ describe("translate", () => {
     await setLocale("en")
   })
 
-  it("answers in English by default and falls back to it", async () => {
+  it("answers in English by default and falls back to it", () => {
     expect(currentLocale()).toBe("en")
     expect(t("common_cancel")).toBe("Cancel")
     expect(t("format_duration_m_s", { m: 1, s: 40 })).toBe("1 min 40 s")

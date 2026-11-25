@@ -18,10 +18,12 @@ function cached<T>(kind: string, build: (locale: string) => T): T {
   return f
 }
 
-const integer = () =>
-  cached("int", (l) => new Intl.NumberFormat(l, { maximumFractionDigits: 0 }))
+const integer = () => cached("int", (l) => new Intl.NumberFormat(l, { maximumFractionDigits: 0 }))
 const compact = () =>
-  cached("compact", (l) => new Intl.NumberFormat(l, { notation: "compact", maximumFractionDigits: 1 }))
+  cached(
+    "compact",
+    (l) => new Intl.NumberFormat(l, { notation: "compact", maximumFractionDigits: 1 }),
+  )
 const percent = () =>
   cached("pct", (l) => new Intl.NumberFormat(l, { style: "percent", maximumFractionDigits: 0 }))
 

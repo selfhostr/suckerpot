@@ -12,10 +12,7 @@ test("sidebar entries, page switch and breadcrumb", async ({ page }, info) => {
   // Blocklists and Detections are one entry, Block: a switch at the top of the page.
   const pages = page.getByRole("navigation", { name: "Block pages" })
   await expect(pages.getByRole("link")).toHaveText(["Lists", "Rules"])
-  await expect(pages.getByRole("link", { name: "Rules" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  )
+  await expect(pages.getByRole("link", { name: "Rules" })).toHaveAttribute("aria-current", "page")
   // It never scrolls sideways.
   const overflow = await pages.getByRole("list").evaluate((el) => el.scrollWidth - el.clientWidth)
   expect(overflow).toBeLessThanOrEqual(0)
@@ -44,10 +41,7 @@ test("sidebar entries, page switch and breadcrumb", async ({ page }, info) => {
   for (const gone of ["Live", "Overview", "Alerts"])
     await expect(nav.getByRole("link", { name: gone, exact: true })).toHaveCount(0)
   // The entry stays current on all of its pages.
-  await expect(nav.getByRole("link", { name: "Block" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  )
+  await expect(nav.getByRole("link", { name: "Block" })).toHaveAttribute("aria-current", "page")
   await expect(
     page
       .getByRole("link", { name: /Documentation/ })

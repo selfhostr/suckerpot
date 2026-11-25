@@ -440,11 +440,7 @@ export function Sidebar({
       )}
 
       {variant === "drawer" ? <ScannerToggle className="border-t px-5 pt-3 pb-2" /> : null}
-      <Foot
-        rail={rail}
-        settingsCurrent={settingsCurrent}
-        onNavigate={onNavigate}
-      />
+      <Foot rail={rail} settingsCurrent={settingsCurrent} onNavigate={onNavigate} />
     </div>
   )
 }

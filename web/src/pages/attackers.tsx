@@ -16,13 +16,7 @@ import { Button } from "@/components/ui/button"
 import { t } from "@/i18n"
 import { tNodes } from "@/i18n/rich"
 import { useUrlParam } from "@/hooks/use-url-param"
-import {
-  api,
-  ASN_LIMIT,
-  queryKeys,
-  type AsnItem,
-  type AttackerFilters,
-} from "@/lib/api"
+import { api, ASN_LIMIT, queryKeys, type AsnItem, type AttackerFilters } from "@/lib/api"
 import { countryName, formatNumber } from "@/lib/format"
 import {
   ATTACKER_PARAMS,

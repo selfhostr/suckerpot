@@ -11,9 +11,7 @@ export function WhyJoinCard({ status }: { status: FeedStatus }) {
     return (
       <FindingCard
         eyebrow={t("nfeed_why_part")}
-        finding={
-          helped > 0 ? t("nfeed_why_helped", { count: helped }) : t("nfeed_why_member_none")
-        }
+        finding={helped > 0 ? t("nfeed_why_helped", { count: helped }) : t("nfeed_why_member_none")}
         detail={t("nfeed_why_member_detail")}
         action={
           <Button asChild variant="outline" size="sm">

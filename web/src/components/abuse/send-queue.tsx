@@ -36,13 +36,9 @@ function HandlerHelp() {
         <p>{t("send_queue_handler_free")}</p>
         <p>{t("send_queue_handler_link")}</p>
         <ol className="list-decimal space-y-1 pl-5">
-          <li>
-            {t("send_queue_handler_browser")}
-          </li>
+          <li>{t("send_queue_handler_browser")}</li>
           <li>{t("send_queue_handler_os")}</li>
-          <li>
-            {t("send_queue_handler_copy")}
-          </li>
+          <li>{t("send_queue_handler_copy")}</li>
         </ol>
       </div>
     </details>

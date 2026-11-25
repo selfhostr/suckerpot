@@ -60,9 +60,7 @@ const WARNINGS = [
 export function WelcomeStep() {
   return (
     <div className="space-y-4">
-      <p className="max-w-2xl text-sm text-fg-muted">
-        {t("setup_welcome_intro")}
-      </p>
+      <p className="max-w-2xl text-sm text-fg-muted">{t("setup_welcome_intro")}</p>
       <ol className="grid gap-3 sm:grid-cols-3">
         {WARNINGS.map((w, i) => (
           <li key={w.titleKey} className="rounded-lg border bg-surface p-4">
@@ -100,7 +98,10 @@ function SensorPicker({ items }: { items: readonly PortItem[] }) {
   const byId = new Map(items.map((i) => [i.sensor, i]))
   return (
     <div className="space-y-5">
-      <ul aria-label={t("setup_sensors_title")} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ul
+        aria-label={t("setup_sensors_title")}
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      >
         {SENSORS.map((s) => {
           const meta = SENSOR_META[s]
           const item = byId.get(s)
@@ -250,9 +251,7 @@ export function VpnStep() {
             )}
           </p>
         ) : v && open ? (
-          <p className="text-sm text-fg-muted">
-            {t("setup_vpn_nothing")}
-          </p>
+          <p className="text-sm text-fg-muted">{t("setup_vpn_nothing")}</p>
         ) : v ? (
           <ol className="list-decimal space-y-1 pl-4 text-sm text-fg-muted marker:text-fg-subtle">
             <li>
@@ -283,9 +282,7 @@ export function VpnStep() {
 export function SelfStep() {
   return (
     <div className="space-y-4">
-      <p className="max-w-2xl text-sm text-fg-muted">
-        {t("setup_self_intro")}
-      </p>
+      <p className="max-w-2xl text-sm text-fg-muted">{t("setup_self_intro")}</p>
       <NeverInReport />
     </div>
   )

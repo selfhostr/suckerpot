@@ -26,9 +26,7 @@ export function ChangePasswordDialog({
       <DialogContent className="bg-popover">
         <DialogHeader className="text-left">
           <DialogTitle>{t("pwd_change_title")}</DialogTitle>
-          <DialogDescription>
-            {t("pwd_change_description")}
-          </DialogDescription>
+          <DialogDescription>{t("pwd_change_description")}</DialogDescription>
         </DialogHeader>
         <ChangePasswordForm
           username={username}

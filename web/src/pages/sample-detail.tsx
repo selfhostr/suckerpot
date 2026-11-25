@@ -22,7 +22,8 @@ import { useCopy } from "@/hooks/use-copy"
 import { useExpandable } from "@/hooks/use-expandable"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { t, tNodes } from "@/i18n"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { formatBytes, formatNumber } from "@/lib/format"
 import {
   describeChain,
@@ -154,11 +155,7 @@ function Origin({ d }: { d: SampleDetail }) {
         </div>
       ) : null}
       {d.recent_sessions.length > 0 ? (
-        <div
-          role="list"
-          aria-label={t("sample_origin_latest_label")}
-          className="divide-y border-t"
-        >
+        <div role="list" aria-label={t("sample_origin_latest_label")} className="divide-y border-t">
           {d.recent_sessions.map((s) => (
             <div key={s.session_id} role="listitem">
               <SessionRow session={s} />
@@ -301,10 +298,7 @@ export function SampleDetailPage() {
           </a>
         </div>
 
-        <FindingCard
-          eyebrow={t("sample_hashes_eyebrow")}
-          finding={t("sample_hashes_finding")}
-        >
+        <FindingCard eyebrow={t("sample_hashes_eyebrow")} finding={t("sample_hashes_finding")}>
           <dl className="divide-y">
             <HashLine label="SHA-256" value={item.sha256} />
             <HashLine label="SHA-1" value={d.sha1} />
@@ -339,10 +333,7 @@ export function SampleDetailPage() {
             <ul aria-label={t("sample_rules_label")} className="space-y-2">
               {a.yara.map((h) => (
                 <li key={`${h.namespace}/${h.rule}`} className="flex flex-wrap items-center gap-2">
-                  <TagBadge
-                    tag={h.rule}
-                    href={`/malware?yara=${encodeURIComponent(h.rule)}`}
-                  />
+                  <TagBadge tag={h.rule} href={`/malware?yara=${encodeURIComponent(h.rule)}`} />
                   {h.meta.description ? (
                     <span className="text-xs text-fg-muted">{h.meta.description}</span>
                   ) : null}
@@ -373,7 +364,9 @@ export function SampleDetailPage() {
                     >
                       {linkLabel(l)}
                     </Link>
-                    <span className="text-fg-subtle">{t("sample_link_confidence", { confidence: l.confidence })}</span>
+                    <span className="text-fg-subtle">
+                      {t("sample_link_confidence", { confidence: l.confidence })}
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -1,6 +1,12 @@
 import { useId } from "react"
 import { FindingCard } from "@/components/finding-card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { LOCALES, currentLocale, isLocaleCode, setLocale, t } from "@/i18n"
 
 /** Settings, General tab: the language of the dashboard. Kept in this browser, like the theme. */

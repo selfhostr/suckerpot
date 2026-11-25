@@ -41,8 +41,7 @@ export function validateKeyInput(
 ): Partial<Record<KeyField, string>> {
   const errors: Partial<Record<KeyField, string>> = {}
   if (!key) errors.key = t("providerkey_error_required")
-  else if (!/^[\x21-\x7e]+$/.test(key))
-    errors.key = t("providerkey_error_chars")
+  else if (!/^[\x21-\x7e]+$/.test(key)) errors.key = t("providerkey_error_chars")
   else if (key.length < MIN_KEY_LENGTH || key.length > MAX_KEY_LENGTH)
     errors.key = t("providerkey_error_length", { min: MIN_KEY_LENGTH, max: MAX_KEY_LENGTH })
   if (provider === "maxmind" && !/^[0-9]{1,16}$/.test(accountId))

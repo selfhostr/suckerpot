@@ -90,11 +90,7 @@ function IdentityCard({ r }: { r: ReportDetail }) {
     <FindingCard
       eyebrow={t("abuse_detail_identity")}
       finding={describeGuard(r.guard, r.redaction)}
-      detail={
-        ok
-          ? t("abuse_detail_identity_detail")
-          : undefined
-      }
+      detail={ok ? t("abuse_detail_identity_detail") : undefined}
       className={ok ? "normal-nums" : "border-sev-warning/40 normal-nums"}
     >
       <div className="flex items-start gap-2.5 text-sm">
@@ -514,10 +510,7 @@ function OptionsCard({ r, onSaved }: { r: ReportDetail; onSaved: (d: ReportDetai
   const { save, error } = useReportPatch(r, onSaved)
   const minute = r.options.time_precision === "minute"
   return (
-    <FindingCard
-      eyebrow={t("abuse_detail_options")}
-      finding={t("abuse_detail_options_finding")}
-    >
+    <FindingCard eyebrow={t("abuse_detail_options")} finding={t("abuse_detail_options_finding")}>
       <fieldset className="space-y-3" disabled={!editable}>
         <legend className="sr-only">{t("abuse_detail_options")}</legend>
         <div className="flex items-start gap-3">
@@ -754,9 +747,7 @@ function Actions({
           </span>
         </p>
       ) : null}
-      {r.demo ? (
-        <p className="text-sm text-fg-muted">{t("abuse_detail_demo_no_send")}</p>
-      ) : null}
+      {r.demo ? <p className="text-sm text-fg-muted">{t("abuse_detail_demo_no_send")}</p> : null}
       <p role="alert" className="text-sm text-fg empty:hidden">
         {error}
       </p>
@@ -867,11 +858,7 @@ export function AbuseDetailPage() {
             <ReadOnlyBadge />
             <ExportMenu
               scope={{ report: r.public_id }}
-              blockedReason={
-                r.guard.ok
-                  ? undefined
-                  : t("abuse_detail_export_blocked")
-              }
+              blockedReason={r.guard.ok ? undefined : t("abuse_detail_export_blocked")}
             />
           </>
         }
@@ -905,9 +892,7 @@ export function AbuseDetailPage() {
           <span className="font-medium text-fg">{kindLabel(r.kind)}</span>
           {r.part && r.part > 1 ? <span>{t("abuse_row_part", { part: r.part })}</span> : null}
           <span className="font-mono">{r.recipient.mailbox ?? t("abuse_page_no_mailbox")}</span>
-          {r.recipient.shared_mailbox ? (
-            <span>{t("abuse_detail_shared_mailbox")}</span>
-          ) : null}
+          {r.recipient.shared_mailbox ? <span>{t("abuse_detail_shared_mailbox")}</span> : null}
           {r.previously_reported ? (
             <span>
               {t("abuse_detail_previously", { date: formatAbsolute(r.previously_reported) })}
@@ -915,11 +900,7 @@ export function AbuseDetailPage() {
           ) : null}
         </div>
         <StatusStepper status={r.status} />
-        {canWrite ? null : (
-          <p className="text-sm text-fg-muted">
-            {t("abuse_detail_read_only")}
-          </p>
-        )}
+        {canWrite ? null : <p className="text-sm text-fg-muted">{t("abuse_detail_read_only")}</p>}
         <Actions r={r} onChanged={refresh} />
         {r.status === "sent" || r.status === "closed" ? <OutcomeCard r={r} /> : null}
         <IdentityCard r={r} />

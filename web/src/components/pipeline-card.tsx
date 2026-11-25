@@ -47,7 +47,11 @@ export function PipelineCard() {
           <div className="space-y-1">
             <dt className="text-xs text-fg-muted">{t("pipeline_last_ok")}</dt>
             <dd className="text-sm text-fg">
-              {p.last_ok_at ? <RelativeTime iso={p.last_ok_at} className="text-sm" /> : t("pipeline_not_known")}
+              {p.last_ok_at ? (
+                <RelativeTime iso={p.last_ok_at} className="text-sm" />
+              ) : (
+                t("pipeline_not_known")
+              )}
             </dd>
           </div>
           <div className="space-y-1">

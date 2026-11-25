@@ -52,9 +52,7 @@ export function StatusStepper({ status }: { status: ReportStatus }) {
       </ol>
       {off ? (
         <p className="text-sm text-fg-muted">
-          {status === "discarded"
-            ? t("abuse_stepper_discarded")
-            : t("abuse_stepper_replaced")}
+          {status === "discarded" ? t("abuse_stepper_discarded") : t("abuse_stepper_replaced")}
         </p>
       ) : null}
     </div>

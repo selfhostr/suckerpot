@@ -55,7 +55,9 @@ export const LiveEventRow = memo(function LiveEventRow({
       )}
     >
       <Icon aria-hidden className="size-3.5" strokeWidth={2} />
-      <span className="sr-only">{severe ? t("live_event_severe", { type: type.label }) : type.label}</span>
+      <span className="sr-only">
+        {severe ? t("live_event_severe", { type: type.label }) : type.label}
+      </span>
     </span>
   )
 

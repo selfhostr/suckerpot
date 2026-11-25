@@ -106,7 +106,10 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
     label: (
       <span>
         {r.name}
-        <span className="text-fg-muted"> · {t("report_campaign_sources", { count: r.sources })}</span>
+        <span className="text-fg-muted">
+          {" "}
+          · {t("report_campaign_sources", { count: r.sources })}
+        </span>
       </span>
     ),
     count: r.sessions,
@@ -125,7 +128,10 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <section aria-label={t("report_key_figures")} className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <section
+        aria-label={t("report_key_figures")}
+        className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
+      >
         <StatTile
           label={t("report_tile_sessions")}
           value={total}
@@ -172,10 +178,8 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Section
           eyebrow={t("report_services_eyebrow")}
-          finding={top(
-            sensors,
-            (f) =>
-              t("report_services_finding", { name: f.name, percent: Math.round(f.share * 100) }),
+          finding={top(sensors, (f) =>
+            t("report_services_finding", { name: f.name, percent: Math.round(f.share * 100) }),
           )}
           list={sensors}
           empty={t("report_services_empty")}
@@ -188,10 +192,7 @@ function ReportBody({ summary: s, createdAt }: { summary: ReportSummary; created
         />
         <Section
           eyebrow={t("report_tags_eyebrow")}
-          finding={top(
-            tags,
-            (f) => t("report_tags_finding", { name: f.name, count: f.count }),
-          )}
+          finding={top(tags, (f) => t("report_tags_finding", { name: f.name, count: f.count }))}
           list={tags}
           empty={t("report_tags_empty")}
         />

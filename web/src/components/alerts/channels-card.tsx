@@ -117,9 +117,7 @@ function ChannelRow({
           </span>
         </p>
         <p className="text-xs text-fg-muted">
-          {channel.mask_ips
-            ? t("channels_ips_hidden")
-            : t("channels_ips_shown")}
+          {channel.mask_ips ? t("channels_ips_hidden") : t("channels_ips_shown")}
         </p>
         <TestLine channel={channel} />
       </div>
@@ -188,9 +186,7 @@ function ChannelRow({
         <DialogContent className="bg-popover">
           <DialogHeader className="text-left">
             <DialogTitle>{t("channels_delete_title", { name: channel.name })}</DialogTitle>
-            <DialogDescription>
-              {t("channels_delete_description")}
-            </DialogDescription>
+            <DialogDescription>{t("channels_delete_description")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRemoving(false)}>
@@ -266,9 +262,7 @@ export function ChannelsCard() {
           <SkeletonText lines={3} className="py-1" />
         </div>
       ) : !list ? (
-        <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">
-          {t("channels_unavailable")}
-        </p>
+        <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">{t("channels_unavailable")}</p>
       ) : (
         <>
           {error ? (

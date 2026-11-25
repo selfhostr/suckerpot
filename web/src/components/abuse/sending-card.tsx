@@ -106,10 +106,8 @@ function SendingForm({
 
   function validate(): string | null {
     if (!f.host.trim()) return t("sending_invalid_host", { example: "smtp.example.net" })
-    if (!Number.isInteger(f.port) || f.port < 1 || f.port > 65535)
-      return t("imap_invalid_port")
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.from_address.trim()))
-      return t("sending_invalid_from")
+    if (!Number.isInteger(f.port) || f.port < 1 || f.port > 65535) return t("imap_invalid_port")
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.from_address.trim())) return t("sending_invalid_from")
     if (!initial.password_set && !f.password) return t("sending_invalid_password")
     if (f.mode === "auto") {
       if (f.auto_hold_minutes < HOLD_RANGE.min || f.auto_hold_minutes > HOLD_RANGE.max)
@@ -180,9 +178,7 @@ function SendingForm({
           >
             {t("sending_proton")}
           </Button>
-          <span className="text-xs text-fg-muted">
-            {t("sending_proton_hint")}
-          </span>
+          <span className="text-xs text-fg-muted">{t("sending_proton_hint")}</span>
         </div>
         {preset ? (
           <p role="note" className="flex items-start gap-2 text-sm text-fg-muted">
@@ -190,9 +186,7 @@ function SendingForm({
             {t("sending_proton_note")}
           </p>
         ) : null}
-        <p className="text-sm text-fg-muted">
-          {t("sending_free_proton")}
-        </p>
+        <p className="text-sm text-fg-muted">{t("sending_free_proton")}</p>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Field id={ids.host} label={t("imap_server")} hint={t("imap_server_hint")}>

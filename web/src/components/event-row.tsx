@@ -106,7 +106,9 @@ function viewEvent(e: SensorEvent): EventView {
         label: ok ? t("event_login_succeeded") : t("event_type_login_attempt"),
         summary: (
           <span className="inline-flex min-w-0 items-center gap-2">
-            <span className="shrink-0 text-fg-muted">{ok ? t("event_login_logged_in_as") : t("event_login_tried")}</span>
+            <span className="shrink-0 text-fg-muted">
+              {ok ? t("event_login_logged_in_as") : t("event_login_tried")}
+            </span>
             <Mono>{str(d.username) ?? "?"}</Mono>
             <span className="shrink-0 text-fg-subtle">/</span>
             <Mono>{str(d.password) ?? t("event_login_no_password")}</Mono>

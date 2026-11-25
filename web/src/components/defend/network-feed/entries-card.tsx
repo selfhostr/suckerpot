@@ -208,9 +208,7 @@ export function EntriesCard() {
             variant="bare"
             icon={SearchX}
             title={filtered ? t("blocklists_no_match") : t("nfeed_no_entries")}
-            description={
-              filtered ? t("nfeed_no_match_hint") : t("nfeed_no_entries_hint")
-            }
+            description={filtered ? t("nfeed_no_match_hint") : t("nfeed_no_entries_hint")}
           />
         ) : (
           <div

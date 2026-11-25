@@ -82,7 +82,7 @@ export function detectLocale(): LocaleCode {
   const langs =
     typeof navigator === "undefined"
       ? []
-      : navigator.languages?.length
+      : navigator.languages.length
         ? navigator.languages
         : [navigator.language]
   return pickFromNavigator(langs.filter(Boolean))

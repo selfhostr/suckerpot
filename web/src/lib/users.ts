@@ -120,8 +120,7 @@ export function usersFinding(list: UserList, now: number = Date.now()): string {
 const text = (value: unknown) => (typeof value === "string" ? value : "?")
 
 /** "admin" reads as "administrator" in a sentence, like the role badges. */
-const roleWord = (value: unknown) =>
-  value === "admin" ? t("users_role_admin_word") : text(value)
+const roleWord = (value: unknown) => (value === "admin" ? t("users_role_admin_word") : text(value))
 
 /** "abuseipdb" reads as "AbuseIPDB", as on the Settings page. */
 const providerName = (id: string) => (id in PROVIDER_NAMES ? PROVIDER_NAMES[id as ProviderId] : id)
@@ -301,8 +300,7 @@ export function validateNewUser(
   displayName: string,
 ): Partial<Record<NewUserField, string>> {
   const errors: Partial<Record<NewUserField, string>> = {}
-  if (!USERNAME_PATTERN.test(username))
-    errors.username = t("users_error_username")
+  if (!USERNAME_PATTERN.test(username)) errors.username = t("users_error_username")
   if (!displayName.trim()) errors.displayName = t("users_error_name_required")
   else if (displayName.trim().length > 64) errors.displayName = t("users_error_name_long")
   return errors

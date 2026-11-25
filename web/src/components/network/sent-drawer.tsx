@@ -83,17 +83,13 @@ export function SentDrawer({
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{t("network_sent_title")}</SheetTitle>
-          <SheetDescription>
-            {t("network_sent_description")}
-          </SheetDescription>
+          <SheetDescription>{t("network_sent_description")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-5 px-4 pb-6">
           {q.isPending ? (
             <SkeletonText lines={4} />
           ) : items.length === 0 ? (
-            <p className="text-sm text-fg-muted">
-              {t("network_sent_empty")}
-            </p>
+            <p className="text-sm text-fg-muted">{t("network_sent_empty")}</p>
           ) : (
             <ul aria-label={t("network_sent_list_label")} className="divide-y rounded-md border">
               {items.map((s) => (
@@ -117,9 +113,7 @@ export function SentDrawer({
                             : t("network_sent_status_skipped")}
                       </span>
                     </span>
-                    <span className="text-xs text-fg-muted">
-                      {summaryText(s)}
-                    </span>
+                    <span className="text-xs text-fg-muted">{summaryText(s)}</span>
                   </button>
                 </li>
               ))}

@@ -53,21 +53,17 @@ describe("WorldMap presets", () => {
 })
 
 describe("WorldMap regions", () => {
-  const NAMES = [
-    "World",
-    "Europe",
-    "North America",
-    "South America",
-    "Africa",
-    "Asia",
-    "Oceania",
-  ]
+  const NAMES = ["World", "Europe", "North America", "South America", "Africa", "Asia", "Oceania"]
 
   it("offers the world and six continents, one pressed at a time", async () => {
     const user = userEvent.setup()
     mount()
     const group = screen.getByRole("group", { name: "Region" })
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(NAMES)
+    expect(
+      within(group)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(NAMES)
     await user.click(screen.getByRole("button", { name: "Oceania" }))
     expect(localStorage.getItem(KEY)).toBe("oceania")
     expect(screen.getByRole("button", { name: "Oceania" })).toHaveAttribute("aria-pressed", "true")

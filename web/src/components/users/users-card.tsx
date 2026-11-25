@@ -312,7 +312,9 @@ function UserRow({
           )}
         >
           <span className="truncate">{user.display_name}</span>
-          {isYou ? <span className="text-xs font-normal text-fg-muted">{t("users_you")}</span> : null}
+          {isYou ? (
+            <span className="text-xs font-normal text-fg-muted">{t("users_you")}</span>
+          ) : null}
         </p>
         <p className="truncate font-mono text-xs text-fg-muted">{user.username}</p>
       </div>
@@ -328,15 +330,13 @@ function UserRow({
           )}
         </span>
         <span className="text-xs text-fg-muted lg:col-start-4 lg:row-start-1">
-          {user.last_login_at ? (
-            tNodes(
-              "users_last_signin",
-              {},
-              { time: <RelativeTime iso={user.last_login_at} className="text-xs" /> },
-            )
-          ) : (
-            t("users_never_signed_in")
-          )}
+          {user.last_login_at
+            ? tNodes(
+                "users_last_signin",
+                {},
+                { time: <RelativeTime iso={user.last_login_at} className="text-xs" /> },
+              )
+            : t("users_never_signed_in")}
           {user.created_at ? (
             <>
               {" "}
@@ -409,9 +409,7 @@ export function UsersCard() {
             <SkeletonText lines={4} className="py-1" />
           </div>
         ) : !list ? (
-          <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">
-            {t("users_unavailable")}
-          </p>
+          <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">{t("users_unavailable")}</p>
         ) : (
           <>
             <ul aria-label={t("settings_tab_users")} className="divide-y border-t">

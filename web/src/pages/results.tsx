@@ -143,9 +143,7 @@ export function ResultsPage() {
         title={t("results_title")}
         description={
           <span className="normal-nums">
-            {summary.isError
-              ? t("results_load_error")
-              : describeTakedownHeader(s, since)}
+            {summary.isError ? t("results_load_error") : describeTakedownHeader(s, since)}
           </span>
         }
         actions={
@@ -250,9 +248,7 @@ export function ResultsPage() {
                   label={t("results_tile_ttd")}
                   value={s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? s.urls.ttd_p50_s : 0}
                   format={(n) =>
-                    s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5
-                      ? shortDelay(n)
-                      : t("results_na")
+                    s.urls.ttd_p50_s != null && s.urls.ttd_n >= 5 ? shortDelay(n) : t("results_na")
                   }
                   hint={describeTtd(s.urls)}
                 />

@@ -64,11 +64,7 @@ export function AuditCard() {
   return (
     <FindingCard
       eyebrow={t("users_audit_title")}
-      finding={
-        q.isError
-          ? t("users_audit_unavailable")
-          : finding(entries, !!(actor || group))
-      }
+      finding={q.isError ? t("users_audit_unavailable") : finding(entries, !!(actor || group))}
       detail={t("users_audit_detail")}
       bodyClassName="px-0 sm:px-0 pt-3 pb-1 sm:pb-1"
     >

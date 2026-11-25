@@ -24,12 +24,7 @@ const LAST = TOUR_STEPS.length - 1
 function LastStepChecklist({ onNavigate }: { onNavigate: () => void }) {
   const { canWrite } = useAuth()
   const q = useSetupStatus()
-  if (!canWrite)
-    return (
-      <p className="text-sm text-fg-muted">
-        {t("tour_admin_only")}
-      </p>
-    )
+  if (!canWrite) return <p className="text-sm text-fg-muted">{t("tour_admin_only")}</p>
   return (
     <section aria-label={t("tour_setup_left")} className="space-y-2">
       <p className="text-sm font-medium text-fg">

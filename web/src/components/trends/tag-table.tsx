@@ -10,6 +10,7 @@ const GRID = "grid-cols-[minmax(0,1fr)_5rem_5rem] sm:grid-cols-[minmax(0,1fr)_9r
 const MAX_ROWS = 10
 
 /** "+120%", "-45%", "New" (nothing in the first half) or "No change". Never coloured. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function describeChange(first: number, second: number): string {
   if (first === 0 && second === 0) return t("trends_change_none")
   if (first === 0) return t("trends_change_new")
@@ -34,9 +35,7 @@ export function TagTable({ points, loading, className }: TagTableProps) {
   const pts = points ?? []
   const totals = tagTotals(pts)
   if (totals.length === 0)
-    return (
-      <p className="py-8 text-center text-sm text-fg-muted">{t("trends_tags_empty")}</p>
-    )
+    return <p className="py-8 text-center text-sm text-fg-muted">{t("trends_tags_empty")}</p>
   // "other" always last.
   const named = totals.filter(([name]) => name !== "other").slice(0, MAX_ROWS)
   const other = totals.find(([name]) => name === "other")
@@ -44,12 +43,7 @@ export function TagTable({ points, loading, className }: TagTableProps) {
   const highlight = named.find(([name]) => isSevereTag(name))?.[0] ?? null
   return (
     <div className={cn("-mx-1", className)}>
-      <div
-        className={cn(
-          "grid gap-x-4 border-b px-1 pb-2 type-column text-fg-subtle",
-          GRID,
-        )}
-      >
+      <div className={cn("grid gap-x-4 border-b px-1 pb-2 type-column text-fg-subtle", GRID)}>
         <span>{t("filters_tag_label")}</span>
         <span className="hidden sm:block">{t("trends_tags_col_per_day")}</span>
         <span className="text-right">{t("trends_tags_col_events")}</span>
@@ -73,7 +67,9 @@ export function TagTable({ points, loading, className }: TagTableProps) {
                   )}
                 />
                 <span className="truncate font-mono text-xs text-fg">{tag}</span>
-                {severe ? <span className="sr-only">{t("tag_level", { level: "severe" })}</span> : null}
+                {severe ? (
+                  <span className="sr-only">{t("tag_level", { level: "severe" })}</span>
+                ) : null}
               </span>
               <span className="hidden sm:block">
                 <Sparkline

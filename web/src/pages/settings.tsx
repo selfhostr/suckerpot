@@ -21,7 +21,13 @@ import { ChannelsCard } from "@/components/alerts/channels-card"
 import { TourButton } from "@/components/tour/tour-button"
 import { Button } from "@/components/ui/button"
 import { LanguageCard } from "@/components/language-card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { EgressCard } from "@/components/egress-card"
@@ -63,18 +69,24 @@ import { cn } from "@/lib/utils"
 
 /* --- Small pieces ------------------------------------------------------- */
 
-const SENSOR_STATE: Record<
-  SensorState,
-  { labelKey: string; icon: LucideIcon; className: string }
-> = {
-  active: { labelKey: tk("settings_sensor_active"), icon: CircleCheck, className: "text-status-ok" },
-  quiet: { labelKey: tk("settings_sensor_quiet"), icon: CircleDashed, className: "text-fg-muted" },
-  silent: {
-    labelKey: tk("settings_sensor_silent"),
-    icon: TriangleAlert,
-    className: "text-sev-warning",
-  },
-}
+const SENSOR_STATE: Record<SensorState, { labelKey: string; icon: LucideIcon; className: string }> =
+  {
+    active: {
+      labelKey: tk("settings_sensor_active"),
+      icon: CircleCheck,
+      className: "text-status-ok",
+    },
+    quiet: {
+      labelKey: tk("settings_sensor_quiet"),
+      icon: CircleDashed,
+      className: "text-fg-muted",
+    },
+    silent: {
+      labelKey: tk("settings_sensor_silent"),
+      icon: TriangleAlert,
+      className: "text-sev-warning",
+    },
+  }
 
 function StateLabel({
   icon: Icon,
@@ -150,20 +162,22 @@ function SensorsCard({ data, loading }: { data?: SystemSettings; loading: boolea
             return (
               <li
                 key={s.sensor}
-                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 min-[1280px]:odd:border-r min-[1760px]:odd:border-r-0 min-[1280px]:[&:nth-child(2)]:border-t-0 min-[1760px]:[&:nth-child(2)]:border-t"
+                className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0 min-[1280px]:odd:border-r min-[1760px]:odd:border-r-0 sm:grid-cols-[6rem_7rem_1fr_auto] sm:px-5 min-[1280px]:[&:nth-child(2)]:border-t-0 min-[1760px]:[&:nth-child(2)]:border-t"
               >
                 <SensorBadge sensor={s.sensor} className="justify-self-start" />
-                <StateLabel label={t(state.labelKey)} icon={state.icon} className={state.className} />
+                <StateLabel
+                  label={t(state.labelKey)}
+                  icon={state.icon}
+                  className={state.className}
+                />
                 <span className="col-span-3 row-start-2 text-xs text-fg-muted sm:col-span-1 sm:col-start-3 sm:row-start-1">
-                  {s.last_event_at ? (
-                    tNodes(
-                      "settings_sensor_last_event",
-                      {},
-                      { time: <RelativeTime iso={s.last_event_at} className="text-xs" /> },
-                    )
-                  ) : (
-                    t("settings_sensor_no_event")
-                  )}
+                  {s.last_event_at
+                    ? tNodes(
+                        "settings_sensor_last_event",
+                        {},
+                        { time: <RelativeTime iso={s.last_event_at} className="text-xs" /> },
+                      )
+                    : t("settings_sensor_no_event")}
                 </span>
                 <Link
                   to={`/attacks?sensor=${s.sensor}`}
@@ -304,7 +318,11 @@ function StorageCard({ data, loading }: { data?: SystemSettings; loading: boolea
                   {tNodes(
                     "settings_storage_of",
                     { max: formatBytes(max) },
-                    { size: <span className="text-sm font-medium text-fg">{formatBytes(size)}</span> },
+                    {
+                      size: (
+                        <span className="text-sm font-medium text-fg">{formatBytes(size)}</span>
+                      ),
+                    },
                   )}
                 </span>
               </div>
@@ -463,9 +481,7 @@ export function SettingsPage() {
       <PageHeader
         help={settingsHelpId(tab)}
         title={t("settings_title")}
-        description={
-          canWrite ? t("settings_description_admin") : t("settings_description_viewer")
-        }
+        description={canWrite ? t("settings_description_admin") : t("settings_description_viewer")}
         actions={<SettingsActions />}
       />
 
@@ -496,19 +512,15 @@ export function SettingsPage() {
           </p>
         ) : (
           <p>
-            {tNodes(
-              "settings_note_viewer",
-              {},
-              { env: <code className="font-mono">.env</code> },
-            )}
+            {tNodes("settings_note_viewer", {}, { env: <code className="font-mono">.env</code> })}
           </p>
         )}
       </div>
 
       {/*
-        * The sections: a list down the left from `lg`, a select on a phone and a tablet. Eleven
-        * tabs never fit one row, and a strip that scrolls sideways hides the ones at its end.
-        */}
+       * The sections: a list down the left from `lg`, a select on a phone and a tablet. Eleven
+       * tabs never fit one row, and a strip that scrolls sideways hides the ones at its end.
+       */}
       <Tabs
         value={tab}
         onValueChange={setTab}
@@ -546,112 +558,112 @@ export function SettingsPage() {
         </TabsList>
 
         <div className="min-w-0 flex-1">
-        {/* Wide screens: setup and sensors on the left, the system's health stacked on the right.
+          {/* Wide screens: setup and sensors on the left, the system's health stacked on the right.
             Each column is its own stack, so a short card never leaves a hole beside a tall one. */}
-        <TabsContent value="general" className="grid grid-cols-1 gap-4">
-          <SetupResumeCard />
-          <div className="grid grid-cols-1 gap-4 min-[1760px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] min-[1760px]:items-start">
-            <div className="grid grid-cols-1 gap-4">
-              <SetupChecklistCard />
-              <SensorsCard data={q.data} loading={q.isPending} />
-            </div>
-            <div className="grid grid-cols-1 gap-4 min-[1360px]:grid-cols-2 min-[1760px]:grid-cols-1">
-              <LanguageCard />
-              <UpdatesCard />
-              <PipelineCard />
-              <StorageCard data={q.data} loading={q.isPending} />
-              <RetentionCard data={q.data} loading={q.isPending} />
-              <div className="min-[1360px]:col-span-2 min-[1760px]:col-span-1">
-                <EgressCard />
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-        <TabsContent value="keys" className="grid grid-cols-1 gap-4">
-          <EnrichmentCard />
-        </TabsContent>
-        {canWrite ? (
-          <>
-            <TabsContent value="users" className="grid grid-cols-1 gap-4">
-              <UsersCard />
-            </TabsContent>
-            <TabsContent value="audit" className="grid grid-cols-1 gap-4">
-              <AuditCard />
-            </TabsContent>
-          </>
-        ) : null}
-        {canWrite ? (
-          <TabsContent value="ports" className="grid grid-cols-1 gap-4">
-            <PortsCard />
-          </TabsContent>
-        ) : null}
-        <TabsContent value="alert-rules">
-          <AlertsPanel />
-        </TabsContent>
-        <TabsContent value="alerts" className="grid grid-cols-1 gap-4">
-          <ChannelsCard />
-          <p className="text-sm text-fg-muted">
-            {tNodes(
-              "settings_alerts_note",
-              {},
-              {
-                link: (
-                  <Link to={ALERTS_SETTINGS} className="text-fg underline underline-offset-4">
-                    {t("settings_alerts_note_link")}
-                  </Link>
-                ),
-              },
-            )}
-          </p>
-        </TabsContent>
-        {canWrite ? (
-          <TabsContent value="feeds">
-            <FeedsTab />
-          </TabsContent>
-        ) : null}
-        {canWrite ? (
-          <TabsContent value="reporting" className="grid grid-cols-1 gap-4">
-            <ReportingNav />
-            {/* Wide screens: what a report says on the left, how it travels on the right. */}
-            <div className="grid grid-cols-1 gap-4 min-[1760px]:grid-cols-2 min-[1760px]:items-start">
+          <TabsContent value="general" className="grid grid-cols-1 gap-4">
+            <SetupResumeCard />
+            <div className="grid grid-cols-1 gap-4 min-[1760px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] min-[1760px]:items-start">
               <div className="grid grid-cols-1 gap-4">
-                <ReportingCard />
+                <SetupChecklistCard />
+                <SensorsCard data={q.data} loading={q.isPending} />
               </div>
-              <div className="grid grid-cols-1 gap-4">
-                <section id="reporting-sending" className="scroll-mt-16">
-                  <SendingCard />
-                </section>
-                <section id="reporting-digest" className="scroll-mt-16">
-                  <DigestCard />
-                </section>
-                <section id="reporting-replies" className="scroll-mt-16">
-                  <ImapCard />
-                </section>
+              <div className="grid grid-cols-1 gap-4 min-[1360px]:grid-cols-2 min-[1760px]:grid-cols-1">
+                <LanguageCard />
+                <UpdatesCard />
+                <PipelineCard />
+                <StorageCard data={q.data} loading={q.isPending} />
+                <RetentionCard data={q.data} loading={q.isPending} />
+                <div className="min-[1360px]:col-span-2 min-[1760px]:col-span-1">
+                  <EgressCard />
+                </div>
               </div>
             </div>
           </TabsContent>
-        ) : null}
-        {canWrite ? (
-          <TabsContent value="vpn">
-            <VpnTab />
+          <TabsContent value="keys" className="grid grid-cols-1 gap-4">
+            <EnrichmentCard />
           </TabsContent>
-        ) : null}
-        <TabsContent value="network" className="grid grid-cols-1 gap-4">
-          <NetworkTab />
-          <p className="text-sm text-fg-muted">
-            {tNodes(
-              "settings_network_note",
-              {},
-              {
-                link: (
-                  <Link to="/network" className="text-fg underline underline-offset-4">
-                    {t("settings_network_note_link")}
-                  </Link>
-                ),
-              },
-            )}
-          </p>
-        </TabsContent>
+          {canWrite ? (
+            <>
+              <TabsContent value="users" className="grid grid-cols-1 gap-4">
+                <UsersCard />
+              </TabsContent>
+              <TabsContent value="audit" className="grid grid-cols-1 gap-4">
+                <AuditCard />
+              </TabsContent>
+            </>
+          ) : null}
+          {canWrite ? (
+            <TabsContent value="ports" className="grid grid-cols-1 gap-4">
+              <PortsCard />
+            </TabsContent>
+          ) : null}
+          <TabsContent value="alert-rules">
+            <AlertsPanel />
+          </TabsContent>
+          <TabsContent value="alerts" className="grid grid-cols-1 gap-4">
+            <ChannelsCard />
+            <p className="text-sm text-fg-muted">
+              {tNodes(
+                "settings_alerts_note",
+                {},
+                {
+                  link: (
+                    <Link to={ALERTS_SETTINGS} className="text-fg underline underline-offset-4">
+                      {t("settings_alerts_note_link")}
+                    </Link>
+                  ),
+                },
+              )}
+            </p>
+          </TabsContent>
+          {canWrite ? (
+            <TabsContent value="feeds">
+              <FeedsTab />
+            </TabsContent>
+          ) : null}
+          {canWrite ? (
+            <TabsContent value="reporting" className="grid grid-cols-1 gap-4">
+              <ReportingNav />
+              {/* Wide screens: what a report says on the left, how it travels on the right. */}
+              <div className="grid grid-cols-1 gap-4 min-[1760px]:grid-cols-2 min-[1760px]:items-start">
+                <div className="grid grid-cols-1 gap-4">
+                  <ReportingCard />
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                  <section id="reporting-sending" className="scroll-mt-16">
+                    <SendingCard />
+                  </section>
+                  <section id="reporting-digest" className="scroll-mt-16">
+                    <DigestCard />
+                  </section>
+                  <section id="reporting-replies" className="scroll-mt-16">
+                    <ImapCard />
+                  </section>
+                </div>
+              </div>
+            </TabsContent>
+          ) : null}
+          {canWrite ? (
+            <TabsContent value="vpn">
+              <VpnTab />
+            </TabsContent>
+          ) : null}
+          <TabsContent value="network" className="grid grid-cols-1 gap-4">
+            <NetworkTab />
+            <p className="text-sm text-fg-muted">
+              {tNodes(
+                "settings_network_note",
+                {},
+                {
+                  link: (
+                    <Link to="/network" className="text-fg underline underline-offset-4">
+                      {t("settings_network_note_link")}
+                    </Link>
+                  ),
+                },
+              )}
+            </p>
+          </TabsContent>
         </div>
       </Tabs>
     </>

@@ -127,10 +127,10 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
           tabIndex={-1}
           className="space-y-2 border-b px-5 pt-5 pr-12 pb-4 outline-none"
         >
-          <SheetTitle className="text-fg">{item ? TYPE_LABELS[item.type] : t("infra_drawer_title")}</SheetTitle>
-          <SheetDescription className="sr-only">
-            {t("infra_drawer_description")}
-          </SheetDescription>
+          <SheetTitle className="text-fg">
+            {item ? TYPE_LABELS[item.type] : t("infra_drawer_title")}
+          </SheetTitle>
+          <SheetDescription className="sr-only">{t("infra_drawer_description")}</SheetDescription>
           {item ? (
             <div className="flex items-center gap-2">
               <p className="min-w-0 flex-1 font-mono text-xs break-all text-fg">
@@ -139,9 +139,7 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
               <CopyDefanged url={item.defanged} />
             </div>
           ) : null}
-          <p className="text-xs text-fg-muted">
-            {t("infra_drawer_defanged_note")}
-          </p>
+          <p className="text-xs text-fg-muted">{t("infra_drawer_defanged_note")}</p>
         </div>
 
         <div className="space-y-6 px-5 py-5">
@@ -203,24 +201,22 @@ export function IndicatorDrawer({ id, onClose, onSelect }: IndicatorDrawerProps)
                   <p className="flex items-start gap-2.5 rounded-md border bg-surface-hover/40 p-4 text-sm text-fg-muted">
                     <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
                     <span>
-                      {d.not_checked ? (
-                        t("infra_drawer_not_looked_up")
-                      ) : (
-                        tNodes(
-                          "infra_drawer_no_answer",
-                          {},
-                          {
-                            settings: (
-                              <Link
-                                to="/settings"
-                                className="text-fg underline underline-offset-4"
-                              >
-                                {t("infra_drawer_settings")}
-                              </Link>
-                            ),
-                          },
-                        )
-                      )}
+                      {d.not_checked
+                        ? t("infra_drawer_not_looked_up")
+                        : tNodes(
+                            "infra_drawer_no_answer",
+                            {},
+                            {
+                              settings: (
+                                <Link
+                                  to="/settings"
+                                  className="text-fg underline underline-offset-4"
+                                >
+                                  {t("infra_drawer_settings")}
+                                </Link>
+                              ),
+                            },
+                          )}
                     </span>
                   </p>
                 )}

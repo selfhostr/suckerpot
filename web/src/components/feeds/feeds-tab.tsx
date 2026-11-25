@@ -72,23 +72,19 @@ function TokenRow({ token }: { token: FeedToken }) {
           )}
         </span>
         <span className="block">
-          {token.expires_at ? (
-            token.state === "expired" ? (
-              tNodes(
-                "feeds_token_expired_at",
-                {},
-                { time: <RelativeTime iso={token.expires_at} className="text-xs" /> },
-              )
-            ) : (
-              tNodes(
-                "feeds_token_expires_at",
-                {},
-                { time: <RelativeTime iso={token.expires_at} className="text-xs" /> },
-              )
-            )
-          ) : (
-            t("feeds_token_never_expires")
-          )}
+          {token.expires_at
+            ? token.state === "expired"
+              ? tNodes(
+                  "feeds_token_expired_at",
+                  {},
+                  { time: <RelativeTime iso={token.expires_at} className="text-xs" /> },
+                )
+              : tNodes(
+                  "feeds_token_expires_at",
+                  {},
+                  { time: <RelativeTime iso={token.expires_at} className="text-xs" /> },
+                )
+            : t("feeds_token_never_expires")}
         </span>
       </div>
       <div className="min-w-0 text-xs text-fg-muted">

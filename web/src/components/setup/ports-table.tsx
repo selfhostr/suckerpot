@@ -77,11 +77,15 @@ export function PortsTable({ items }: { items: readonly PortItem[] }) {
               <PortStatus item={i} />
             </span>
             <span className="col-span-2 text-sm sm:col-span-1 sm:col-start-2 sm:row-start-1">
-              <span className="text-xs text-fg-muted sm:hidden">{t("setup_ports_router_inline")} </span>
+              <span className="text-xs text-fg-muted sm:hidden">
+                {t("setup_ports_router_inline")}{" "}
+              </span>
               <span className="font-mono tabular-nums">{describePort(i)}</span>
             </span>
             <span className="col-span-2 text-sm sm:col-span-1 sm:col-start-3 sm:row-start-1">
-              <span className="text-xs text-fg-muted sm:hidden">{t("setup_ports_forward_inline")} </span>
+              <span className="text-xs text-fg-muted sm:hidden">
+                {t("setup_ports_forward_inline")}{" "}
+              </span>
               <span className="font-mono tabular-nums">{i.host_port}</span>
               <span className="ml-2 font-mono text-2xs text-fg-subtle">{i.env_var}</span>
             </span>
@@ -131,9 +135,7 @@ export function PortsNotes() {
           },
         )}
       </li>
-      <li>
-        {t("setup_ports_note_receiving")}
-      </li>
+      <li>{t("setup_ports_note_receiving")}</li>
     </ul>
   )
 }

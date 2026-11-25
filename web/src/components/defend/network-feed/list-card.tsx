@@ -106,7 +106,11 @@ export function ListCard({
   const meta = LIST_META[list.id]
   const Icon = ICON[list.id]
   return (
-    <Card role="group" aria-label={t("nfeed_list_group", { title: meta.title })} className="gap-4 p-4 sm:p-5">
+    <Card
+      role="group"
+      aria-label={t("nfeed_list_group", { title: meta.title })}
+      className="gap-4 p-4 sm:p-5"
+    >
       <header className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="inline-flex items-center gap-2 type-card-title text-fg">

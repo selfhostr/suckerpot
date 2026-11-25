@@ -123,7 +123,9 @@ test("settings feeds off", async ({ page }, info) => {
   await expect(page.getByRole("button", { name: "Create token" })).toBeDisabled()
   // The sections are a list beside the page on a computer, a select on a phone.
   await expect(
-    page.getByRole("tab", { name: "Feeds" }).or(page.getByRole("combobox", { name: "Settings sections" })),
+    page
+      .getByRole("tab", { name: "Feeds" })
+      .or(page.getByRole("combobox", { name: "Settings sections" })),
   ).toBeInViewport()
   await settle(page)
   await shoot(page, "defend-feeds-off", info.project.name, true)

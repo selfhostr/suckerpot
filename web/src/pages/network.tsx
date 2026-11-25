@@ -55,7 +55,10 @@ function MemberOverview({ status }: { status: NetworkStatus }) {
         </p>
       ) : null}
 
-      <section aria-label={t("network_overview_figures_label")} className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <section
+        aria-label={t("network_overview_figures_label")}
+        className="grid grid-cols-2 gap-3 lg:grid-cols-5"
+      >
         <StatTile
           label={t("network_overview_active_members")}
           value={tot?.active_7d}

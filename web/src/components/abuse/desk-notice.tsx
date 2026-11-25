@@ -44,14 +44,8 @@ function Suggest({
         {t("abuse_desk_suggest_summary")}
       </summary>
       <div className="mt-2 space-y-2">
-        <p className="text-xs text-fg-muted">
-          {t("abuse_desk_suggest_explain")}
-        </p>
-        {shortened ? (
-          <p className="text-xs text-fg">
-            {t("abuse_desk_suggest_shortened")}
-          </p>
-        ) : null}
+        <p className="text-xs text-fg-muted">{t("abuse_desk_suggest_explain")}</p>
+        {shortened ? <p className="text-xs text-fg">{t("abuse_desk_suggest_shortened")}</p> : null}
         <CopyField label={t("abuse_desk_suggestion")} value={text} multiline />
         <a
           href={SUGGEST_URL}
@@ -193,9 +187,7 @@ export function DeskNotice({
       ) : null}
       {dead ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span>
-            {t("abuse_desk_bounced")}
-          </span>
+          <span>{t("abuse_desk_bounced")}</span>
           {canWrite ? (
             <Button
               size="sm"

@@ -36,7 +36,9 @@ export function ExcerptBlock({ excerpt, className }: { excerpt: Excerpt; classNa
             className="flex animate-fade-in items-start gap-2.5 px-3 py-2"
           >
             <Icon aria-hidden className="mt-0.5 size-3.5 shrink-0 text-fg-subtle" />
-            <span className="sr-only">{t("campaign_excerpt_line_kind", { kind: t(labelKey) })}</span>
+            <span className="sr-only">
+              {t("campaign_excerpt_line_kind", { kind: t(labelKey) })}
+            </span>
             <span className="min-w-0 break-all whitespace-pre-wrap text-fg">
               {masked ? maskIpsInText(line.text) : line.text}
             </span>

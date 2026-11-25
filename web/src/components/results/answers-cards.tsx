@@ -15,9 +15,7 @@ export function AnswersCard({ data }: { data: OutcomesResponse | undefined }) {
   return (
     <FindingCard
       eyebrow={t("results_answers_eyebrow")}
-      finding={
-        data ? describeAnswers(data.totals, data.groups) : t("results_answers_loading")
-      }
+      finding={data ? describeAnswers(data.totals, data.groups) : t("results_answers_loading")}
       detail={
         totals && totals.eligible > 0
           ? t("results_answers_detail", {

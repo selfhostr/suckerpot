@@ -48,6 +48,7 @@ export interface Column {
 }
 
 /** The smallest round step (1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 times a power of ten) >= `n`. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function niceMax(n: number): number {
   if (n <= 0) return 1
   const p = 10 ** Math.floor(Math.log10(n))
@@ -56,6 +57,7 @@ export function niceMax(n: number): number {
 }
 
 /** Buckets as columns, keeping only the doors (sensors) in `sensors` when it is not empty. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function toColumns(
   timeline: readonly TimelineBucket[],
   split: HourSplit,
@@ -144,7 +146,10 @@ export function HourlyActivity({
           />
         </span>
         {/* The key: in family mode, the same swatches as the map's stats strip. */}
-        <ul aria-label={t("charts_hourly_key")} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <ul
+          aria-label={t("charts_hourly_key")}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1"
+        >
           {series.map((s) => (
             <li key={s.key} className="flex items-center gap-1.5 text-xs text-fg-muted">
               <span aria-hidden className="size-2 rounded-xs" style={{ backgroundColor: s.fill }} />

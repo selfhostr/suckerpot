@@ -72,7 +72,7 @@ export function PageHeader({
       <h1 className="sr-only">{title}</h1>
       {help && switchSlot ? createPortal(<PageHelp id={help} />, switchSlot) : null}
       {description || helpHere ? (
-        <p className="min-w-0 max-w-2xl type-lede text-pretty text-fg-muted">
+        <p className="max-w-2xl min-w-0 type-lede text-pretty text-fg-muted">
           {description}
           {helpHere}
         </p>

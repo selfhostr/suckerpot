@@ -111,9 +111,7 @@ function CreateForm({
     >
       <DialogHeader className="text-left">
         <DialogTitle>{t("feeds_create_title")}</DialogTitle>
-        <DialogDescription>
-          {t("feeds_create_description")}
-        </DialogDescription>
+        <DialogDescription>{t("feeds_create_description")}</DialogDescription>
       </DialogHeader>
 
       <Field id={ids.name} label={t("channels_name")} error={errors.name}>

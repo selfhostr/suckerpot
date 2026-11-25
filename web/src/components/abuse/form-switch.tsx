@@ -33,9 +33,7 @@ export function FormSwitch({
       <Button size="sm" variant="outline" disabled={save.isPending} onClick={() => save.mutate()}>
         {t("abuse_form_switch_button")}
       </Button>
-      <span className="text-xs text-fg-muted">
-        {t("abuse_form_switch_hint")}
-      </span>
+      <span className="text-xs text-fg-muted">{t("abuse_form_switch_hint")}</span>
       {error ? <span className="block w-full text-xs text-fg">{error}</span> : null}
     </div>
   )

@@ -78,9 +78,7 @@ function AddChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
     >
       <DialogHeader className="text-left">
         <DialogTitle>{t("setup_alerts_add")}</DialogTitle>
-        <DialogDescription>
-          {t("channels_add_description")}
-        </DialogDescription>
+        <DialogDescription>{t("channels_add_description")}</DialogDescription>
       </DialogHeader>
 
       <div className="flex flex-col gap-1.5">
@@ -251,7 +249,7 @@ function ChangeTargetForm({
       <Field
         id={ids.target}
         label={t("channels_new_target", { kind: channel.kind })}
-        hint={t.hint}
+        hint={info.hint}
         error={errors.target}
       >
         <Input

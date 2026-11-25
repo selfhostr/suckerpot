@@ -34,7 +34,9 @@ function Row({
       <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-sm text-fg">
-          <span className="font-medium">{allow ? t("override_action_allow") : t("override_action_block")}</span>{" "}
+          <span className="font-medium">
+            {allow ? t("override_action_allow") : t("override_action_block")}
+          </span>{" "}
           <span className="font-mono text-xs break-all">{value}</span>
         </p>
         <p className="text-xs text-fg-muted">

@@ -14,30 +14,12 @@ export interface GlossaryEntry {
 }
 
 export const GLOSSARY = {
-  asn: withText(
-    { term: tk("glossary_asn_term"), short: tk("glossary_asn_short") },
-    {},
-  ),
-  cve: withText(
-    { term: tk("glossary_cve_term"), short: tk("glossary_cve_short") },
-    {},
-  ),
-  kev: withText(
-    { term: tk("glossary_kev_term"), short: tk("glossary_kev_short") },
-    {},
-  ),
-  rce: withText(
-    { term: tk("glossary_rce_term"), short: tk("glossary_rce_short") },
-    {},
-  ),
-  exploit: withText(
-    { term: tk("glossary_exploit_term"), short: tk("glossary_exploit_short") },
-    {},
-  ),
-  payload: withText(
-    { term: tk("glossary_payload_term"), short: tk("glossary_payload_short") },
-    {},
-  ),
+  asn: withText({ term: tk("glossary_asn_term"), short: tk("glossary_asn_short") }, {}),
+  cve: withText({ term: tk("glossary_cve_term"), short: tk("glossary_cve_short") }, {}),
+  kev: withText({ term: tk("glossary_kev_term"), short: tk("glossary_kev_short") }, {}),
+  rce: withText({ term: tk("glossary_rce_term"), short: tk("glossary_rce_short") }, {}),
+  exploit: withText({ term: tk("glossary_exploit_term"), short: tk("glossary_exploit_short") }, {}),
+  payload: withText({ term: tk("glossary_payload_term"), short: tk("glossary_payload_short") }, {}),
   "brute-force": withText(
     { term: tk("glossary_brute_force_term"), short: tk("glossary_brute_force_short") },
     {},
@@ -49,14 +31,8 @@ export const GLOSSARY = {
     },
     {},
   ),
-  botnet: withText(
-    { term: tk("glossary_botnet_term"), short: tk("glossary_botnet_short") },
-    {},
-  ),
-  c2: withText(
-    { term: tk("glossary_c2_term"), short: tk("glossary_c2_short") },
-    {},
-  ),
+  botnet: withText({ term: tk("glossary_botnet_term"), short: tk("glossary_botnet_short") }, {}),
+  c2: withText({ term: tk("glossary_c2_term"), short: tk("glossary_c2_short") }, {}),
   campaign: withText(
     { term: tk("glossary_campaign_term"), short: tk("glossary_campaign_short") },
     {},
@@ -69,10 +45,7 @@ export const GLOSSARY = {
     { term: tk("glossary_indicator_term"), short: tk("glossary_indicator_short") },
     {},
   ),
-  hash: withText(
-    { term: tk("glossary_hash_term"), short: tk("glossary_hash_short") },
-    {},
-  ),
+  hash: withText({ term: tk("glossary_hash_term"), short: tk("glossary_hash_short") }, {}),
   defanged: withText(
     { term: tk("glossary_defanged_term"), short: tk("glossary_defanged_short") },
     {},
@@ -97,26 +70,11 @@ export const GLOSSARY = {
     { term: tk("glossary_blocklist_term"), short: tk("glossary_blocklist_short") },
     {},
   ),
-  malware: withText(
-    { term: tk("glossary_malware_term"), short: tk("glossary_malware_short") },
-    {},
-  ),
-  scanner: withText(
-    { term: tk("glossary_scanner_term"), short: tk("glossary_scanner_short") },
-    {},
-  ),
-  ssh: withText(
-    { term: tk("glossary_ssh_term"), short: tk("glossary_ssh_short") },
-    {},
-  ),
-  telnet: withText(
-    { term: tk("glossary_telnet_term"), short: tk("glossary_telnet_short") },
-    {},
-  ),
-  rdp: withText(
-    { term: tk("glossary_rdp_term"), short: tk("glossary_rdp_short") },
-    {},
-  ),
+  malware: withText({ term: tk("glossary_malware_term"), short: tk("glossary_malware_short") }, {}),
+  scanner: withText({ term: tk("glossary_scanner_term"), short: tk("glossary_scanner_short") }, {}),
+  ssh: withText({ term: tk("glossary_ssh_term"), short: tk("glossary_ssh_short") }, {}),
+  telnet: withText({ term: tk("glossary_telnet_term"), short: tk("glossary_telnet_short") }, {}),
+  rdp: withText({ term: tk("glossary_rdp_term"), short: tk("glossary_rdp_short") }, {}),
   consensus: withText(
     { term: tk("glossary_consensus_term"), short: tk("glossary_consensus_short") },
     {},

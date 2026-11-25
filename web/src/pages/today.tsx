@@ -116,11 +116,7 @@ function DayCard({
                 value={totals.sessions}
                 href={withWindow("/attacks", windowSince(story.as_of, story.hours))}
               />
-              <Figure
-                label={t("today_figure_machines")}
-                value={totals.sources}
-                href="/attackers"
-              />
+              <Figure label={t("today_figure_machines")} value={totals.sources} href="/attackers" />
               <Figure label={t("today_figure_countries")} value={totals.countries} />
               <Figure
                 label={t("today_figure_got_in")}
@@ -191,19 +187,19 @@ export function TodayPage() {
   const { sensors, paused, setPaused } = live
 
   const placeholder = live.connecting ? (
-    <div role="status" aria-label={t("common_loading")} className="flex gap-2 max-sm:flex-col max-sm:p-4">
+    <div
+      role="status"
+      aria-label={t("common_loading")}
+      className="flex gap-2 max-sm:flex-col max-sm:p-4"
+    >
       {Array.from({ length: 4 }, (_, i) => (
         <Skeleton key={i} className="h-9 w-[300px] max-w-full shrink-0 rounded-md" />
       ))}
     </div>
   ) : live.down ? (
-    <TickerNote icon={WifiOff}>
-      {t("today_ticker_down")}
-    </TickerNote>
+    <TickerNote icon={WifiOff}>{t("today_ticker_down")}</TickerNote>
   ) : live.waiting ? (
-    <TickerNote icon={Radio}>
-      {t("today_ticker_waiting")}
-    </TickerNote>
+    <TickerNote icon={Radio}>{t("today_ticker_waiting")}</TickerNote>
   ) : live.ticker.length === 0 ? (
     <TickerNote icon={SearchX}>
       {sensors.length === 1 ? t("today_ticker_empty_one") : t("today_ticker_empty_many")}{" "}

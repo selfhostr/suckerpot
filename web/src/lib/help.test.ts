@@ -70,6 +70,12 @@ describe("page help texts", () => {
       const dynamic = source.includes("help={") || source.includes("<PageHelp id=")
       expect(ids.length > 0 || dynamic, `${name} has no help`).toBe(true)
       for (const id of ids) {
+        // A card's own help (a FindingCard in Settings) is checked by the card test below.
+        if (
+          !(HELP_IDS as readonly string[]).includes(id) &&
+          (CARD_HELP_IDS as readonly string[]).includes(id)
+        )
+          continue
         expect(HELP_IDS, `${name}: unknown help id ${id}`).toContain(id)
         used.add(id)
       }

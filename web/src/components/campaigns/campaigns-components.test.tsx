@@ -172,7 +172,7 @@ describe("TechniqueTable", () => {
     wrap(<TechniqueTable matrix={matrix} linkSuffix="&sensor=ssh" />)
     const link = screen.getByRole("link", { name: /Brute Force/ })
     expect(link).toHaveAttribute("href", "/attacks?technique=T1110&sensor=ssh")
-    const names = screen.getAllByRole("listitem").map((li) => li.textContent ?? "")
+    const names = screen.getAllByRole("listitem").map((li) => li.textContent)
     expect(names.findIndex((t) => t.includes("Brute Force"))).toBeLessThan(
       names.findIndex((t) => t.includes("Ingress Tool Transfer")),
     )

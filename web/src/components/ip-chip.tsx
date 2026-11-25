@@ -51,9 +51,7 @@ export function IPChip({
           to={to}
           {...(subject ? subjectProps(subject) : null)}
           className="truncate rounded-sm px-1.5 transition-colors duration-150 hover:text-fg hover:underline hover:decoration-fg-subtle hover:underline-offset-4"
-          aria-label={
-            masked ? t("ipchip_masked_link") : t("ipchip_link", { ip })
-          }
+          aria-label={masked ? t("ipchip_masked_link") : t("ipchip_link", { ip })}
         >
           {shown}
         </Link>
@@ -86,7 +84,9 @@ export function IPChip({
               )}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top">{copied ? t("common_copied") : t("ipchip_copy_tip")}</TooltipContent>
+          <TooltipContent side="top">
+            {copied ? t("common_copied") : t("ipchip_copy_tip")}
+          </TooltipContent>
         </Tooltip>
       ) : null}
     </span>

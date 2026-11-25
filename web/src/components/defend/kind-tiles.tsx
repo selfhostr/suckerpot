@@ -31,8 +31,11 @@ export function KindTiles({
   onSelect: (kind: BlockKind | null) => void
 }) {
   return (
-    <div role="group" aria-label={t("defend_tiles_filter")}
-      className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div
+      role="group"
+      aria-label={t("defend_tiles_filter")}
+      className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+    >
       {BLOCK_KINDS.map((k) => {
         const s = summary?.kinds.find((x) => x.kind === k)
         const Icon = ICONS[k]

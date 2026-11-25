@@ -201,7 +201,9 @@ export function TargetsCard({ filters }: { filters: ResultFilters }) {
                   <tr key={tg.id} className="hover:bg-surface-hover/50">
                     <td className="max-w-[22rem] px-4 py-2 sm:px-5">
                       <div
-                        className={cn(tg.parent_id && ids.has(tg.parent_id) && "ml-1 border-l pl-3")}
+                        className={cn(
+                          tg.parent_id && ids.has(tg.parent_id) && "ml-1 border-l pl-3",
+                        )}
                       >
                         <Link
                           to={`/defend/results/targets/${tg.id}`}

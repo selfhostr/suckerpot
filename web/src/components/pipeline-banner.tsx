@@ -68,7 +68,9 @@ function Stalled({ p }: { p: PipelineStatus }) {
             {},
             {
               ps: (
-                <code className="font-mono whitespace-nowrap text-fg">docker compose ps ingest</code>
+                <code className="font-mono whitespace-nowrap text-fg">
+                  docker compose ps ingest
+                </code>
               ),
               logs: (
                 <code className="font-mono whitespace-nowrap text-fg">

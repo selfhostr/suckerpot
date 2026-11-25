@@ -194,9 +194,7 @@ export function RulesCard() {
           <SkeletonText lines={4} className="py-1" />
         </div>
       ) : !ready ? (
-        <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">
-          {t("rules_unavailable")}
-        </p>
+        <p className="px-4 pb-3 text-sm text-fg-muted sm:px-5">{t("rules_unavailable")}</p>
       ) : (
         <>
           {channels.data.length === 0 ? (

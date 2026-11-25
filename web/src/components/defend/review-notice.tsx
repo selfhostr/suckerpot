@@ -13,9 +13,7 @@ export function ReviewNotice() {
         <h2 id="review-notice-title" className="type-subtitle text-fg">
           {t("defend_review_title")}
         </h2>
-        <p className="text-sm text-fg-muted">
-          {t("defend_review_body")}
-        </p>
+        <p className="text-sm text-fg-muted">{t("defend_review_body")}</p>
       </div>
     </aside>
   )

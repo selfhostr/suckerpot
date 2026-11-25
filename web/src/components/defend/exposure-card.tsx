@@ -215,9 +215,9 @@ export function ExposureCard({
 
       <Checks checks={service.checks} />
 
-      {item.notes ? <p className="text-xs text-fg-subtle">
-          {t("exposure_card_note", { note: item.notes })}
-        </p> : null}
+      {item.notes ? (
+        <p className="text-xs text-fg-subtle">{t("exposure_card_note", { note: item.notes })}</p>
+      ) : null}
     </article>
   )
 }

@@ -75,7 +75,10 @@ export function FamilyTile({
           ) : null}
         </span>
       )}
-      <ul className="-mx-1.5 mt-auto space-y-px border-t pt-2" aria-label={t("family_tile_sensors_aria", { label: fam.label })}>
+      <ul
+        className="-mx-1.5 mt-auto space-y-px border-t pt-2"
+        aria-label={t("family_tile_sensors_aria", { label: fam.label })}
+      >
         {rows.map(({ id, n }) => {
           const m = SENSOR_META[id]
           return (

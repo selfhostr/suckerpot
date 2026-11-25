@@ -161,7 +161,9 @@ export function AppShell() {
                   <SheetTitle className="flex h-14 shrink-0 items-center px-5">
                     <Logo />
                   </SheetTitle>
-                  <SheetDescription className="sr-only">{t("shell_main_navigation")}</SheetDescription>
+                  <SheetDescription className="sr-only">
+                    {t("shell_main_navigation")}
+                  </SheetDescription>
                   <div className="min-h-0 flex-1">
                     <Sidebar variant="drawer" onNavigate={() => setOpen(false)} />
                   </div>

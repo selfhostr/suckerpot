@@ -26,9 +26,7 @@ export function ExpandToggle({
       size="sm"
       onClick={onToggle}
       aria-expanded={expanded}
-      aria-label={
-        expanded ? t("ui_collapse_named", { label }) : t("ui_expand_named", { label })
-      }
+      aria-label={expanded ? t("ui_collapse_named", { label }) : t("ui_expand_named", { label })}
       className={cn("text-fg-muted", className)}
     >
       <Icon aria-hidden />

@@ -58,10 +58,7 @@ function Trigger({
       <Button
         variant="outline"
         size="sm"
-        className={cn(
-          "max-w-full justify-between gap-2 px-2.5",
-          active && "border-border-strong",
-        )}
+        className={cn("max-w-full justify-between gap-2 px-2.5", active && "border-border-strong")}
       >
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <span className="text-fg-muted">{label}</span>
@@ -374,7 +371,11 @@ export function PeriodFilter({ sinceOnly = false }: { sinceOnly?: boolean }) {
         value={label}
       />
       <PopoverContent align="start" className="w-[min(18rem,calc(100vw-2rem))] p-3">
-        <div role="group" aria-label={t("filters_period_presets")} className="grid grid-cols-2 gap-1.5">
+        <div
+          role="group"
+          aria-label={t("filters_period_presets")}
+          className="grid grid-cols-2 gap-1.5"
+        >
           {PERIOD_PRESETS.map((p) => (
             <Button
               key={p.id}
@@ -579,11 +580,7 @@ export function SortFilter({
           variant="outline"
           size="icon-sm"
           onClick={() => write({ order: asc ? null : "asc" })}
-          aria-label={
-            asc
-              ? t("filters_sort_to_highest")
-              : t("filters_sort_to_lowest")
-          }
+          aria-label={asc ? t("filters_sort_to_highest") : t("filters_sort_to_lowest")}
           title={asc ? t("filters_sort_lowest_first") : t("filters_sort_highest_first")}
         >
           {asc ? (

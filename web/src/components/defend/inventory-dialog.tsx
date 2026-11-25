@@ -92,9 +92,7 @@ function InventoryForm({
         <DialogTitle>
           {item ? t("inventory_dialog_edit_title") : t("inventory_dialog_add_title")}
         </DialogTitle>
-        <DialogDescription>
-          {t("inventory_dialog_description")}
-        </DialogDescription>
+        <DialogDescription>{t("inventory_dialog_description")}</DialogDescription>
       </DialogHeader>
 
       <Field id={ids.name} label={t("inventory_field_name")} error={nameError ?? undefined}>

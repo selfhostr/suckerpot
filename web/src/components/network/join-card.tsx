@@ -27,10 +27,8 @@ function Notice({ children, busy = false }: { children: React.ReactNode; busy?: 
 
 /** Why joining is not possible right now, or null when it is. */
 function blockedBy(s: NetworkStatus): React.ReactNode {
-  if (!s.enabled_env)
-    return t("network_join_blocked_env")
-  if (!s.hub_configured)
-    return t("network_join_blocked_hub")
+  if (!s.enabled_env) return t("network_join_blocked_env")
+  if (!s.hub_configured) return t("network_join_blocked_hub")
   return null
 }
 
@@ -45,10 +43,7 @@ export function JoinCard({ onJoined }: { onJoined?: () => void }) {
   const s = q.data
   if (q.isPending) {
     return (
-      <FindingCard
-        eyebrow={t("network_join_eyebrow")}
-        finding={t("network_join_checking")}
-      >
+      <FindingCard eyebrow={t("network_join_eyebrow")} finding={t("network_join_checking")}>
         <SkeletonText lines={2} />
       </FindingCard>
     )
@@ -70,11 +65,7 @@ export function JoinCard({ onJoined }: { onJoined?: () => void }) {
     <FindingCard
       eyebrow={t("network_join_eyebrow")}
       finding={describeStatus(s)}
-      detail={
-        s.state === "off"
-          ? t("network_join_detail_off")
-          : undefined
-      }
+      detail={s.state === "off" ? t("network_join_detail_off") : undefined}
     >
       <div className="space-y-4">
         {blocked ? <Notice>{blocked}</Notice> : null}
@@ -93,14 +84,10 @@ export function JoinCard({ onJoined }: { onJoined?: () => void }) {
                 <Share2 aria-hidden />
                 {hasLeft() ? t("network_join_again") : t("network_join_button")}
               </Button>
-              <span className="text-xs text-fg-muted">
-                {t("network_join_hint")}
-              </span>
+              <span className="text-xs text-fg-muted">{t("network_join_hint")}</span>
             </div>
           ) : (
-            <p className="text-sm text-fg-muted">
-              {t("network_join_admin_only")}
-            </p>
+            <p className="text-sm text-fg-muted">{t("network_join_admin_only")}</p>
           )
         ) : null}
       </div>

@@ -252,8 +252,7 @@ export function AttackerDetailPage() {
                 <span className="tabular-nums">{formatNumber(a.login_attempts)}</span>
                 <span className="text-fg-muted">
                   {" "}
-                  ·{" "}
-                  {t("attacker_logins_succeeded", { count: a.login_success })}
+                  · {t("attacker_logins_succeeded", { count: a.login_success })}
                 </span>
               </Fact>
               <Fact label={t("attacker_cmds_downloads")}>
@@ -262,8 +261,12 @@ export function AttackerDetailPage() {
                     "attacker_cmds_files",
                     { commandsCount: a.commands, filesCount: a.downloads },
                     {
-                      commands: <span className="text-fg tabular-nums">{formatNumber(a.commands)}</span>,
-                      files: <span className="text-fg tabular-nums">{formatNumber(a.downloads)}</span>,
+                      commands: (
+                        <span className="text-fg tabular-nums">{formatNumber(a.commands)}</span>
+                      ),
+                      files: (
+                        <span className="text-fg tabular-nums">{formatNumber(a.downloads)}</span>
+                      ),
                     },
                   )}
                 </span>

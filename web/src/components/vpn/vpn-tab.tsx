@@ -136,11 +136,7 @@ export function VpnTab() {
         <FindingCard
           eyebrow={t("settings_tab_vpn")}
           finding={
-            v
-              ? describeVpn(v)
-              : q.isError
-                ? t("setup_vpn_unavailable")
-                : t("setup_vpn_checking")
+            v ? describeVpn(v) : q.isError ? t("setup_vpn_unavailable") : t("setup_vpn_checking")
           }
           detail={t("vpn_detail")}
         >
@@ -267,9 +263,7 @@ function TunnelButtons({
           {notice}
         </p>
       ) : null}
-      <p className="text-xs text-fg-muted">
-        {t("vpn_buttons_note")}
-      </p>
+      <p className="text-xs text-fg-muted">{t("vpn_buttons_note")}</p>
     </div>
   )
 }
@@ -350,9 +344,7 @@ function StatusDetails({ v }: { v: VpnStatus }) {
               "vpn_check_requested",
               {},
               {
-                time: (
-                  <RelativeTime iso={v.last_check_request.requested_at} className="text-xs" />
-                ),
+                time: <RelativeTime iso={v.last_check_request.requested_at} className="text-xs" />,
               },
             )}
           </span>
@@ -733,11 +725,7 @@ function RevertCard({ onDone, disabled }: { onDone: () => void; disabled: boolea
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 sm:px-5">
       <p className="text-sm text-fg-muted">
-        {tNodes(
-          "vpn_revert_note",
-          {},
-          { env: <code className="font-mono text-fg">.env</code> },
-        )}
+        {tNodes("vpn_revert_note", {}, { env: <code className="font-mono text-fg">.env</code> })}
       </p>
       <Button variant="outline" disabled={disabled} onClick={() => setOpen(true)}>
         <Undo2 aria-hidden className="size-4" />

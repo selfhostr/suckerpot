@@ -32,13 +32,7 @@ export function EgressCard() {
     <FindingCard
       eyebrow={t("egress_eyebrow")}
       help="egress"
-      finding={
-        e
-          ? describeEgress(e)
-          : q.isError
-            ? t("egress_unavailable")
-            : t("egress_checking")
-      }
+      finding={e ? describeEgress(e) : q.isError ? t("egress_unavailable") : t("egress_checking")}
       detail={t("egress_detail")}
     >
       {!e ? (

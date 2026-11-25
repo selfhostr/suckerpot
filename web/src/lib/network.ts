@@ -544,10 +544,8 @@ export function validatePseudonym(raw: string): string | null {
   if (v === "") return null
   if (v.length < 3 || v.length > 24) return t("network_pseudonym_length")
   if (v.includes("://") || v.includes("@")) return t("network_pseudonym_link")
-  if (/\d{4,}/.test(v))
-    return t("network_pseudonym_digits")
-  if (!PSEUDONYM_PATTERN.test(v))
-    return t("network_pseudonym_chars")
+  if (/\d{4,}/.test(v)) return t("network_pseudonym_digits")
+  if (!PSEUDONYM_PATTERN.test(v)) return t("network_pseudonym_chars")
   if (RESERVED.has(v.toLowerCase())) return t("network_pseudonym_reserved")
   return null
 }

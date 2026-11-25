@@ -82,9 +82,7 @@ export function NetworkStep({
           <span className="font-normal text-fg-muted">{t("setup_network_recommended")}</span>
         </h3>
         <p className="max-w-3xl text-sm text-fg-muted">{benefitText()}</p>
-        <p className="max-w-3xl text-sm text-fg">
-          {t("setup_network_join_note")}
-        </p>
+        <p className="max-w-3xl text-sm text-fg">{t("setup_network_join_note")}</p>
       </div>
       <WhatYouShare />
       {blocked ? (

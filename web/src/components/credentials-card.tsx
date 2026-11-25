@@ -81,13 +81,7 @@ export function CredentialsCard({
     <FindingCard
       className={className}
       eyebrow={t("creds_eyebrow")}
-      finding={
-        query.isError
-          ? t("creds_error")
-          : c
-            ? credentialsFinding(c)
-            : t("creds_loading")
-      }
+      finding={query.isError ? t("creds_error") : c ? credentialsFinding(c) : t("creds_loading")}
       footer={notes.length ? notes.join(" · ") : undefined}
     >
       {query.isError ? (

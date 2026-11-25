@@ -175,11 +175,7 @@ export function TargetsCard() {
       eyebrow={t("network_targets_eyebrow")}
       help="targets"
       finding={target ? t("network_targets_one") : targetsFinding({ state, kind, mine })}
-      detail={
-        <span className="text-xs">
-          {t("network_targets_privacy_note")}
-        </span>
-      }
+      detail={<span className="text-xs">{t("network_targets_privacy_note")}</span>}
       bodyClassName="px-0 sm:px-0 pb-0 sm:pb-0"
     >
       <div className="px-4 pb-3 sm:px-5">{controls}</div>

@@ -154,7 +154,6 @@ export function validateNewPassword(
     return t("auth_pwd_max_length", { count: MAX_PASSWORD_LENGTH })
   if (username && password.toLowerCase().includes(username.trim().toLowerCase()))
     return t("auth_pwd_contains_username")
-  if (current !== undefined && password === current)
-    return t("auth_pwd_same_as_current")
+  if (current !== undefined && password === current) return t("auth_pwd_same_as_current")
   return null
 }

@@ -73,9 +73,7 @@ function SentForm({ onOpenChange, run, describe }: Omit<DialogProps, "open">) {
     >
       <DialogHeader className="text-left">
         <DialogTitle>{t("abuse_dialog_sent_title")}</DialogTitle>
-        <DialogDescription>
-          {t("abuse_dialog_sent_description")}
-        </DialogDescription>
+        <DialogDescription>{t("abuse_dialog_sent_description")}</DialogDescription>
       </DialogHeader>
       <Field id={id} label={t("abuse_dialog_sent_at")} hint={t("abuse_dialog_sent_at_hint")}>
         <Input

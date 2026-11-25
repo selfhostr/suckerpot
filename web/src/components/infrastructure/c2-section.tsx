@@ -89,9 +89,7 @@ function C2Row({ item }: { item: C2Address }) {
           <span className="text-fg-subtle">{t("c2_no_family")}</span>
         )}
         <span className="tabular-nums">
-          {item.sessions > 0
-            ? t("c2_sessions", { count: item.sessions })
-            : t("c2_no_sessions")}
+          {item.sessions > 0 ? t("c2_sessions", { count: item.sessions }) : t("c2_no_sessions")}
         </span>
         {refs.map((url) => (
           <a
@@ -178,9 +176,7 @@ export function C2Section({ className }: { className?: string }) {
     getNextPageParam: (last) => last.next_cursor,
   })
   const rows = query.data?.pages.flatMap((p) => p.items) ?? []
-  const sentence = query.isSuccess
-    ? describeC2(rows, query.hasNextPage)
-    : t("c2_loading")
+  const sentence = query.isSuccess ? describeC2(rows, query.hasNextPage) : t("c2_loading")
 
   return (
     // A card with its title inside, like the diagram's FindingCard beside it: both headers start

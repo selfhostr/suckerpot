@@ -26,7 +26,8 @@ import {
   sinceParam,
   type CveFilters,
 } from "@/lib/cves"
-import { t, tNodes } from "@/i18n"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 25
@@ -82,17 +83,15 @@ function SyncCard() {
       className="mt-6"
       eyebrow={t("cves_feed_eyebrow")}
       finding={
-        !s ? (
-          t("cves_feed_checking")
-        ) : newest ? (
-          tNodes(
-            "cves_feed_summary",
-            { total: s.total, relevant: s.relevant },
-            { time: <RelativeTime iso={newest} className="text-base text-fg" /> },
-          )
-        ) : (
-          t("cves_feed_not_run")
-        )
+        !s
+          ? t("cves_feed_checking")
+          : newest
+            ? tNodes(
+                "cves_feed_summary",
+                { total: s.total, relevant: s.relevant },
+                { time: <RelativeTime iso={newest} className="text-base text-fg" /> },
+              )
+            : t("cves_feed_not_run")
       }
       detail={t("cves_feed_detail")}
     >
@@ -106,15 +105,13 @@ function SyncCard() {
               <span className="text-sm font-medium text-fg">{SOURCE_LABELS[src.source]}</span>
               <span className="text-xs text-fg-muted">{describeSource(src)}</span>
               <span className="text-xs text-fg-subtle sm:text-right">
-                {src.last_success_at ? (
-                  tNodes(
-                    "cves_feed_updated",
-                    {},
-                    { time: <RelativeTime iso={src.last_success_at} className="text-xs" /> },
-                  )
-                ) : (
-                  t("cves_feed_never_updated")
-                )}
+                {src.last_success_at
+                  ? tNodes(
+                      "cves_feed_updated",
+                      {},
+                      { time: <RelativeTime iso={src.last_success_at} className="text-xs" /> },
+                    )
+                  : t("cves_feed_never_updated")}
                 {src.source !== "kev" ? (
                   <>
                     {" · "}
@@ -299,11 +296,7 @@ export function CvesPage() {
             variant="bare"
             icon={ShieldAlert}
             title={filtered ? t("cves_empty_filtered_title") : t("cves_empty_title")}
-            description={
-              filtered
-                ? t("cves_empty_filtered_hint")
-                : t("cves_empty_hint")
-            }
+            description={filtered ? t("cves_empty_filtered_hint") : t("cves_empty_hint")}
           />
         ) : (
           <div

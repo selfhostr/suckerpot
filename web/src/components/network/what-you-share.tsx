@@ -26,9 +26,7 @@ export function WhatYouShare() {
           </li>
         ))}
       </ul>
-      <p className="text-xs text-fg-muted">
-        {t("network_what_you_share_never")}
-      </p>
+      <p className="text-xs text-fg-muted">{t("network_what_you_share_never")}</p>
     </section>
   )
 }

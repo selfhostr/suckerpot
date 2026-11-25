@@ -28,7 +28,11 @@ function Details({ v }: { v: VersionInfo }) {
         </span>
       </Row>
       <Row label={t("setup_updates_latest")}>
-        {v.latest ? <span className="font-mono text-xs">{v.latest}</span> : t("setup_updates_not_known")}
+        {v.latest ? (
+          <span className="font-mono text-xs">{v.latest}</span>
+        ) : (
+          t("setup_updates_not_known")
+        )}
       </Row>
       <Row label={t("setup_updates_checked")}>
         {v.checked_at ? <RelativeTime iso={v.checked_at} /> : t("setup_updates_never")}

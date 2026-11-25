@@ -3,18 +3,17 @@ import "@fontsource-variable/jetbrains-mono"
 import "./styles/index.css"
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { StrictMode, useEffect, useState } from "react"
+import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { RouterProvider } from "react-router"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "./app/auth"
 import { LiveFeedProvider } from "./app/live-feed"
 import { IpMaskProvider } from "./app/ip-mask"
 import { ScannerFilterProvider } from "./app/scanner-filter"
-import { initLocale, onLocaleChange } from "./i18n"
+import { initLocale } from "./i18n"
 import { applyMotionMode } from "./lib/motion"
 import { ThemeProvider } from "./app/theme"
-import { router } from "./app/router"
+import { LocalizedRouter } from "./app/localized-router"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,13 +30,6 @@ async function enableMocks() {
     // Under a sub-path (GitHub Pages demo) the worker lives next to index.html.
     serviceWorker: { url: `${import.meta.env.BASE_URL}mockServiceWorker.js` },
   })
-}
-
-/** Remounts the routed tree when the language changes, so every `t()` call renders again. */
-function LocalizedRouter() {
-  const [version, setVersion] = useState(0)
-  useEffect(() => onLocaleChange(() => setVersion((v) => v + 1)), [])
-  return <RouterProvider key={version} router={router} />
 }
 
 applyMotionMode()

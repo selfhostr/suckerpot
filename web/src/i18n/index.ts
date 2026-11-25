@@ -14,17 +14,19 @@ import {
 export { LOCALES, DEFAULT_LOCALE, detectLocale, isLocaleCode, type LocaleCode } from "./locales"
 
 /** Lazy loaders: one chunk per language, only the active one is downloaded. English is bundled. */
-const loaders: Record<Exclude<LocaleCode, "en">, () => Promise<{ default: Record<string, string> }>> =
-  {
-    fr: () => import("./locales/fr.json"),
-    de: () => import("./locales/de.json"),
-    es: () => import("./locales/es.json"),
-    it: () => import("./locales/it.json"),
-    pt: () => import("./locales/pt.json"),
-    "pt-BR": () => import("./locales/pt-BR.json"),
-    ru: () => import("./locales/ru.json"),
-    "zh-Hans": () => import("./locales/zh-Hans.json"),
-  }
+const loaders: Record<
+  Exclude<LocaleCode, "en">,
+  () => Promise<{ default: Record<string, string> }>
+> = {
+  fr: () => import("./locales/fr.json"),
+  de: () => import("./locales/de.json"),
+  es: () => import("./locales/es.json"),
+  it: () => import("./locales/it.json"),
+  pt: () => import("./locales/pt.json"),
+  "pt-BR": () => import("./locales/pt-BR.json"),
+  ru: () => import("./locales/ru.json"),
+  "zh-Hans": () => import("./locales/zh-Hans.json"),
+}
 
 export type MessageValues = Record<string, string | number | boolean | Date | null | undefined>
 
@@ -45,7 +47,6 @@ void i18next
     nsSeparator: false,
     interpolation: { escapeValue: false },
     initAsync: false,
-    showSupportNotice: false,
     // A missing key shows the English text, then the key itself, never an empty string.
     saveMissing: false,
   })

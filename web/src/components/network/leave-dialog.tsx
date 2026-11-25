@@ -51,9 +51,7 @@ export function LeaveDialog({
           ]}
         />
       </div>
-      <p className="text-xs text-fg-muted">
-        {t("network_leave_retry_note")}
-      </p>
+      <p className="text-xs text-fg-muted">{t("network_leave_retry_note")}</p>
     </AdminActionDialog>
   )
 }

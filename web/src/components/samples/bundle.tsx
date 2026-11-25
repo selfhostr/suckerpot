@@ -4,7 +4,8 @@ import { Link } from "react-router"
 import { FindingCard } from "@/components/finding-card"
 import { Button } from "@/components/ui/button"
 import { AdminActionDialog } from "@/components/users/admin-action-dialog"
-import { t, tNodes } from "@/i18n"
+import { t } from "@/i18n"
+import { tNodes } from "@/i18n/rich"
 import {
   BUNDLE_MAX,
   describeBundle,
@@ -137,16 +138,14 @@ export function BundleCard({ className }: { className?: string }) {
         open={open}
         onOpenChange={setOpen}
         title={t("samples_bundle_dialog_title")}
-        description={
-          tNodes(
-            "samples_bundle_dialog_description",
-            { count: list.length },
-            {
-              password: <code className="font-mono text-fg">infected</code>,
-              file: <code className="font-mono text-fg">hashes.csv</code>,
-            },
-          )
-        }
+        description={tNodes(
+          "samples_bundle_dialog_description",
+          { count: list.length },
+          {
+            password: <code className="font-mono text-fg">infected</code>,
+            file: <code className="font-mono text-fg">hashes.csv</code>,
+          },
+        )}
         hint={t("samples_download_hint")}
         confirmLabel={t("common_download")}
         pendingLabel={t("samples_preparing")}

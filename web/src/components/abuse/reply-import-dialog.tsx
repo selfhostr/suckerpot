@@ -101,9 +101,7 @@ function ImportForm({ onOpenChange, report }: Omit<Props, "open">) {
     >
       <DialogHeader className="text-left">
         <DialogTitle>{t("replies_import_title")}</DialogTitle>
-        <DialogDescription>
-          {t("replies_import_description", { ext: ".eml" })}
-        </DialogDescription>
+        <DialogDescription>{t("replies_import_description", { ext: ".eml" })}</DialogDescription>
       </DialogHeader>
       <Field
         id={id}

@@ -13,25 +13,12 @@ import {
 } from "@/lib/defend"
 import type { CreatedToken } from "./create-token-dialog"
 
-function Snippet({
-  label,
-  copyLabel,
-  text,
-}: {
-  label: string
-  copyLabel: string
-  text: string
-}) {
+function Snippet({ label, copyLabel, text }: { label: string; copyLabel: string; text: string }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <h4 className="type-eyebrow text-fg-muted">{label}</h4>
-        <CopyButton
-          text={text}
-          label={copyLabel}
-          variant="outline"
-          size="sm"
-        >
+        <CopyButton text={text} label={copyLabel} variant="outline" size="sm">
           {t("common_copy")}
         </CopyButton>
       </div>

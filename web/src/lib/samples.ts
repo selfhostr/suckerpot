@@ -315,8 +315,7 @@ export function describeSamples(
   if (items.length === 0) return t("samples_summary_empty")
   const atLeast = more ? "yes" : "no"
   const web = items.filter(isPlainWeb).length
-  if (web > 0 && web === items.length)
-    return t("samples_summary_web_only", { count: web, atLeast })
+  if (web > 0 && web === items.length) return t("samples_summary_web_only", { count: web, atLeast })
   const files = items.filter((s) => !isPlainWeb(s))
   const fresh = files.filter((s) => now - Date.parse(s.first_seen) < 7 * DAY)
   if (fresh.length === 0) return t("samples_summary_none_new", { count: files.length, atLeast })

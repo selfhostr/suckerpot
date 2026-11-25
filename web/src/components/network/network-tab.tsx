@@ -18,11 +18,7 @@ export function NetworkTab() {
       {member && q.data ? <NodeCard status={q.data} /> : <JoinCard />}
       <FindingCard
         eyebrow={t("network_tab_eyebrow")}
-        finding={
-          member
-            ? t("network_tab_finding_member")
-            : t("network_tab_finding_guest")
-        }
+        finding={member ? t("network_tab_finding_member") : t("network_tab_finding_guest")}
       >
         <SharedExplainer />
       </FindingCard>

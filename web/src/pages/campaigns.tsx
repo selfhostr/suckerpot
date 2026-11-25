@@ -226,11 +226,7 @@ export function CampaignsPage() {
             variant="bare"
             icon={Flag}
             title={filtered ? t("campaigns_empty_filtered_title") : t("campaigns_empty_title")}
-            description={
-              filtered
-                ? t("campaigns_empty_filtered_hint")
-                : t("campaigns_empty_hint")
-            }
+            description={filtered ? t("campaigns_empty_filtered_hint") : t("campaigns_empty_hint")}
           />
         ) : (
           <div
@@ -269,9 +265,7 @@ export function CampaignsPage() {
           })}
         </p>
       ) : null}
-      <p className="mt-4 text-xs text-fg-subtle">
-        {t("campaigns_footnote")}
-      </p>
+      <p className="mt-4 text-xs text-fg-subtle">{t("campaigns_footnote")}</p>
     </>
   )
 }

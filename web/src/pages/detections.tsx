@@ -98,7 +98,10 @@ export function DetectionsPage() {
         />
       ) : (
         <>
-          <ul aria-label={t("detections_list_label", { format: meta.label })} className="flex flex-col gap-3">
+          <ul
+            aria-label={t("detections_list_label", { format: meta.label })}
+            className="flex flex-col gap-3"
+          >
             {list.map((rule) => (
               <RuleCard key={rule.id} rule={rule} />
             ))}

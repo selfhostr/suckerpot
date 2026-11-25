@@ -123,7 +123,9 @@ export function AccountMenu({ variant = "full" }: { variant?: "full" | "rail" })
           align={variant === "rail" ? "end" : "start"}
           sideOffset={variant === "rail" ? 10 : 6}
           collisionPadding={8}
-          className={variant === "rail" ? "w-56" : "w-(--radix-dropdown-menu-trigger-width) min-w-52"}
+          className={
+            variant === "rail" ? "w-56" : "w-(--radix-dropdown-menu-trigger-width) min-w-52"
+          }
         >
           <DropdownMenuItem
             // The menu stays open, so the new theme is seen before moving on.

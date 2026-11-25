@@ -41,9 +41,7 @@ export function HowToDrawer({
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{t("nfeed_howto_title")}</SheetTitle>
-          <SheetDescription>
-            {t("nfeed_howto_description")}
-          </SheetDescription>
+          <SheetDescription>{t("nfeed_howto_description")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-4 px-4 pb-6">
           <SegmentedControl

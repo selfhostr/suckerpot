@@ -88,9 +88,7 @@ export function ReplyView({ r, actions }: { r: Reply; actions?: React.ReactNode 
 export function RepliesList({ replies }: { replies: readonly Reply[] }) {
   if (replies.length === 0)
     return (
-      <p className="border-t px-4 py-4 text-sm text-fg-muted sm:px-5">
-        {t("replies_none_stored")}
-      </p>
+      <p className="border-t px-4 py-4 text-sm text-fg-muted sm:px-5">{t("replies_none_stored")}</p>
     )
   return (
     <ul className="divide-y border-t" aria-label={t("replies_list_aria")}>

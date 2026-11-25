@@ -36,9 +36,7 @@ export function TechniquesPage() {
     ? [...matrix.data.rows].sort((a, b) => b.total_sessions - a.total_sessions)[0]
     : undefined
 
-  const headline = matrix.data
-    ? describeMatrix(matrix.data, total)
-    : t("techniques_headline")
+  const headline = matrix.data ? describeMatrix(matrix.data, total) : t("techniques_headline")
 
   return (
     <>
@@ -96,7 +94,6 @@ export function TechniquesPage() {
           />
         )}
       </FindingCard>
-
     </>
   )
 }

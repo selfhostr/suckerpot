@@ -187,9 +187,7 @@ export function sensorsFinding(sensors: readonly SensorStatus[], now = Date.now(
   if (silent.length === sensors.length) return t("settings_finding_sensors_none")
   const parts: string[] = []
   if (active.length > 3)
-    parts.push(
-      t("settings_finding_sensors_some", { active: active.length, total: sensors.length }),
-    )
+    parts.push(t("settings_finding_sensors_some", { active: active.length, total: sensors.length }))
   else if (active.length)
     parts.push(
       t("settings_finding_sensors_named", {

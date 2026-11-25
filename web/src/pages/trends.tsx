@@ -13,13 +13,7 @@ import { sensorParam, useSensorFilter } from "@/hooks/use-sensor-filter"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { api, queryKeys, type TopResponse } from "@/lib/api"
 import { maskIpsInText } from "@/lib/format"
-import {
-  describeNew,
-  describeTags,
-  describeTop,
-  NEW_FIELDS,
-  type NewField,
-} from "@/lib/trends"
+import { describeNew, describeTags, describeTop, NEW_FIELDS, type NewField } from "@/lib/trends"
 
 const HOUR = 3_600_000
 const PERIODS = [7, 30] as const

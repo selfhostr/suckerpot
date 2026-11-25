@@ -16,10 +16,7 @@ export interface TourStep {
 }
 
 export const TOUR_STEPS: readonly TourStep[] = [
-  withText(
-    { title: tk("tour_what_title"), body: tk("tour_what_body") },
-    { id: "what" as const },
-  ),
+  withText({ title: tk("tour_what_title"), body: tk("tour_what_body") }, { id: "what" as const }),
   withText(
     { title: tk("tour_daily_title"), body: tk("tour_daily_body") },
     { id: "daily" as const },

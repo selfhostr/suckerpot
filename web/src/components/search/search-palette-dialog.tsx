@@ -136,9 +136,7 @@ export default function SearchPaletteDialog({
         className="top-[4.5rem] translate-y-0 gap-0 overflow-hidden p-0 sm:top-[12vh] sm:max-w-xl"
       >
         <DialogTitle className="sr-only">{t("common_search")}</DialogTitle>
-        <DialogDescription className="sr-only">
-          {t("search_description")}
-        </DialogDescription>
+        <DialogDescription className="sr-only">{t("search_description")}</DialogDescription>
         <Command shouldFilter={false} label={t("common_search")} className="rounded-lg bg-popover">
           <CommandInput
             value={input}
@@ -166,9 +164,7 @@ export default function SearchPaletteDialog({
                   </CommandGroup>
                 ) : null}
                 <div className="px-4 py-4">
-                  <p className="text-sm text-fg-muted">
-                    {t("search_hint_min")}
-                  </p>
+                  <p className="text-sm text-fg-muted">{t("search_hint_min")}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     <span className="text-xs text-fg-subtle">{t("search_try")}</span>
                     {EXAMPLES.map((ex) => (
@@ -207,9 +203,7 @@ export default function SearchPaletteDialog({
                       />
                     ))}
                     {g.more ? (
-                      <p className="px-2 py-1 text-xs text-fg-subtle">
-                        {t("search_more")}
-                      </p>
+                      <p className="px-2 py-1 text-xs text-fg-subtle">{t("search_more")}</p>
                     ) : null}
                   </CommandGroup>
                 ))}

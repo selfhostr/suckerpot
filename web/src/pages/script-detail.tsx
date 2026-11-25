@@ -52,7 +52,11 @@ function SessionsCard({ id }: { id: number }) {
       {query.isPending ? (
         <SkeletonList rows={3} />
       ) : (
-        <div role="list" aria-label={t("scripts_sessions_list_label")} className="divide-y border-t">
+        <div
+          role="list"
+          aria-label={t("scripts_sessions_list_label")}
+          className="divide-y border-t"
+        >
           {rows.map((s) => (
             <div key={s.session_id} role="listitem">
               <SessionRow session={s} />
@@ -169,15 +173,9 @@ export function ScriptDetailPage() {
         <FindingCard
           eyebrow={t("scripts_lines_eyebrow")}
           className="normal-nums"
-          finding={
-            d.lines.length === 0
-              ? t("scripts_lines_none")
-              : t("scripts_lines_finding")
-          }
+          finding={d.lines.length === 0 ? t("scripts_lines_none") : t("scripts_lines_finding")}
           detail={
-            d.unexplained > 0
-              ? t("scripts_lines_unexplained", { count: d.unexplained })
-              : undefined
+            d.unexplained > 0 ? t("scripts_lines_unexplained", { count: d.unexplained }) : undefined
           }
         >
           {d.lines.length > 0 ? (

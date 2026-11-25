@@ -1,11 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 import { FamilyStrip } from "@/components/family-strip"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { t } from "@/i18n"
 import type { LiveEvent, SensorCounts } from "@/lib/api"
 import { cn } from "@/lib/utils"

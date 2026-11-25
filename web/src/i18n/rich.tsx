@@ -17,7 +17,10 @@ export function tNodes(
   const text = t(key, marks)
   if (!text.includes("\u0001")) return text
   const parts = text.split("\u0001")
-  return parts.map((part, i) =>
-    i % 2 === 1 ? <Fragment key={i}>{nodes[part]}</Fragment> : part === "" ? null : part,
-  )
+  const out: ReactNode[] = []
+  parts.forEach((part, i) => {
+    if (i % 2 === 1) out.push(<Fragment key={i}>{nodes[part]}</Fragment>)
+    else if (part !== "") out.push(part)
+  })
+  return out
 }

@@ -57,10 +57,7 @@ export function CampaignRow({
       <div className="min-w-0 space-y-1">
         <div className="flex min-w-0 items-center gap-2">
           <SeverityBadge severity={c.severity} iconOnly />
-          <h3
-            {...subjectProps(`campaign:${c.id}`)}
-            className="truncate type-subtitle text-fg"
-          >
+          <h3 {...subjectProps(`campaign:${c.id}`)} className="truncate type-subtitle text-fg">
             {c.name}
           </h3>
         </div>

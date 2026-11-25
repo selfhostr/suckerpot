@@ -151,18 +151,16 @@ function KeyRow({
 
       {!info.configured && !readOnly ? (
         <p className="text-xs text-fg-muted">
-          {editable ? (
-            t("providerkeys_add_key")
-          ) : (
-            tNodes(
-              "providerkeys_set_env",
-              {},
-              {
-                name: <code className="font-mono text-fg">{envName}</code>,
-                env: <code className="font-mono">.env</code>,
-              },
-            )
-          )}
+          {editable
+            ? t("providerkeys_add_key")
+            : tNodes(
+                "providerkeys_set_env",
+                {},
+                {
+                  name: <code className="font-mono text-fg">{envName}</code>,
+                  env: <code className="font-mono">.env</code>,
+                },
+              )}
         </p>
       ) : null}
 
@@ -277,16 +275,10 @@ export function ProviderKeys({ e }: { e: EnrichmentSettings }) {
       <div className="space-y-1">
         <h4 className="type-subtitle text-fg">{t("providerkeys_title")}</h4>
         {readOnly ? (
-          <p className="text-xs text-fg-muted">
-            {t("providerkeys_readonly")}
-          </p>
+          <p className="text-xs text-fg-muted">{t("providerkeys_readonly")}</p>
         ) : editable ? (
           <p className="text-xs text-fg-muted">
-            {tNodes(
-              "providerkeys_editable",
-              {},
-              { env: <code className="font-mono">.env</code> },
-            )}
+            {tNodes("providerkeys_editable", {}, { env: <code className="font-mono">.env</code> })}
           </p>
         ) : (
           <p className="text-xs text-fg-muted">
@@ -303,7 +295,10 @@ export function ProviderKeys({ e }: { e: EnrichmentSettings }) {
           </p>
         )}
       </div>
-      <ul aria-label={t("providerkeys_title")} className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+      <ul
+        aria-label={t("providerkeys_title")}
+        className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3"
+      >
         <KeyRow
           id="abuseipdb"
           info={e.abuseipdb}
@@ -342,9 +337,7 @@ export function ProviderKeys({ e }: { e: EnrichmentSettings }) {
       </ul>
       <div className="space-y-1 pt-2">
         <h4 className="type-subtitle text-fg">{t("providerkeys_threat_title")}</h4>
-        <p className="text-xs text-fg-muted">
-          {t("providerkeys_threat_description")}
-        </p>
+        <p className="text-xs text-fg-muted">{t("providerkeys_threat_description")}</p>
       </div>
       <ul
         aria-label={t("providerkeys_threat_label")}

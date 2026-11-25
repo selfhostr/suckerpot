@@ -129,9 +129,7 @@ export function ScriptsPage() {
         title={t("scripts_page_title")}
         description={
           <span className="normal-nums">
-            {summary.data
-              ? describeScripts(summary.data)
-              : t("scripts_page_description")}
+            {summary.data ? describeScripts(summary.data) : t("scripts_page_description")}
           </span>
         }
       />
@@ -144,7 +142,11 @@ export function ScriptsPage() {
             label: t("scripts_filter_technique"),
             render: (v) => <span className="font-mono">{v}</span>,
           },
-          { param: "campaign_id", label: t("scripts_filter_campaign"), render: (v) => <span>#{v}</span> },
+          {
+            param: "campaign_id",
+            label: t("scripts_filter_campaign"),
+            render: (v) => <span>#{v}</span>,
+          },
         ]}
         alsoClears={["q", "sensor", "view"]}
       >
@@ -193,11 +195,7 @@ export function ScriptsPage() {
             variant="bare"
             icon={FileCode2}
             title={filtered ? t("scripts_empty_filtered_title") : t("scripts_empty_title")}
-            description={
-              filtered
-                ? t("scripts_empty_filtered_hint")
-                : t("scripts_empty_hint")
-            }
+            description={filtered ? t("scripts_empty_filtered_hint") : t("scripts_empty_hint")}
           />
         ) : (
           <div

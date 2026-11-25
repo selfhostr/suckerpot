@@ -57,9 +57,14 @@ const WORLD: Box = { x0: 0, x1: MAP_WIDTH, y0: project(84.2, 0)[1], y1: project(
  * On a wide card that is height-limited, so nothing is cut; on a phone it is width-limited and
  * the card is short to match.
  */
+function noop(): void {
+  /* the follower is set by an effect */
+}
+
 const WORLD_FIT: Box = { x0: 130, x1: 950, y0: WORLD.y0, y1: WORLD.y1 }
 
 /** The regions the switch offers, in order. Each is framed from its latitude/longitude bounds. */
+// eslint-disable-next-line react-refresh/only-export-components
 export const MAP_PRESETS = [
   "world",
   "europe",
@@ -133,6 +138,7 @@ const REGIONS: Record<Exclude<MapPreset, "world">, Box> = {
     [-22, 113.2],
     [-10.7, 142.5],
     [-2.6, 141],
+    [2, 157],
     [-4.5, 152],
     [-28.6, 153.6],
     [-43.6, 146.8],
@@ -183,7 +189,10 @@ function clampView(v: View, aspect: number): View {
   return {
     // On a wide card a tall region is narrower than the view: it may sit off-centre in it.
     cx: clampAxis(v.cx, vw, PAN_X.lo, PAN_X.hi, 0.5),
-    cy: vh >= PAN_Y.hi - PAN_Y.lo ? (PAN_Y.lo + PAN_Y.hi) / 2 : clampAxis(v.cy, vh, PAN_Y.lo, PAN_Y.hi),
+    cy:
+      vh >= PAN_Y.hi - PAN_Y.lo
+        ? (PAN_Y.lo + PAN_Y.hi) / 2
+        : clampAxis(v.cy, vh, PAN_Y.lo, PAN_Y.hi),
     vw,
   }
 }
@@ -383,7 +392,7 @@ export const WorldMap = memo(function WorldMap({
     window.dispatchEvent(new Event(PRESET_EVENT))
   }
   // The other map (inline or expanded) changed region: follow it, without a tween when hidden.
-  const followRef = useRef<() => void>(() => {})
+  const followRef = useRef<() => void>(noop)
   useEffect(() => {
     followRef.current = () => {
       const p = storedPreset()
@@ -789,7 +798,6 @@ export const WorldMap = memo(function WorldMap({
             size={size}
           />
         ) : null}
-
       </div>
     </div>
   )
@@ -810,14 +818,14 @@ function RegionSwitch({
     const on = row?.querySelector<HTMLElement>("[aria-pressed=true]")
     if (!row || !on) return
     const left = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2
-    row.scrollTo?.({ left, behavior: "auto" })
+    row.scrollLeft = left
   }, [preset])
   return (
     <div
       ref={ref}
       role="group"
       aria-label={t("map_regions_aria")}
-      className="relative flex min-w-0 overflow-x-auto rounded-md border bg-surface-raised p-0.5 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="relative flex min-w-0 [scrollbar-width:none] overflow-x-auto rounded-md border bg-surface-raised p-0.5 shadow-sm [&::-webkit-scrollbar]:hidden"
     >
       {MAP_PRESETS.map((p) => (
         <button
@@ -871,7 +879,9 @@ function SourceTooltip({
           { events: source.events, ips: source.ips },
           {
             eventsN: (
-              <span className="font-medium text-fg tabular-nums">{formatNumber(source.events)}</span>
+              <span className="font-medium text-fg tabular-nums">
+                {formatNumber(source.events)}
+              </span>
             ),
             ipsN: (
               <span className="font-medium text-fg tabular-nums">{formatNumber(source.ips)}</span>

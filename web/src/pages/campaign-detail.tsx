@@ -159,11 +159,7 @@ export function CampaignDetailPage() {
         <EmptyState
           icon={FileQuestion}
           title={notFound ? t("campaign_not_found_title") : t("campaign_error_title")}
-          description={
-            notFound
-              ? t("campaign_not_found_hint")
-              : campaign.error?.message
-          }
+          description={notFound ? t("campaign_not_found_hint") : campaign.error?.message}
           action={
             <Button asChild variant="outline" size="sm">
               <Link to="/campaigns">{t("campaign_back_to_list")}</Link>

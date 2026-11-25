@@ -15,7 +15,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { t } from "@/i18n"
-import { describeCollector, describeSamples, sampleKeys, samplesApi, type SampleFilters } from "@/lib/samples"
+import {
+  describeCollector,
+  describeSamples,
+  sampleKeys,
+  samplesApi,
+  type SampleFilters,
+} from "@/lib/samples"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
@@ -87,7 +93,11 @@ export function SamplesTab() {
   const filtered = Boolean(kind ?? q ?? arch ?? family ?? yara)
   // With nothing collected, say why: the collector is off, paused or still working.
   const none = query.isSuccess && rows.length === 0 && !filtered
-  const egress = useQuery({ queryKey: sampleKeys.egress, queryFn: samplesApi.egress, enabled: none })
+  const egress = useQuery({
+    queryKey: sampleKeys.egress,
+    queryFn: samplesApi.egress,
+    enabled: none,
+  })
   const collector = describeCollector(egress.data)
 
   const listRef = useRef<HTMLDivElement>(null)
@@ -162,7 +172,11 @@ export function SamplesTab() {
         chips={[
           { param: "arch", label: t("samples_filter_arch") },
           { param: "family", label: t("samples_filter_family") },
-          { param: "yara", label: t("samples_filter_rule"), render: (v) => <span className="font-mono">{v}</span> },
+          {
+            param: "yara",
+            label: t("samples_filter_rule"),
+            render: (v) => <span className="font-mono">{v}</span>,
+          },
         ]}
         alsoClears={["kind", "q"]}
       >
@@ -211,11 +225,7 @@ export function SamplesTab() {
             variant="bare"
             icon={FileSearch}
             title={filtered ? t("samples_empty_filtered_title") : t("samples_summary_empty")}
-            description={
-              filtered
-                ? t("samples_empty_filtered_hint")
-                : t("samples_empty_hint")
-            }
+            description={filtered ? t("samples_empty_filtered_hint") : t("samples_empty_hint")}
           />
         ) : (
           <div

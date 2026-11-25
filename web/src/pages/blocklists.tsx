@@ -210,26 +210,24 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
           icon={off ? ShieldOff : ShieldCheck}
           title={off ? t("blocklists_off_title") : t("blocklists_empty_title")}
           description={
-            off ? (
-              tNodes(
-                "blocklists_off_description",
-                {},
-                {
-                  flag: <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code>,
-                  file: <code className="font-mono text-fg">.env</code>,
-                  value: <code className="font-mono text-fg">true</code>,
-                },
-              )
-            ) : (
-              tNodes(
-                "blocklists_empty_description",
-                {},
-                {
-                  flag: <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code>,
-                  file: <code className="font-mono text-fg">.env</code>,
-                },
-              )
-            )
+            off
+              ? tNodes(
+                  "blocklists_off_description",
+                  {},
+                  {
+                    flag: <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code>,
+                    file: <code className="font-mono text-fg">.env</code>,
+                    value: <code className="font-mono text-fg">true</code>,
+                  },
+                )
+              : tNodes(
+                  "blocklists_empty_description",
+                  {},
+                  {
+                    flag: <code className="font-mono text-fg">BLOCKLIST_ENABLED=false</code>,
+                    file: <code className="font-mono text-fg">.env</code>,
+                  },
+                )
           }
         />
       </>
@@ -357,9 +355,7 @@ function SensorBlocklists({ tabs }: { tabs: React.ReactNode }) {
               variant="bare"
               icon={SearchX}
               title={filtered ? t("blocklists_no_match") : t("blocklists_nothing")}
-              description={
-                filtered ? t("blocklists_no_match_hint") : t("blocklists_nothing_hint")
-              }
+              description={filtered ? t("blocklists_no_match_hint") : t("blocklists_nothing_hint")}
             />
           ) : (
             <div

@@ -92,9 +92,7 @@ export function StageTrail({ stages, variant = "compact", className }: StageTrai
               ) : (
                 <span aria-hidden className="size-1 rounded-full bg-fg-subtle" />
               )}
-              <span className="sr-only">
-                {stageState(stage, on)}
-              </span>
+              <span className="sr-only">{stageState(stage, on)}</span>
             </li>
           )
         })}

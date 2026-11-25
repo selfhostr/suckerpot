@@ -215,7 +215,12 @@ function DesktopLine({
         {session.benign ? <ScannerBadge name={session.scanner_name} className="z-10" /> : null}
         {/* The scanner badge already says it: the rules engine's "scanner" tag would repeat it. */}
         {/* A flood row keeps its room for the story: its tags are one click away on its page. */}
-        {(flood ? [] : session.benign ? session.tags.filter((tag) => tag !== "scanner") : session.tags)
+        {(flood
+          ? []
+          : session.benign
+            ? session.tags.filter((tag) => tag !== "scanner")
+            : session.tags
+        )
           .slice(0, 2)
           .map((tag) => (
             <TagBadge key={tag} tag={tag} className="z-10" />

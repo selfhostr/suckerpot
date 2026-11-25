@@ -167,7 +167,11 @@ export function AttacksFilterBar({ group }: { group: AttacksGroup }) {
         countryChip,
         networkChip,
         { param: "technique", label: t("filters_technique_label"), render: mono },
-        { param: "campaign_id", label: t("filters_campaign_label"), render: (v) => <CampaignName id={v} /> },
+        {
+          param: "campaign_id",
+          label: t("filters_campaign_label"),
+          render: (v) => <CampaignName id={v} />,
+        },
       ]}
     >
       <SearchFilter fields={SESSION_SEARCH_FIELDS} />

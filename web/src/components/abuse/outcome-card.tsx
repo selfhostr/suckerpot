@@ -93,9 +93,7 @@ function SetOutcomeDialog({
         >
           <DialogHeader className="text-left">
             <DialogTitle>{t("outcome_dialog_title")}</DialogTitle>
-            <DialogDescription>
-              {t("outcome_dialog_description")}
-            </DialogDescription>
+            <DialogDescription>{t("outcome_dialog_description")}</DialogDescription>
           </DialogHeader>
           <fieldset className="space-y-1.5">
             <legend className="text-sm font-medium text-fg">{t("outcome_what_happened")}</legend>
@@ -113,11 +111,7 @@ function SetOutcomeDialog({
               </label>
             ))}
           </fieldset>
-          <Field
-            id={`${id}-at`}
-            label={t("outcome_when")}
-            hint={t("outcome_when_hint")}
-          >
+          <Field id={`${id}-at`} label={t("outcome_when")} hint={t("outcome_when_hint")}>
             <Input
               id={`${id}-at`}
               type="datetime-local"
@@ -177,9 +171,7 @@ export function OutcomeCard({ r }: { r: ReportDetail }) {
       eyebrow={t("outcome_eyebrow")}
       finding={describeOutcome(o, r.sent_at)}
       detail={
-        canWrite && r.reply_token
-          ? t("outcome_token_detail", { token: r.reply_token })
-          : undefined
+        canWrite && r.reply_token ? t("outcome_token_detail", { token: r.reply_token }) : undefined
       }
       action={
         canWrite ? (

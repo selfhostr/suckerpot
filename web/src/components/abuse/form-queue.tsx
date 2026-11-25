@@ -106,9 +106,7 @@ export function FormQueue() {
         help="forms"
         finding={describeFormQueue(items.length)}
       >
-        <p className="text-sm text-fg-muted">
-          {t("abuse_form_queue_howto")}
-        </p>
+        <p className="text-sm text-fg-muted">{t("abuse_form_queue_howto")}</p>
       </FindingCard>
       {items.map((item) => (
         <Card

@@ -178,9 +178,7 @@ export function TerminalReplay({ source, masked }: TerminalReplayProps) {
         style={{ backgroundColor: TERMINAL_BG, colorScheme: "dark" }}
       >
         <div ref={hostRef} className="h-64 w-full sm:h-80" />
-        <p className="sr-only">
-          {t("replay_sr_note")}
-        </p>
+        <p className="sr-only">{t("replay_sr_note")}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">

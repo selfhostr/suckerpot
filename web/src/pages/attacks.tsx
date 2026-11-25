@@ -23,11 +23,7 @@ import {
   type FloodView,
 } from "@/lib/floods"
 import { maskIp } from "@/lib/format"
-import {
-  clearParams,
-  parseSessionFilters,
-  SESSION_PARAMS,
-} from "@/lib/list-filters"
+import { clearParams, parseSessionFilters, SESSION_PARAMS } from "@/lib/list-filters"
 import { SENSOR_META, sensorSetPhrase } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 
@@ -165,16 +161,8 @@ export function AttacksPage() {
     <>
       <PageHeader help="attacks" title={t("attacks_title")} description={headline} />
 
-      <StickyFilters
-        filters={
-          <AttacksFilterBar group="sessions" />
-        }
-      >
-        <NewRowsPill
-          count={arrivals.pending}
-          more={arrivals.more}
-          onShow={arrivals.show}
-        />
+      <StickyFilters filters={<AttacksFilterBar group="sessions" />}>
+        <NewRowsPill count={arrivals.pending} more={arrivals.more} onShow={arrivals.show} />
         <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
           <div
             className={cn(

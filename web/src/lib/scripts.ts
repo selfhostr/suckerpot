@@ -163,11 +163,8 @@ export function describeScript(item: ScriptItem, summary: string | null): string
 export function nextStep(lines: readonly ExplainedLine[]): string {
   const download = lines.some((l) => l.rule === "download" || l.rule === "download-and-run")
   const persist = lines.some((l) => l.risk === "severe" && l.technique?.startsWith("T1098"))
-  if (download)
-    return t("scripts_next_download")
-  if (persist)
-    return t("scripts_next_persist")
-  if (lines.every((l) => l.risk === "info" || l.risk === null))
-    return t("scripts_next_harmless")
+  if (download) return t("scripts_next_download")
+  if (persist) return t("scripts_next_persist")
+  if (lines.every((l) => l.risk === "info" || l.risk === null)) return t("scripts_next_harmless")
   return t("scripts_next_review")
 }

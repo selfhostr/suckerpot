@@ -81,9 +81,7 @@ function AddUserForm({
     >
       <DialogHeader className="text-left">
         <DialogTitle>{t("users_add_title")}</DialogTitle>
-        <DialogDescription>
-          {t("users_add_description")}
-        </DialogDescription>
+        <DialogDescription>{t("users_add_description")}</DialogDescription>
       </DialogHeader>
       <Field
         id={ids.user}

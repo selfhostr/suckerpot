@@ -147,9 +147,7 @@ export function ExportMenu({
           >
             <DialogHeader>
               <DialogTitle>{t("abuse_export_misp_title")}</DialogTitle>
-              <DialogDescription>
-                {t("abuse_export_misp_help")}
-              </DialogDescription>
+              <DialogDescription>{t("abuse_export_misp_help")}</DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-1">
               <label htmlFor={`${descId}-misp`} className="text-sm font-medium">

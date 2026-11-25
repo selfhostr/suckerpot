@@ -5,13 +5,7 @@
  */
 import { delay, http, HttpResponse } from "msw"
 import type { Session } from "@/lib/api"
-import type {
-  Insight,
-  MalwareItem,
-  NewField,
-  NewItem,
-  TagsResponse,
-} from "@/lib/trends"
+import type { Insight, MalwareItem, NewField, NewItem, TagsResponse } from "@/lib/trends"
 import { NEW_FIELDS } from "@/lib/trends"
 import { mockFetchState } from "./samples"
 

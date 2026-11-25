@@ -221,7 +221,10 @@ export function ProvidersCard({ groups, group, takedown }: ProvidersCardProps) {
         </p>
       ) : (
         <>
-          <ul aria-label={t("results_providers_list_label")} className="divide-y border-t sm:hidden">
+          <ul
+            aria-label={t("results_providers_list_label")}
+            className="divide-y border-t sm:hidden"
+          >
             {rows.map((r) => (
               <li key={r.key} className="px-4 py-3">
                 <span className="flex flex-wrap items-center gap-2">

@@ -78,9 +78,7 @@ export function OutboxCard() {
           <SkeletonText lines={3} className="py-1" />
         </div>
       ) : items.length === 0 ? (
-        <p className="border-t px-4 py-6 text-sm text-fg-muted sm:px-5">
-          {t("outbox_empty")}
-        </p>
+        <p className="border-t px-4 py-6 text-sm text-fg-muted sm:px-5">{t("outbox_empty")}</p>
       ) : (
         <>
           <ul aria-label={t("outbox_title")} className="divide-y border-t">

@@ -352,7 +352,7 @@ On long pages the list is the main thing: summaries and filters stay compact abo
 | SiblingGroupsCard          | `sibling-groups-card.tsx`                | the other flood groups of the same address and UTC hour, as compact SessionRows                                                            |
 | FilterBar, SensorFilter    | `filter-bar.tsx`                         | URL-synced segmented control and removable chips                                                                                           |
 | SegmentedControl           | `segmented-control.tsx`                  | one choice among a few; the track is a control: `md` (32 px, filter rows), `form` (36 px, beside fields), `icon`                           |
-| PageHeader                 | `page-header.tsx`                        | name for screen readers (drawn only on a detail page) + one sentence + the page's "?" + actions                                          |
+| PageHeader                 | `page-header.tsx`                        | name for screen readers (drawn only on a detail page) + one sentence + the page's "?" + actions                                            |
 | PageHelp, CardHelp         | `page-help.tsx`, `lib/help.ts`           | the "?" popover: `PageHelp` for a page (`HELP`), `CardHelp` (or `FindingCard help`) for a card, section or column (`CARD_HELP`)            |
 | MetaLine                   | `meta-line.tsx`                          | facts joined by middle dots that wrap cleanly: no dot ever ends or starts a line (phone rows of tables)                                    |
 | UnsavedHint                | `form-parts.tsx`                         | "Unsaved changes" with a neutral dot next to a section's Save button; pair with `useUnsaved(value)`                                        |
@@ -370,11 +370,11 @@ On long pages the list is the main thing: summaries and filters stay compact abo
 | TopList                    | `top-list.tsx`                           | ranked rows with printed count + share ("<1%", never "0%"; bar is decoration), each row a filtered link; `scale="total"` when rows can tie |
 | AttackerRow                | `attacker-row.tsx`                       | one-line attacker profile story; row opens the profile, chips/flags/tags open filtered lists                                               |
 | StageTrail                 | `campaigns/stage-trail.tsx`              | the playbook in story order: `compact` (lists, icon or dot plus words) or `steps` (detail, stepper with names); never a hue                |
-| TechniqueChips             | `campaigns/technique-chips.tsx`          | the ATT&CK techniques of a campaign, once each (campaign sessions + external link)                                                          |
+| TechniqueChips             | `campaigns/technique-chips.tsx`          | the ATT&CK techniques of a campaign, once each (campaign sessions + external link)                                                         |
 | ExcerptBlock               | `campaigns/excerpt-block.tsx`            | real lines from one session, text only, back-to-back repeats folded with a count                                                           |
 | CampaignRow, CampaignChip  | `campaigns/campaign-row.tsx`, `-chip`    | one campaign as one story line; "Part of campaign" on the session page                                                                     |
 | TechniqueTable             | `techniques/technique-table.tsx`         | techniques, busiest first: stage, sparkline of the days, first seen, sessions                                                              |
-| TagTable                   | `trends/tag-table.tsx`                   | tags over the period: events, sparkline per day, change of the second half against the first; the leading payload tag is the one red mark |
+| TagTable                   | `trends/tag-table.tsx`                   | tags over the period: events, sparkline per day, change of the second half against the first; the leading payload tag is the one red mark  |
 | Sparkline                  | `sparkline.tsx`                          | a neutral line over a flat area, no axes, an accessible name                                                                               |
 | LiveIndicator, ThemeToggle | `live-indicator.tsx`, `theme-toggle.tsx` | live status, theme switch (sign-in pages; the shell has its own)                                                                           |
 

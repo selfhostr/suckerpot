@@ -32,8 +32,7 @@ import { UserError } from "@/lib/users"
 type Action = "save" | "remove"
 
 function finding(c: ImapConfig): string {
-  if (!c.configured || !c.enabled)
-    return t("imap_finding_none")
+  if (!c.configured || !c.enabled) return t("imap_finding_none")
   return t("imap_finding_active", { minutes: c.poll_minutes })
 }
 
@@ -144,8 +143,7 @@ function ImapSettingsForm({ initial }: { initial: ImapConfig }) {
 
   function validate(): string | null {
     if (!f.host.trim()) return t("imap_invalid_host", { example: "imap.example.net" })
-    if (!Number.isInteger(f.port) || f.port < 1 || f.port > 65535)
-      return t("imap_invalid_port")
+    if (!Number.isInteger(f.port) || f.port < 1 || f.port > 65535) return t("imap_invalid_port")
     if (!f.username.trim()) return t("imap_invalid_username")
     if (!initial.password_set && !f.password) return t("imap_invalid_password")
     if (f.trusted_authserv_id && !AUTHSERV_RE.test(f.trusted_authserv_id))
@@ -479,11 +477,7 @@ export function ImapCard() {
     <FindingCard
       eyebrow={t("imap_eyebrow")}
       finding={
-        q.isPending
-          ? t("imap_loading")
-          : q.isError
-            ? t("imap_load_failed")
-            : finding(q.data)
+        q.isPending ? t("imap_loading") : q.isError ? t("imap_load_failed") : finding(q.data)
       }
       detail={t("imap_detail")}
     >

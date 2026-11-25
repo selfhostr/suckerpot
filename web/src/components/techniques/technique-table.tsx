@@ -92,9 +92,7 @@ export function TechniqueTable({ matrix, linkSuffix = "", className }: Technique
           )
         })}
       </ul>
-      <p className="mt-3 text-2xs text-fg-subtle">
-        {t("technique_footnote")}
-      </p>
+      <p className="mt-3 text-2xs text-fg-subtle">{t("technique_footnote")}</p>
     </div>
   )
 }

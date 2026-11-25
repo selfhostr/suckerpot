@@ -329,9 +329,7 @@ function SettingsForm({
             options={REFERENCE_STYLE_OPTIONS}
             className="scroll-fade-x max-w-full self-start overflow-x-auto"
           />
-          <span className="text-xs text-fg-muted">
-            {t("reporting_reference_hint")}
-          </span>
+          <span className="text-xs text-fg-muted">{t("reporting_reference_hint")}</span>
         </div>
       </div>
       <fieldset className="grid gap-3">

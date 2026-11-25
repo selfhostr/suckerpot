@@ -155,9 +155,7 @@ function NoContact() {
     <FindingCard
       eyebrow={t("abuse_page_no_contact")}
       finding={t("abuse_page_no_contact_finding", { addresses: total, networks: list.length })}
-      detail={
-        canWrite ? t("abuse_page_no_contact_detail") : undefined
-      }
+      detail={canWrite ? t("abuse_page_no_contact_detail") : undefined}
       bodyClassName="px-0 sm:px-0 pb-1 sm:pb-1"
     >
       <ul className="divide-y border-t">
