@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
-import { Network, Search, SearchX, Users } from "lucide-react"
+import { Network, SearchX, Users } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Term } from "@/components/term"
 import { Link, Navigate, useLocation, useSearchParams } from "react-router"
@@ -8,119 +8,45 @@ import { AttackerRow, ATTACKER_GRID } from "@/components/attacker-row"
 import { CountryFlag } from "@/components/country-flag"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
+import {
+  CountryFilter,
+  NetworkFilter,
+  PeriodFilter,
+  SearchFilter,
+  SortFilter,
+  TagFilter,
+} from "@/components/list-filters"
 import { PageHeader } from "@/components/page-header"
 import { RelativeTime } from "@/components/relative-time"
 import { SkeletonList, SkeletonRow } from "@/components/skeletons"
+import { StickyFilters } from "@/components/sticky-filters"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { SegmentedControl } from "@/components/segmented-control"
 import { useUrlParam } from "@/hooks/use-url-param"
 import {
   api,
+  ASN_LIMIT,
   ATTACKER_SORTS,
   queryKeys,
   type AsnItem,
   type AttackerFilters,
-  type AttackerSort,
 } from "@/lib/api"
 import { countryName, formatNumber, plural } from "@/lib/format"
-import { parseSensors } from "@/lib/sensors"
+import {
+  ASN_SORTS,
+  ATTACKER_PARAMS,
+  ATTACKER_SORT_LABELS,
+  clearParams,
+  filterNetworks,
+  NETWORK_PARAMS,
+  parseAttackerFilters,
+  parseNetworkView,
+} from "@/lib/list-filters"
+import { parseInstant, windowLabel } from "@/lib/story"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
 
-const IP_SORTS: readonly { id: AttackerSort; label: string }[] = [
-  { id: "last_seen", label: "Last seen" },
-  { id: "sessions", label: "Sessions" },
-  { id: "events", label: "Events" },
-]
-const ASN_SORTS = [
-  { id: "sessions", label: "Sessions" },
-  { id: "ips", label: "Addresses" },
-  { id: "events", label: "Events" },
-] as const
-type AsnSort = (typeof ASN_SORTS)[number]["id"]
-
-function SortSwitch({
-  options,
-  value,
-  onChange,
-}: {
-  options: readonly { id: string; label: string }[]
-  value: string
-  onChange: (id: string) => void
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-fg-subtle">Sort by</span>
-      <SegmentedControl
-        label="Sort by"
-        value={value}
-        onChange={onChange}
-        options={options.map((o) => ({ value: o.id, label: o.label }))}
-      />
-    </div>
-  )
-}
-
-/** IP-prefix search: typing updates the URL after a short pause. */
-function IpSearch() {
-  const [q, setQ] = useUrlParam("q")
-  const [text, setText] = useState(q ?? "")
-  const inputRef = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    // The URL changed from elsewhere (e.g. "Clear filters"): mirror it unless the user is typing.
-    if (document.activeElement === inputRef.current) return
-    const id = setTimeout(() => setText(q ?? ""), 0)
-    return () => clearTimeout(id)
-  }, [q])
-  useEffect(() => {
-    const clean = text.trim()
-    if (clean === (q ?? "")) return
-    const id = setTimeout(() => setQ(/^[0-9a-fA-F.:]{1,45}$/.test(clean) ? clean : null), 250)
-    return () => clearTimeout(id)
-  }, [text, q, setQ])
-  return (
-    <div className="relative w-full sm:w-56">
-      <Search
-        aria-hidden
-        className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-fg-subtle"
-      />
-      <Input
-        ref={inputRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        inputMode="text"
-        autoComplete="off"
-        spellCheck={false}
-        maxLength={45}
-        placeholder="IP prefix, e.g. 203.0.113"
-        aria-label="Search by IP prefix"
-        className="h-8 pl-8 font-mono text-xs md:text-xs"
-      />
-    </div>
-  )
-}
-
-function useIpFilters(): { filters: AttackerFilters; sort: AttackerSort } {
-  const [p] = useSearchParams()
-  const sensor = parseSensors(p.get("sensor"))
-  const rawSort = p.get("sort")
-  const sort = ATTACKER_SORTS.includes(rawSort as AttackerSort)
-    ? (rawSort as AttackerSort)
-    : "last_seen"
-  return {
-    sort,
-    filters: {
-      sort,
-      sensor: sensor.length ? sensor : undefined,
-      country: p.get("country") ?? undefined,
-      asn: p.get("asn") ?? undefined,
-      tag: p.get("tag") ?? undefined,
-      q: p.get("q") ?? undefined,
-    },
-  }
-}
+const IP_SORTS = ATTACKER_SORTS.map((id) => ({ id, label: ATTACKER_SORT_LABELS[id] }))
 
 function AttackerList({ filters }: { filters: AttackerFilters }) {
   const [, setParams] = useSearchParams()
@@ -164,13 +90,17 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
       <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
         <div
           className={cn(
-            "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            "sticky top-[calc(3.5rem+var(--filters-h,0px))] z-10 hidden border-b bg-surface px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
             ATTACKER_GRID,
           )}
         >
-          <span>Address</span>
-          <span>Profile</span>
+          <span>IP address</span>
+          <span>Country</span>
+          <span className="hidden xl:block">Network</span>
+          <span>What it did</span>
           <span className="text-right">Sensors and tags</span>
+          <span className="text-right">Sessions</span>
+          <span className="hidden text-right xl:block">Events</span>
           <span className="text-right">Last seen</span>
         </div>
         {query.isPending ? (
@@ -192,21 +122,14 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
             variant="bare"
             icon={Users}
             title="No attackers match these filters"
-            description="Try another sensor or a shorter IP prefix, or clear the filters."
+            description="Try other filters or a shorter IP prefix, or clear them to see every attacker."
             action={
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  setParams((p) => {
-                    const next = new URLSearchParams()
-                    const sort = p.get("sort")
-                    if (sort) next.set("sort", sort)
-                    return next
-                  })
-                }
+                onClick={() => setParams((p) => clearParams(p, ATTACKER_PARAMS))}
               >
-                Clear filters
+                Clear all
               </Button>
             }
           />
@@ -248,68 +171,115 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
   )
 }
 
-function AsnList({ sort }: { sort: AsnSort }) {
-  const q = useQuery({ queryKey: queryKeys.asns(sort), queryFn: () => api.asns(sort, 100) })
-  const items = q.data?.items ?? []
-  const grid = "md:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_5.5rem_6rem] md:gap-x-4"
+function AsnList() {
+  const [params, setParams] = useSearchParams()
+  const view = parseNetworkView(params)
+  const q = useQuery({
+    queryKey: queryKeys.asns(view.sort, view.since),
+    queryFn: () => api.asns(view.sort, ASN_LIMIT, view.since),
+  })
+  const all = q.data?.items ?? []
+  // The API takes no text or country filter for networks: narrow the loaded list here. When the
+  // API cut the list at its page size, the search only sees the busiest networks; say so.
+  const complete = all.length < ASN_LIMIT
+  const items = filterNetworks(all, view)
+  const filtered = Boolean(view.q || view.country)
+  const grid = "md:grid-cols-[minmax(0,1fr)_9rem_5.5rem_5.5rem_5.5rem_6rem] md:gap-x-4"
   return (
-    <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
-      <div
-        className={cn(
-          "sticky top-14 z-10 hidden border-b bg-surface px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
-          grid,
+    <>
+      <div className="overflow-clip rounded-lg border bg-surface shadow-sm">
+        <div
+          className={cn(
+            "sticky top-[calc(3.5rem+var(--filters-h,0px))] z-10 hidden border-b bg-surface px-5 py-2.5 text-2xs font-medium tracking-wide text-fg-subtle uppercase md:grid",
+            grid,
+          )}
+        >
+          <span>Network</span>
+          <span>Country</span>
+          <span className="text-right">Addresses</span>
+          <span className="text-right">Sessions</span>
+          <span className="text-right">Events</span>
+          <span className="text-right">Last seen</span>
+        </div>
+        {q.isPending ? (
+          <SkeletonList rows={8} />
+        ) : q.isError ? (
+          <EmptyState
+            variant="bare"
+            icon={SearchX}
+            title="Could not load networks"
+            description={q.error.message}
+            action={
+              <Button variant="outline" size="sm" onClick={() => void q.refetch()}>
+                Try again
+              </Button>
+            }
+          />
+        ) : items.length === 0 ? (
+          <EmptyState
+            variant="bare"
+            icon={Network}
+            title={filtered || view.since ? "No networks match these filters" : "No networks yet"}
+            description={
+              filtered || view.since
+                ? "Try other filters, or clear them to see every network."
+                : "Networks appear once GeoIP and ASN enrichment has run on incoming events."
+            }
+            action={
+              filtered || view.since ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setParams((p) => clearParams(p, NETWORK_PARAMS))}
+                >
+                  Clear all
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <ul aria-label="Attacker networks">
+            {items.map((n: AsnItem, i) => (
+              <li key={n.asn} className={cn(i > 0 && "border-t")}>
+                <Link
+                  to={`/attackers?asn=${n.asn}`}
+                  className={cn(
+                    "grid grid-cols-3 items-center gap-y-1 px-4 py-3 transition-colors duration-150 hover:bg-surface-hover/50 sm:px-5",
+                    grid,
+                  )}
+                >
+                  <span className="col-span-3 flex min-w-0 items-baseline gap-2.5 md:col-span-1">
+                    <span className="shrink-0 font-mono text-xs text-fg-muted">AS{n.asn}</span>
+                    <span className="text-sm text-fg">{n.org ?? "Unknown network"}</span>
+                  </span>
+                  <span className="col-span-3 text-xs text-fg-muted md:col-span-1">
+                    {n.country ? (
+                      <CountryFlag code={n.country} showName />
+                    ) : (
+                      <span className="text-fg-subtle">Unknown</span>
+                    )}
+                  </span>
+                  <Metric label="Addresses" value={n.ips} />
+                  <Metric label="Sessions" value={n.sessions} />
+                  <Metric label="Events" value={n.events} className="hidden md:block" />
+                  <span className="hidden justify-self-end md:block">
+                    <RelativeTime iso={n.last_seen} className="text-xs" />
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
-      >
-        <span>Network</span>
-        <span className="text-right">Addresses</span>
-        <span className="text-right">Sessions</span>
-        <span className="text-right">Events</span>
-        <span className="text-right">Last seen</span>
       </div>
-      {q.isPending ? (
-        <SkeletonList rows={8} />
-      ) : q.isError ? (
-        <EmptyState
-          variant="bare"
-          icon={SearchX}
-          title="Could not load networks"
-          description={q.error.message}
-        />
-      ) : items.length === 0 ? (
-        <EmptyState
-          variant="bare"
-          icon={Network}
-          title="No networks yet"
-          description="Networks appear once GeoIP and ASN enrichment has run on incoming events."
-        />
-      ) : (
-        <ul aria-label="Attacker networks">
-          {items.map((n: AsnItem, i) => (
-            <li key={n.asn} className={cn(i > 0 && "border-t")}>
-              <Link
-                to={`/attackers?asn=${n.asn}`}
-                className={cn(
-                  "grid grid-cols-3 items-center gap-y-1 px-4 py-3 transition-colors duration-150 hover:bg-surface-hover/50 sm:px-5",
-                  grid,
-                )}
-              >
-                <span className="col-span-3 flex min-w-0 items-center gap-2.5 md:col-span-1">
-                  {n.country ? <CountryFlag code={n.country} showName={false} /> : null}
-                  <span className="shrink-0 font-mono text-xs text-fg-muted">AS{n.asn}</span>
-                  <span className="truncate text-sm text-fg">{n.org ?? "Unknown network"}</span>
-                </span>
-                <Metric label="Addresses" value={n.ips} />
-                <Metric label="Sessions" value={n.sessions} />
-                <Metric label="Events" value={n.events} className="hidden md:block" />
-                <span className="hidden justify-self-end md:block">
-                  <RelativeTime iso={n.last_seen} className="text-xs" />
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+      {q.isSuccess && items.length > 0 ? (
+        <p className="mt-4 text-center text-xs text-fg-subtle">
+          {filtered
+            ? `${plural(items.length, "network")} match${items.length === 1 ? "es" : ""}`
+            : plural(items.length, "network")}
+          {complete ? "" : ` among the ${ASN_LIMIT} busiest`}
+        </p>
+      ) : null}
+    </>
   )
 }
 
@@ -340,21 +310,25 @@ export function NetworksPage() {
   return <AttackersView asns />
 }
 
+const countryChip = {
+  param: "country",
+  label: "Country",
+  render: (v: string) => <CountryFlag code={v.toUpperCase()} showName className="text-fg" />,
+}
+
 function AttackersView({ asns }: { asns: boolean }) {
-  const [rawSort, setSort] = useUrlParam("sort")
-  const { filters, sort } = useIpFilters()
-  const asnSort: AsnSort = ASN_SORTS.some((o) => o.id === rawSort)
-    ? (rawSort as AsnSort)
-    : "sessions"
+  const [params] = useSearchParams()
+  const { filters, sort, order } = parseAttackerFilters(params)
 
   const summaryCountry = filters.country ? (countryName(filters.country) ?? filters.country) : null
+  const ascending = order === "asc"
   const description = asns ? (
     <>
       Hosting providers and networks (<Term id="asn">ASN</Term>) the attacks come from. Open one to
       see its addresses.
     </>
   ) : summaryCountry ? (
-    `Addresses from ${summaryCountry}, ${IP_SORTS.find((o) => o.id === sort)?.label.toLowerCase()} first.`
+    `Addresses from ${summaryCountry}, ${ascending ? "lowest" : "highest"} ${ATTACKER_SORT_LABELS[sort].toLowerCase()} first.`
   ) : (
     "Every address that touched a sensor, with the story of what it did."
   )
@@ -368,47 +342,90 @@ function AttackersView({ asns }: { asns: boolean }) {
       />
 
       {asns ? (
-        <>
-          <div className="mb-4">
-            <SortSwitch
-              options={ASN_SORTS}
-              value={asnSort}
-              onChange={(v) => setSort(v === "sessions" ? null : v)}
-            />
-          </div>
-          <AsnList sort={asnSort} />
-        </>
-      ) : (
-        <>
-          <FilterBar
-            className="mb-4"
-            alsoClears={["sensor", "q"]}
-            chips={[
-              {
-                param: "country",
-                label: "Country",
-                render: (v) => <CountryFlag code={v} showName className="text-fg" />,
-              },
-              {
-                param: "asn",
-                label: "Network",
-                render: (v) => <span className="font-mono">AS{v}</span>,
-              },
-              { param: "tag", label: "Tag", render: (v) => <span className="font-mono">{v}</span> },
-            ]}
-          >
-            <SensorFilter />
-            <IpSearch />
-            <div className="sm:ml-auto">
-              <SortSwitch
-                options={IP_SORTS}
-                value={sort}
-                onChange={(v) => setSort(v === "last_seen" ? null : v)}
+        <StickyFilters
+          filters={
+            <FilterBar
+              alsoClears={[...NETWORK_PARAMS]}
+              trailing={
+                <SortFilter options={ASN_SORTS} defaultSort="sessions" directional={false} />
+              }
+              chips={[
+                {
+                  param: "q",
+                  label: "Search",
+                  render: (v) => <span>{v}</span>,
+                },
+                countryChip,
+                {
+                  param: "since",
+                  label: "Period",
+                  render: (v) => <span>{windowLabel(parseInstant(v), undefined)}</span>,
+                },
+              ]}
+            >
+              <SearchFilter
+                fields={[
+                  {
+                    param: "q",
+                    label: "Network",
+                    placeholder: "AS number, network or country",
+                  },
+                ]}
+                clean={(_, raw) => raw.trim().slice(0, 64) || undefined}
               />
-            </div>
-          </FilterBar>
+              <CountryFilter />
+              <PeriodFilter sinceOnly />
+            </FilterBar>
+          }
+        >
+          <AsnList />
+        </StickyFilters>
+      ) : (
+        <StickyFilters
+          filters={
+            <FilterBar
+              alsoClears={[...ATTACKER_PARAMS]}
+              trailing={<SortFilter options={IP_SORTS} defaultSort="last_seen" />}
+              chips={[
+                {
+                  param: "q",
+                  label: "IP prefix",
+                  render: (v) => <span className="font-mono">{v}</span>,
+                },
+                countryChip,
+                {
+                  param: "asn",
+                  label: "Network",
+                  render: (v) => <span className="font-mono">AS{v}</span>,
+                },
+                {
+                  param: "tag",
+                  label: "Tag",
+                  render: (v) => <span className="font-mono">{v}</span>,
+                },
+              ]}
+            >
+              <SearchFilter
+                fields={[
+                  {
+                    param: "q",
+                    label: "IP prefix",
+                    placeholder: "IP prefix, e.g. 203.0.113",
+                  },
+                ]}
+                clean={(_, raw) =>
+                  /^[0-9a-fA-F.:]{1,45}$/.test(raw.trim()) ? raw.trim() : undefined
+                }
+              />
+              <SensorFilter />
+              <CountryFilter />
+              <NetworkFilter />
+              <TagFilter />
+            </FilterBar>
+          }
+        >
           <AttackerList filters={filters} />
-        </>
+        </StickyFilters>
       )}
     </>
   )

@@ -225,6 +225,18 @@ export const handlers = [
     const campaignId = url.searchParams.get("campaign_id")
     if (technique) items = items.filter((s) => s.techniques?.includes(technique))
     if (campaignId) items = items.filter((s) => String(s.campaign_id) === campaignId)
+    // Like the API: the session has an event whose field equals the value exactly.
+    for (const [param, key] of [
+      ["username", "username"],
+      ["command", "input"],
+      ["url", "url"],
+    ] as const) {
+      const wanted = url.searchParams.get(param)
+      if (!wanted) continue
+      items = items.filter((s) =>
+        byId.get(s.session_id)?.events.some((e) => e.data[key] === wanted),
+      )
+    }
     if (country) items = items.filter((s) => s.country === country.toUpperCase())
     if (asn) items = items.filter((s) => String(s.asn) === asn)
     if (since) items = items.filter((s) => s.started_at >= new Date(since).toISOString())

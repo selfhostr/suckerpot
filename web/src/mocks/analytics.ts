@@ -276,6 +276,7 @@ export function analyticsHandlers(fixtures: readonly Fixture[]) {
       if (sensors.length) items = items.filter((a) => a.sensors.some((x) => sensors.includes(x)))
       if (tag) items = items.filter((a) => a.tags.includes(tag))
       if (q) items = items.filter((a) => a.ip.startsWith(q))
+      const asc = p.get("order") === "asc"
       const key = (a: Attacker): number | string =>
         sort === "sessions"
           ? a.sessions
@@ -287,7 +288,7 @@ export function analyticsHandlers(fixtures: readonly Fixture[]) {
       items = [...items].sort((x, y) => {
         const a = key(x)
         const b = key(y)
-        return a < b ? 1 : a > b ? -1 : x.ip.localeCompare(y.ip)
+        return a < b ? (asc ? -1 : 1) : a > b ? (asc ? 1 : -1) : x.ip.localeCompare(y.ip)
       })
       const limit = Math.min(200, Number(p.get("limit") ?? 50))
       const off = offsetCursor(p.get("cursor"))
@@ -353,9 +354,12 @@ export function analyticsHandlers(fixtures: readonly Fixture[]) {
       await delay(LATENCY_MS)
       const p = new URL(request.url).searchParams
       const sort = p.get("sort") ?? "sessions"
+      const sinceRaw = p.get("since")
+      const since = sinceRaw ? parseTime(sinceRaw, 0) : 0
       const by = new Map<number, AsnItem & { set: Set<string> }>()
       for (const { a } of list) {
         if (a.asn === null) continue
+        if (since && new Date(a.last_seen).getTime() < since) continue
         const cur = by.get(a.asn) ?? {
           asn: a.asn,
           org: a.org,

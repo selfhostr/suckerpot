@@ -195,6 +195,9 @@ describe("time window", () => {
 
   it("writes a plain label", () => {
     const now = Date.parse(asOf)
+    expect(windowLabel(windowSince(asOf, 168), undefined, now)).toBe("Last 7 days")
+    expect(windowLabel(windowSince(asOf, 72), undefined, now)).toBe("Last 3 days")
+    expect(windowLabel(windowSince(asOf, 50), undefined, now)).toBe("Last 50 hours")
     expect(windowLabel(windowSince(asOf, 24), undefined, now)).toBe("Last 24 hours")
     expect(windowLabel("2026-10-27T10:00:00Z", "2026-10-27T11:00:00Z", now)).toMatch(
       /^Between \d\d:\d\d and \d\d:\d\d$/,
