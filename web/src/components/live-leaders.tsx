@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
 import { CountryFlag } from "@/components/country-flag"
@@ -125,7 +126,7 @@ interface LiveLeadersProps {
  * of the last 15 minutes, each card opening with its finding. Every row opens
  * the filtered Attacks view; hovering one lights its country on the map.
  */
-export function LiveLeaders({
+export const LiveLeaders = memo(function LiveLeaders({
   leaders,
   sources,
   windowEvents,
@@ -244,4 +245,4 @@ export function LiveLeaders({
       </FindingCard>
     </section>
   )
-}
+})

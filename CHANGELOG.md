@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Live is much cheaper to leave running. The map draws land and borders once on their own layer, from a static `world.svg` asset instead of an 81 kB path inside the JavaScript; the pulses around active sources and the dashes flying along the arcs run on the compositor instead of repainting the whole map every frame; pulses and dashes stop while the map is out of view or the tab is hidden; and a new event re-renders only the parts it changes. The picture is the same.
+
 ## [0.14.2] - 2026-11-24
 
 ### Added

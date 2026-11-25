@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { Link } from "react-router"
 import { CountryFlag } from "@/components/country-flag"
 import { eventTypeMeta } from "@/lib/event-type"
@@ -29,7 +30,7 @@ interface LiveEventRowProps {
  * the session; the IP, flag and tags stay independently clickable above it.
  * `summary` comes from the server as plain text and is rendered as text only.
  */
-export function LiveEventRow({
+export const LiveEventRow = memo(function LiveEventRow({
   event,
   isNew = false,
   compact = false,
@@ -107,4 +108,4 @@ export function LiveEventRow({
       </div>
     </div>
   )
-}
+})

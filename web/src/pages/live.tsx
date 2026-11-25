@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Pause, Play, Radio, SearchX, WifiOff } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
 import { useLiveFeed } from "@/app/use-live-feed"
@@ -119,6 +119,11 @@ export function LivePage() {
 
   // Hovering a row, a chip or a dot lights that country everywhere.
   const [focus, setFocus] = useState<string | null>(null)
+  // Stable, so the memoized ticker re-renders only when what it shows changes.
+  const resume = useCallback(() => {
+    setPaused(false)
+    setHovering(false)
+  }, [])
 
   const waiting = feed.events.length === 0
   const connecting = waiting && (feed.status === "connecting" || feed.status === "reconnecting")
@@ -204,10 +209,7 @@ export function LivePage() {
             focus={focus}
             onFocusChange={setFocus}
             onHoverChange={setHovering}
-            onResume={() => {
-              setPaused(false)
-              setHovering(false)
-            }}
+            onResume={resume}
             polling={feed.transport === "polling"}
             placeholder={placeholder}
           />
