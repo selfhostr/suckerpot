@@ -37,7 +37,7 @@ All colours are CSS variables on `:root` (dark, the default) and `[data-theme="l
 | `--fg-muted`                   | `#a1a4ac`             | `#4f525a`             | Secondary text                         |
 | `--fg-subtle`                  | `#858892`             | `#6a6d76`             | Labels, timestamps (still AA, ≥ 4.5:1) |
 
-The primary action is neutral (`--primary` is the text colour, inverted). There is no brand hue: a hue always means a sensor or a severity.
+The primary action is neutral (`--primary` is the text colour, inverted). There is no brand hue: a hue always means a sensor or a severity. The one exception is the product mark (`src/app/logo.tsx`, the same drawing as `public/favicon.svg`): its violet drop and dark tile are fixed colours inside the logo, never a token, and they do not change with the theme.
 
 ### Sensors: one hue per family, one icon per sensor
 
