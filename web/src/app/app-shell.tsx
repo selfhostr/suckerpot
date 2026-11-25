@@ -202,7 +202,7 @@ export function AppShell() {
                 className={cn(
                   // Every page fills the column, with the same gutters; the cap is for ultra-wide
                   // screens only. A `prose` page caps its own column (route table, `handle.width`).
-                  "mx-auto w-full px-4 pt-5 pb-10 sm:px-6 lg:px-10 lg:pt-7",
+                  "mx-auto w-full px-4 pt-3 pb-10 sm:px-6 lg:px-10 lg:pt-4",
                   PAGE_FRAME_CLASS,
                 )}
               >

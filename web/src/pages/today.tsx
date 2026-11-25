@@ -39,24 +39,24 @@ function formatTime(iso: string): string {
 
 /**
  * On desktop the page fills the window and never scrolls: the shell's header (3.5 rem) and top
- * padding (1.75 rem) above; below, 1 rem of air, then the version line (1.75 rem) where the
+ * padding (1 rem) above; below, 1 rem of air, then the version line (1.75 rem) where the
  * shell's 2.5 rem bottom padding would be (pulled up by 1.5 rem). Under the header, two rows: now
  * (the map, and who is behind it) and the day (five numbers and the hour strip, and what to do).
  * The right column has one width in both rows, so the cards line up on both edges. Below 40 rem
  * of height the page scrolls rather than crush the map.
  */
 const BOARD =
-  "grid grid-cols-1 gap-4 lg:-mb-6 lg:h-[calc(100dvh-8rem)] lg:min-h-[40rem] lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26%,26rem)] lg:grid-rows-[auto_minmax(0,1fr)_clamp(16.5rem,30dvh,20rem)]"
+  "grid grid-cols-1 gap-4 lg:-mb-6 lg:h-[calc(100dvh-7.25rem)] lg:min-h-[40rem] lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26%,26rem)] lg:grid-rows-[auto_minmax(0,1fr)_clamp(16rem,25dvh,17rem)]"
 
 /** One number of the day: label above, value below, a link to the matching list. */
 function Figure({ label, value, href }: { label: string; value: number; href?: string }) {
   const body = (
     <>
-      <span className="type-eyebrow text-fg-muted">{label}</span>
-      <AnimatedNumber value={value} className="type-kpi text-fg" />
+      <AnimatedNumber value={value} className="text-lg leading-6 font-semibold tracking-tight text-fg" />
+      <span className="min-w-0 truncate type-eyebrow text-fg-muted">{label}</span>
     </>
   )
-  const classes = "-mx-2 flex min-w-0 flex-col gap-0.5 rounded-md px-2 py-1"
+  const classes = "-mx-1.5 flex min-w-0 items-baseline gap-1.5 rounded-md px-1.5 py-0.5"
   return href ? (
     <Link
       to={href}
@@ -89,7 +89,7 @@ function DayCard({
     <Card
       role="region"
       aria-label={t("today_day_aria")}
-      className={cn("min-h-0 gap-4 overflow-hidden p-4 sm:p-5", className)}
+      className={cn("min-h-0 gap-2.5 overflow-hidden p-3 sm:px-4", className)}
     >
       {error ? (
         <div className="flex h-full flex-col items-start justify-center gap-3">
@@ -102,15 +102,15 @@ function DayCard({
         <div role="status" aria-label={t("common_loading")} className="flex h-full flex-col gap-4">
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-5">
             {Array.from({ length: 5 }, (_, i) => (
-              <Skeleton key={i} className="h-13" />
+              <Skeleton key={i} className="h-7" />
             ))}
           </div>
           <Skeleton className="min-h-24 flex-1" />
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-            <div className="grid flex-1 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <div className="grid flex-1 grid-cols-3 gap-x-3 gap-y-1 sm:grid-cols-5">
               <Figure
                 label={t("today_figure_visits")}
                 value={totals.sessions}
@@ -129,7 +129,7 @@ function DayCard({
                 href={hrefOf("download")}
               />
             </div>
-            <p className="pt-1 text-xs text-fg-subtle max-sm:w-full">
+            <p className="text-xs text-fg-subtle max-sm:w-full">
               {tNodes(
                 "today_updated",
                 {},
@@ -140,7 +140,7 @@ function DayCard({
           <HourlyActivity
             timeline={story.timeline}
             sensors={sensors}
-            className="flex-1 border-t pt-4"
+            className="flex-1 border-t pt-2.5"
             plotClassName="max-lg:h-36 max-lg:flex-none"
           />
         </>

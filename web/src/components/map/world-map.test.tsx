@@ -1,7 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Source } from "./activity"
 import { project } from "./projection"
 import { MAP_PRESETS, WorldMap } from "./world-map"
@@ -29,22 +29,40 @@ afterEach(() => {
   delete (window as unknown as { __SUCKERPOT_MAP__?: unknown }).__SUCKERPOT_MAP__
 })
 
+/** Radix Select leans on pointer capture and scrolling, which jsdom lacks. */
+function polyfillSelect() {
+  const proto = Element.prototype as unknown as Record<string, unknown>
+  proto.hasPointerCapture ??= () => false
+  proto.setPointerCapture ??= () => {}
+  proto.releasePointerCapture ??= () => {}
+  proto.scrollIntoView ??= () => {}
+}
+
+/** Picks a continent in the dropdown. */
+async function pickContinent(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole("combobox", { name: "Continent" }))
+  await user.click(await screen.findByRole("option", { name }))
+}
+
 describe("WorldMap presets", () => {
+  beforeEach(polyfillSelect)
+
   it("opens on the World view by default", () => {
     mount()
     expect(screen.getByRole("button", { name: "World" })).toHaveAttribute("aria-pressed", "true")
-    expect(screen.getByRole("button", { name: "Europe" })).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByRole("combobox", { name: "Continent" })).toHaveTextContent("Continent")
     expect(screen.getByText("Switzerland")).toBeInTheDocument()
   })
 
   it("remembers Europe once chosen, and World again after a reset", async () => {
     const user = userEvent.setup()
     const { unmount } = mount()
-    await user.click(screen.getByRole("button", { name: "Europe" }))
+    await pickContinent(user, "Europe")
     expect(localStorage.getItem(KEY)).toBe("europe")
     unmount()
     mount()
-    expect(screen.getByRole("button", { name: "Europe" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("combobox", { name: "Continent" })).toHaveTextContent("Europe")
+    expect(screen.getByRole("button", { name: "World" })).toHaveAttribute("aria-pressed", "false")
     // The 0 key (reset) goes back to the world.
     screen.getByRole("group", { name: /Map of attack origins/ }).focus()
     await user.keyboard("0")
@@ -53,27 +71,40 @@ describe("WorldMap presets", () => {
 })
 
 describe("WorldMap regions", () => {
-  const NAMES = ["World", "Europe", "North America", "South America", "Africa", "Asia", "Oceania"]
+  beforeEach(polyfillSelect)
 
-  it("offers the world and six continents, one pressed at a time", async () => {
+  it("offers a World toggle and a dropdown of the six continents", async () => {
     const user = userEvent.setup()
     mount()
     const group = screen.getByRole("group", { name: "Region" })
-    expect(
-      within(group)
-        .getAllByRole("button")
-        .map((b) => b.textContent),
-    ).toEqual(NAMES)
-    await user.click(screen.getByRole("button", { name: "Oceania" }))
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["World"])
+    await user.click(screen.getByRole("combobox", { name: "Continent" }))
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual([
+      "Europe",
+      "North America",
+      "South America",
+      "Africa",
+      "Asia",
+      "Oceania",
+    ])
+  })
+
+  it("picks a continent, and the World toggle goes back", async () => {
+    const user = userEvent.setup()
+    mount()
+    await pickContinent(user, "Oceania")
     expect(localStorage.getItem(KEY)).toBe("oceania")
-    expect(screen.getByRole("button", { name: "Oceania" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("combobox", { name: "Continent" })).toHaveTextContent("Oceania")
     expect(screen.getByRole("button", { name: "World" })).toHaveAttribute("aria-pressed", "false")
+    await user.click(screen.getByRole("button", { name: "World" }))
+    expect(localStorage.getItem(KEY)).toBe("world")
+    expect(screen.getByRole("button", { name: "World" })).toHaveAttribute("aria-pressed", "true")
   })
 
   it("reads a stored choice, and falls back to the world for an unknown one", () => {
     localStorage.setItem(KEY, "africa")
     const first = mount()
-    expect(screen.getByRole("button", { name: "Africa" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("combobox", { name: "Continent" })).toHaveTextContent("Africa")
     first.unmount()
     localStorage.setItem(KEY, "atlantis")
     mount()
