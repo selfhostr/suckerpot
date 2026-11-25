@@ -1,3 +1,4 @@
+import { CardHelp } from "@/components/page-help"
 import { useMemo, useRef, useState } from "react"
 import { Link } from "react-router"
 import { SegmentedControl } from "@/components/segmented-control"
@@ -131,7 +132,10 @@ export function HourlyActivity({
     <figure className={cn("flex min-h-0 flex-col", className)}>
       <figcaption className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <span className="flex items-center gap-3">
-          <span className="type-eyebrow text-fg-muted">{t("charts_hourly_title")}</span>
+          <span className="flex items-center gap-1">
+            <span className="type-eyebrow text-fg-muted">{t("charts_hourly_title")}</span>
+            <CardHelp id="hourly" />
+          </span>
           <SegmentedControl
             label={t("charts_hourly_stack_by")}
             value={split}

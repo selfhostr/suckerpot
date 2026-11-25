@@ -56,6 +56,7 @@ export function NodeCard({ status: s }: { status: NetworkStatus }) {
   return (
     <FindingCard
       eyebrow={t("network_node_eyebrow")}
+      help="node"
       finding={
         s.pseudonym
           ? t("network_node_finding_named", { name: s.pseudonym })

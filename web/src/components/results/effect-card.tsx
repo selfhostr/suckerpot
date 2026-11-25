@@ -164,6 +164,7 @@ export function EffectCard({
   return (
     <FindingCard
       eyebrow={t("results_effect_eyebrow")}
+      help="effect"
       finding={e ? e.sentence : t("results_effect_loading")}
     >
       {!week || !e ? (

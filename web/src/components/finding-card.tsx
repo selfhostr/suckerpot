@@ -1,4 +1,6 @@
+import { CardHelp } from "@/components/page-help"
 import { Card } from "@/components/ui/card"
+import type { CardHelpId } from "@/lib/help"
 import { cn } from "@/lib/utils"
 
 interface FindingCardProps {
@@ -6,6 +8,8 @@ interface FindingCardProps {
   eyebrow: string
   /** The plain-English finding the chart proves. Mandatory: no chart without a sentence. */
   finding: React.ReactNode
+  /** What the card shows and where its figures come from: a "?" beside the label. */
+  help?: CardHelpId
   /** Optional supporting line under the finding. */
   detail?: React.ReactNode
   /** Right-aligned controls (period switch, "View all" link…). */
@@ -20,6 +24,7 @@ interface FindingCardProps {
 export function FindingCard({
   eyebrow,
   finding,
+  help,
   detail,
   action,
   footer,
@@ -33,7 +38,14 @@ export function FindingCard({
           controls on phones), so the finding never shrinks into a narrow column. */}
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-4 pt-4 sm:px-5 sm:pt-5">
         <div className="min-w-0 flex-[1_1_16rem] space-y-1.5">
-          <p className="type-eyebrow text-fg-muted">{eyebrow}</p>
+          {help ? (
+            <div className="-my-0.5 flex items-center gap-1">
+              <p className="type-eyebrow text-fg-muted">{eyebrow}</p>
+              <CardHelp id={help} />
+            </div>
+          ) : (
+            <p className="type-eyebrow text-fg-muted">{eyebrow}</p>
+          )}
           <h3 className="type-card-title text-pretty text-fg">{finding}</h3>
           {detail ? <p className="text-sm text-fg-muted">{detail}</p> : null}
         </div>

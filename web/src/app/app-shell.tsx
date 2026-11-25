@@ -1,5 +1,5 @@
 import { ChevronRight, Menu } from "lucide-react"
-import { Fragment, useCallback, useEffect, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import { Link, Outlet, ScrollRestoration, useLocation, useMatches } from "react-router"
 import { PipelineBanner } from "@/components/pipeline-banner"
 import { ScannerToggle } from "@/components/scanner-toggle"
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 import { Logo } from "./logo"
 import { crumbsFor } from "./nav"
 import { PAGE_FRAME_CLASS, PAGE_WIDTH_CLASS, pageWidth } from "./page-width"
+import { HelpSlotContext } from "./help-slot"
 import { PageSwitch } from "./page-switch"
 import { Sidebar } from "./sidebar"
 import { useSidebarCollapsed } from "./sidebar-state"
@@ -105,6 +106,8 @@ function Breadcrumb({ pathname }: { pathname: string }) {
 export function AppShell() {
   const [open, setOpen] = useState(false)
   const [collapsed, setCollapsed] = useSidebarCollapsed()
+  const [helpNode, setHelpNode] = useState<HTMLElement | null>(null)
+  const helpSlot = useMemo(() => ({ node: helpNode, setNode: setHelpNode }), [helpNode])
   const { pathname } = useLocation()
   const width = pageWidth(useMatches())
   const toggle = useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed])
@@ -201,15 +204,17 @@ export function AppShell() {
                   PAGE_FRAME_CLASS,
                 )}
               >
-                <div className={PAGE_WIDTH_CLASS[width]}>
-                  <PipelineBanner />
-                  {/* Outside the fading page: it stays put while you switch between its pages. */}
-                  <PageSwitch pathname={pathname} />
-                  {/* A new route fades in softly (off with reduced motion and for screenshots). */}
-                  <div key={pathname} className="animate-page-in">
-                    <Outlet />
+                <HelpSlotContext value={helpSlot}>
+                  <div className={PAGE_WIDTH_CLASS[width]}>
+                    <PipelineBanner />
+                    {/* Outside the fading page: it stays put while you switch between its pages. */}
+                    <PageSwitch pathname={pathname} />
+                    {/* A new route fades in softly (off with reduced motion and for screenshots). */}
+                    <div key={pathname} className="animate-page-in">
+                      <Outlet />
+                    </div>
                   </div>
-                </div>
+                </HelpSlotContext>
               </div>
             </main>
             <VersionFooter className="mx-auto w-full max-w-page-wide px-4 pb-3 sm:px-6 lg:px-10" />

@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest"
 import { allPages } from "@/app/nav"
-import { HELP, HELP_IDS, settingsHelpId, type HelpId } from "./help"
+import { CARD_HELP, CARD_HELP_IDS, HELP, HELP_IDS, settingsHelpId, type HelpId } from "./help"
 
 // Every page file, as text: the test reads which help id each page header asks for.
 const pages = import.meta.glob<string>("/src/pages/*.tsx", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})
+
+// Every component and page, as text: the test reads which card texts are really used.
+const sources = import.meta.glob<string>(["/src/components/**/*.tsx", "/src/pages/*.tsx"], {
   query: "?raw",
   import: "default",
   eager: true,
@@ -24,6 +31,30 @@ describe("page help texts", () => {
       expect(sentences(t.body), `${id}: ${t.body}`).toBeGreaterThanOrEqual(2)
       expect(sentences(t.body), `${id}: ${t.body}`).toBeLessThanOrEqual(3)
     }
+  })
+
+  it("gives every card text two or three sentences", () => {
+    for (const id of CARD_HELP_IDS) {
+      const text = CARD_HELP[id]
+      expect(text.title, id).not.toBe("")
+      expect(sentences(text.body), `${id}: ${text.body}`).toBeGreaterThanOrEqual(2)
+      expect(sentences(text.body), `${id}: ${text.body}`).toBeLessThanOrEqual(3)
+      expect(text.body, id).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/)
+    }
+  })
+
+  it("uses every card text, and only ones that exist", () => {
+    const used = new Set<string>()
+    for (const [path, source] of Object.entries(sources)) {
+      if (path.includes(".test.")) continue
+      for (const m of source.matchAll(/(?:help="|<CardHelp id=")([a-z0-9-]+)"/g)) {
+        const id = m[1] ?? ""
+        if (id in HELP) continue
+        expect(CARD_HELP_IDS, `${path}: unknown card help ${id}`).toContain(id)
+        used.add(id)
+      }
+    }
+    expect([...used].sort()).toEqual([...CARD_HELP_IDS].sort())
   })
 
   it("never contains an address", () => {

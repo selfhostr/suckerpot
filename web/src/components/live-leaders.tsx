@@ -1,3 +1,4 @@
+import { CardHelp } from "@/components/page-help"
 import { memo, useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 import { useIpMask } from "@/app/ip-mask"
@@ -232,7 +233,10 @@ export const LiveLeaders = memo(function LiveLeaders({
       className={cn("min-h-0 overflow-hidden", className)}
     >
       <header className="space-y-1.5 px-4 pt-4 sm:px-5 sm:pt-5">
-        <p className="type-eyebrow text-fg-muted">{t("live_leaders_window")}</p>
+        <div className="-my-0.5 flex items-center gap-1">
+          <p className="type-eyebrow text-fg-muted">{t("live_leaders_window")}</p>
+          <CardHelp id="leaders" />
+        </div>
         <h2 id="live-leaders-title" className="type-card-title text-pretty text-fg">
           {board === "addresses"
             ? addressFinding(leaders.addresses[0], masked)

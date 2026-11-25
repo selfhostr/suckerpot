@@ -1,4 +1,4 @@
-import { ChevronsUpDown, KeyRound, Languages, Laptop, LogOut, Moon, Sun } from "lucide-react"
+import { Check, ChevronsUpDown, EyeOff, KeyRound, Laptop, LogOut, Moon, Sun } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
@@ -7,16 +7,11 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { LOCALES, currentLocale, isLocaleCode, setLocale, t, tk } from "@/i18n"
+import { t, tk } from "@/i18n"
 import { useAuth } from "./auth"
 import { useIpMask } from "./ip-mask"
 import { useTheme, type ThemePreference } from "./theme"
@@ -68,19 +63,13 @@ function Avatar({ name }: { name: string }) {
 }
 
 /**
- * The profile block at the foot of the sidebar: initials and name, opening a short menu: the
- * theme (one item that cycles), "Mask IP addresses", "Change password" (not for the owner, whose
- * password lives in .env) and "Sign out". The version is at the foot of every page instead.
- * `rail` is the avatar alone, for the folded sidebar (the name shows as a tooltip).
+ * The profile block at the foot of the sidebar: initials and name, opening a short menu above it,
+ * as wide as the block: the theme (one item that cycles), "Mask IP addresses", "Change password"
+ * (not for the owner, whose password lives in .env) and "Sign out". Every item has a leading icon.
+ * The language is in Settings, the version at the foot of every page. `rail` is the avatar alone,
+ * for the folded sidebar (the name shows as a tooltip); its menu opens beside the rail.
  */
-export function AccountMenu({
-  variant = "full",
-  menuSide = "right",
-}: {
-  variant?: "full" | "rail"
-  /** Where the menu opens: beside the sidebar on desktop, above the block in the phone drawer. */
-  menuSide?: "right" | "top"
-}) {
+export function AccountMenu({ variant = "full" }: { variant?: "full" | "rail" }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { preference, setPreference } = useTheme()
@@ -89,8 +78,6 @@ export function AccountMenu({
   if (!user) return null
   const label = t("account_menu_label", { name: user.display_name })
   const theme = THEMES[preference]
-  const locale = currentLocale()
-  const localeName = LOCALES.find((l) => l.code === locale)?.name ?? locale
 
   const trigger =
     variant === "rail" ? (
@@ -131,11 +118,12 @@ export function AccountMenu({
           <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         )}
         <DropdownMenuContent
-          side={menuSide}
-          align={menuSide === "right" ? "end" : "start"}
-          sideOffset={menuSide === "right" ? 10 : 6}
+          // Above the block, as wide as the sidebar column; beside the rail when folded.
+          side={variant === "rail" ? "right" : "top"}
+          align={variant === "rail" ? "end" : "start"}
+          sideOffset={variant === "rail" ? 10 : 6}
           collisionPadding={8}
-          className="w-56"
+          className={variant === "rail" ? "w-56" : "w-(--radix-dropdown-menu-trigger-width) min-w-52"}
         >
           <DropdownMenuItem
             // The menu stays open, so the new theme is seen before moving on.
@@ -151,33 +139,16 @@ export function AccountMenu({
               {t("account_theme_switches_to", { theme: t(THEMES[theme.next].labelLower) })}
             </span>
           </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Languages aria-hidden />
-              <span className="min-w-0 flex-1">{t("account_language")}</span>
-              <span className="truncate text-xs text-fg-subtle">{localeName}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent collisionPadding={8}>
-              <DropdownMenuRadioGroup
-                value={locale}
-                onValueChange={(code) => {
-                  if (isLocaleCode(code)) void setLocale(code, true)
-                }}
-              >
-                {LOCALES.map((l) => (
-                  <DropdownMenuRadioItem key={l.code} value={l.code} lang={l.code}>
-                    {l.name}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
           <DropdownMenuCheckboxItem
             checked={masked}
             onCheckedChange={setMasked}
             onSelect={(e) => e.preventDefault()}
+            // A leading icon like the other items: the built-in check mark moves to the end.
+            className="gap-2 pl-2 [&>span:first-child]:hidden"
           >
-            {t("account_mask_ips")}
+            <EyeOff aria-hidden className="text-muted-foreground" />
+            <span className="min-w-0 flex-1">{t("account_mask_ips")}</span>
+            {masked ? <Check aria-hidden className="text-fg" /> : null}
             <span className="sr-only"> {t("account_mask_ips_hint")}</span>
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />

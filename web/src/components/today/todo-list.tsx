@@ -1,3 +1,4 @@
+import { CardHelp } from "@/components/page-help"
 import { useQuery } from "@tanstack/react-query"
 import {
   Bell,
@@ -129,9 +130,12 @@ export function TodoList({ cards, error = false, className }: TodoListProps) {
       aria-labelledby="todo-title"
       className={cn("min-h-0 overflow-hidden px-4 py-4 sm:px-5 sm:py-5", className)}
     >
-      <h2 id="todo-title" className="type-eyebrow text-fg-muted">
-        {t("today_todo_title")}
-      </h2>
+      <div className="-my-0.5 flex items-center gap-1">
+        <h2 id="todo-title" className="type-eyebrow text-fg-muted">
+          {t("today_todo_title")}
+        </h2>
+        <CardHelp id="todo" />
+      </div>
       {error ? (
         <p className="mt-2 text-sm text-fg-muted">{t("today_todo_error")}</p>
       ) : !cards ? (

@@ -1,3 +1,4 @@
+import { CardHelp } from "@/components/page-help"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { LoadMore } from "@/components/load-more"
 import { Check, ChevronRight, Copy, ExternalLink, Radio, SearchX } from "lucide-react"
@@ -192,9 +193,12 @@ export function C2Section({ className }: { className?: string }) {
       )}
     >
       <header className="space-y-1.5 px-4 pt-4 pb-4 sm:px-5 sm:pt-5">
-        <h2 id="c2-heading" className="type-eyebrow text-fg-muted">
-          {tNodes("c2_heading", {}, { c2: <Explain term="c2">C2</Explain> })}
-        </h2>
+        <div className="-my-0.5 flex items-center gap-1">
+          <h2 id="c2-heading" className="type-eyebrow text-fg-muted">
+            {tNodes("c2_heading", {}, { c2: <Explain term="c2">C2</Explain> })}
+          </h2>
+          <CardHelp id="c2" />
+        </div>
         <p className="type-card-title text-pretty text-fg">{sentence}</p>
       </header>
       <div className="flex-1 border-t">

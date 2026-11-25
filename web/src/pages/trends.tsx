@@ -193,6 +193,7 @@ export function TrendsPage() {
         <FindingCard
           className="min-w-0"
           eyebrow={t("trends_tags_eyebrow", { days })}
+          help="tags"
           finding={tags.isPending ? t("trends_tags_loading") : tagFinding.finding}
           detail={tags.isPending ? undefined : tagFinding.detail}
         >
@@ -203,6 +204,7 @@ export function TrendsPage() {
       <FindingCard
         className="mt-4"
         eyebrow={t("trends_new_eyebrow", { days })}
+        help="new"
         finding={fresh.isPending ? t("trends_new_loading") : newFinding.finding}
         detail={t("trends_new_detail")}
       >

@@ -145,10 +145,10 @@ function Stepper() {
 
   if (!progress || !step)
     return progressQ.isError ? (
-      <PageHeader title={t("setup_title")} description={t("setup_unavailable")} />
+      <PageHeader showTitle title={t("setup_title")} description={t("setup_unavailable")} />
     ) : (
       <>
-        <PageHeader title={t("setup_title")} />
+        <PageHeader showTitle title={t("setup_title")} />
         <SkeletonCard />
       </>
     )
@@ -189,6 +189,7 @@ function Stepper() {
   return (
     <>
       <PageHeader
+        showTitle
         help="setup"
         title={t("setup_title")}
         description={t("setup_description")}

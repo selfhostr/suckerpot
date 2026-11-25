@@ -79,6 +79,7 @@ export function OverridesCard({ canWrite }: { canWrite: boolean }) {
   return (
     <FindingCard
       eyebrow={t("overrides_eyebrow")}
+      help="overrides"
       finding={finding}
       detail={t("overrides_detail")}
       action={

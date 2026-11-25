@@ -56,6 +56,7 @@ export function BlockedDraftsNotice({ blocked }: { blocked: BlockedDrafts }) {
   return (
     <FindingCard
       eyebrow={t("abuse_blocked_eyebrow")}
+      help="blocked"
       finding={describeBlockedDrafts(blocked)}
       detail={t("abuse_blocked_detail")}
       action={
