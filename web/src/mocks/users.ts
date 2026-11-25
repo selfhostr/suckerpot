@@ -1,3 +1,4 @@
+import { mockRandom } from "./random"
 import { delay, http, HttpResponse } from "msw"
 import { demoMode } from "@/app/demo-role"
 import type { AuthUser, Role } from "@/lib/auth-api"
@@ -175,7 +176,7 @@ const isViewer = () => demoMode() === "viewer"
 function temporaryPassword() {
   const chars = "abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRTUVWXYZ2346789"
   const part = () =>
-    Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+    Array.from({ length: 5 }, () => chars[Math.floor(mockRandom() * chars.length)]).join("")
   return `${part()}-${part()}-${part()}-${part()}`
 }
 

@@ -3,6 +3,7 @@
  * addresses come from the documentation ranges and hosts from example.* names. Overrides,
  * tokens and the inventory are stateful, so the write flows work in screenshots.
  */
+import { mockRandom } from "./random"
 import { delay, http, HttpResponse, type RequestHandler } from "msw"
 import type {
   BlockEntry,
@@ -664,7 +665,7 @@ let nextTokenId = 5
 function randomToken() {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
   let out = ""
-  for (let i = 0; i < 43; i++) out += alphabet.charAt(Math.floor(Math.random() * alphabet.length))
+  for (let i = 0; i < 43; i++) out += alphabet.charAt(Math.floor(mockRandom() * alphabet.length))
   return out
 }
 
