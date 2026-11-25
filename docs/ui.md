@@ -43,17 +43,17 @@ The **Take the tour** button in the Settings header plays the guided tour again.
 | Sign in | `/login` | The login form. Any other page sends you here when there is no session. `/set-password` asks for a new password on first sign-in. |
 | **Observe** | | |
 | Today | `/` | The home page, on one screen: the live map of the last 15 minutes with a ticker of the newest events and the busiest addresses and networks, then the last 24 hours in five numbers and an hour-by-hour chart, and the few things to do. `/live` opens it too. See [Today](#today). |
-| Attacks | `/attacks` | Sessions, newest first, one line each, as a short story. Filters: sensor, floods (All, Hide, Only), source address, period, tag, country and network. Pages of 50, virtualised. A source that flooded the sensors is one row per hour (see [Flood groups](#flood-groups)). |
+| Attacks | `/attacks` | Sessions, newest first, one line each, as a short story. Filters: sensor, floods (All, Hide, Only), source address, period, tag, country and network. Sessions, Attackers and Networks are one filter bar over three groupings: the tabs carry the filters they share (sensor, country, network, tag, period) from one tab to the next. Pages of 50, virtualised. A source that flooded the sensors is one row per hour (see [Flood groups](#flood-groups)). |
 | Session detail | `/attacks/<session id>` | The attack timeline, with long runs of the same event folded, a terminal replay for shell sessions, and a source panel. A flood group has its own page, with the credentials it tried instead of a replay. |
 | Attackers | `/attackers`, `/attackers/<ip>` | Profiles by address: first and last seen, sensors targeted, reputation. |
 | Attacker networks | `/networks` | The hosting providers and networks (ASNs) the attacks come from. The old `/attackers?view=asns` address redirects here. |
 | **Understand** | | |
 | Campaigns | `/campaigns`, `/campaigns/<id>` | Sessions that share a script, payload host, file hash, malware family, exploit or credential list, grouped into one campaign with a plain-English story. Campaigns from the same addresses are merged into the oldest one; the old address shows a note with a link to the combined campaign. |
-| Techniques | `/techniques` | The MITRE ATT&CK techniques seen, as a heatmap per day. |
+| Techniques | `/techniques` | The MITRE ATT&CK techniques seen, as a table with the busiest first: stage, a line of the days, first seen and sessions. A row opens its sessions. |
 | Scripts | `/scripts`, `/scripts/<id>` | The library of command scripts that attackers typed, each with an explanation and the sessions that used it. |
-| Files | `/malware` | Download URLs, defanged, with how often, from how many addresses and with which tool. File hashes and VirusTotal links appear when payload fetching is on. |
-| Hosts & URLs | `/infrastructure` | A finding first ("40 scanning IPs fetched payloads from 2 shared hosts this week"), a flow diagram from source addresses through indicators to malware families (a list on narrow screens), a filterable indicator table, a detail panel with threat-intelligence answers, and CSV or STIX 2.1 export buttons. Indicators are defanged text, never links. |
-| Patterns | `/trends` | Top usernames, passwords, commands and URLs, tags over time, a day by hour heatmap, and "new this week" (values never seen in the 90 days before). |
+| Files | `/malware` | The files the collector fetched, with their analysis, newest first. When nothing was collected, the page says why (collector off, paused or still working). The download URLs are on Hosts & URLs; an old `/malware?url=` link opens there. |
+| Hosts & URLs | `/infrastructure` | A finding first ("40 scanning IPs fetched payloads from 2 shared hosts this week"), one table of indicators and download URLs with filters for type, role (payload source, contacted host, file hash) and verdict, the probable command servers, a flow diagram from source addresses through indicators to malware families behind a "Show diagram" button (hidden until asked for, a list on narrow screens), a detail panel with threat-intelligence answers, and CSV or STIX 2.1 export buttons. Indicators are defanged text, never links. |
+| Patterns | `/trends` | One card for the top values with a switch (usernames, passwords, commands, URLs), tags with a line of the days and the change since the first half of the period, and "new this week" (values never seen in the 90 days before). |
 | **Defend** | | |
 | Block: Lists | `/defend/blocklists` | Scored blocklists with a reason for every point, overrides, and exports for firewalls. A Network tab shows the community lists. See [Defend](defend.md) and [Community blocklist feeds](feeds.md). |
 | Block: Rules | `/defend/detections` | Sigma and Suricata rules marked "review before deploying". |
@@ -92,9 +92,8 @@ In the demo and mock builds, add `?as=viewer` to any address to preview the read
 ## Trends and malware
 
 - **A sentence before a chart.** Every Trends card states what the chart shows ("Most attacks arrive between 02:00 and 05:00") before the chart.
-- **Local time.** The heatmap is stored by UTC hour and shown in the browser's time zone.
-- **Defanged URLs.** On the Malware page a URL is shown as `hxxp://example[.]com/x.sh`, as plain text and never as a link, so it cannot be opened by mistake. The copy button copies the defanged form. Do the same wherever you paste these URLs.
-- **Nothing is fetched.** The page lists URLs that attackers tried to download. SuckerPot does not download them.
+- **Defanged URLs.** On Hosts & URLs a URL is shown as `hxxp://example[.]com/x.sh`, as plain text and never as a link, so it cannot be opened by mistake. The copy button copies the defanged form. Do the same wherever you paste these URLs.
+- **Nothing is fetched.** Hosts & URLs lists URLs that attackers tried to download. SuckerPot does not download them.
 
 ## Samples and egress (M21)
 

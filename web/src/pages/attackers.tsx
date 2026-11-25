@@ -6,16 +6,8 @@ import { Term } from "@/components/term"
 import { Link, Navigate, useLocation, useSearchParams } from "react-router"
 import { AttackerRow, ATTACKER_GRID } from "@/components/attacker-row"
 import { CountryFlag } from "@/components/country-flag"
+import { AttacksFilterBar } from "@/components/attacks-filter-bar"
 import { EmptyState } from "@/components/empty-state"
-import { FilterBar, SensorFilter } from "@/components/filter-bar"
-import {
-  CountryFilter,
-  NetworkFilter,
-  PeriodFilter,
-  SearchFilter,
-  SortFilter,
-  TagFilter,
-} from "@/components/list-filters"
 import { PageHeader } from "@/components/page-header"
 import { RelativeTime } from "@/components/relative-time"
 import { SkeletonList, SkeletonRow } from "@/components/skeletons"
@@ -25,14 +17,12 @@ import { useUrlParam } from "@/hooks/use-url-param"
 import {
   api,
   ASN_LIMIT,
-  ATTACKER_SORTS,
   queryKeys,
   type AsnItem,
   type AttackerFilters,
 } from "@/lib/api"
 import { countryName, formatNumber, plural } from "@/lib/format"
 import {
-  ASN_SORTS,
   ATTACKER_PARAMS,
   ATTACKER_SORT_LABELS,
   clearParams,
@@ -41,12 +31,9 @@ import {
   parseAttackerFilters,
   parseNetworkView,
 } from "@/lib/list-filters"
-import { parseInstant, windowLabel } from "@/lib/story"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
-
-const IP_SORTS = ATTACKER_SORTS.map((id) => ({ id, label: ATTACKER_SORT_LABELS[id] }))
 
 function AttackerList({ filters }: { filters: AttackerFilters }) {
   const [, setParams] = useSearchParams()
@@ -310,12 +297,6 @@ export function NetworksPage() {
   return <AttackersView asns />
 }
 
-const countryChip = {
-  param: "country",
-  label: "Country",
-  render: (v: string) => <CountryFlag code={v.toUpperCase()} showName className="text-fg" />,
-}
-
 function AttackersView({ asns }: { asns: boolean }) {
   const [params] = useSearchParams()
   const { filters, sort, order } = parseAttackerFilters(params)
@@ -341,92 +322,9 @@ function AttackersView({ asns }: { asns: boolean }) {
         description={description}
       />
 
-      {asns ? (
-        <StickyFilters
-          filters={
-            <FilterBar
-              alsoClears={[...NETWORK_PARAMS]}
-              trailing={
-                <SortFilter options={ASN_SORTS} defaultSort="sessions" directional={false} />
-              }
-              chips={[
-                {
-                  param: "q",
-                  label: "Search",
-                  render: (v) => <span>{v}</span>,
-                },
-                countryChip,
-                {
-                  param: "since",
-                  label: "Period",
-                  render: (v) => <span>{windowLabel(parseInstant(v), undefined)}</span>,
-                },
-              ]}
-            >
-              <SearchFilter
-                fields={[
-                  {
-                    param: "q",
-                    label: "Network",
-                    placeholder: "AS number, network or country",
-                  },
-                ]}
-                clean={(_, raw) => raw.trim().slice(0, 64) || undefined}
-              />
-              <CountryFilter />
-              <PeriodFilter sinceOnly />
-            </FilterBar>
-          }
-        >
-          <AsnList />
-        </StickyFilters>
-      ) : (
-        <StickyFilters
-          filters={
-            <FilterBar
-              alsoClears={[...ATTACKER_PARAMS]}
-              trailing={<SortFilter options={IP_SORTS} defaultSort="last_seen" />}
-              chips={[
-                {
-                  param: "q",
-                  label: "IP prefix",
-                  render: (v) => <span className="font-mono">{v}</span>,
-                },
-                countryChip,
-                {
-                  param: "asn",
-                  label: "Network",
-                  render: (v) => <span className="font-mono">AS{v}</span>,
-                },
-                {
-                  param: "tag",
-                  label: "Tag",
-                  render: (v) => <span className="font-mono">{v}</span>,
-                },
-              ]}
-            >
-              <SearchFilter
-                fields={[
-                  {
-                    param: "q",
-                    label: "IP prefix",
-                    placeholder: "IP prefix, e.g. 203.0.113",
-                  },
-                ]}
-                clean={(_, raw) =>
-                  /^[0-9a-fA-F.:]{1,45}$/.test(raw.trim()) ? raw.trim() : undefined
-                }
-              />
-              <SensorFilter />
-              <CountryFilter />
-              <NetworkFilter />
-              <TagFilter />
-            </FilterBar>
-          }
-        >
-          <AttackerList filters={filters} />
-        </StickyFilters>
-      )}
+      <StickyFilters filters={<AttacksFilterBar group={asns ? "networks" : "attackers"} />}>
+        {asns ? <AsnList /> : <AttackerList filters={filters} />}
+      </StickyFilters>
     </>
   )
 }

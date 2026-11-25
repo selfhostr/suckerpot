@@ -1,26 +1,22 @@
 import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { useIpMask } from "@/app/ip-mask"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
 import { FindingCard } from "@/components/finding-card"
 import { PageHeader } from "@/components/page-header"
 import { SegmentedControl } from "@/components/segmented-control"
-import { Heatmap } from "@/components/trends/heatmap"
 import { NewList } from "@/components/trends/new-list"
-import { TagChart } from "@/components/trends/tag-chart"
+import { TagTable } from "@/components/trends/tag-table"
 import { TopList, type TopListItem } from "@/components/top-list"
 import { sensorParam, useSensorFilter } from "@/hooks/use-sensor-filter"
 import { useUrlParam } from "@/hooks/use-url-param"
-import { api, queryKeys, type TopField, type TopResponse } from "@/lib/api"
+import { api, queryKeys, type TopResponse } from "@/lib/api"
 import { maskIpsInText } from "@/lib/format"
 import {
-  browserOffsetHours,
-  describeHeatmap,
   describeNew,
   describeTags,
   describeTop,
   NEW_FIELDS,
-  toLocalGrid,
   type NewField,
 } from "@/lib/trends"
 
@@ -71,54 +67,69 @@ function toItems(
   }))
 }
 
-interface TopCardProps {
-  kind: "username" | "password" | "command" | "url"
-  eyebrow: string
-  field: TopField
-  param: string
+const TOP_KINDS = [
+  { value: "username", label: "Usernames", eyebrow: "Usernames tried", loading: "Counting logins…", empty: "No login attempts in this period." },
+  { value: "password", label: "Passwords", eyebrow: "Passwords tried", loading: "Counting logins…", empty: "No login attempts in this period." },
+  { value: "command", label: "Commands", eyebrow: "Commands run", loading: "Reading shell history…", empty: "No commands in this period." },
+  { value: "url", label: "URLs", eyebrow: "URLs requested", loading: "Reading web requests…", empty: "No web requests in this period." },
+] as const
+type TopKind = (typeof TOP_KINDS)[number]["value"]
+
+/** The four ranked lists as one card: a switch picks which field is ranked. */
+function TopValuesCard({
+  days,
+  range,
+}: {
   days: number
   range: { since: string; until: string; sensor: ReturnType<typeof useTrendFilters>["sensor"] }
-  loadingText: string
-  empty: string
-}
-
-function TopCard({ kind, eyebrow, field, param, days, range, loadingText, empty }: TopCardProps) {
+}) {
   const { masked } = useIpMask()
+  const [raw, setRaw] = useUrlParam("top")
+  const kind: TopKind = TOP_KINDS.find((k) => k.value === raw)?.value ?? "username"
+  const meta = TOP_KINDS.find((k) => k.value === kind) ?? TOP_KINDS[0]
   const q = useQuery({
-    queryKey: queryKeys.top(field, range),
-    queryFn: () => api.top(field, range, 8),
+    queryKey: queryKeys.top(kind, range),
+    queryFn: () => api.top(kind, range, 8),
   })
   const f = describeTop(kind, q.data, days)
   const mask = (s: string) => (masked ? maskIpsInText(s) : s)
   return (
     <FindingCard
       className="min-w-0"
-      eyebrow={`${eyebrow}, ${days} days`}
+      eyebrow={`${meta.eyebrow}, ${days} days`}
       finding={
         q.isPending ? (
-          loadingText
+          meta.loading
         ) : (
           <span className="[overflow-wrap:anywhere]">{mask(f.finding)}</span>
         )
       }
       detail={q.isPending ? undefined : f.detail}
+      action={
+        <SegmentedControl
+          label="Field"
+          value={kind}
+          onChange={(v) => setRaw(v === "username" ? null : v)}
+          options={TOP_KINDS.map((k) => ({ value: k.value, label: k.label }))}
+        />
+      }
     >
-      <TopList items={toItems(q.data, param, mask)} loading={q.isPending} rows={6} empty={empty} />
+      <TopList
+        items={toItems(q.data, kind, mask)}
+        loading={q.isPending}
+        rows={8}
+        empty={meta.empty}
+      />
     </FindingCard>
   )
 }
 
 export function TrendsPage() {
   const { days, setDays, field, setField, range } = useTrendFilters()
-  const offset = useMemo(() => browserOffsetHours(), [])
 
   const tags = useQuery({
     queryKey: queryKeys.trendsTags({ since: range.since, until: range.until }),
     queryFn: () => api.trendsTags({ since: range.since, until: range.until }),
-  })
-  const heat = useQuery({
-    queryKey: queryKeys.heatmap(range),
-    queryFn: () => api.heatmap(range),
   })
   const fresh = useQuery({
     queryKey: queryKeys.trendsNew(field, days),
@@ -126,7 +137,6 @@ export function TrendsPage() {
   })
 
   const tagFinding = describeTags(tags.data?.points ?? [], days)
-  const heatFinding = describeHeatmap(toLocalGrid(heat.data?.cells ?? [], offset), days)
   const newFinding = describeNew(field, fresh.data?.items ?? [], days)
 
   return (
@@ -149,71 +159,16 @@ export function TrendsPage() {
         <SensorFilter />
       </FilterBar>
 
-      {/* Four short top lists: two by two, then one row of four once the page is wide enough. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-4">
-        <TopCard
-          kind="username"
-          eyebrow="Usernames tried"
-          field="username"
-          param="username"
-          days={days}
-          range={range}
-          loadingText="Counting logins…"
-          empty="No login attempts in this period."
-        />
-        <TopCard
-          kind="password"
-          eyebrow="Passwords tried"
-          field="password"
-          param="password"
-          days={days}
-          range={range}
-          loadingText="Counting logins…"
-          empty="No login attempts in this period."
-        />
-        <TopCard
-          kind="command"
-          eyebrow="Commands run"
-          field="command"
-          param="command"
-          days={days}
-          range={range}
-          loadingText="Reading shell history…"
-          empty="No commands in this period."
-        />
-        <TopCard
-          kind="url"
-          eyebrow="URLs requested"
-          field="url"
-          param="url"
-          days={days}
-          range={range}
-          loadingText="Reading web requests…"
-          empty="No web requests in this period."
-        />
-      </div>
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+        <TopValuesCard days={days} range={range} />
 
-      <div className="mt-4 grid grid-cols-1 gap-4 2xl:grid-cols-2">
         <FindingCard
           className="min-w-0"
           eyebrow={`Tags over time, ${days} days`}
           finding={tags.isPending ? "Reading tags…" : tagFinding.finding}
           detail={tags.isPending ? undefined : tagFinding.detail}
         >
-          <TagChart
-            points={tags.data?.points}
-            series={tags.data?.series}
-            loading={tags.isPending}
-          />
-        </FindingCard>
-
-        <FindingCard
-          className="min-w-0"
-          eyebrow={`Day and hour, ${days} days`}
-          finding={heat.isPending ? "Looking for a rhythm…" : heatFinding.finding}
-          detail={heat.isPending ? undefined : heatFinding.detail}
-        >
-          <Heatmap cells={heat.data?.cells} offsetHours={offset} loading={heat.isPending} />
+          <TagTable points={tags.data?.points} loading={tags.isPending} />
         </FindingCard>
       </div>
 

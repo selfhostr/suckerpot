@@ -1,7 +1,8 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
-import { FileSearch, Search, SearchX } from "lucide-react"
+import { ArrowRight, FileSearch, Info, Search, SearchX } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { Link } from "react-router"
 import { useAuth } from "@/app/auth"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar } from "@/components/filter-bar"
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { formatNumber } from "@/lib/format"
-import { describeSamples, sampleKeys, samplesApi, type SampleFilters } from "@/lib/samples"
+import { describeCollector, describeSamples, sampleKeys, samplesApi, type SampleFilters } from "@/lib/samples"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 50
@@ -57,7 +58,7 @@ function HashSearch() {
   )
 }
 
-/** The Samples tab of the Malware page: files the collector fetched and analysed. */
+/** The Files page: files the collector fetched and analysed. */
 export function SamplesTab() {
   const { canWrite } = useAuth()
   const [kind, setKind] = useUrlParam("kind")
@@ -80,6 +81,10 @@ export function SamplesTab() {
   })
   const rows = query.data?.pages.flatMap((p) => p.items) ?? []
   const filtered = Boolean(kind ?? q ?? arch ?? family ?? yara)
+  // With nothing collected, say why: the collector is off, paused or still working.
+  const none = query.isSuccess && rows.length === 0 && !filtered
+  const egress = useQuery({ queryKey: sampleKeys.egress, queryFn: samplesApi.egress, enabled: none })
+  const collector = describeCollector(egress.data)
 
   const listRef = useRef<HTMLDivElement>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -110,18 +115,41 @@ export function SamplesTab() {
 
   return (
     <>
-      <FindingCard
-        className="mb-4"
-        eyebrow="Collected files"
-        finding={
-          query.isPending
-            ? "Counting the collected files…"
-            : filtered && rows.length === 0
-              ? "No sample matches these filters."
-              : describeSamples(rows, query.hasNextPage)
-        }
-        detail="Files are fetched by the collector, stored under their hash and only ever read, never run."
-      />
+      {none ? (
+        <FindingCard
+          className="mb-4"
+          eyebrow="Sample collector"
+          finding={egress.isPending ? "Checking the sample collector…" : collector.finding}
+          detail={
+            <span className="inline-flex items-start gap-2">
+              <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {collector.detail}{" "}
+                <Link
+                  to="/settings"
+                  className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-fg underline-offset-4 hover:underline"
+                >
+                  Outbound traffic in Settings
+                  <ArrowRight aria-hidden className="size-3.5" />
+                </Link>
+              </span>
+            </span>
+          }
+        />
+      ) : (
+        <FindingCard
+          className="mb-4"
+          eyebrow="Collected files"
+          finding={
+            query.isPending
+              ? "Counting the collected files…"
+              : filtered && rows.length === 0
+                ? "No sample matches these filters."
+                : describeSamples(rows, query.hasNextPage)
+          }
+          detail="Files are fetched by the collector, stored under their hash and only ever read, never run."
+        />
+      )}
 
       {canWrite ? <BundleCard className="mb-4" /> : null}
 

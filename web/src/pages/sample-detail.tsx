@@ -111,7 +111,7 @@ function Origin({ d }: { d: SampleDetail }) {
           >
             <div className="min-w-0 space-y-1">
               <Link
-                to={`/malware?url=${encodeURIComponent(s.url)}`}
+                to={`/infrastructure?q=${encodeURIComponent(s.url)}`}
                 className="block font-mono text-xs break-all text-fg underline-offset-4 hover:underline"
               >
                 {s.url}
@@ -205,7 +205,7 @@ export function SampleDetailPage() {
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   })
   const back = (
-    <Link to="/malware?view=samples" className="inline-flex items-center gap-1 hover:text-fg">
+    <Link to="/malware" className="inline-flex items-center gap-1 hover:text-fg">
       <ArrowLeft aria-hidden className="size-3.5" />
       All samples
     </Link>
@@ -221,7 +221,7 @@ export function SampleDetailPage() {
           description="It may have been removed by the retention job, or the link is wrong."
           action={
             <Button asChild variant="outline" size="sm">
-              <Link to="/malware?view=samples">Back to the samples</Link>
+              <Link to="/malware">Back to the samples</Link>
             </Button>
           }
         />
@@ -334,7 +334,7 @@ export function SampleDetailPage() {
                 <li key={`${h.namespace}/${h.rule}`} className="flex flex-wrap items-center gap-2">
                   <TagBadge
                     tag={h.rule}
-                    href={`/malware?view=samples&yara=${encodeURIComponent(h.rule)}`}
+                    href={`/malware?yara=${encodeURIComponent(h.rule)}`}
                   />
                   {h.meta.description ? (
                     <span className="text-xs text-fg-muted">{h.meta.description}</span>

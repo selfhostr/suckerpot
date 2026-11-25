@@ -4,24 +4,8 @@ import { describe, expect, it } from "vitest"
 import { IpMaskProvider } from "@/app/ip-mask"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { InsightRow } from "@/components/insights/insights-card"
-import { Heatmap } from "@/components/trends/heatmap"
-import { MalwareRow } from "@/components/trends/malware-row"
-import { gridStep, type Insight, type MalwareItem } from "@/lib/trends"
-
-const item: MalwareItem = {
-  url: "http://198.51.100.23/bins/x86.sh",
-  host: "198.51.100.23",
-  first_seen: "2026-10-20T10:00:00Z",
-  last_seen: "2026-10-23T10:00:00Z",
-  attempts: 1234,
-  sessions: 900,
-  ips: 40,
-  tools: ["wget", "curl"],
-  sensors: ["ssh"],
-  sha256: null,
-  size: null,
-  virustotal_url: null,
-}
+import { describeChange, TagTable } from "@/components/trends/tag-table"
+import type { Insight, TagPoint } from "@/lib/trends"
 
 function wrap(ui: React.ReactNode) {
   return render(
@@ -32,16 +16,6 @@ function wrap(ui: React.ReactNode) {
     </MemoryRouter>,
   )
 }
-
-describe("MalwareRow", () => {
-  it("shows the URL as text, never as a link, with thousands separators", () => {
-    wrap(<MalwareRow item={item} onOpen={() => undefined} showHash={false} />)
-    expect(screen.getByText(item.url)).toBeInTheDocument()
-    expect(document.querySelectorAll("a")).toHaveLength(0)
-    expect(screen.getAllByText("1,234").length).toBeGreaterThan(0)
-    expect(screen.getByRole("button", { name: "Copy defanged URL" })).toBeInTheDocument()
-  })
-})
 
 describe("InsightRow", () => {
   const insight: Insight = {
@@ -61,13 +35,23 @@ describe("InsightRow", () => {
   })
 })
 
-describe("Heatmap", () => {
-  it("gives screen readers a full table and a readable scale", () => {
-    wrap(<Heatmap cells={[{ dow: 1, hour: 14, events: 1500 }]} offsetHours={0} />)
-    expect(screen.getByRole("table", { hidden: true })).toBeInTheDocument()
-    expect(screen.getByText("Tuesday")).toBeInTheDocument()
-    expect(gridStep(0, 10)).toBe(0)
-    expect(gridStep(10, 10)).toBe(5)
-    expect(gridStep(1, 1000)).toBe(1)
+describe("TagTable", () => {
+  const points: TagPoint[] = [
+    { ts: "2026-11-20T00:00:00Z", tags: { php2shell: 10, "crypto-miner": 5 } },
+    { ts: "2026-11-21T00:00:00Z", tags: { php2shell: 30, "crypto-miner": 5 } },
+  ]
+  it("lists the tags with their totals and a link to the sessions", () => {
+    wrap(<TagTable points={points} />)
+    const link = screen.getByRole("link", { name: /php2shell/ })
+    expect(link).toHaveAttribute("href", "/attacks?tag=php2shell")
+    expect(link).toHaveTextContent("40")
+    expect(link).toHaveTextContent("+200%")
+  })
+
+  it("says New when a tag was absent from the first half", () => {
+    expect(describeChange(0, 4)).toBe("New")
+    expect(describeChange(0, 0)).toBe("None")
+    expect(describeChange(10, 10)).toBe("No change")
+    expect(describeChange(10, 5)).toBe("\u221250%")
   })
 })

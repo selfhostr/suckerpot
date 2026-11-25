@@ -37,7 +37,7 @@ export const HELP = {
   },
   patterns: {
     title: "Patterns",
-    body: "The most tried usernames, passwords, commands and URLs, tags over time, a day by hour heatmap and what is new this week. All of it is counted from the stored events over the period you pick. Click a value to open the sessions that used it.",
+    body: "The most tried usernames, passwords, commands and URLs (one card, pick the field), the tags with how they change over the period, and what is new this week. All of it is counted from the stored events over the period you pick. Click a value to open the sessions that used it.",
   },
   campaigns: {
     title: "Campaigns",
@@ -49,7 +49,7 @@ export const HELP = {
   },
   techniques: {
     title: "Techniques",
-    body: "The MITRE ATT&CK techniques seen in the attacks, as a heatmap per day. Ingest maps tags and commands to techniques when the ATT&CK worker is on. Click a technique to see the sessions behind it.",
+    body: "The MITRE ATT&CK techniques seen in the attacks, as a table, the busiest first, with a line of the days for each. Ingest maps tags and commands to techniques when the ATT&CK worker is on. Click a technique to see the sessions behind it.",
   },
   scripts: {
     title: "Scripts",
@@ -61,7 +61,7 @@ export const HELP = {
   },
   malware: {
     title: "Files",
-    body: "The download URLs that attackers tried to use, shown defanged so they cannot be opened by mistake. Sensors only record a URL: when payload fetching is on, the collector fetches it through the VPN into quarantine and the Samples tab shows the files. Open a sample to read its analysis.",
+    body: "The files the collector fetched from the download URLs attackers tried to use, newest first. Sensors only record a URL: when payload fetching is on, the collector fetches it through the VPN into quarantine and the file shows up here. Open a sample to read its analysis. The URLs themselves are on Hosts & URLs.",
   },
   sample: {
     title: "Sample",
@@ -69,7 +69,7 @@ export const HELP = {
   },
   infrastructure: {
     title: "Hosts & URLs",
-    body: "The addresses, hosts and files that show up across sessions, as defanged text, never as links. A payload host or command server shared by several attackers is a link between them. Export the indicators as CSV or STIX 2.1 for your own tools.",
+    body: "The addresses, hosts, download URLs and file hashes that show up across sessions, as defanged text, never as links. Filter by role to see only payload sources or contacted hosts, and open the diagram to see which addresses share them. A payload host or command server shared by several attackers is a link between them. Export the indicators as CSV or STIX 2.1 for your own tools.",
   },
   blocklists: {
     title: "Blocklists",

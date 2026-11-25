@@ -47,7 +47,7 @@ export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNo
           {item.severity === "severe" ? <SeverityBadge severity="severe" /> : null}
           {item.family ? (
             <Link
-              to={`/malware?view=samples&family=${encodeURIComponent(item.family)}`}
+              to={`/malware?family=${encodeURIComponent(item.family)}`}
               className="relative z-10 font-medium hover:underline"
             >
               {family}
@@ -74,7 +74,7 @@ export function SampleRow({ item, action }: { item: SampleItem; action?: ReactNo
           </span>
           {item.yara.slice(0, 3).map((r) => (
             <span key={r} className="relative z-10">
-              <TagBadge tag={r} href={`/malware?view=samples&yara=${encodeURIComponent(r)}`} />
+              <TagBadge tag={r} href={`/malware?yara=${encodeURIComponent(r)}`} />
             </span>
           ))}
         </p>

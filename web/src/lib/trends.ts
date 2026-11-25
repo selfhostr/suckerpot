@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the Trends, Malware and Insights views: API shapes (M7
- * contract), the defanged URL form, the local-time heatmap and the finding
+ * contract), the defanged URL form, and the finding
  * sentences. No React in here, so everything is unit-tested.
  */
 import type { Session, TopItem, TopResponse } from "./api"
@@ -66,20 +66,6 @@ export interface TagsResponse {
   points: TagPoint[]
 }
 
-export interface HeatmapCell {
-  /** Day of week in UTC, Monday is 0. */
-  dow: number
-  /** Hour of day in UTC. */
-  hour: number
-  events: number
-}
-
-export interface HeatmapResponse {
-  since: string
-  until: string
-  cells: HeatmapCell[]
-}
-
 export type FetchStatus =
   | "fetched"
   | "pending"
@@ -112,8 +98,6 @@ export interface MalwareDetail {
   recent_sessions: Session[]
 }
 
-export const MALWARE_TOOLS = ["wget", "curl", "tftp", "ftpget"] as const
-
 // --- Defanged URLs ------------------------------------------------------------
 
 /**
@@ -129,67 +113,11 @@ export function defangUrl(raw: string): string {
   return `${safeProto}://${host.replaceAll(".", "[.]")}${rest}`
 }
 
-// --- Heatmap in the browser's time zone ----------------------------------------
-
-export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const
-export const WEEKDAYS_LONG = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-] as const
-
-/** A 7 x 24 grid of event counts: grid[dow][hour], Monday first. */
-export type HeatGrid = number[][]
-
-/**
- * Shift UTC cells into local time. `offsetHours` is the browser's current UTC
- * offset in whole hours (half-hour zones are rounded; DST is approximated by
- * the offset of the day the page was opened).
- */
-export function toLocalGrid(cells: readonly HeatmapCell[], offsetHours: number): HeatGrid {
-  const grid: HeatGrid = Array.from({ length: 7 }, () => Array<number>(24).fill(0))
-  for (const c of cells) {
-    if (c.dow < 0 || c.dow > 6 || c.hour < 0 || c.hour > 23) continue
-    const total = c.dow * 24 + c.hour + offsetHours
-    const week = 7 * 24
-    const idx = ((total % week) + week) % week
-    const row = grid[Math.floor(idx / 24)]
-    if (row) row[idx % 24] = (row[idx % 24] ?? 0) + c.events
-  }
-  return grid
-}
-
-export function browserOffsetHours(now = new Date()): number {
-  return Math.round(-now.getTimezoneOffset() / 60)
-}
-
-export function hourLabel(h: number): string {
-  return `${String(h).padStart(2, "0")}:00`
-}
-
 // --- Findings ----------------------------------------------------------------
 
 export interface Finding {
   finding: string
   detail?: string
-}
-
-/** "Attacks peak on Tuesdays, around 14:00 (your time), when 9% of the week's events land." */
-export function describeHeatmap(grid: HeatGrid, days: number): Finding {
-  const byDay = grid.map((r) => r.reduce((a, b) => a + b, 0))
-  const total = byDay.reduce((a, b) => a + b, 0)
-  if (total === 0) return { finding: `No activity in the last ${days} days.` }
-  const byHour = Array.from({ length: 24 }, (_, h) => grid.reduce((a, r) => a + (r[h] ?? 0), 0))
-  const bestDay = byDay.indexOf(Math.max(...byDay))
-  const bestHour = byHour.indexOf(Math.max(...byHour))
-  return {
-    finding: `${WEEKDAYS_LONG[bestDay]} is the busiest day and ${hourLabel(bestHour)} the busiest hour, in your time zone.`,
-    detail: `${formatPercent((byDay[bestDay] ?? 0) / total)} of ${formatNumber(total)} events land on ${WEEKDAYS_LONG[bestDay]}; ${formatPercent((byHour[bestHour] ?? 0) / total)} in the ${hourLabel(bestHour)} hour.`,
-  }
 }
 
 export function tagTotals(points: readonly TagPoint[]): [string, number][] {
@@ -265,73 +193,10 @@ export function describeNew(field: NewField, items: readonly NewItem[], days: nu
   }
 }
 
-export interface MalwareSummary {
-  urls: number
-  attempts: number
-  hosts: number
-  topHost: { host: string; attempts: number } | null
-}
-
-export function summariseMalware(items: readonly MalwareItem[]): MalwareSummary {
-  const byHost = new Map<string, number>()
-  let attempts = 0
-  for (const i of items) {
-    attempts += i.attempts
-    byHost.set(i.host, (byHost.get(i.host) ?? 0) + i.attempts)
-  }
-  const top = [...byHost.entries()].sort((a, b) => b[1] - a[1])[0]
-  return {
-    urls: items.length,
-    attempts,
-    hosts: byHost.size,
-    topHost: top ? { host: top[0], attempts: top[1] } : null,
-  }
-}
-
-export function describeMalware(s: MalwareSummary, more: boolean): Finding {
-  if (s.urls === 0) return { finding: "No download attempts recorded yet." }
-  const lead = more ? "At least " : ""
-  return {
-    finding: `${lead}${plural(s.urls, "download URL")} on ${plural(s.hosts, "host")}, tried ${plural(s.attempts, "time")}.`,
-    detail: s.topHost
-      ? `${s.topHost.host} served the most: ${plural(s.topHost.attempts, "attempt")}.`
-      : undefined,
-  }
-}
-
 /** Is this tag one of the severe ones (gets the red marker)? */
 export const isSevereTag = (tag: string) => SEVERE_TAGS.has(tag)
 
 /** Keep the share bar honest: top items only. */
 export function topItems(top: TopResponse | undefined): TopItem[] {
   return top?.items ?? []
-}
-
-export const HEAT_STEPS = 5
-
-/** 0 for no events, else 1..5 by share of the busiest cell. */
-export function gridStep(n: number, max: number): number {
-  if (n <= 0 || max <= 0) return 0
-  return Math.min(HEAT_STEPS, Math.max(1, Math.ceil((n / max) * HEAT_STEPS)))
-}
-
-/**
- * Tags are neutral: lightness steps tell neighbours apart, the legend and the
- * tooltip name them. Payload tags (severe) are the only red.
- */
-/**
- * Fill for one tag in the tags-over-time chart. Only the highlighted tag (the
- * leading severe tag, which is what the card's finding sentence is about) is red;
- * every other tag, severe or not, is a neutral lightness step. Severe tags keep
- * their red diamond in the legend, so the signal survives without a wall of red.
- */
-export function tagFill(tag: string, index: number, highlight: string | null = null): string {
-  if (tag === highlight) return "var(--sev-severe)"
-  const mix = Math.max(22, 74 - index * 11)
-  return `color-mix(in srgb, var(--fg) ${mix}%, var(--surface))`
-}
-
-/** The tag the chart paints red: the most frequent severe tag, if any. */
-export function highlightTag(order: readonly string[]): string | null {
-  return order.find((t) => isSevereTag(t)) ?? null
 }

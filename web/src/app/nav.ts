@@ -12,6 +12,11 @@ export interface NavPage {
   tab?: string
   /** Path prefixes (besides `to` and what sits below it) on which this page is current. */
   also?: readonly string[]
+  /**
+   * The filters this page applies, as URL params. The page switch carries these from the page you
+   * leave to this one, so a filter set on Sessions is still on when you group by address.
+   */
+  carries?: readonly string[]
 }
 
 /**
@@ -48,9 +53,18 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       {
         label: "Attacks",
         pages: [
-          { to: "/attacks", label: "Sessions" },
-          { to: "/attackers", label: "Attackers" },
-          { to: "/networks", label: "Attacker networks", tab: "Networks" },
+          {
+            to: "/attacks",
+            label: "Sessions",
+            carries: ["sensor", "country", "asn", "tag", "since", "until"],
+          },
+          { to: "/attackers", label: "Attackers", carries: ["sensor", "country", "asn", "tag"] },
+          {
+            to: "/networks",
+            label: "Attacker networks",
+            tab: "Networks",
+            carries: ["country", "since"],
+          },
         ],
       },
     ],

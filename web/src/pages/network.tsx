@@ -1,13 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { Hourglass } from "lucide-react"
 import { useAuth } from "@/app/auth"
-import { CountriesList } from "@/components/network/countries-list"
 import { SharedExplainer } from "@/components/network/explainer"
 import { JoinCard } from "@/components/network/join-card"
 import { NodeCard } from "@/components/network/node-card"
 import { TargetsCard } from "@/components/network/targets-card"
 import { useNetworkStatus } from "@/components/network/use-network"
-import { WeeklyChart } from "@/components/network/weekly-chart"
 import { EmptyState } from "@/components/empty-state"
 import { FindingCard } from "@/components/finding-card"
 import { PageHeader } from "@/components/page-header"
@@ -16,7 +14,6 @@ import { SkeletonCard } from "@/components/skeletons"
 import { StatTile } from "@/components/stat-tile"
 import {
   bootstrapSentence,
-  countriesFinding,
   describeStatus,
   formatDay,
   isMember,
@@ -103,22 +100,10 @@ function MemberOverview({ status }: { status: NetworkStatus }) {
       ) : !s ? (
         <WaitingForFigures />
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <FindingCard
-            eyebrow="Per week"
-            finding={weeklyFinding(s.weekly)}
-            detail={`Figures of ${formatDay(s.generated_day, true)}.`}
-          >
-            <WeeklyChart weekly={s.weekly} />
-          </FindingCard>
-          <FindingCard
-            eyebrow="Where members are"
-            finding={countriesFinding(s.countries, s.totals.countries)}
-            detail="Only countries with at least 3 members who chose to share one."
-          >
-            <CountriesList countries={s.countries} />
-          </FindingCard>
-        </div>
+        <p className="text-sm text-fg-muted">
+          {weeklyFinding(s.weekly)}{" "}
+          <span className="text-fg-subtle">Figures of {formatDay(s.generated_day, true)}.</span>
+        </p>
       )}
 
       <TargetsCard />

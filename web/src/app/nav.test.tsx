@@ -271,9 +271,9 @@ describe("sidebar", () => {
 })
 
 describe("page switch", () => {
-  function mountSwitch(path: string) {
+  function mountSwitch(path: string, search = "") {
     render(
-      <MemoryRouter initialEntries={[path]}>
+      <MemoryRouter initialEntries={[path + search]}>
         <PageSwitch pathname={path} />
       </MemoryRouter>,
     )
@@ -300,5 +300,18 @@ describe("page switch", () => {
   it("is not drawn on a detail route or a page of its own", () => {
     mountSwitch("/attacks/abc")
     expect(screen.queryByRole("navigation")).toBeNull()
+  })
+
+  it("carries the filters the next tab also applies", () => {
+    mountSwitch("/attacks", "?country=NL&sensor=ssh&since=2026-11-01T00:00:00.000Z&src_ip=1.2.3.4")
+    const nav = screen.getByRole("navigation", { name: "Attacks pages" })
+    expect(within(nav).getByRole("link", { name: "Attackers" })).toHaveAttribute(
+      "href",
+      "/attackers?sensor=ssh&country=NL",
+    )
+    expect(within(nav).getByRole("link", { name: "Networks" })).toHaveAttribute(
+      "href",
+      "/networks?country=NL&since=2026-11-01T00%3A00%3A00.000Z",
+    )
   })
 })

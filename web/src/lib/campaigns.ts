@@ -219,7 +219,7 @@ export function statusLabel(status: CampaignStatus): string {
   return status === "active" ? "Active" : status === "quiet" ? "Quiet" : "Merged"
 }
 
-// --- the techniques heatmap -------------------------------------------------------------------
+// --- the techniques table -------------------------------------------------------------------
 
 export const TECHNIQUE_WINDOWS = [
   { value: "7", label: "7 days", days: 7 },
@@ -229,42 +229,6 @@ export const TECHNIQUE_WINDOWS = [
 
 export function techniqueDays(value: string | null): number {
   return TECHNIQUE_WINDOWS.find((w) => w.value === value)?.days ?? 30
-}
-
-/** Neutral sequential scale, like the day x hour heatmap: the text colour mixed into the card. */
-export function heatColour(step: number): string {
-  if (step <= 0) return "var(--surface-hover)"
-  const mix = [14, 30, 48, 66, 84][step - 1] ?? 84
-  return `color-mix(in srgb, var(--fg) ${mix}%, var(--surface))`
-}
-
-/** 0 for none, 1 to 5 on a square-root scale so a quiet day is still visible next to a busy one. */
-export function heatStep(n: number, max: number): number {
-  if (n <= 0 || max <= 0) return 0
-  return Math.min(5, Math.max(1, Math.ceil(Math.sqrt(n / max) * 5)))
-}
-
-export interface StageGroup {
-  stage: Stage
-  label: string
-  rows: MatrixRow[]
-  total: number
-}
-
-/** Rows grouped by stage, in story order; stages with no activity are left out. */
-export function groupByStage(matrix: Matrix): StageGroup[] {
-  return STAGES.flatMap((stage) => {
-    const rows = matrix.rows.filter((r) => r.stage === stage)
-    if (rows.length === 0) return []
-    return [
-      {
-        stage,
-        label: STAGE_META[stage].label,
-        rows,
-        total: rows.reduce((n, r) => n + r.total_sessions, 0),
-      },
-    ]
-  })
 }
 
 export function describeMatrix(matrix: Matrix, catalogue: number | null): string {

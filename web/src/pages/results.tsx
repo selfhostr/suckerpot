@@ -2,10 +2,9 @@ import { useQuery } from "@tanstack/react-query"
 import { ChartNoAxesCombined } from "lucide-react"
 import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router"
-import { AnswersCard, DelayCard } from "@/components/results/answers-cards"
-import { CurveCard } from "@/components/results/curve-card"
+import { AnswersCard } from "@/components/results/answers-cards"
 import { EffectCard } from "@/components/results/effect-card"
-import { OverTimeCard } from "@/components/results/over-time-card"
+import { MonthCard } from "@/components/results/month-card"
 import { ProvidersCard } from "@/components/results/providers-card"
 import { TargetsCard } from "@/components/results/targets-card"
 import { EmptyState } from "@/components/empty-state"
@@ -23,7 +22,7 @@ import {
   type OutcomeGroup,
   type ResultFilters,
 } from "@/lib/results"
-import { describeTakedownHeader, describeTtd, shortDelay } from "@/lib/results-sentences"
+import { describeTakedownHeader, describeTtd, longDelay, shortDelay } from "@/lib/results-sentences"
 import { cn } from "@/lib/utils"
 
 /** Filters that arrive from links elsewhere (a target page, the takedown tiles). */
@@ -171,8 +170,16 @@ export function ResultsPage() {
         />
       ) : (
         <div className="space-y-4 normal-nums">
-          {/* The four headline numbers are figures on a ruled band, not four more cards. */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-y py-3 sm:py-4 lg:grid-cols-4">
+          {/*
+           * The headline numbers are figures on a ruled band, not more cards: how many reports,
+           * how many got an answer, how fast, and (with tracking) what happened to the targets.
+           */}
+          <div
+            className={cn(
+              "grid grid-cols-2 gap-x-6 gap-y-3 border-y py-3 sm:py-4 lg:grid-cols-4",
+              tracking ? "2xl:grid-cols-7" : "2xl:grid-cols-5",
+            )}
+          >
             <StatTile
               variant="figure"
               label="Reports sent"
@@ -192,6 +199,30 @@ export function ResultsPage() {
                   : "Reports are counted after 3 days"
               }
             />
+            <StatTile
+              variant="figure"
+              label="Half answered within"
+              value={totals?.first_reply_p50_s ?? 0}
+              loading={!totals}
+              format={(n) => (totals?.first_reply_p50_s == null ? "none yet" : longDelay(n))}
+              hint="From the time you sent the report"
+            />
+            <StatTile
+              variant="figure"
+              label="Nine in ten within"
+              value={totals?.first_reply_p90_s ?? 0}
+              loading={!totals}
+              format={(n) => (totals?.first_reply_p90_s == null ? "none yet" : longDelay(n))}
+              hint="The slowest tenth takes longer"
+            />
+            <StatTile
+              variant="figure"
+              label="Median time to resolve"
+              value={totals?.resolved_p50_s ?? 0}
+              loading={!totals}
+              format={(n) => (totals?.resolved_p50_s == null ? "none yet" : longDelay(n))}
+              hint={`${formatNumber(totals?.by_outcome.resolved ?? 0)} said they acted`}
+            />
             {tracking ? (
               <>
                 <StatTile
@@ -210,54 +241,22 @@ export function ResultsPage() {
                   hint={describeTtd(s.urls)}
                 />
               </>
-            ) : (
-              <>
-                <StatTile
-                  variant="figure"
-                  label="Median first reply"
-                  value={totals?.first_reply_p50_s ?? 0}
-                  loading={!totals}
-                  format={(n) => (totals?.first_reply_p50_s == null ? "n/a" : shortDelay(n))}
-                  hint="From the sending time"
-                />
-                <StatTile
-                  variant="figure"
-                  label="Resolved"
-                  value={totals?.by_outcome.resolved ?? 0}
-                  loading={!totals}
-                  hint="Providers that said they acted"
-                />
-              </>
-            )}
+            ) : null}
           </div>
 
-          {/*
-           * The charts pair up from lg and sit three to a row from 2xl: reports over time beside
-           * who answered, then the takedown curve beside how fast and whether it helped.
-           * Every cell stretches its card, so a row ends on one line.
-           */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-flow-row-dense 2xl:grid-cols-3 [&>*]:grid [&>*]:min-w-0">
-            <div className="lg:col-span-2">
-              <OverTimeCard />
-            </div>
+          {/* Who answered, how many went out this month, and whether the reports helped. */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3 [&>*]:grid [&>*]:min-w-0">
             <div>
               <AnswersCard data={byAsn.data} />
             </div>
-            <div className={cn(tracking && "2xl:col-start-3")}>
-              <DelayCard data={byAsn.data} />
+            <div>
+              <MonthCard />
             </div>
             {effectWeek.isError ? null : (
-              <div
-                className={cn("lg:col-span-2", tracking ? "2xl:col-span-1 2xl:col-start-3" : "")}
-              >
+              <div className="lg:col-span-2 2xl:col-span-1">
                 <EffectCard week={effectWeek.data} month={effectMonth.data} />
               </div>
             )}
-            {tracking ? (
-              <div className="lg:col-span-2 2xl:row-span-2">
-                <CurveCard summary={s} filters={filters} />
-              </div>
-            ) : null}
           </div>
           <ProvidersCard
             groups={(group === "asn" ? byAsn.data : grouped.data)?.groups}

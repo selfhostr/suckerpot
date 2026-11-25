@@ -47,7 +47,7 @@ function NodeLabel({ node, current }: { node: ChainNode; current: string }) {
   }
   if (node.kind === "url")
     return (
-      <Link to={`/malware?url=${encodeURIComponent(node.label)}`} className={cls}>
+      <Link to={`/infrastructure?q=${encodeURIComponent(node.label)}`} className={cls}>
         {node.label}
       </Link>
     )

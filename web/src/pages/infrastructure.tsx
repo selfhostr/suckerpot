@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
-import { Download, Network, Search, SearchX } from "lucide-react"
+import { Download, Network, Search, SearchX, Workflow } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { EmptyState } from "@/components/empty-state"
 import { FilterBar } from "@/components/filter-bar"
@@ -42,6 +42,7 @@ const ROLE_OPTIONS = [
   { value: "all", label: "Any role" },
   { value: "download_host", label: "Payload sources" },
   { value: "contacted_host", label: "Contacted" },
+  { value: "hash", label: "File hashes" },
 ] as const
 
 const KNOWN_OPTIONS = [
@@ -79,7 +80,7 @@ function IndicatorSearch() {
         autoComplete="off"
         spellCheck={false}
         maxLength={128}
-        placeholder="Search, e.g. bins/x86"
+        placeholder="Search URLs and hosts, e.g. bins/x86"
         aria-label="Search indicators"
         size="sm"
         className="pl-8 font-mono"
@@ -97,6 +98,8 @@ export function InfrastructurePage() {
   const [range, setRange] = useUrlParam("range")
   const [q] = useUrlParam("q")
   const [openId, setOpenId] = useUrlParam("indicator")
+  const [diagram, setDiagram] = useUrlParam("diagram")
+  const showDiagram = diagram === "1"
   const hours = windowHours(win)
   const filters = {
     type: type ?? undefined,
@@ -191,23 +194,39 @@ export function InfrastructurePage() {
         actions={exportButtons}
       />
 
-      {/* From 2xl the diagram and the control servers sit side by side, above the table. */}
-      <div className="mb-8 grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      {/* The diagram is off until asked for. From 2xl it sits beside the control servers. */}
+      <div
+        className={cn(
+          "mb-8 grid grid-cols-1 gap-4",
+          showDiagram && "2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
+        )}
+      >
         <FindingCard
           className="min-w-0"
-          eyebrow="Sources, indicators and malware families"
+          eyebrow="Hosts, URLs and malware families"
           finding={finding?.finding ?? "Reading the infrastructure…"}
           detail={finding?.detail}
           action={
-            <SegmentedControl
-              label="Time window"
-              value={String(hours)}
-              onChange={(v) => setWin(v === "168" ? null : v)}
-              options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                label="Time window"
+                value={String(hours)}
+                onChange={(v) => setWin(v === "168" ? null : v)}
+                options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                aria-pressed={showDiagram}
+                onClick={() => setDiagram(showDiagram ? null : "1")}
+              >
+                <Workflow aria-hidden />
+                {showDiagram ? "Hide diagram" : "Show diagram"}
+              </Button>
+            </div>
           }
         >
-          {graph.isPending ? (
+          {!showDiagram ? null : graph.isPending ? (
             <div role="status" aria-label="Loading" className="space-y-3">
               <Skeleton className="h-64 w-full" />
             </div>
@@ -254,7 +273,7 @@ export function InfrastructurePage() {
           <p className="max-w-2xl type-lede text-fg-muted">
             {range === "all"
               ? "Every indicator on record, most recently seen first."
-              : `Seen in the last ${WINDOWS.find((w) => w.hours === hours)?.label ?? `${Math.round(hours / 24)} days`}, the same window as the diagram.`}
+              : `Seen in the last ${WINDOWS.find((w) => w.hours === hours)?.label ?? `${Math.round(hours / 24)} days`}, the same window as the sentence above.`}
           </p>
         </div>
         <SegmentedControl
@@ -262,7 +281,7 @@ export function InfrastructurePage() {
           value={range === "all" ? "all" : "window"}
           onChange={(v) => setRange(v === "all" ? "all" : null)}
           options={[
-            { value: "window", label: "Diagram window" },
+            { value: "window", label: "Time window" },
             { value: "all", label: "All time" },
           ]}
         />

@@ -8,10 +8,8 @@ import { SegmentedControl } from "@/components/segmented-control"
 import { TopList } from "@/components/top-list"
 import { InsightRow } from "@/components/insights/insights-card"
 import { CopyDefanged } from "@/components/trends/copy-defanged"
-import { Heatmap } from "@/components/trends/heatmap"
-import { MalwareRow } from "@/components/trends/malware-row"
 import { NewList } from "@/components/trends/new-list"
-import { TagChart } from "@/components/trends/tag-chart"
+import { TagTable } from "@/components/trends/tag-table"
 import { EmptyState } from "@/components/empty-state"
 import { EventRow } from "@/components/event-row"
 import { FilterBar, SensorFilter } from "@/components/filter-bar"
@@ -53,7 +51,7 @@ import { Field as FormField, UnsavedHint } from "@/components/form-parts"
 import { useTheme } from "@/app/theme"
 import { type Attacker, type LiveEvent, type SensorEvent, type Session } from "@/lib/api"
 import type { DayPoint } from "@/lib/chart-time"
-import type { HeatmapCell, Insight, MalwareItem, NewItem, TagPoint } from "@/lib/trends"
+import type { Insight, NewItem, TagPoint } from "@/lib/trends"
 import { contrastRatio, parseHex, readTokenBlock } from "@/lib/contrast"
 import { FAMILY_META, SENSOR_FAMILIES, SENSOR_META } from "@/lib/sensors"
 import { SEVERITIES } from "@/lib/severity"
@@ -297,30 +295,10 @@ const SAMPLE_TAGS: TagPoint[] = Array.from({ length: 7 }, (_, i) => ({
     other: 8,
   },
 }))
-const SAMPLE_HEAT: HeatmapCell[] = Array.from({ length: 7 * 24 }, (_, k) => {
-  const dow = Math.floor(k / 24)
-  const hour = k % 24
-  const day = hour >= 8 && hour <= 20 ? 1 : 0.25
-  return { dow, hour, events: Math.round((dow === 1 ? 2.2 : 1) * day * (30 + ((k * 37) % 50))) }
-})
 const SAMPLE_NEW: NewItem[] = [
   { value: "svc_backup", count: 103, first_seen: new Date(Date.now() - 12 * HOUR).toISOString() },
   { value: "deploy-bot", count: 74, first_seen: new Date(Date.now() - 72 * HOUR).toISOString() },
 ]
-const SAMPLE_MALWARE: MalwareItem = {
-  url: "http://dl.example.com/bins/x86_64",
-  host: "dl.example.com",
-  first_seen: new Date(Date.now() - 5 * 24 * HOUR).toISOString(),
-  last_seen: new Date(Date.now() - HOUR).toISOString(),
-  attempts: 246,
-  sessions: 197,
-  ips: 74,
-  tools: ["wget", "curl"],
-  sensors: ["ssh", "telnet"],
-  sha256: null,
-  size: null,
-  virustotal_url: null,
-}
 const TERMINAL_COLOURS = [
   "foreground",
   "red",
@@ -1131,7 +1109,7 @@ export function StyleguidePage() {
       <Section
         id="trends"
         title="Trends, malware and insights"
-        description="Neutral by default. Only the tag the finding is about is red; the heatmap is a five-step neutral scale with a readout line."
+        description="Neutral by default. Only the tag the finding is about is red; the tag table keeps a sparkline per tag and a change column."
       >
         <div className="grid grid-cols-1 gap-4">
           <FindingCard
@@ -1144,17 +1122,11 @@ export function StyleguidePage() {
             ))}
           </FindingCard>
           <FindingCard
-            eyebrow="TagChart"
+            eyebrow="TagTable"
             finding={'"php2shell" is the most common tag, and the only one painted red.'}
-            detail="Other payload tags keep a red-outlined diamond in the legend."
+            detail="Other payload tags keep a red-outlined diamond."
           >
-            <TagChart points={SAMPLE_TAGS} />
-          </FindingCard>
-          <FindingCard
-            eyebrow="Heatmap"
-            finding="Tuesday afternoon is the busiest time, in your time zone."
-          >
-            <Heatmap cells={SAMPLE_HEAT} offsetHours={0} />
+            <TagTable points={SAMPLE_TAGS} />
           </FindingCard>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <FindingCard eyebrow="NewList" finding="2 usernames were never seen before this week.">
@@ -1164,14 +1136,6 @@ export function StyleguidePage() {
               <code className="font-mono text-xs text-fg">http://dl.example.com/bins/x86_64</code>
               <CopyDefanged url="http://dl.example.com/bins/x86_64" />
             </Specimen>
-          </div>
-          <div className="overflow-hidden rounded-lg border bg-surface shadow-sm">
-            <div className="border-b px-4 py-2 font-mono text-2xs text-fg-subtle sm:px-5">
-              MalwareRow (Malware list; URLs are text, never links)
-            </div>
-            <div role="list" aria-label="Malware samples">
-              <MalwareRow item={SAMPLE_MALWARE} onOpen={() => undefined} showHash={false} />
-            </div>
           </div>
         </div>
       </Section>

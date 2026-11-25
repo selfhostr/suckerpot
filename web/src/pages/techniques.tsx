@@ -5,13 +5,13 @@ import { FilterBar, SensorFilter } from "@/components/filter-bar"
 import { FindingCard } from "@/components/finding-card"
 import { PageHeader } from "@/components/page-header"
 import { SegmentedControl } from "@/components/segmented-control"
-import { TechniqueHeatmap } from "@/components/techniques/technique-heatmap"
+import { TechniqueTable } from "@/components/techniques/technique-table"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUrlParam } from "@/hooks/use-url-param"
 import { api, queryKeys } from "@/lib/api"
 import { TECHNIQUE_WINDOWS, describeMatrix, techniqueDays } from "@/lib/campaigns"
-import { formatNumber, plural } from "@/lib/format"
+import { plural } from "@/lib/format"
 import { formatSensors, parseSensors } from "@/lib/sensors"
 
 export function TechniquesPage() {
@@ -31,8 +31,6 @@ export function TechniquesPage() {
     queryFn: () => api.attackTechniques(days, sensor),
   })
 
-  const seen = new Set(matrix.data?.rows.map((r) => r.id))
-  const unseen = (catalogue.data?.items ?? []).filter((t) => !seen.has(t.id))
   const total = catalogue.data?.items.length ?? null
   const top = matrix.data
     ? [...matrix.data.rows].sort((a, b) => b.total_sessions - a.total_sessions)[0]
@@ -57,7 +55,7 @@ export function TechniquesPage() {
       </FilterBar>
 
       <FindingCard
-        eyebrow="MITRE ATT&CK techniques by stage"
+        eyebrow="MITRE ATT&CK techniques"
         finding={
           top
             ? `The most common move: they ${top.plain}, in ${plural(top.total_sessions, "session")}.`
@@ -65,7 +63,7 @@ export function TechniquesPage() {
               ? "Reading the techniques…"
               : "Nothing to show for this window."
         }
-        detail="Each row is something attackers did, grouped by the stage of the attack. The stronger a cell, the more sessions that day."
+        detail="Each row is something attackers did, most sessions first, with the stage of the attack it belongs to."
       >
         {matrix.isPending ? (
           <div role="status" aria-label="Loading" className="space-y-3">
@@ -92,34 +90,13 @@ export function TechniquesPage() {
             description="Techniques are labelled as sessions arrive. Try a longer window or another sensor."
           />
         ) : (
-          <TechniqueHeatmap
+          <TechniqueTable
             matrix={matrix.data}
             linkSuffix={sensorKey ? `&sensor=${encodeURIComponent(sensorKey)}` : ""}
           />
         )}
       </FindingCard>
 
-      {unseen.length > 0 && matrix.isSuccess ? (
-        <FindingCard
-          className="mt-4"
-          eyebrow="Not seen"
-          finding={`${plural(unseen.length, "technique")} we watch for did not show up in the last ${days} days.`}
-          detail={`${formatNumber(seen.size)} of ${formatNumber(total ?? 0)} appeared.`}
-        >
-          <ul className="flex flex-wrap gap-1.5" aria-label="Techniques not seen">
-            {unseen.map((t) => (
-              <li
-                key={t.id}
-                title={t.name}
-                className="inline-flex h-(--chip) items-center gap-1.5 rounded-sm border border-border-strong px-2 text-xs text-fg-muted"
-              >
-                <span className="font-mono text-fg-subtle">{t.id}</span>
-                {t.name}
-              </li>
-            ))}
-          </ul>
-        </FindingCard>
-      ) : null}
     </>
   )
 }

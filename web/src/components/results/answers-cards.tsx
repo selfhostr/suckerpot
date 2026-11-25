@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { formatNumber, formatPercent } from "@/lib/format"
 import { outcomeIsWarning } from "@/lib/replies"
 import { ANSWER_ROWS, type OutcomesResponse } from "@/lib/results"
-import { describeAnswers, describeDelay, longDelay } from "@/lib/results-sentences"
+import { describeAnswers } from "@/lib/results-sentences"
 import { OutcomeBadge } from "./badges"
 
 /** "Did anyone answer?": one bar per outcome. Rejected and bounced take the warning tone. */
@@ -48,39 +48,6 @@ export function AnswersCard({ data }: { data: OutcomesResponse | undefined }) {
             )
           })}
         </ul>
-      )}
-    </FindingCard>
-  )
-}
-
-function Figure({ label, seconds }: { label: string; seconds: number | null }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 rounded-lg border bg-bg p-4 sm:block sm:space-y-1">
-      <p className="type-eyebrow text-fg-muted sm:min-h-[2lh]">{label}</p>
-      <p className="type-kpi text-fg tabular-nums">
-        {seconds == null ? "none yet" : longDelay(seconds)}
-      </p>
-    </div>
-  )
-}
-
-/** "How fast they answer": the median and the slowest-tenth delay to the first answer. */
-export function DelayCard({ data }: { data: OutcomesResponse | undefined }) {
-  const t = data?.totals
-  return (
-    <FindingCard
-      eyebrow="How fast they answer"
-      finding={data ? describeDelay(data.totals) : "Measuring how long answers take…"}
-      detail="Measured from the time you sent the report to the first answer."
-    >
-      {!t ? (
-        <Skeleton className="h-24 w-full" />
-      ) : (
-        <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-3">
-          <Figure label="Half answered within" seconds={t.first_reply_p50_s} />
-          <Figure label="Nine in ten within" seconds={t.first_reply_p90_s} />
-          <Figure label="Median time to resolve" seconds={t.resolved_p50_s} />
-        </div>
       )}
     </FindingCard>
   )

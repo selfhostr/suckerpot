@@ -4,7 +4,6 @@
  */
 
 import type {
-  HeatmapResponse,
   InsightsResponse,
   MalwareDetail,
   MalwareItem,
@@ -591,7 +590,6 @@ export const api = {
     getJson<NewResponse>("/trends/new", { field, days, limit }),
   trendsTags: (range: StatsRange = {}) =>
     getJson<TagsResponse>("/trends/tags", { bucket: "1d", ...range }),
-  heatmap: (range: StatsRange = {}) => getJson<HeatmapResponse>("/stats/heatmap", { ...range }),
   malware: (
     filters: { tool?: string | undefined; q?: string | undefined },
     cursor?: string | null,
@@ -651,7 +649,6 @@ export const queryKeys = {
   insights: (range: StatsRange) => ["insights", range] as const,
   trendsNew: (field: string, days: number) => ["trends", "new", field, days] as const,
   trendsTags: (range: StatsRange) => ["trends", "tags", range] as const,
-  heatmap: (range: StatsRange) => ["stats", "heatmap", range] as const,
   malware: (filters: object) => ["malware", filters] as const,
   malwareDetail: (url: string) => ["malware", "detail", url] as const,
   cves: (filters: object, limit: number) => ["cves", filters, limit] as const,

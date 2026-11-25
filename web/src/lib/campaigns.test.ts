@@ -5,9 +5,6 @@ import {
   describeMatrix,
   describeScale,
   foldRepeats,
-  groupByStage,
-  heatColour,
-  heatStep,
   stageReach,
   stageTrailText,
   techniqueDays,
@@ -116,22 +113,6 @@ describe("windows", () => {
   })
 })
 
-describe("heat scale", () => {
-  it("is empty for zero and tops out at 5", () => {
-    expect(heatStep(0, 10)).toBe(0)
-    expect(heatStep(1, 0)).toBe(0)
-    expect(heatStep(10, 10)).toBe(5)
-    expect(heatStep(1, 1000)).toBe(1)
-    expect(heatStep(5, 20)).toBeGreaterThan(heatStep(1, 20))
-  })
-
-  it("uses theme tokens only", () => {
-    expect(heatColour(0)).toBe("var(--surface-hover)")
-    expect(heatColour(3)).toContain("var(--fg)")
-    expect(heatColour(3)).not.toMatch(/#[0-9a-f]{3,6}/i)
-  })
-})
-
 describe("matrix helpers", () => {
   const matrix: Matrix = {
     since: "2026-10-18",
@@ -144,13 +125,6 @@ describe("matrix helpers", () => {
       row("T1078", "access", [0, 1, 1]),
     ],
   }
-
-  it("groups by stage in story order and drops empty stages", () => {
-    const groups = groupByStage(matrix)
-    expect(groups.map((g) => g.stage)).toEqual(["recon", "access"])
-    expect(groups[1]?.rows.map((r) => r.id)).toEqual(["T1110", "T1078"])
-    expect(groups[1]?.total).toBe(22)
-  })
 
   it("opens with the most common move", () => {
     expect(describeMatrix(matrix, 33)).toBe(

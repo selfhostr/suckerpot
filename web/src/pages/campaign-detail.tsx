@@ -8,7 +8,7 @@ import { ExportMenu } from "@/components/abuse/export-menu"
 import { ExcerptBlock } from "@/components/campaigns/excerpt-block"
 import { IndicatorList } from "@/components/campaigns/indicator-list"
 import { StageTrail } from "@/components/campaigns/stage-trail"
-import { StoryStages } from "@/components/campaigns/story-stages"
+import { TechniqueChips } from "@/components/campaigns/technique-chips"
 import { DayBars } from "@/components/charts/day-bars"
 import { CountryFlag } from "@/components/country-flag"
 import { EmptyState } from "@/components/empty-state"
@@ -273,7 +273,7 @@ export function CampaignDetailPage() {
                 ? `${plural(c.stages.length, "stage")}: ${stageTrailText(c.stages)}.`
                 : "Reading the story…"
             }
-            detail="Each step in plain English, with the MITRE ATT&CK techniques behind it."
+            detail="The stages this campaign went through, and the MITRE ATT&CK techniques behind them."
           >
             {c ? <StageTrail stages={c.stages} variant="steps" className="mb-6" /> : null}
             {story.isPending ? (
@@ -285,7 +285,7 @@ export function CampaignDetailPage() {
             ) : story.isError ? (
               <p className="text-sm text-fg-muted">Could not load the story.</p>
             ) : st && st.stages.length > 0 ? (
-              <StoryStages stages={st.stages} campaignId={id} className="border-t pt-5" />
+              <TechniqueChips stages={st.stages} campaignId={id} className="border-t pt-5" />
             ) : (
               <EmptyState
                 variant="bare"

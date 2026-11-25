@@ -93,7 +93,7 @@ No decorative gradients. The only fills under lines are flat, 8 % opacity.
 
 - 4 px grid. Page gutters: 16 px on mobile, 24 px on tablet, 40 px on desktop, the same on every page. Cards pad 16 px (mobile) / 20 px. Sections are separated by 24 px or more.
 - **Page width: fluid.** Every page fills the content column beside the sidebar, with the gutters above, and grows when the sidebar folds (1680 px of frame on a 1920 px screen, 1864 px folded). The only cap on the frame is a safety one, 2560 px gutters included (`--container-page-wide`), so rows do not stretch across an ultra-wide screen. A route may declare `handle: { width: "prose" }` (`src/app/page-width.ts`): the frame stays the same, but the page's own column stops at 1152 px (`--container-page-prose`), left-aligned under the breadcrumb. Only the first-run setup, a text-heavy form, does. Lists, hubs, dashboards and detail pages never cap their frame: their text blocks cap themselves (`max-w-2xl` for a lede, `max-w-3xl` for an explanation), so lines stay readable while tables, charts and grids take the room.
-- Pages use the room from `2xl` (1536 px), and only where it shortens the read: a third column (Results: three cards to a row; Trends: the four top lists in one row), side by side panels (Infrastructure: the diagram beside the control servers), extra table columns (Attackers: network and events), and wider table cells so a place and a network fit on one line. Breakpoints are viewport widths, and the unfolded sidebar takes 240 px of it: a layout that needs more than about 1100 px of content waits for `2xl`, not `xl`.
+- Pages use the room from `2xl` (1536 px), and only where it shortens the read: a third column (Results: three cards to a row, and seven figures on its band when takedowns are tracked; Patterns: the top values beside the tags), side by side panels (Hosts & URLs: the indicator summary beside the control servers), extra table columns (Attackers: network and events), and wider table cells so a place and a network fit on one line. Breakpoints are viewport widths, and the unfolded sidebar takes 240 px of it: a layout that needs more than about 1100 px of content waits for `2xl`, not `xl`.
 - Cards of uneven height flow in CSS columns, not grid rows, so a short card never sits next to a hole.
 - Radius, as in the selfhostr guidelines: 6 px chips (`rounded-sm`, the "plate"), 8 px controls, small panels and nav items (`rounded-md`, the button), 12 px cards (`rounded-lg`). 4 px (`rounded-xs`) only for marks inside a chip or a control (a copy button inside an address chip, a checkbox). Pills are fully rounded only for the sensor share bar and meters.
 - Cards side by side in a grid row share one height (grid rows stretch); a card whose title sits outside its box is a bug, the title goes inside like `FindingCard`. Uneven stacks are two column stacks (Settings, Reporting, VPN), never a grid with holes.
@@ -164,13 +164,17 @@ Every tile has the same structure: label, value, one footer line pinned to the b
 
 Bars that stand for a sensor use that sensor's colour (the hour strip on Today, the sensor share bar). Every other bar is neutral: the share bars in top lists, an attacker's activity per day (an attacker spans sensors). Tinted backgrounds use the `tint-*` utilities only.
 
-## Tags over time
+## Charts
 
-Only one tag is red: the leading payload tag, which is what the card's finding sentence is about. Every other tag, payload or not, is a neutral lightness step, and payload tags keep a red-outlined diamond in the legend and tooltip. This keeps red rare even when most tagged traffic is malicious.
+A chart earns its place only when a picture answers the question faster than a number. Most of what the dashboard once drew as charts is a table or a figure now:
 
-## Heatmap
-
-Day × hour uses a five-step neutral scale (color-mix of `--fg` into `--surface`), a "Fewer … More" key, and a readout line for the hovered or tapped cell. Hours are shown in the browser time zone.
+- **Over a period, a list with a sparkline** (`Sparkline`, `components/sparkline.tsx`): one row per thing (a tag, a technique), a count, a line of its days, and a change column. The line has no axes and is neutral; the number carries the value. Rows are sorted, so the order is the ranking. No heatmaps and no stacked bars with a legend of ten greys: they ask the reader to decode colour, and a sorted table with a line does not.
+- **This against that, a figure** (Results: reports this month against last month): two numbers and a sentence, not two bars.
+- **Change** is words and an arrow or a sign, never green and red (`+120%`, `New`, `No change`). It compares the second half of the period with the first.
+- **Time of day** is not charted outside Today's hour strip: bots keep no office hours, so a day by hour map shows nothing to act on.
+- **Diagrams that need room** (the flow diagram on Hosts & URLs) are off until asked for ("Show diagram", `?diagram=1`); the table beside it has the same facts.
+- **Red** is for the one thing the sentence above is about: on Tags, the leading payload tag (a red square and a red line), while other payload tags keep a red-outlined diamond. Every other mark is neutral.
+- Every chart and sparkline has an accessible name, and the numbers behind it are in the text beside it.
 
 ## Today
 
@@ -271,8 +275,8 @@ Pages for people who act at their company: block, detect, check exposure. Each o
 A campaign is told as up to six **stages**, always in story order: Looking around, Getting in, Running code, Staying in, Bringing tools, The goal. Stages are neutral: each has one icon (`components/campaigns/stage-icons.ts`) shown next to its name, and never a hue (a hue means a sensor family or a severity). Seen and not seen differ by shape and words, not colour.
 
 - **List** (`CampaignRow`): severity icon, name, scale in words with flags, a compact `StageTrail` (six slots in story order: an icon in a box where the stage was seen, a dot where it was not, and "3 stages, up to bringing tools" under it), sensor badges, status and last seen.
-- **Detail**, top to bottom: header (severity, status, sensors, malware family, one sentence), the counters strip, then "How the attack unfolded": the six-step stepper (`StageTrail variant="steps"`, solid ring seen, dashed ring not seen) and the numbered `StoryStages` (a plain question, one sentence, ATT&CK chips that open this campaign's matching sessions plus an external link). On phones and tablets **What to do** comes right after the story; on desktop it heads the side column above the clues. Then a real excerpt (repeated lines folded into "× 4"), activity per day, and the latest sessions full width so each row keeps its one-line story.
-- **Techniques**: the heatmap groups rows by stage (icon and name in each group heading), uses the neutral five-step scale, and the full technique name gets 19 rem on desktop.
+- **Detail**, top to bottom: header (severity, status, sensors, malware family, one sentence), the counters strip, then "How the attack unfolded": the six-step stepper (`StageTrail variant="steps"`, solid ring seen, dashed ring not seen), drawn once, then the ATT&CK techniques as chips (`TechniqueChips`, once each, opening this campaign's matching sessions plus an external link). On phones and tablets **What to do** comes right after the story; on desktop it heads the side column above the clues. Then a real excerpt (repeated lines folded into "× 4"), activity per day, and the latest sessions full width so each row keeps its one-line story.
+- **Techniques**: a table, busiest first (`TechniqueTable`): technique and name, the stage with its icon, a sparkline of the days, the first day seen in the window and the sessions. There is no list of techniques that were not seen.
 
 ## Alerts and reports
 
@@ -353,10 +357,12 @@ On long pages the list is the main thing: summaries and filters stay compact abo
 | TopList                    | `top-list.tsx`                           | ranked rows with printed count + share ("<1%", never "0%"; bar is decoration), each row a filtered link; `scale="total"` when rows can tie |
 | AttackerRow                | `attacker-row.tsx`                       | one-line attacker profile story; row opens the profile, chips/flags/tags open filtered lists                                               |
 | StageTrail                 | `campaigns/stage-trail.tsx`              | the playbook in story order: `compact` (lists, icon or dot plus words) or `steps` (detail, stepper with names); never a hue                |
-| StoryStages                | `campaigns/story-stages.tsx`             | numbered steps: icon, plain question, one sentence, ATT&CK chips (campaign sessions + external link)                                       |
+| TechniqueChips             | `campaigns/technique-chips.tsx`          | the ATT&CK techniques of a campaign, once each (campaign sessions + external link)                                                          |
 | ExcerptBlock               | `campaigns/excerpt-block.tsx`            | real lines from one session, text only, back-to-back repeats folded with a count                                                           |
 | CampaignRow, CampaignChip  | `campaigns/campaign-row.tsx`, `-chip`    | one campaign as one story line; "Part of campaign" on the session page                                                                     |
-| TechniqueHeatmap           | `techniques/technique-heatmap.tsx`       | techniques by day, grouped by stage, neutral scale, readout line, sr-only table                                                            |
+| TechniqueTable             | `techniques/technique-table.tsx`         | techniques, busiest first: stage, sparkline of the days, first seen, sessions                                                              |
+| TagTable                   | `trends/tag-table.tsx`                   | tags over the period: events, sparkline per day, change of the second half against the first; the leading payload tag is the one red mark |
+| Sparkline                  | `sparkline.tsx`                          | a neutral line over a flat area, no axes, an accessible name                                                                               |
 | LiveIndicator, ThemeToggle | `live-indicator.tsx`, `theme-toggle.tsx` | live status, theme switch (sign-in pages; the shell has its own)                                                                           |
 
 Primitives (button, card, badge, tooltip, dropdown-menu, sheet, separator, skeleton, scroll-area, tabs, toggle, toggle-group, command, dialog, popover, input) come from shadcn/ui via the CLI and live in `src/components/ui/`. They read our tokens through the shadcn variable contract mapped in `index.css`, and their sizes, radii and focus are ours, not shadcn's defaults: heights from the control tokens, `Card` is 12 px with no inner padding of its own, `Badge` is a 22 px chip, dialog and sheet titles use the type roles, focus is the base outline. Do not edit them for one page: add a variant here instead.

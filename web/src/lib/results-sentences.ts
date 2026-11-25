@@ -50,6 +50,30 @@ export function formatDayMonth(iso: string): string {
 
 const sentIn = (p: TimelinePoint) => p.sent_total
 
+/** Reports sent in the current month (or the latest one with reports) and in the month before. */
+export function monthComparison(
+  points: readonly TimelinePoint[],
+  now: Date,
+): { month: string; sent: number; previousMonth: string; previous: number; running: boolean } {
+  const keyOf = (d: Date) => `${d.getFullYear()}-${d.getMonth()}`
+  const byMonth = new Map<string, number>()
+  for (const p of points) {
+    const k = keyOf(new Date(p.start))
+    byMonth.set(k, (byMonth.get(k) ?? 0) + sentIn(p))
+  }
+  let cursor = new Date(now.getFullYear(), now.getMonth(), 1)
+  for (let i = 0; i < 24 && !(byMonth.get(keyOf(cursor)) ?? 0); i++)
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1)
+  const prev = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1)
+  return {
+    month: monthName.format(cursor),
+    sent: byMonth.get(keyOf(cursor)) ?? 0,
+    previousMonth: monthName.format(prev),
+    previous: byMonth.get(keyOf(prev)) ?? 0,
+    running: keyOf(cursor) === keyOf(now),
+  }
+}
+
 /** "You sent 14 reports in October, 5 more than in September." */
 export function describeSentOverTime(points: readonly TimelinePoint[], now: Date): string {
   const byMonth = new Map<string, number>()
@@ -98,15 +122,6 @@ export function describeAnswers(totals: OutcomeTotals, groups: readonly OutcomeG
   if (tickets > 0) parts.push(`${tickets} opened a ticket`)
   if (acted > 0) parts.push(`${acted} said they acted`)
   return `${answered} of ${plural(providers, "provider")} answered${parts.length ? `; ${parts.join(" and ")}` : ""}.`
-}
-
-/** "Half of the first answers came within 3 hours." */
-export function describeDelay(totals: OutcomeTotals): string {
-  if (totals.first_reply_p50_s == null)
-    return "No report has been answered yet, so there is no delay to show."
-  const half = `Half of the first answers came within ${longDelay(totals.first_reply_p50_s)}`
-  if (totals.first_reply_p90_s == null) return `${half}.`
-  return `${half}, nine in ten within ${longDelay(totals.first_reply_p90_s)}.`
 }
 
 /** The opening sentence of a providers table of M26. */
@@ -187,15 +202,6 @@ export function describeTakedownHeader(
   return `Since ${formatDayMonth(since ?? s.since)} you reported ${plural(c.tracked, "malware URL")}; ${c.down_48h} of the ${c.eligible_48h} followed for 48 hours went down within that time, and ${c.down_30d} within 30 days.`
 }
 
-/** "12 of 31 reported malware URLs went down within 48 h." */
-export function describeCurve(s: TakedownSummary | undefined): string {
-  if (!s) return "How fast reported malware URLs go down."
-  const c = s.urls
-  if (c.eligible_48h === 0)
-    return "It is too early to say: no reported URL has been followed for 48 hours yet."
-  return `${c.down_48h} of ${c.eligible_48h} reported malware ${c.eligible_48h === 1 ? "URL" : "URLs"} went down within 48 h.`
-}
-
 /** Hint of the "median time to takedown" tile; the tile shows the value itself. */
 export function describeTtd(c: { ttd_p50_s: number | null; ttd_n: number }): string {
   if (c.ttd_p50_s == null || c.ttd_n < 5) return "Not enough data yet"
@@ -254,11 +260,4 @@ export function describeBounds(
       ? `down between ${clock(t.down_after)} and ${clock(t.down_before)}, `
       : "down "
   return `${range}${shortDelay(t.seconds)} after the report`
-}
-
-/** "1 h", "2 days", "30 days" for a tick of the curve. */
-export function hoursLabel(h: number): string {
-  if (h < 24) return `${h} h`
-  const d = Math.round(h / 24)
-  return `${d} ${d === 1 ? "day" : "days"}`
 }

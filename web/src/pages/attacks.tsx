@@ -3,22 +3,11 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual"
 import { Crosshair, SearchX } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router"
-import { CampaignName } from "@/components/campaigns/campaign-name"
-import { CountryFlag } from "@/components/country-flag"
 import { EmptyState } from "@/components/empty-state"
-import { FilterBar, SensorFilter } from "@/components/filter-bar"
-import { FloodFilter } from "@/components/flood-filter"
+import { AttacksFilterBar } from "@/components/attacks-filter-bar"
 import { NewRowsPill } from "@/components/new-rows-pill"
 import { PageHeader } from "@/components/page-header"
 import { StickyFilters } from "@/components/sticky-filters"
-import {
-  CountryFilter,
-  NetworkFilter,
-  OutcomeFilter,
-  PeriodFilter,
-  SearchFilter,
-  TagFilter,
-} from "@/components/list-filters"
 import { SESSION_COLUMNS_GRID, SessionRow } from "@/components/session-row"
 import { SkeletonList, SkeletonRow } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
@@ -37,9 +26,7 @@ import {
   clearParams,
   parseSessionFilters,
   SESSION_PARAMS,
-  SESSION_SEARCH_FIELDS,
 } from "@/lib/list-filters"
-import { STAGE_META, parseInstant, parseStage, windowLabel } from "@/lib/story"
 import { SENSOR_META, sensorSetPhrase } from "@/lib/sensors"
 import { cn } from "@/lib/utils"
 
@@ -105,7 +92,6 @@ function useHeadline(
 }
 
 export function AttacksPage() {
-  const { masked } = useIpMask()
   const filters = useFilters()
   const [params, setParams] = useSearchParams()
 
@@ -169,86 +155,7 @@ export function AttacksPage() {
 
       <StickyFilters
         filters={
-          <FilterBar
-            alsoClears={[...SESSION_PARAMS]}
-            chips={[
-              {
-                param: "src_ip",
-                label: "IP address",
-                render: (v) => <span className="font-mono">{masked ? maskIp(v) : v}</span>,
-              },
-              {
-                param: "username",
-                label: "Username",
-                render: (v) => <span className="font-mono">{v}</span>,
-              },
-              {
-                param: "command",
-                label: "Command",
-                render: (v) => <span className="font-mono">{v}</span>,
-              },
-              {
-                param: "url",
-                label: "Download URL",
-                render: (v) => <span className="font-mono break-all">{v}</span>,
-              },
-              {
-                param: "since",
-                label: "Period",
-                alsoRemove: ["until"],
-                render: (v) => (
-                  <span>{windowLabel(parseInstant(v), parseInstant(params.get("until")))}</span>
-                ),
-              },
-              ...(params.get("since")
-                ? []
-                : [
-                    {
-                      param: "until",
-                      label: "Period",
-                      render: (v: string) => <span>{windowLabel(undefined, parseInstant(v))}</span>,
-                    },
-                  ]),
-              {
-                param: "stage",
-                label: "Outcome",
-                render: (v) => {
-                  const stage = parseStage(v)
-                  return <span>{stage ? STAGE_META[stage].label : v}</span>
-                },
-              },
-              { param: "tag", label: "Tag", render: (v) => <span className="font-mono">{v}</span> },
-              {
-                param: "country",
-                label: "Country",
-                render: (v) => <CountryFlag code={v.toUpperCase()} showName className="text-fg" />,
-              },
-              {
-                param: "asn",
-                label: "Network",
-                render: (v) => <span className="font-mono">AS{v}</span>,
-              },
-              {
-                param: "technique",
-                label: "Technique",
-                render: (v) => <span className="font-mono">{v}</span>,
-              },
-              {
-                param: "campaign_id",
-                label: "Campaign",
-                render: (v) => <CampaignName id={v} />,
-              },
-            ]}
-          >
-            <SearchFilter fields={SESSION_SEARCH_FIELDS} />
-            <SensorFilter />
-            <PeriodFilter />
-            <CountryFilter />
-            <NetworkFilter />
-            <TagFilter />
-            <OutcomeFilter />
-            <FloodFilter />
-          </FilterBar>
+          <AttacksFilterBar group="sessions" />
         }
       >
         <NewRowsPill

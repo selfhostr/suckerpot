@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   defangUrl,
-  describeHeatmap,
-  describeMalware,
   describeNew,
   describeTags,
   describeTop,
-  summariseMalware,
   tagTotals,
-  toLocalGrid,
-  type MalwareItem,
   type TagPoint,
 } from "./trends"
 
@@ -29,40 +24,7 @@ describe("defangUrl", () => {
   })
 })
 
-describe("toLocalGrid", () => {
-  it("shifts cells into local time and wraps around the week", () => {
-    const cells = [
-      { dow: 0, hour: 23, events: 5 },
-      { dow: 6, hour: 23, events: 7 },
-    ]
-    const g = toLocalGrid(cells, 2)
-    expect(g[1]?.[1]).toBe(5)
-    expect(g[0]?.[1]).toBe(7) // Sunday 23:00 UTC is Monday 01:00 at +2
-    const back = toLocalGrid([{ dow: 0, hour: 1, events: 3 }], -2)
-    expect(back[6]?.[23]).toBe(3)
-  })
-  it("ignores invalid cells", () => {
-    expect(
-      toLocalGrid([{ dow: 9, hour: 3, events: 1 }], 0)
-        .flat()
-        .reduce((a, b) => a + b, 0),
-    ).toBe(0)
-  })
-})
-
 describe("findings", () => {
-  it("names the busiest day and hour", () => {
-    const cells = [
-      { dow: 1, hour: 14, events: 90 },
-      { dow: 3, hour: 2, events: 10 },
-    ]
-    const f = describeHeatmap(toLocalGrid(cells, 0), 7)
-    expect(f.finding).toBe(
-      "Tuesday is the busiest day and 14:00 the busiest hour, in your time zone.",
-    )
-    expect(describeHeatmap(toLocalGrid([], 0), 7).finding).toMatch(/No activity/)
-  })
-
   const points: TagPoint[] = [
     { ts: "2026-10-18T00:00:00Z", tags: { recon: 50, php2shell: 10, other: 5 } },
     { ts: "2026-10-19T00:00:00Z", tags: { recon: 50, php2shell: 10, other: 5 } },
@@ -98,31 +60,5 @@ describe("findings", () => {
       '2 passwords were never seen before this week; the most used is "b" (9 times).',
     )
     expect(describeNew("asn", [], 30).finding).toMatch(/No new networks/)
-  })
-  it("summarises malware", () => {
-    const mk = (host: string, attempts: number): MalwareItem => ({
-      url: `http://${host}/x`,
-      host,
-      first_seen: "",
-      last_seen: "",
-      attempts,
-      sessions: 1,
-      ips: 1,
-      tools: ["wget"],
-      sensors: ["ssh"],
-      sha256: null,
-      size: null,
-      virustotal_url: null,
-    })
-    const s = summariseMalware([
-      mk("a.example.net", 5),
-      mk("a.example.net", 2),
-      mk("b.example.org", 1),
-    ])
-    expect(s).toMatchObject({ urls: 3, attempts: 8, hosts: 2 })
-    expect(describeMalware(s, true).finding).toBe(
-      "At least 3 download URLs on 2 hosts, tried 8 times.",
-    )
-    expect(describeMalware(summariseMalware([]), false).finding).toMatch(/No download/)
   })
 })

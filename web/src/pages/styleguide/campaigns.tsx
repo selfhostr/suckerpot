@@ -4,8 +4,8 @@ import { ExcerptBlock } from "@/components/campaigns/excerpt-block"
 import { IndicatorList } from "@/components/campaigns/indicator-list"
 import { STAGE_ICON } from "@/components/campaigns/stage-icons"
 import { StageTrail } from "@/components/campaigns/stage-trail"
-import { StoryStages } from "@/components/campaigns/story-stages"
-import { TechniqueHeatmap } from "@/components/techniques/technique-heatmap"
+import { TechniqueChips } from "@/components/campaigns/technique-chips"
+import { TechniqueTable } from "@/components/techniques/technique-table"
 import {
   STAGES,
   STAGE_META,
@@ -176,8 +176,8 @@ function CampaignsSection() {
             className="w-full max-w-2xl"
           />
         </Specimen>
-        <Specimen label="StoryStages: one plain question and one sentence per stage, ATT&CK chips">
-          <StoryStages stages={STORY} campaignId={3} className="w-full max-w-2xl" />
+        <Specimen label="TechniqueChips: the ATT&CK techniques of a campaign, once each">
+          <TechniqueChips stages={STORY} campaignId={3} className="w-full max-w-2xl" />
         </Specimen>
         <Specimen label="ExcerptBlock: text only, repeats folded into a count">
           <ExcerptBlock
@@ -214,8 +214,8 @@ function CampaignsSection() {
             <IndicatorList items={INDICATORS} />
           </div>
         </Specimen>
-        <Specimen label="TechniqueHeatmap: neutral five-step scale, grouped by stage">
-          <TechniqueHeatmap matrix={MATRIX} className="w-full" />
+        <Specimen label="TechniqueTable: busiest first, with a sparkline per technique">
+          <TechniqueTable matrix={MATRIX} className="w-full" />
         </Specimen>
       </div>
     </Section>

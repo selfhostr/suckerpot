@@ -392,7 +392,7 @@ export function bootstrapSentence(totals: NetworkTotals): string | null {
   return `The network needs ${MIN_ACTIVE_MEMBERS} active members before it confirms anything. It has ${formatNumber(totals.active_7d)} now.`
 }
 
-/** Sentence before the weekly chart. */
+/** The takedowns of the latest week against the week before. */
 export function weeklyFinding(weekly: readonly NetworkWeek[]): string {
   const last = weekly[weekly.length - 1]
   if (!last) return "There are no weekly figures yet."
@@ -404,16 +404,6 @@ export function weeklyFinding(weekly: readonly NetworkWeek[]): string {
     return `${noun(last.taken_down)} were taken down this week, as many as the week before.`
   const dir = last.taken_down > prev.taken_down ? "up" : "down"
   return `${noun(last.taken_down)} ${last.taken_down === 1 ? "was" : "were"} taken down this week, ${dir} from ${formatNumber(prev.taken_down)} the week before.`
-}
-
-export function countriesFinding(countries: readonly NetworkCountry[], total: number): string {
-  if (countries.length === 0)
-    return `Members are in ${plural(total, "country", "countries")}. A country is named only when at least 3 members share it.`
-  const top = countries[0]
-  const name = (top && countryName(top.cc)) ?? "One country"
-  return `${name} has the most members: ${formatNumber(top?.members ?? 0)} of ${formatNumber(
-    countries.reduce((n, c) => n + c.members, 0),
-  )} who share a country.`
 }
 
 export function membersFinding(totals: NetworkTotals): string {
