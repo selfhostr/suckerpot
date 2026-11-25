@@ -26,7 +26,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "group",
     title: "Related sessions are grouped for you.",
-    body: "Campaigns join sessions that share a script, a payload host or an exploit. Under Understand, Scripts, Malware and Infrastructure show the tools behind them, and Trends shows what attackers try most and what is new.",
+    body: "Campaigns join sessions that share a script, a payload host or an exploit. Under Understand, Payloads shows the tools behind them (scripts, files, hosts and URLs), and Patterns shows what attackers try most and what is new.",
   },
   {
     id: "payloads",

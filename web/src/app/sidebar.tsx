@@ -1,11 +1,4 @@
-import {
-  ArrowUpRight,
-  BookOpen,
-  ChevronRight,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-} from "lucide-react"
+import { BookOpen, ChevronRight, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react"
 import { Link, useLocation } from "react-router"
 import { ScannerToggle } from "@/components/scanner-toggle"
 import {
@@ -13,7 +6,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -29,7 +21,8 @@ import {
   NAV_SECTIONS,
   SETTINGS_PAGE,
   activePage,
-  type NavPage,
+  entryHome,
+  type NavEntry,
   type NavSection,
 } from "./nav"
 import { useOpenSections } from "./sidebar-state"
@@ -51,8 +44,9 @@ const LIVE_WORD: Record<LiveStatus, string> = {
 }
 
 /**
- * Whether the live feed is connected, as a still dot beside "Live" (never animated: it sits on
- * every page). Green while connected, dimmed while connecting, a hollow ring when offline.
+ * Whether the live feed is connected, as a still dot beside "Today", which carries the live map
+ * (never animated: it sits on every page). Green while connected, dimmed while connecting, a
+ * hollow ring when offline.
  */
 function LiveDot({ className }: { className?: string }) {
   const { status } = useLiveStatus()
@@ -98,26 +92,27 @@ function RailTip({ label, children }: { label: React.ReactNode; children: React.
   )
 }
 
-/* --- Expanded: sections that open onto their pages -------------------------------------------- */
+/* --- Expanded: sections that open onto their entries ------------------------------------------ */
 
-function PageLink({
-  page,
+/** Today carries the live map, so the dot of the live feed sits beside it. */
+const LIVE_ENTRY_HOME = "/"
+
+function EntryLink({
+  entry,
   current,
-  first,
   onNavigate,
 }: {
-  page: NavPage
+  entry: NavEntry
   current: boolean
-  /** First page of a cluster after the first: a little air above it. */
-  first: boolean
   onNavigate?: (() => void) | undefined
 }) {
+  const to = entryHome(entry)
   return (
-    <li className={cn("relative", first && "mt-1.5")}>
-      {/* The guide line of the section turns solid beside the current page. */}
+    <li className="relative">
+      {/* The guide line of the section turns solid beside the current entry. */}
       {current ? <span aria-hidden className="absolute inset-y-1 -left-px w-px bg-fg" /> : null}
       <Link
-        to={page.to}
+        to={to}
         onClick={onNavigate}
         aria-current={current ? "page" : undefined}
         className={cn(
@@ -127,8 +122,8 @@ function PageLink({
             : "text-fg-muted hover:bg-surface-hover/60 hover:text-fg",
         )}
       >
-        <span className="min-w-0 flex-1 truncate">{page.label}</span>
-        {page.to === "/live" ? <LiveDot /> : null}
+        <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+        {to === LIVE_ENTRY_HOME ? <LiveDot /> : null}
       </Link>
     </li>
   )
@@ -138,17 +133,17 @@ function SectionGroup({
   section,
   open,
   onToggle,
-  currentTo,
+  currentEntry,
   onNavigate,
 }: {
   section: NavSection
   open: boolean
   onToggle: () => void
-  currentTo: string | undefined
+  currentEntry: NavEntry | undefined
   onNavigate?: (() => void) | undefined
 }) {
   const Icon = section.icon
-  const holdsCurrent = section.clusters.some((c) => c.some((p) => p.to === currentTo))
+  const holdsCurrent = !!currentEntry && section.entries.includes(currentEntry)
   const listId = `nav-list-${section.id}`
   const labelId = `nav-${section.id}`
   return (
@@ -186,34 +181,31 @@ function SectionGroup({
       </button>
       {open ? (
         <ul id={listId} className="mt-0.5 mb-1 ml-[1.0625rem] border-l pl-2">
-          {section.clusters.map((cluster, ci) =>
-            cluster.map((page, pi) => (
-              <PageLink
-                key={page.to}
-                page={page}
-                current={page.to === currentTo}
-                first={ci > 0 && pi === 0}
-                onNavigate={onNavigate}
-              />
-            )),
-          )}
+          {section.entries.map((entry) => (
+            <EntryLink
+              key={entry.label}
+              entry={entry}
+              current={entry === currentEntry}
+              onNavigate={onNavigate}
+            />
+          ))}
         </ul>
       ) : null}
     </div>
   )
 }
 
-/* --- Folded: one icon per section, its pages in a flyout -------------------------------------- */
+/* --- Folded: one icon per section, its entries in a flyout ------------------------------------ */
 
 function SectionFlyout({
   section,
-  currentTo,
+  currentEntry,
 }: {
   section: NavSection
-  currentTo: string | undefined
+  currentEntry: NavEntry | undefined
 }) {
   const Icon = section.icon
-  const holdsCurrent = section.clusters.some((c) => c.some((p) => p.to === currentTo))
+  const holdsCurrent = !!currentEntry && section.entries.includes(currentEntry)
   return (
     <DropdownMenu>
       <RailTip label={section.label}>
@@ -230,32 +222,26 @@ function SectionFlyout({
           </button>
         </DropdownMenuTrigger>
       </RailTip>
-      <DropdownMenuContent side="right" align="start" sideOffset={10} className="w-56">
+      <DropdownMenuContent side="right" align="start" sideOffset={10} className="w-52">
         <DropdownMenuLabel className="text-xs font-medium text-fg-subtle">
           {section.label}
         </DropdownMenuLabel>
-        {section.clusters.map((cluster, ci) => (
-          <div key={cluster[0]?.to ?? ci}>
-            {ci > 0 ? <DropdownMenuSeparator /> : null}
-            {cluster.map((page) => {
-              const current = page.to === currentTo
-              return (
-                <DropdownMenuItem key={page.to} asChild>
-                  <Link
-                    to={page.to}
-                    aria-current={current ? "page" : undefined}
-                    className={cn(
-                      current ? "bg-surface-hover font-medium text-fg" : "text-fg-muted",
-                    )}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{page.label}</span>
-                    {page.to === "/live" ? <LiveDot /> : null}
-                  </Link>
-                </DropdownMenuItem>
-              )
-            })}
-          </div>
-        ))}
+        {section.entries.map((entry) => {
+          const current = entry === currentEntry
+          const to = entryHome(entry)
+          return (
+            <DropdownMenuItem key={entry.label} asChild>
+              <Link
+                to={to}
+                aria-current={current ? "page" : undefined}
+                className={cn(current ? "bg-surface-hover font-medium text-fg" : "text-fg-muted")}
+              >
+                <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                {to === LIVE_ENTRY_HOME ? <LiveDot /> : null}
+              </Link>
+            </DropdownMenuItem>
+          )
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -263,10 +249,23 @@ function SectionFlyout({
 
 /* --- Foot: Settings, Docs, GitHub, then the account ------------------------------------------- */
 
-const FOOT_ROW =
-  "group flex h-10 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-150 lg:h-8"
 const RAIL_ICON =
   "relative grid size-10 shrink-0 place-items-center rounded-lg text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+/** The expanded foot's icon buttons: 40 px on a phone, 32 px from `lg`, side by side. */
+const ROW_ICON =
+  "relative grid size-10 shrink-0 place-items-center rounded-md text-fg-subtle transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none lg:size-8"
+
+/** A tooltip above an icon of the expanded foot row. */
+function RowTip({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
 
 function Foot({
   rail,
@@ -309,60 +308,36 @@ function Foot({
       </div>
     )
   }
-  const external = (
-    <ArrowUpRight
-      aria-hidden
-      className="size-3.5 shrink-0 text-fg-subtle opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
-    />
-  )
+  // Unfolded: the three links share one row of icons above the profile block.
   return (
-    <div className="flex shrink-0 flex-col gap-0.5 border-t px-3 pt-2 pb-3">
-      <Link
-        to={SETTINGS_PAGE.to}
-        onClick={onNavigate}
-        aria-current={settingsCurrent ? "page" : undefined}
-        className={cn(
-          FOOT_ROW,
-          settingsCurrent
-            ? "bg-surface-hover text-fg"
-            : "text-fg-muted hover:bg-surface-hover/60 hover:text-fg",
-        )}
-      >
-        <Settings
-          aria-hidden
-          strokeWidth={1.85}
-          className={cn("size-4 shrink-0", settingsCurrent ? "text-fg" : "text-fg-subtle")}
-        />
-        <span className="min-w-0 flex-1 truncate">Settings</span>
-        <UpdateDot />
-      </Link>
-      <a
-        href={DOCS_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={cn(FOOT_ROW, "text-fg-muted hover:bg-surface-hover/60 hover:text-fg")}
-      >
-        <BookOpen aria-hidden strokeWidth={1.85} className="size-4 shrink-0 text-fg-subtle" />
-        <span className="min-w-0 flex-1 truncate">
-          Documentation<span className="sr-only"> (opens in a new tab)</span>
-        </span>
-        {external}
-      </a>
-      <a
-        href={GITHUB_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={cn(FOOT_ROW, "text-fg-muted hover:bg-surface-hover/60 hover:text-fg")}
-      >
-        <GithubMark className="size-4 shrink-0 text-fg-subtle" />
-        <span className="min-w-0 flex-1 truncate">
-          GitHub<span className="sr-only"> (opens in a new tab)</span>
-        </span>
-        {external}
-      </a>
-      <div className="mt-1.5">
-        <AccountMenu onNavigate={onNavigate} menuSide={drawer ? "top" : "right"} />
+    <div className="flex shrink-0 flex-col gap-1.5 border-t px-3 pt-2 pb-3">
+      <div className="flex items-center gap-1 px-0.5">
+        <RowTip label="Settings">
+          <Link
+            to={SETTINGS_PAGE.to}
+            onClick={onNavigate}
+            aria-label="Settings"
+            aria-current={settingsCurrent ? "page" : undefined}
+            className={cn(ROW_ICON, settingsCurrent && "bg-surface-hover text-fg")}
+          >
+            <Settings aria-hidden strokeWidth={1.85} className="size-4" />
+            <UpdateDot className="absolute top-1.5 right-1.5" />
+          </Link>
+        </RowTip>
+        <RowTip label="Documentation">
+          <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={ROW_ICON}>
+            <BookOpen aria-hidden strokeWidth={1.85} className="size-4" />
+            <span className="sr-only">Documentation (opens in a new tab)</span>
+          </a>
+        </RowTip>
+        <RowTip label="GitHub">
+          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className={ROW_ICON}>
+            <GithubMark className="size-4" />
+            <span className="sr-only">GitHub (opens in a new tab)</span>
+          </a>
+        </RowTip>
       </div>
+      <AccountMenu menuSide={drawer ? "top" : "right"} />
     </div>
   )
 }
@@ -387,7 +362,7 @@ export function Sidebar({
 }) {
   const { pathname } = useLocation()
   const active = activePage(pathname)
-  const currentTo = active?.page.to
+  const currentEntry = active?.entry
   const settingsCurrent = active?.page === SETTINGS_PAGE
   const sections = useOpenSections()
   const rail = variant === "rail"
@@ -461,7 +436,7 @@ export function Sidebar({
           className="flex min-h-0 flex-1 flex-col items-start gap-1 overflow-y-auto px-2 pt-1"
         >
           {NAV_SECTIONS.map((s) => (
-            <SectionFlyout key={s.id} section={s} currentTo={currentTo} />
+            <SectionFlyout key={s.id} section={s} currentEntry={currentEntry} />
           ))}
         </nav>
       ) : (
@@ -476,7 +451,7 @@ export function Sidebar({
               section={s}
               open={sections.isOpen(s.id)}
               onToggle={() => sections.toggle(s.id)}
-              currentTo={currentTo}
+              currentEntry={currentEntry}
               onNavigate={onNavigate}
             />
           ))}

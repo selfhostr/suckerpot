@@ -96,11 +96,11 @@ function AttackerList({ filters }: { filters: AttackerFilters }) {
         >
           <span>IP address</span>
           <span>Country</span>
-          <span className="hidden xl:block">Network</span>
+          <span className="hidden 2xl:block">Network</span>
           <span>What it did</span>
           <span className="text-right">Sensors and tags</span>
           <span className="text-right">Sessions</span>
-          <span className="hidden text-right xl:block">Events</span>
+          <span className="hidden text-right 2xl:block">Events</span>
           <span className="text-right">Last seen</span>
         </div>
         {query.isPending ? (

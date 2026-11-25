@@ -3,7 +3,7 @@ import { h1, settle, shoot, shootTall } from "./helpers"
 
 test("malware samples tab", async ({ page }, info) => {
   await page.goto("/malware?view=samples")
-  await expect(h1(page, "Malware")).toBeVisible()
+  await expect(h1(page, "Files")).toBeVisible()
   await expect(page.getByRole("list", { name: "Samples" })).toBeVisible()
   await settle(page)
   await shootTall(page, "malware-samples", info.project.name)

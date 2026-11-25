@@ -1,6 +1,6 @@
 import { matchRoutes } from "react-router"
 import { describe, expect, it } from "vitest"
-import { PAGE_WIDTH_CLASS, pageWidth } from "./page-width"
+import { PAGE_FRAME_CLASS, PAGE_WIDTH_CLASS, pageWidth } from "./page-width"
 import { appRoutes } from "./router"
 
 const widthAt = (path: string) => {
@@ -9,24 +9,19 @@ const widthAt = (path: string) => {
 }
 
 describe("page width", () => {
-  it("takes the deepest route that declares one, reading width otherwise", () => {
-    expect(pageWidth([])).toBe("prose")
-    expect(pageWidth([{ handle: { width: "wide" } }, { handle: undefined }])).toBe("wide")
-    expect(pageWidth([{ handle: { width: "wide" } }, { handle: { width: "full" } }])).toBe("full")
-    expect(pageWidth([{ handle: { width: "huge" } }])).toBe("prose")
+  it("takes the deepest route that declares one, the full column otherwise", () => {
+    expect(pageWidth([])).toBe("wide")
+    expect(pageWidth([{ handle: { width: "prose" } }, { handle: undefined }])).toBe("prose")
+    expect(pageWidth([{ handle: { width: "prose" } }, { handle: { width: "wide" } }])).toBe("wide")
+    expect(pageWidth([{ handle: { width: "huge" } }])).toBe("wide")
   })
 
-  it("gives Live the whole screen", () => {
-    expect(widthAt("/live")).toBe("full")
-  })
-
-  it("widens lists, hubs and dashboards", () => {
+  it("fills the column on lists, hubs, dashboards and detail pages", () => {
     for (const path of [
       "/",
       "/attacks",
       "/attackers",
       "/networks",
-      "/overview",
       "/trends",
       "/campaigns",
       "/techniques",
@@ -37,20 +32,11 @@ describe("page width", () => {
       "/defend/detections",
       "/defend/exposure",
       "/cves",
-      "/defend/alerts",
       "/defend/abuse",
       "/defend/results",
       "/network",
       "/network/members",
       "/settings",
-    ]) {
-      expect(widthAt(path), path).toBe("wide")
-    }
-  })
-
-  it("keeps setup and detail pages at reading width", () => {
-    for (const path of [
-      "/setup",
       "/attacks/42",
       "/attackers/203.0.113.7",
       "/campaigns/7",
@@ -61,11 +47,16 @@ describe("page width", () => {
       "/reports/2026-W40",
       "/nowhere",
     ]) {
-      expect(widthAt(path), path).toBe("prose")
+      expect(widthAt(path), path).toBe("wide")
     }
   })
 
-  it("maps every width to a container class", () => {
-    expect(Object.keys(PAGE_WIDTH_CLASS).sort()).toEqual(["full", "prose", "wide"])
+  it("keeps the setup form at reading width", () => {
+    expect(widthAt("/setup")).toBe("prose")
+  })
+
+  it("caps the frame only for ultra-wide screens, and the column only for prose", () => {
+    expect(PAGE_FRAME_CLASS).toBe("max-w-page-wide")
+    expect(PAGE_WIDTH_CLASS).toEqual({ wide: "", prose: "max-w-page-prose" })
   })
 })

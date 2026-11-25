@@ -104,13 +104,13 @@ const FLOWS: Record<TourStep["id"], { label: string; stages: Stages }> = {
     ],
   },
   group: {
-    label: "Sessions are grouped into campaigns, tools and trends.",
+    label: "Sessions are grouped into campaigns, payloads and patterns.",
     stages: [
       [{ icon: Crosshair, label: "Sessions" }],
       [
         { icon: Flag, label: "Campaigns" },
-        { icon: FileCode2, label: "Tools" },
-        { icon: TrendingUp, label: "Trends" },
+        { icon: FileCode2, label: "Payloads" },
+        { icon: TrendingUp, label: "Patterns" },
       ],
     ],
   },

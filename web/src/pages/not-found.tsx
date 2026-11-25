@@ -11,7 +11,7 @@ export function NotFoundPage() {
       description="This address does not match any page. The link may be old or mistyped."
       action={
         <Button asChild variant="outline" size="sm">
-          <Link to="/overview">Go to Overview</Link>
+          <Link to="/">Go to Today</Link>
         </Button>
       }
       className="mt-10 py-16"
@@ -34,7 +34,7 @@ export function RouteError() {
         description={message}
         action={
           <Button asChild variant="outline" size="sm">
-            <a href="/overview">Reload</a>
+            <a href={import.meta.env.BASE_URL}>Reload</a>
           </Button>
         }
         className="mt-16 py-16"

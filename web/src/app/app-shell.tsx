@@ -16,10 +16,12 @@ import {
 import { cn } from "@/lib/utils"
 import { Logo } from "./logo"
 import { crumbsFor } from "./nav"
-import { PAGE_WIDTH_CLASS, pageWidth } from "./page-width"
+import { PAGE_FRAME_CLASS, PAGE_WIDTH_CLASS, pageWidth } from "./page-width"
+import { PageSwitch } from "./page-switch"
 import { Sidebar } from "./sidebar"
 import { useSidebarCollapsed } from "./sidebar-state"
 import { TourProvider } from "./tour"
+import { VersionFooter } from "./version-footer"
 
 /** Is the key press meant for a text field (or anything else that edits text)? */
 function isTyping(target: EventTarget | null): boolean {
@@ -52,7 +54,10 @@ function useFoldShortcut(toggle: () => void) {
   }, [toggle])
 }
 
-/** "Observe / Attackers": where you are, the page a link back to its list on a detail route. */
+/**
+ * "Observe / Attacks / Attackers": where you are, the page a link back to its list on a detail
+ * route.
+ */
 function Breadcrumb({ pathname }: { pathname: string }) {
   const crumbs = crumbsFor(pathname)
   if (!crumbs.length) return <div className="min-w-0 flex-1" />
@@ -189,18 +194,24 @@ export function AppShell() {
               <div
                 data-page-width={width}
                 className={cn(
-                  // Same gutters on every page; only the cap changes (route table, `handle.width`).
-                  "mx-auto w-full px-4 pt-5 pb-12 sm:px-6 lg:px-10 lg:pt-7",
-                  PAGE_WIDTH_CLASS[width],
+                  // Every page fills the column, with the same gutters; the cap is for ultra-wide
+                  // screens only. A `prose` page caps its own column (route table, `handle.width`).
+                  "mx-auto w-full px-4 pt-5 pb-10 sm:px-6 lg:px-10 lg:pt-7",
+                  PAGE_FRAME_CLASS,
                 )}
               >
-                <PipelineBanner />
-                {/* A new route fades in softly (off under reduced motion and for screenshots). */}
-                <div key={pathname} className="animate-page-in">
-                  <Outlet />
+                <div className={PAGE_WIDTH_CLASS[width]}>
+                  <PipelineBanner />
+                  {/* Outside the fading page: it stays put while you switch between its pages. */}
+                  <PageSwitch pathname={pathname} />
+                  {/* A new route fades in softly (off with reduced motion and for screenshots). */}
+                  <div key={pathname} className="animate-page-in">
+                    <Outlet />
+                  </div>
                 </div>
               </div>
             </main>
+            <VersionFooter className="mx-auto w-full max-w-page-wide px-4 pb-3 sm:px-6 lg:px-10" />
           </div>
           <ScrollRestoration />
         </div>

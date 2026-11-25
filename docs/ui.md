@@ -4,23 +4,24 @@ The dashboard is a single-page web app in `web/`. The API serves the built files
 
 ## Navigation
 
-The sidebar (the drawer on a phone) has three sections: **Observe**, **Understand** and **Defend**. Click a section to open or fold the list of its pages, right under it. Below the sections are **Settings**, links to the **Documentation** and to **GitHub**, and your profile. Every page is an ordinary address, so links and filters in the URL keep working. The current page stays highlighted on detail pages too (a session, an attacker, a campaign, a script), and the header says where you are ("Observe / Attackers"); on a detail page the page name there leads back to the list.
+The sidebar (the drawer on a phone) has three sections: **Observe**, **Understand** and **Defend**. Click a section to open or fold its entries, right under it. Pages that belong together are one entry: open **Attacks** and a switch at the top of the page leads to Sessions, Attackers and Networks. Every page keeps its own address, so links, filters in the URL and Back keep working. The entry stays highlighted on all its pages and on their detail pages (a session, an attacker, a campaign, a script), and the header says where you are ("Observe / Attacks / Attackers"); on a detail page the page name there leads back to the list. Below the sections, **Settings**, the **Documentation** and **GitHub** sit side by side as icons (hover one for its name), then your profile.
 
-On a computer, the button beside the logo (or `Ctrl+B`, `⌘B` on a Mac) folds the sidebar to a rail of icons: hover an icon for its name, click a section to pick one of its pages. Click the logo to unfold it again. The browser remembers both the fold and the sections you closed.
+On a computer, the button beside the logo (or `Ctrl+B`, `⌘B` on a Mac) folds the sidebar to a rail of icons: hover an icon for its name, click a section to pick one of its entries. Click the logo to unfold it again. The browser remembers both the fold and the sections you closed. Pages fill the width beside the sidebar and grow when you fold it.
 
-| Section | Pages | Question it answers |
-| --- | --- | --- |
-| Observe | Today, Live | What is happening now? |
-| Observe | Sessions, Attackers, Attacker networks | Who is attacking, and from where? |
-| Understand | Campaigns, Techniques | Who is behind it? |
-| Understand | Scripts, Malware, Infrastructure | What do they drop, and from where? |
-| Understand | Overview, Trends | How does it change over time? |
-| Defend | Blocklists, Detections | What should I block or watch? |
-| Defend | Your exposure, CVE watch | What of mine is at risk? |
-| Defend | Alerts | What was I told, and what did the weekly report say? |
-| Defend | Abuse reports, Results | What did I report, and did anything change? |
-| Defend | SuckerPot network, Network members | What does the network see, and what did my node help confirm? |
-| | Settings | How is the system set up? |
+| Section | Entry | Pages (the switch at the top) | Question it answers |
+| --- | --- | --- | --- |
+| Observe | Today | Today (the live map and the day's figures; `/live` and `/overview` open it) | What is happening now? |
+| Observe | Attacks | Sessions, Attackers, Networks | Who is attacking, and from where? |
+| Understand | Campaigns | Campaigns, Techniques | Who is behind it? |
+| Understand | Payloads | Scripts, Files, Hosts & URLs | What do they drop, and from where? |
+| Understand | Patterns | Patterns | What do attackers try most, and what is new? |
+| Defend | Block | Lists, Rules | What should I block or watch? |
+| Defend | Exposure | Services, CVEs | What of mine is at risk? |
+| Defend | Reports | Queue, Results | What did I report, and did anything change? |
+| Defend | Network | Overview, Members | What does the network see, and what did my node help confirm? |
+| | Settings | Settings (with the Alerts tab: rules, recent alerts and weekly reports; `/defend/alerts` opens it) | How is the system set up, and what was I told? |
+
+The version you run is the small line at the bottom right of every page; it leads to Settings, and a dot beside it means an update is available.
 
 The **Take the tour** button in the Settings header plays the guided tour again. In development and mock builds Settings also links to the Styleguide page (`/styleguide`), which is not in the sidebar. The whole table lives in `web/src/app/nav.ts`.
 
@@ -47,24 +48,23 @@ The **Take the tour** button in the Settings header plays the guided tour again.
 | Session detail | `/attacks/<session id>` | The attack timeline, with long runs of the same event folded, a terminal replay for shell sessions, and a source panel. A flood group has its own page, with the credentials it tried instead of a replay. |
 | Attackers | `/attackers`, `/attackers/<ip>` | Profiles by address: first and last seen, sensors targeted, reputation. |
 | Attacker networks | `/networks` | The hosting providers and networks (ASNs) the attacks come from. The old `/attackers?view=asns` address redirects here. |
-| Overview | `/overview` | KPIs for the last 24 hours, activity per sensor, the sensor mix, the latest events and up to three insights (see [Insights](#insights)). |
 | **Understand** | | |
 | Campaigns | `/campaigns`, `/campaigns/<id>` | Sessions that share a script, payload host, file hash, malware family, exploit or credential list, grouped into one campaign with a plain-English story. Campaigns from the same addresses are merged into the oldest one; the old address shows a note with a link to the combined campaign. |
 | Techniques | `/techniques` | The MITRE ATT&CK techniques seen, as a heatmap per day. |
 | Scripts | `/scripts`, `/scripts/<id>` | The library of command scripts that attackers typed, each with an explanation and the sessions that used it. |
-| Malware | `/malware` | Download URLs, defanged, with how often, from how many addresses and with which tool. File hashes and VirusTotal links appear when payload fetching is on. |
-| Infrastructure | `/infrastructure` | A finding first ("40 scanning IPs fetched payloads from 2 shared hosts this week"), a flow diagram from source addresses through indicators to malware families (a list on narrow screens), a filterable indicator table, a detail panel with threat-intelligence answers, and CSV or STIX 2.1 export buttons. Indicators are defanged text, never links. |
-| Trends | `/trends` | Top usernames, passwords, commands and URLs, tags over time, a day by hour heatmap, and "new this week" (values never seen in the 90 days before). |
-| CVE watch | `/cves` | New and known-exploited vulnerabilities ranked by how much they matter to the services you emulate, with "seen in our traffic" counts. |
+| Files | `/malware` | Download URLs, defanged, with how often, from how many addresses and with which tool. File hashes and VirusTotal links appear when payload fetching is on. |
+| Hosts & URLs | `/infrastructure` | A finding first ("40 scanning IPs fetched payloads from 2 shared hosts this week"), a flow diagram from source addresses through indicators to malware families (a list on narrow screens), a filterable indicator table, a detail panel with threat-intelligence answers, and CSV or STIX 2.1 export buttons. Indicators are defanged text, never links. |
+| Patterns | `/trends` | Top usernames, passwords, commands and URLs, tags over time, a day by hour heatmap, and "new this week" (values never seen in the 90 days before). |
 | **Defend** | | |
-| Blocklists | `/defend/blocklists` | Scored blocklists with a reason for every point, overrides, and exports for firewalls. A Network tab shows the community lists. See [Defend](defend.md) and [Community blocklist feeds](feeds.md). |
-| Detections | `/defend/detections` | Sigma and Suricata rules marked "review before deploying". |
-| Your exposure | `/defend/exposure` | Your own service inventory compared with what was recorded. |
-| Abuse reports | `/defend/abuse`, `/defend/abuse/<id>` | Drafts of anonymous abuse reports to review and send (by hand, with one click or automatically). See [Abuse reports](#abuse-reports-m22). |
-| Abuse reports: Results | `/defend/results`, `/defend/results/targets/<id>` | Did anyone answer, how fast did targets go down, and which providers act. See [Results](#results-m26-m27). |
-| Alerts and reports | `/defend/alerts`, `/reports/<week>` | Alert rules and channels (all off until you switch them on), and the weekly report with a printable view. |
+| Block: Lists | `/defend/blocklists` | Scored blocklists with a reason for every point, overrides, and exports for firewalls. A Network tab shows the community lists. See [Defend](defend.md) and [Community blocklist feeds](feeds.md). |
+| Block: Rules | `/defend/detections` | Sigma and Suricata rules marked "review before deploying". |
+| Exposure: Services | `/defend/exposure` | Your own service inventory compared with what was recorded. |
+| Exposure: CVEs | `/cves` | New and known-exploited vulnerabilities ranked by how much they matter to the services you emulate, with "seen in our traffic" counts. |
+| Reports: Queue | `/defend/abuse`, `/defend/abuse/<id>` | Drafts of anonymous abuse reports to review and send (by hand, with one click or automatically). See [Abuse reports](#abuse-reports-m22). |
+| Reports: Results | `/defend/results`, `/defend/results/targets/<id>` | Did anyone answer, how fast did targets go down, and which providers act. See [Results](#results-m26-m27). |
 | **System** | | |
 | Settings | `/settings` | Sensor status, enrichment quotas, retention, the disk guard and the database size. The provider API keys can be set, replaced, removed and tested here: write-only, with a password prompt for every change (see [Provider API keys](api-keys.md)). Administrators also see **Users** and the **Audit log**; viewers see neither, and no control that changes anything (see [Users and roles](#users-and-roles)). |
+| Settings: Alerts | `/settings?tab=alert-rules`, `/reports/<week>` | Alert rules (all off until you switch them on), the watched CVEs, the recent alerts and the weekly reports, each with a printable view. The channels are the Alert channels tab beside it. `/defend/alerts` opens this tab. |
 | Styleguide | `/styleguide` | Every token and component, in every state. |
 
 Any other address shows a "page not found" screen.
@@ -81,8 +81,8 @@ Two kinds of people can use the dashboard besides the owner: **administrators** 
 - **Row actions** (the three dots): change role, disable or enable, unlock (only while locked), reset password (shows a new temporary password once), sign out everywhere, delete. Each asks for your own password. You cannot do the destructive ones to your own account.
 - **Status** is one word with an icon: Active, Waiting for first sign-in, Locked, Disabled. The owner row says "Set in .env" and has no actions.
 - **Audit log**: newest first, one sentence per entry ("sam reset the password of riley"), filterable by kind (Sign-ins, Users, Keys) and by name; the filters are in the URL (`?audit_action=user.&audit_actor=sam`). Click a name to filter by it.
-- **Viewers** get the same pages, with "Viewer, read-only" under their name in the sidebar, a "Read-only access" mark on pages with actions, no key buttons, and no Users or Audit cards.
-- **Account menu** (your profile at the foot of the sidebar): your name, role, last sign-in, **Change password**, the **Theme** (light, dark or system), **Mask IP addresses**, **Sign out** and the version. The owner's password is changed in `.env`, so that entry is disabled for the owner. Mock builds say there that nothing is real traffic.
+- **Viewers** get the same pages, with a "Read-only access" mark on pages with actions, no key buttons, and no Users or Audit cards.
+- **Account menu** (your name at the foot of the sidebar): **Theme** (shows the theme in use; each click switches light, dark, system), **Mask IP addresses**, **Change password** and **Sign out**. The owner's password is changed in `.env`, so the owner has no Change password entry. The version is at the bottom right of every page; mock builds say there that nothing is real traffic.
 
 In the demo and mock builds, add `?as=viewer` to any address to preview the read-only interface and `?as=first-login` for the Set your password screen (`?as=admin` goes back). The choice lasts for the browser tab.
 
@@ -189,7 +189,7 @@ With "reduce motion" set in the system, the arcs do not animate, the ticker does
 
 ## The live feed
 
-The Live page and the small dot beside **Live** in the sidebar share one connection per browser tab.
+The live map and the small dot beside **Today** in the sidebar share one connection per browser tab.
 
 - **WebSocket.** The app connects to `/api/v1/live`. It receives the 50 newest events first, then each new event, and statistics every 5 seconds.
 - **Reconnects.** When the socket closes, the app retries with exponential backoff and jitter (1 s, 2 s, 4 s, up to 30 s). The dot dims.

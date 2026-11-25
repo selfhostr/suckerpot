@@ -303,7 +303,7 @@ export function ProviderKeys({ e }: { e: EnrichmentSettings }) {
       <div className="space-y-1 pt-2">
         <h4 className="type-subtitle text-fg">Threat intelligence</h4>
         <p className="text-xs text-fg-muted">
-          For the Infrastructure page. Only the indicator itself (a URL, host or file hash) is sent
+          For the Hosts &amp; URLs page. Only the indicator itself (a URL, host or file hash) is sent
           to these services, never a session or a source address, and the indicator is never
           contacted. VirusTotal is asked about file hashes only.
         </p>
