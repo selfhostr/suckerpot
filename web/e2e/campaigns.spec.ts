@@ -68,7 +68,7 @@ test("techniques table", async ({ page }, info) => {
   await shootTall(page, "techniques", info.project.name)
 
   await page.goto("/techniques?sensor=ssh&window=7")
-  await expect(page.getByText("Last 7 days")).toBeVisible()
+  await expect(page.getByText("Last 7 days", { exact: true })).toBeVisible()
   await settle(page)
   await shoot(page, "techniques-ssh-7d", info.project.name)
 

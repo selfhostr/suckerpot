@@ -35,11 +35,11 @@ test("settings reporting", async ({ page }, info) => {
   await expect(
     page.locator("#reporting-never").getByText("Never in a report", { exact: true }),
   ).toBeVisible()
-  // The wording form has six optional texts; the mailbox card has its own two (see results.spec.ts).
+  // The wording form has eight optional texts; the mailbox card has its own two (see results.spec.ts).
   const wording = page.locator("form", {
     has: page.getByRole("textbox", { name: "Reply contact" }),
   })
-  await expect(wording.getByText("Optional", { exact: true })).toHaveCount(6)
+  await expect(wording.getByText("Optional", { exact: true })).toHaveCount(8)
   await settle(page)
   await shoot(page, "settings-reporting", info.project.name, true)
 })

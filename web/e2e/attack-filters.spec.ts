@@ -23,7 +23,7 @@ test("sessions: filters, chips, empty state and history", async ({ page }, info)
 
   // A country picked from the list and a tag typed in.
   await page.getByRole("button", { name: /^Country/ }).click()
-  await page.getByRole("combobox", { name: "Find a country" }).fill("Netherlands")
+  await page.getByRole("combobox", { name: "Search Country" }).fill("Netherlands")
   await page.getByRole("option", { name: "Netherlands", exact: true }).click()
   await expect(page).toHaveURL(/country=NL/)
   await settle(page)

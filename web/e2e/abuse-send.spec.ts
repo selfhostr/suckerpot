@@ -8,18 +8,18 @@ test("abuse send queue", async ({ page }, info) => {
   await expect(h1(page, "Abuse reports")).toBeVisible()
   await expect(page.getByText("Open your mailbox through your VPN")).toBeVisible()
   await expect(page.getByLabel("Message", { exact: true })).toBeVisible()
-  await expect(page.getByLabel("Progress")).toHaveText("Report 1 of 3")
+  await expect(page.getByLabel("Progress")).toHaveText("Report 1 of 4")
   await settle(page)
   await shoot(page, "abuse-send-queue", info.project.name, true)
 })
 
 test("abuse send queue skip and mark sent", async ({ page }) => {
   await page.goto("/defend/abuse?status=queue")
-  await expect(page.getByLabel("Progress")).toHaveText("Report 1 of 3")
+  await expect(page.getByLabel("Progress")).toHaveText("Report 1 of 4")
   await page.getByRole("button", { name: "Skip" }).click()
-  await expect(page.getByLabel("Progress")).toHaveText("Report 1 of 3")
+  await expect(page.getByLabel("Progress")).toHaveText("Report 1 of 4")
   await page.getByRole("button", { name: "Mark as sent, next" }).click()
-  await expect(page.getByLabel("Progress")).toHaveText("Report 2 of 3")
+  await expect(page.getByLabel("Progress")).toHaveText("Report 2 of 4")
 })
 
 test("abuse send now dialog", async ({ page }, info) => {
@@ -27,7 +27,7 @@ test("abuse send now dialog", async ({ page }, info) => {
   await page.getByRole("button", { name: "Send now" }).click()
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByText("Send this report now?")).toBeVisible()
-  await expect(dialog.getByText(/abuse@example\.net/)).toBeVisible()
+  await expect(dialog.getByText(/abuse@example\.org/)).toBeVisible()
   await settle(page)
   await shoot(page, "abuse-send-now", info.project.name)
 })

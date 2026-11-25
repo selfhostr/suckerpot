@@ -10,10 +10,15 @@ test("alerts and reports", async ({ page }, info) => {
   await page.goto("/defend/alerts")
   await expect(page).toHaveURL(/\/settings\?tab=alert-rules$/)
   await expect(h1(page, "Settings")).toBeVisible()
-  await expect(page.getByRole("tab", { name: "Alerts", exact: true })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  if (info.project.name.startsWith("mobile")) {
+    // A phone has a select, not a list of tabs.
+    await expect(page.getByRole("combobox", { name: "Settings sections" })).toHaveText("Alerts")
+  } else {
+    await expect(page.getByRole("tab", { name: "Alerts", exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    )
+  }
   await expect(page.getByRole("list", { name: "Alert rules" })).toBeVisible()
   await expect(page.getByRole("list", { name: "Recent alerts" })).toBeVisible()
   await expect(page.getByRole("list", { name: "Weekly reports" })).toBeVisible()
