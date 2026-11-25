@@ -1,4 +1,4 @@
-"""Host-script entry point: ``python -m ingest.network.cli status --json | leave | join``.
+"""Host-script entry point: ``python -m ingest.network.cli status --json | leave | join | update``.
 
 Used by ``status.sh`` and ``participant.sh`` through ``docker compose exec -T ingest``. Output is
 one JSON document on stdout. It holds no key, no secret and no attacker data; only
@@ -23,7 +23,9 @@ addresses (design M32 section 10).
        "membership": {"desired", "state", "pseudonym", "fingerprint", "standing",
                       "enrolled_day", "eligible_from_day", "counts_toward_consensus": bool,
                       "left_day", "requested_by", "last_error",
-                      "auto_retry": bool},   # a refused join the worker tries again by itself
+                      "auto_retry": bool,    # a refused join the worker tries again by itself
+                      "country": str|null, "show_country": bool,
+                      "profile_synced": bool},   # the hub has the name and country shown here
        "hub_contact": {"last_at": "<UTC>"|null, "age_hours": float|null},
        "own_address": {"state": "manual|learned|waiting", "waiting_days": int|null},
        "sent": [{"day", "status", "sources", "links", "c2", "files"}],   # newest first, <= 7
@@ -33,6 +35,14 @@ addresses (design M32 section 10).
      "report_effect": {"verdict", "horizon", "pairs", "needed", "discordant",
                        "needed_discordant", "seen_reported", "seen_control", "lo", "hi",
                        "line"}|null}   # M38: null until an attack-source report was sent
+
+Flat keys for status.sh repeat ``country``, ``show_country`` and ``profile_synced``.
+
+``update [--pseudonym NAME | --no-pseudonym] [--country CC | --no-country]
+[--show-country | --hide-country]`` changes the node name and the country of a node that is a
+member or joining (the same rules as ``PATCH /network/membership`` of the API, for participant
+installs, which have no API). The worker sends the change to the hub at its next cycle; the hub
+refuses a taken name, and the worker then puts the old values back with ``pseudonym_taken``.
 
 Warning codes: ``submit_paused_self_address`` (a due day is held back because the own address is
 unknown or expired), ``waiting_self_address`` (more than 2 days), ``hub_contact_old`` (over 26 h),
@@ -54,7 +64,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from suckerpot_db import create_engine, create_session_factory
-from suckerpot_db.network_names import pseudonym_problem
+from suckerpot_db.network_names import clean_pseudonym, pseudonym_problem, valid_country
 from suckerpot_db.report_effect import Cells, cells_sql, status_json, status_line, summarize
 from suckerpot_db.session_counts import sql_sessions_count
 from suckerpot_netproto import defaults
@@ -249,6 +259,9 @@ async def build_status(
         error_code=m.last_error_code, consent=consent, today=moment.date(),
     )  # fmt: skip
     auto_retry = settings.enabled and settings.hub_configured and heals
+    synced = member and (m.pseudonym, m.country, bool(m.show_country)) == (
+        m.synced_pseudonym, m.synced_country, bool(m.synced_show_country),
+    )  # fmt: skip
     joined_at = m.requested_at
     if joined_at is None and m.enrolled_day is not None:
         joined_at = datetime.combine(m.enrolled_day, datetime.min.time(), UTC)
@@ -303,6 +316,9 @@ async def build_status(
                 "requested_by": m.requested_by,
                 "last_error": m.last_error_code,
                 "auto_retry": auto_retry,
+                "country": m.country.strip() if m.country else None,
+                "show_country": bool(m.show_country),
+                "profile_synced": synced,
             },
             "hub_contact": {
                 "last_at": _iso(last_contact),
@@ -345,6 +361,9 @@ async def build_status(
         joined_at=_iso(joined_at),
         sent=[{k: r[k] for k in ("day", "sources", "links", "files")} for r in sent],
         reveals_7d=revealed,
+        country=m.country.strip() if m.country else None,
+        show_country=bool(m.show_country),
+        profile_synced=synced,
         sessions_24h={r.sensor: int(r.n) for r in sensors},
         report_effect=effect,
     )
@@ -397,6 +416,57 @@ async def join(
     return {"joined": True, "state": m.state}, 0
 
 
+KEEP = object()  # an ``update`` argument that was not given
+
+
+async def update(
+    factory: async_sessionmaker[AsyncSession],
+    env: Mapping[str, str],
+    *,
+    pseudonym: object = KEEP,
+    country: object = KEEP,
+    show_country: bool | None = None,
+) -> tuple[dict[str, Any], int]:
+    """Change the node name and the country of a member (or of a node that is joining).
+
+    ``pseudonym`` and ``country`` are a string, ``None`` (remove it) or ``KEEP``. The values are
+    checked like the API checks them; the identity guard runs in the worker before the hub sees
+    the name, and the hub decides whether the name is free.
+    """
+    settings = settings_of(env)
+    if settings is None or not settings.enabled:
+        return {"updated": False, "reason": "network_disabled"}, 2
+    store = SqlStore(factory)
+    m = await store.membership()
+    name = m.pseudonym
+    if pseudonym is not KEEP:
+        name = clean_pseudonym(pseudonym if isinstance(pseudonym, str) else None)
+        if name is not None and pseudonym_problem(name) is not None:
+            return {"updated": False, "reason": "pseudonym_invalid"}, 2
+    code = m.country.strip() if m.country else None
+    if country is not KEEP:
+        code = (country if isinstance(country, str) else "").strip().upper() or None
+        if code is not None and not valid_country(code):
+            return {"updated": False, "reason": "country_invalid"}, 2
+    show = bool(m.show_country) if show_country is None else show_country
+    if show and code is None and show_country:
+        return {"updated": False, "reason": "country_invalid"}, 2
+    show = show and code is not None
+    if m.desired != "member":
+        # Not joined, left or refused: the caller keeps the values in .env for the next join.
+        return {"updated": False, "reason": "not_member", "state": m.state}, 2
+    old = (m.pseudonym, m.country.strip() if m.country else None, bool(m.show_country))
+    new = (name, code, show)
+    keys = ("pseudonym", "country", "show_country")
+    changed = [k for k, a, b in zip(keys, old, new, strict=True) if a != b]
+    if changed:
+        values: dict[str, Any] = {"pseudonym": name, "country": code, "show_country": show}
+        if "pseudonym" in changed and m.last_error_code in ("pseudonym_taken", "pseudonym_invalid"):
+            values["last_error_code"] = None
+        await store.update(**values)
+    return {"updated": True, "state": m.state, "changed": changed}, 0
+
+
 async def _run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     engine = create_engine()
     try:
@@ -406,6 +476,14 @@ async def _run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             code = 0
         elif args.command == "leave":
             doc, code = await leave(factory), 0
+        elif args.command == "update":
+            doc, code = await update(
+                factory,
+                env,
+                pseudonym=None if args.no_pseudonym else (args.pseudonym or KEEP),
+                country=None if args.no_country else (args.country or KEEP),
+                show_country=args.show_country,
+            )
         else:
             doc, code = await join(factory, env, args.pseudonym)
         sys.stdout.write(json.dumps(doc, sort_keys=True) + "\n")
@@ -423,6 +501,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub.add_parser("leave", help="leave the network (the worker wipes and tells the hub)")
     join_p = sub.add_parser("join", help="participant mode: agree again after a leave")
     join_p.add_argument("--pseudonym", help="a new pseudonym (a member keeps its membership)")
+    upd = sub.add_parser("update", help="change the node name and the country of a member")
+    name = upd.add_mutually_exclusive_group()
+    name.add_argument("--pseudonym", help="the new node name")
+    name.add_argument("--no-pseudonym", action="store_true", help="no name (shown as a number)")
+    where = upd.add_mutually_exclusive_group()
+    where.add_argument("--country", help="a two-letter country code")
+    where.add_argument("--no-country", action="store_true", help="no country")
+    shown = upd.add_mutually_exclusive_group()
+    shown.add_argument("--show-country", dest="show_country", action="store_true", default=None)
+    shown.add_argument("--hide-country", dest="show_country", action="store_false")
     args = parser.parse_args(argv)
     return asyncio.run(_run(args, dict(os.environ)))
 
