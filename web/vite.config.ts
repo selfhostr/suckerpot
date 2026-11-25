@@ -86,9 +86,10 @@ export default defineConfig(({ mode }) => {
               // Heavy libraries get their own chunks, loaded only by the pages that need them.
               {
                 name: "charts",
+                // Its CommonJS dependencies (decimal.js, use-sync-external-store) must travel with it:
+                // splitting them off breaks `require_*` helpers across chunks at run time.
                 test: /node_modules[\\/](recharts|d3-[a-z-]+|victory-vendor)[\\/]/,
                 priority: 15,
-                includeDependenciesRecursively: false,
               },
               {
                 name: "xterm",
