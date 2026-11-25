@@ -40,6 +40,9 @@
 #   dashboard, no admin account, no VPN needed (the hub is reached through hubproxy):
 #   scripts/install.sh --participant [--yes] [--pseudonym NAME | --no-pseudonym]
 #                      [--country CC [--show-country]] [--wg-conf PATH [--verifier]]
+#                      [--country-check local|download|off]  (compare --country with a GeoIP
+#                                 database on this machine; download: fetch DB-IP's free country
+#                                 list first, from download.db-ip.com; default local, never sent)
 #                      [--no-auto-update] [--feeds] [--self-address ADDR] [--sensors LIST]
 #                      [--lite]  (1 GiB VPS or Raspberry Pi: lowest memory limits, sensors
 #                                 ssh,telnet,web,redis unless --sensors is given; docs/vps.md)
@@ -48,7 +51,10 @@
 #
 # Without --participant or --full, a fresh install asks which one on a terminal; without a
 # terminal (or with --yes) it is a full install, as before. A participant install shows the consent
-# screen and asks to join; --yes is that consent. No other question is asked.
+# screen and asks to join; --yes is that consent. On a terminal it then asks for the node name
+# (the pseudonym; --node-name and --no-node-name are the same as --pseudonym and --no-pseudonym)
+# and whether to show a country, unless flags answer them. --non-interactive never reads the
+# terminal: the run behaves as without one (the consent then needs --yes).
 # --yes takes the defaults. The admin password is generated and printed once, or read from stdin
 # with --admin-password-stdin. A full install never joins the SuckerPot network without
 # --join-network. When Docker is missing, it shows the commands that install it from Docker's
@@ -132,7 +138,8 @@ trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
 say() { if [ -n "$*" ]; then echo "${UI_IND}$*" 1>&"$UI_OUT"; else echo 1>&"$UI_OUT"; fi; }
 # show CMD...: the output of CMD for the terminal, indented in rich mode, unchanged otherwise.
 show() {
-  if [ "$UI_MODE" = rich ]; then "$@" | sed 's/^./  &/' 1>&"$UI_OUT"; else "$@"; fi
+  # Rich: indented and wrapped at the width of the terminal (the consent text is wider than 80).
+  if [ "$UI_MODE" = rich ]; then "$@" | fold -s -w $((UI_COLS > 30 ? UI_COLS - 3 : 77)) | sed 's/^./  &/' 1>&"$UI_OUT"; else "$@"; fi
 }
 # quiet CMD...: CMD with its stdout dropped (its errors still reach the log).
 quiet() { "$@" > /dev/null; }
@@ -176,6 +183,8 @@ plain=0
 update_check_flag=0
 no_firewall=0
 engine_arg=""
+non_interactive=0
+country_check=""
 # The arguments as given: the installer starts again with them after installing Docker (O4).
 orig_args=("$@")
 need_value() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
@@ -202,8 +211,10 @@ while [ $# -gt 0 ]; do
     --env-out) need_value "$@"; env_out=$2; shift ;;
     --participant) [ "$stack" != full ] || die "--participant and --full exclude each other"; stack=participant ;;
     --full) [ "$stack" != participant ] || die "--participant and --full exclude each other"; stack=full ;;
-    --pseudonym) need_value "$@"; pseudonym_arg=$2; shift ;;
-    --no-pseudonym) no_pseudonym=1 ;;
+    --pseudonym | --node-name) need_value "$@"; pseudonym_arg=$2; shift ;;
+    --no-pseudonym | --no-node-name) no_pseudonym=1 ;;
+    --country-check) need_value "$@"; country_check=$2; shift ;;
+    --non-interactive) non_interactive=1 ;;
     --no-network) no_network=1 ;;
     --join-network) join_flag=1 ;;
     --country) need_value "$@"; country=$2; shift ;;
@@ -266,7 +277,7 @@ swap_check() {
 # a flag. Answers come from the terminal (or SELFHOSTR_TTY, used by the tests), so that stdin stays
 # free for --admin-password-stdin. Without a terminal, only --yes may stand in for the consent.
 has_tty=0
-if [ "$assume_yes" = 0 ]; then
+if [ "$assume_yes" = 0 ] && [ "$non_interactive" = 0 ]; then
   tty=${SELFHOSTR_TTY:-/dev/tty}
   if [ -r "$tty" ] && ( : < "$tty" ) 2> /dev/null; then
     exec 3< "$tty"
@@ -320,7 +331,7 @@ fi
 # on a terminal. Without a terminal, or with --yes, the default stays the full install, as before.
 header_done=0
 if [ -z "$stack" ] && [ "$existing" = 0 ] && [ "$has_tty" = 1 ]; then
-  if [ -n "$pseudonym_arg$country" ] || [ "$no_pseudonym$show_country$verifier$no_auto_update$feeds$lite" != 000000 ]; then
+  if [ -n "$pseudonym_arg$country$country_check" ] || [ "$no_pseudonym$show_country$verifier$no_auto_update$feeds$lite" != 000000 ]; then
     stack=participant
   elif [ -n "$bind$dport$public_host$admin_user" ] || [ "$pw_stdin$allow_lan$no_network$join_flag$update_check_flag" != 00000 ]; then
     stack=full
@@ -486,6 +497,7 @@ else
   [ "$no_auto_update" = 0 ] || bad+=(--no-auto-update)
   [ "$feeds" = 0 ] || bad+=(--feeds)
   [ "$lite" = 0 ] || bad+=(--lite)
+  [ -z "$country_check" ] || bad+=(--country-check)
   [ "${#bad[@]}" -eq 0 ] || die "these flags need --participant: ${bad[*]}"
 fi
 if [ "$existing" = 1 ]; then
@@ -521,6 +533,7 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
     country=$(printf %s "$country" | tr '[:lower:]' '[:upper:]')
   fi
   [ "$show_country" = 0 ] || [ -n "$country" ] || die "--show-country needs --country CC"
+  case ${country_check:-local} in local | download | off) ;; *) die "--country-check must be local, download or off" ;; esac
   [ "$verifier" = 0 ] || [ -n "$wg_conf" ] || die "--verifier needs --wg-conf: a verifier fetches files, and only through a VPN"
   [[ -z $self_address || $self_address =~ ^[0-9A-Fa-f.:,]+$ ]] || die "the public address has unexpected characters"
 fi
@@ -750,6 +763,8 @@ podman_prepare() {
     case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
     case " ${orig_args[*]} " in *" --engine "*) ;; *) again+=(--engine podman) ;; esac
     if [ -n "${pseudonym:-}" ] && [ -z "$pseudonym_arg" ] && [ "$no_pseudonym" = 0 ]; then again+=(--pseudonym "$pseudonym"); fi
+    if [ -z "${pseudonym:-}" ] && [ "${ask_name:-0}" = 1 ]; then again+=(--no-pseudonym); fi
+    if [ "${ask_country:-0}" = 1 ] && [ -n "$country" ]; then again+=(--country "$country" --show-country); fi
     say "Podman is open to this user. The installer starts again in the group suckerpot-podman (sg)."
     UI_ENDED=1
     exec 1>&"$UI_OUT" 2>&"$UI_ERR" 3<&-
@@ -975,9 +990,19 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
   podman_consent=0
   [ "${SELFHOSTR_PODMAN_GROUP:-0}" != 1 ] || [ "${SELFHOSTR_PODMAN_CONSENT:-0}" != 1 ] || podman_consent=1
   [ "$assume_yes" = 1 ] || [ "$podman_consent" = 1 ] || need_tty "the participant consent"
+  # On a terminal, after the consent: the node name and the country, unless flags answer them.
+  ask_name=0 ask_country=0
+  if [ "$has_tty" = 1 ] && [ "$assume_yes" = 0 ] && [ "$podman_consent" = 0 ]; then
+    [ -n "$pseudonym_arg" ] || [ "$no_pseudonym" = 1 ] || ask_name=1
+    [ -n "$country" ] || ask_country=1
+  fi
   ui_pause
   say
-  show consent_screen "$pseudonym" "$vpn_flag"
+  if [ "$ask_name" = 1 ]; then
+    show consent_screen "" "$vpn_flag" ask
+  else
+    show consent_screen "$pseudonym" "$vpn_flag"
+  fi
   if [ "$assume_yes" = 1 ]; then
     say "--yes was given: this counts as your agreement to join as described above."
     say
@@ -994,6 +1019,43 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
     esac
   fi
   consent_given=1
+  # The node name (the pseudonym) and the country, asked on the terminal (scripts/lib/nodeprofile.sh).
+  # shellcheck source=scripts/lib/geocheck.sh
+  . scripts/lib/geocheck.sh
+  GEO_SELF_ADDRESS=$self_address
+  if [ "$ask_name$ask_country" != 00 ]; then
+    # shellcheck source=scripts/lib/ask.sh
+    . scripts/lib/ask.sh
+    # shellcheck source=scripts/lib/nodeprofile.sh
+    . scripts/lib/nodeprofile.sh
+    ASK_TTY=1 ASK_OUT=$UI_ERR ASK_IND=$UI_IND
+    [ "$UI_MODE" = rich ] || ASK_PLAIN=1
+    if [ "$ask_name" = 1 ]; then
+      profile_ask_name "" || die "no valid node name was given (run again, or pass --node-name NAME or --no-node-name)"
+      pseudonym=$PROFILE_NAME
+      log "node name chosen (${pseudonym:+set}${pseudonym:-none})"
+    fi
+    if [ "$ask_country" = 1 ]; then
+      profile_ask_country "" "${country_check:-ask}" || die "no valid country was given (run again, or pass --country CC --show-country)"
+      country=$PROFILE_COUNTRY
+      if [ -n "$country" ]; then show_country=1; fi
+      log "country: ${country:-none shown}"
+    fi
+    say
+  fi
+  # A country from the flags is checked against a GeoIP database on this machine (no download
+  # unless --country-check download). A mismatch is a warning: the owner's choice stands.
+  if [ -n "$country" ] && [ "$ask_country" = 0 ] && [ "$dry_run" = 0 ] && [ "${country_check:-local}" != off ]; then
+    if [ "$country_check" = download ] && [ -z "$(geo_sources)" ]; then
+      geo_download || warn "could not download the country list from $GEO_DOWNLOAD_HOST; the country is not checked"
+    fi
+    geo_check "$country"
+    case $GEO_RESULT in
+      match) log "country check: $country matches the local database" ;;
+      mismatch) warn "--country $country: $GEO_SOURCE places this machine ($GEO_ADDR) in $GEO_FOUND, not in $country. The node shows $country as asked; change it later with: ./scripts/participant.sh set-country CC" ;;
+      *) log "country check: not done ($GEO_WHY)" ;;
+    esac
+  fi
 fi
 
 # Full mode: the SuckerPot network is off unless --join-network says so (decision O2: no question;
@@ -1558,7 +1620,7 @@ fw_rich() {
 }
 
 participant_rich() {
-  local adm rp hp proto sname ports="" line pc_rc=0 pc_since enrol_file enrol_st="" enrol_code="" enrol_msg=""
+  local adm rp hp proto sname ports="" line pc_rc=0 pc_since enrol_file enrol_st="" enrol_code="" enrol_msg="" cc
   ui_begin firewall
   fw_rich
   # Did the hub accept the join? Same check as in plain mode, with the answer shown on the row.
@@ -1573,6 +1635,23 @@ participant_rich() {
     enrol_to_file() { enrol_wait "$1" > "$enrol_file"; }
     ui_run --expect 60 -- enrol_to_file "${SUCKERPOT_ENROL_WAIT:-180}" || true
     read -r enrol_st enrol_code < "$enrol_file" || true
+    # Not decided yet: the proof of work of a new node can take minutes on a small machine. On a
+    # terminal the owner may wait longer here; otherwise the final screen says how to check later.
+    while [ "$enrol_st" = enrolling ] && [ "$has_tty" = 1 ] && [ "$assume_yes" = 0 ]; do
+      # shellcheck source=scripts/lib/ask.sh
+      . scripts/lib/ask.sh
+      ASK_TTY=1 ASK_OUT=$UI_ERR ASK_IND=$UI_IND
+      ui_pause
+      {
+        echo
+        echo "${UI_IND}The hub has not accepted this node yet. A new node first solves a proof-of-work puzzle,"
+        echo "${UI_IND}which can take several minutes on a small machine; SuckerPot keeps trying by itself."
+      } 1>&"$UI_ERR"
+      ask_yn "Wait up to 10 more minutes for the answer?" y || break
+      ui_detail "waiting for the hub's answer"
+      ui_run --expect 300 -- enrol_to_file 600 || true
+      read -r enrol_st enrol_code < "$enrol_file" || true
+    done
     rm -f "$enrol_file"
     case $enrol_st in
       member) ui_done "accepted${pseudonym:+ as $pseudonym}" ;;
@@ -1584,7 +1663,10 @@ participant_rich() {
           ui_failed "refused ($enrol_code): ./scripts/status.sh"
         fi
         ;;
-      enrolling) ui_done "not decided yet: ./scripts/status.sh" ;;
+      enrolling)
+        ui_done "not decided yet: ./suckerpot status --wait"
+        enrol_msg="The hub has not decided yet. Watch for its answer: ./suckerpot status --wait (or ./scripts/status.sh later)."
+        ;;
       *) ui_skip "no answer yet: ./scripts/status.sh" ;;
     esac
   else
@@ -1615,7 +1697,15 @@ participant_rich() {
   else
     ui_wrap 2 "SuckerPot is running in participant mode (${version:-source build})." b
   fi
-  ui_kv 4 11 Pseudonym "${pseudonym:-none}"
+  ui_kv 4 11 "Node name" "${pseudonym:-none (shown as \"Node\" and a number)}"
+  cc=$(env_get NETWORK_COUNTRY)
+  if [ -n "$cc" ] && [ "$(env_get NETWORK_SHOW_COUNTRY false)" = true ]; then
+    ui_kv 4 11 Country "$cc (shown)"
+  elif [ -n "$cc" ]; then
+    ui_kv 4 11 Country "$cc (not shown)"
+  else
+    ui_kv 4 11 Country "none"
+  fi
   ui_kv 4 11 Path "$path"
   ui_kv 4 11 Hub "${hub_host:-unknown}"
   ui_kv 4 11 Updates "$(sched_text)"
@@ -1628,8 +1718,18 @@ participant_rich() {
     ui_wrap 2 "Never forward the admin SSH port of this machine."
   fi
   [ -z "$enrol_msg" ] || ui_wrap 2 "$enrol_msg"
+  # The node as status.sh sees it now (stack, sensors, network): the same view as ./suckerpot status.
+  if [ -f scripts/status.sh ]; then
+    ui_wrap 2 ""
+    ui_wrap 2 "Status now:" b
+    # "Label    value" lines: the value wraps under itself.
+    while IFS= read -r line; do
+      ui_kv 4 9 "$(printf '%s' "${line:0:9}" | tr -d ' ')" "${line:9}"
+    done < <(bash scripts/status.sh --brief 2> /dev/null || true)
+  fi
   ui_wrap 2 ""
-  ui_kv 2 7 Next "./scripts/participant.sh ports-check   once the ports are forwarded"
+  ui_kv 2 7 Next "./suckerpot   the menu: status, edit, update, logs, remove"
+  ui_kv 2 7 "" "./scripts/participant.sh ports-check   once the ports are forwarded"
   ui_kv 2 7 "" "./scripts/status.sh   any time (what needs attention)"
   ui_kv 2 7 More "docs/participate.md#open-the-ports (DMZ, firewall, updates). Take a snapshot of this machine now."
   ui_kv 2 7 Log "$(_ui_abs "$LOG")"

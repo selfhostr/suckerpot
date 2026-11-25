@@ -113,6 +113,45 @@ If you clone without a tag, or you want to build from source, run:
 
 The installer does not use `curl | bash`. Read the script first, then run it from the checkout.
 
+### Or use the menu
+
+`./suckerpot` at the top of the checkout opens a menu in the terminal (also `just menu`). Move with the arrow keys (or `j` and `k`) and press Enter, or press the key shown before an item; `q` quits. It works over SSH, in an 80x24 terminal and without colour (`NO_COLOR`). Before an install it offers:
+
+```
+  1  Install a participant node   sensors only, joins the network (a VPS with 1 GiB or more)
+  2  Full install                 sensors, dashboard, VPN egress, reports (2 GiB or more)
+  3  Check this machine's ports   which sensor ports are free here
+  q  Quit
+```
+
+Once something is installed, the same command shows what runs (the node name, the services, the network enrolment) and offers:
+
+```
+  1  Node status        stack, sensors, network enrolment, last batch
+  2  Edit the node      name, country, sensors, VPN, updates, firewall
+  3  Update now         the newest signed release, backup first
+  4  Check the ports    does the internet reach the sensors?
+  5  Logs               the network node, a service, the install
+  6  Repair             run the install steps again, settings kept
+  7  Leave the network  (or Join the network)
+  8  Remove the node    uninstall; your data stays unless you say so
+  q  Quit
+```
+
+Each item runs one of the scripts below, so every item also works without the menu:
+
+| Command | What it does |
+| --- | --- |
+| `./suckerpot install [FLAGS]` | `./scripts/install.sh` with the same flags |
+| `./suckerpot status [--wait] [--brief \| --json]` | `./scripts/status.sh`: what runs, the network enrolment, the last batch, what needs attention. `--wait` first waits for the hub's answer to a join in progress (the proof of work of a new node can take minutes) |
+| `./suckerpot edit [SETTING [VALUE]]` | `./scripts/edit.sh`: `name`, `country`, `sensors`, `vpn`, `auto-update`, `firewall`. Without a value it asks; every change is applied at once |
+| `./suckerpot update` | `./scripts/update.sh` (as `just update`) |
+| `./suckerpot ports` | `./scripts/participant.sh ports-check` |
+| `./suckerpot logs [SERVICE]` | the last lines of the logs |
+| `./suckerpot repair` | `./scripts/install.sh --repair` |
+| `./suckerpot leave`, `./suckerpot join` | leave the network, or join again (participant node) |
+| `./suckerpot remove` | `./scripts/uninstall.sh`, see [Remove SuckerPot](#remove-suckerpot) |
+
 To install without any question, use `--yes`. With no `--participant`, it makes a full install. **It does not join the SuckerPot network**: that needs your explicit `--join-network`. The admin password is generated and printed once, or you can pass your own on standard input:
 
 ```bash
@@ -130,10 +169,16 @@ The second form keeps the password out of the command line and out of your shell
 
 ## What the installer asks
 
-At most two questions, both on the terminal:
+All questions come first, on the terminal; then the install runs by itself.
 
 1. **What do you want to install?** `1` participant node (the default) or `2` full install. Asked only when neither `--participant` nor `--full` is given, and no flag of one mode already says it. Without a terminal, or with `--yes`, the installer makes a full install, as it always did.
 2. **Join the SuckerPot network as described?** Participant installs only, after the consent screen. `--yes` counts as your consent. Without a terminal, a participant install needs `--yes`.
+3. **Node name.** Participant installs on a terminal, unless `--node-name` (or `--pseudonym`) or `--no-node-name` answers it. The name the network shows for your node: a random name (the default), this machine's host name (the installer warns that it may identify you), your own, or none (the network then shows `Node` and a number). The rules are in [the network](network.md#pseudonyms). Do not use a name you use anywhere else.
+4. **Show a country for this node?** Participant installs on a terminal, unless `--country` answers it. The default is no. If you say yes, you type the two-letter code, and the installer compares it with a GeoIP database on this machine, never with an outside service (see [the country check](network.md#the-country-check)). When the database places this machine elsewhere, it says so and you choose: keep your code, take the other one, type another, or show none.
+
+`--non-interactive` never reads the terminal: the installer behaves as without one (the type needs a flag or `--yes`, the consent needs `--yes`, and no name or country question is asked).
+
+While it runs, the screen shows the list of steps, one progress bar with the percentage and the time, and the result of each step on its right; the full output of every command goes to `install.log`. At the end it waits up to three minutes for the hub to accept a participant node. If the hub has not decided yet (a new node first solves a proof-of-work puzzle), it offers to wait ten more minutes; otherwise `./suckerpot status --wait` shows the answer later. The final screen ends with the node's status: the stack, the sensors, the network enrolment and the first things to fix.
 
 Everything else takes a default. Each default has a flag:
 
@@ -200,6 +245,10 @@ On a terminal, the installer shows a short list of steps with one progress bar, 
 | `--skip-verify` | Do not check the image signatures. Not recommended. See [updates](updates.md#image-signatures). |
 | `--dry-run --env-out PATH` | Write the `.env` that would be made to `PATH`, with a placeholder hash. Makes no Docker call. Used to test the installer. |
 | `--plain` | Plain line-by-line output, as without a terminal: no progress display, no colours, no cursor movement. |
+| `--non-interactive` | Never read the terminal, even when there is one: the run behaves as in CI. A participant install then needs `--yes` for the consent. |
+| `--node-name NAME`, `--no-node-name` | Participant mode: the node name, or none. The same as `--pseudonym NAME` and `--no-pseudonym`. |
+| `--country CC`, `--show-country` | Participant mode: the country of the node, and show it to the network. |
+| `--country-check local\|download\|off` | Participant mode: how `--country` is checked. `local` (the default) uses a GeoIP database already on this machine, if any; `download` first fetches DB-IP's free country list from `download.db-ip.com`; `off` skips the check. A mismatch is only a warning. |
 | `--update-check` | Full mode: check once a day whether a newer release exists (one anonymous request through the VPN; it never installs anything). Off by default. |
 | `--self-address ADDR` | Your own public address, so it never shows up as attack infrastructure. The installer never looks it up. |
 | `--join-network` | Full mode: join the SuckerPot network (shows the consent screen). Without it, a full install does not join. |
@@ -386,6 +435,16 @@ SuckerPot sends its outside lookups through the VPN. The installer and the updat
 - The Docker Hub or registry pulls of the database and VPN images.
 
 This traffic shows the host's address to the registry and to GitHub. It is outside the anonymous egress of the stack, and it is documented here on purpose. If you want the host itself to use a proxy, configure Docker's proxy settings for the host.
+
+## Remove SuckerPot
+
+`./suckerpot remove` (or `./scripts/uninstall.sh`) shows what it will do and what it keeps, and asks first:
+
+- a participant node leaves the network (the hub deletes the node and what it sent);
+- the automatic update schedule is removed (and, on Podman, the boot unit);
+- the containers are stopped and removed.
+
+It keeps the data volumes, `.env` (the database password lives inside the data, so keep both or neither), `install.log` and the checkout. On a terminal it then asks whether to remove the host firewall too (`sudo`), and whether to delete the data volumes; deleting them needs you to type `DELETE`, and then `.env` is renamed to `.env.removed-<date>`, so the folder can install again. Without a terminal: `./scripts/uninstall.sh --yes [--remove-firewall] [--delete-data]`. With the data kept, `./scripts/install.sh --repair` starts the same install again.
 
 ## After the install
 

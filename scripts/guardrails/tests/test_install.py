@@ -261,8 +261,10 @@ def test_the_type_question_picks_the_install(
             continue
         assert proc.returncode == 0, out
         assert parse_env(target).get("SUCKERPOT_STACK_MODE", "full") == stack
-        # No other question: no prompt but the type and the consent.
-        assert out.count("[y/N]") == (1 if stack == "participant" else 0)
+        # No other yes/no prompt but the consent and, on a participant node, the country (the
+        # node name and the country come after the consent; the end of the answers takes their
+        # defaults: a random name, no country).
+        assert out.count("[y/N]") == (2 if stack == "participant" else 0)
 
 
 def test_a_wrong_type_answer_is_refused(sandbox: Sandbox) -> None:
@@ -858,7 +860,10 @@ def test_participant_consent_prompt_accepted_is_the_only_question(
         extra_env={"SELFHOSTR_TTY": str(answers)},
     )
     assert proc.returncode == 0, proc.stderr
-    assert proc.stderr.count("[y/N]") == 1
+    # The consent, then the node name and the country questions, which take their defaults at
+    # the end of the answers (a random name, no country shown).
+    assert proc.stderr.count("[y/N]") == 2
+    assert "Show a country for this node? [y/N]" in proc.stderr
     assert "--yes was given" not in proc.stdout
     env = parse_env(target)
     assert env["SENSOR_SSH"] == "1"

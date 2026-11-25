@@ -405,7 +405,8 @@ consent_record() {
   printf '%s:%s:%s' "$CONSENT_VERSION" "${1:-$CONSENT_ITEMS}" "$(date -u +%Y-%m-%d)"
 }
 
-# Prints the consent screen. $1 = pseudonym (empty = none), $2 = 1 when a VPN is used.
+# Prints the consent screen. $1 = pseudonym (empty = none), $2 = 1 when a VPN is used, $3 = ask
+# when the node name and the country are asked right after it (the installer on a terminal).
 # The installer and `participant.sh join` print the same text.
 consent_screen() {
   local pseudonym=$1 vpn=${2:-0}
@@ -438,7 +439,9 @@ consent_screen() {
   echo "with a VPN. Without a VPN, the hub name is also looked up through your normal DNS resolver."
   echo "Leave at any time: ./scripts/participant.sh leave"
   echo
-  if [ -n "$pseudonym" ]; then
+  if [ "${3:-}" = ask ]; then
+    echo "Node name and country: you choose them after this screen."
+  elif [ -n "$pseudonym" ]; then
     echo "Pseudonym: $pseudonym   (change: --pseudonym NAME, none: --no-pseudonym)"
   else
     echo "Pseudonym: none (the network shows an anonymous node number)"

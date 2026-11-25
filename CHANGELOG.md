@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `./suckerpot` (also `scripts/suckerpot.sh` and `just menu`): one entry point for a node, in the terminal. It opens a menu (arrow keys and Enter, or the key of an item; plain numbered list without a terminal or with `TERM=dumb`; no colour with `NO_COLOR`) to install a participant node or a full install, then to see the status, edit the node, update, check the ports, read the logs, repair, leave or join, and remove it. Every item is also a command: `./suckerpot status`, `./suckerpot edit name`, `./suckerpot remove`, ... (`./suckerpot help`).
+- The participant installer asks its questions first, on a terminal, then runs by itself: after the consent, the **node name** (the pseudonym: a random name by default, the host name with a warning that it may identify you, your own, or none) and whether to show a **country**. The country is compared with a GeoIP database on the machine itself and never with an outside service; on a mismatch you choose what to keep. Without a local database, the installer only offers to download DB-IP's free country list from `download.db-ip.com` (default no). New flags: `--node-name`, `--no-node-name` (the same as `--pseudonym`, `--no-pseudonym`), `--country-check local|download|off` and `--non-interactive` (never read the terminal, as in CI). An answers file written for the old prompts still works: the new questions take their defaults.
+- The end of a participant install shows the node's status (stack, sensors, enrolment, what to fix) and, while the hub has not decided on the join (proof of work), offers to wait ten more minutes. `./scripts/status.sh --wait` waits for that answer later, and `--brief` prints the status in five lines.
+- `scripts/participant.sh set-name NAME|--none` and `set-country CC [--hide]|--none` change the node name and the country of a participant node from the terminal and wait for the hub's answer; a refused name puts everything back. They use the new `python -m ingest.network.cli update` (the participant counterpart of `PATCH /network/membership`), and `status --json` now has `country`, `show_country` and `profile_synced`.
+- `scripts/edit.sh` changes the node name, the country, the sensors, the VPN, the automatic updates and the host firewall, and applies each change at once; `scripts/uninstall.sh` removes SuckerPot step by step, says what it keeps, and deletes the data volumes only when you type `DELETE` (or pass `--delete-data --yes`).
+
 ## [0.15.0] - 2026-11-25
 
 ### Added

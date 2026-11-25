@@ -31,12 +31,18 @@ The full list of checks is in [Install SuckerPot](install.md#requirements).
 ```bash
 git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
 git switch --detach "$(git describe --tags --abbrev=0)"
-./scripts/install.sh --participant
+./suckerpot
 ```
 
-The installer prints what it will share and asks one question: `Join the SuckerPot network as described? [y/N]`. With `--yes` it does not ask, and `--yes` counts as your consent. (Without `--participant`, it first asks what to install: answer `1`, the participant node.)
+`./suckerpot` opens a menu; choose **Install a participant node** with the arrow keys and Enter (or press `1`). `./scripts/install.sh --participant` does the same without the menu. The installer asks everything first, then runs by itself:
 
-It then creates every secret on this machine, starts the sensors, the database, the ingest service and the network node, and picks a random pseudonym such as `amber-falcon-42`. Memory use is about 2 GiB.
+1. It prints what it will share and asks `Join the SuckerPot network as described? [y/N]`.
+2. **Node name**: the name the network shows for your node (the protocol calls it the pseudonym). A random name such as `amber-falcon-42` is the default; you can also take this machine's host name (it may identify you, the installer says so), type your own, or have none. Do not use a name you use anywhere else.
+3. **Show a country for this node?** No by default. If yes, you type its two-letter code, and the installer compares it with a GeoIP database on this machine; it never asks an outside service where the machine is, and it never fills the country in for you. See [the country check](network.md#the-country-check).
+
+With `--yes` it asks nothing: `--yes` counts as your consent, and the name is random unless `--node-name NAME` or `--no-node-name` says otherwise (`--country CC --show-country` for a country). `--non-interactive` never reads the terminal. (Without `--participant` and without the menu, it first asks what to install: answer `1`, the participant node.)
+
+It then creates every secret on this machine and starts the sensors, the database, the ingest service and the network node. The screen shows the list of steps, a progress bar with the percentage, and the result of each step; everything else goes to `install.log`. If a step fails, the screen names it, shows the last lines of the log and the fix. At the end it says whether the hub accepted the node, offers to wait longer while the hub has not decided yet, and shows the node's status. Memory use is about 2 GiB.
 
 A machine sold as "2 GB" reports about 1.9 GiB and runs the default setup with the low-memory limits: add swap (the installer warns when there is less than 512 MiB). If the machine reports less than 1.75 GiB, the installer says so and takes the lite setup by itself, with a note. That is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
 
@@ -103,14 +109,16 @@ Everything then goes through the VPN, and the collector and enrichment can run. 
 ## Check what it does
 
 ```bash
-./scripts/status.sh
+./suckerpot status          # or ./scripts/status.sh
+./suckerpot status --wait   # first wait for the hub's answer to a join in progress
+./suckerpot status --brief  # five lines: stack, sensors, network, what to fix
 ```
 
 It shows the sensors and their ports, your standing in the network, the last contact with the hub, what was sent each day, and the update schedule. Exit code 0 is OK, 1 is a warning, 2 is an error. `--json` prints the same data for monitoring tools. `--last-batch` prints the exact data of the last submission.
 
 Right after the install, the network section may say `Joining as <your pseudonym>: not accepted by the hub yet`, with the last problem (for example a closed path to the hub). Your agreement is already recorded: SuckerPot keeps trying by itself, and a problem makes the exit code 1 until the hub accepts the node.
 
-The installer and `./scripts/participant.sh join` wait a few minutes for the hub's answer. If the hub refuses the pseudonym because another node already uses it, they say so and suggest a free variant, for example `./scripts/participant.sh join --pseudonym amber-falcon-42-17`. The other node can be your own earlier install: the hub frees the name of a node that never sent a batch and made no request for two days on which the hub was working. A node that ever sent a batch keeps its name for good.
+The installer and `./scripts/participant.sh join` wait a few minutes for the hub's answer. If the hub refuses the pseudonym because another node already uses it, they say so and suggest a free variant, for example `./scripts/participant.sh join --pseudonym amber-falcon-42-17` (or `./scripts/participant.sh set-name amber-falcon-42-17`). The other node can be your own earlier install: the hub frees the name of a node that never sent a batch and made no request for two days on which the hub was working. A node that ever sent a batch keeps its name for good.
 
 A refused join also heals by itself, with no command. If you set another name in `.env` (`NETWORK_PSEUDONYM`), the node tries it on its next cycle. If the refused name was generated by the installer, the node picks a new generated name by itself. A name you chose is kept and tried again once a day, in case the hub freed it. This works while your agreement in `.env` is at most 7 days old, and never after you left the network.
 
@@ -151,14 +159,19 @@ At first, only the operator's own node is a verifier.
 
 ## Manage your membership
 
+`./suckerpot` gathers all of this in one menu: status, **Edit the node** (name, country, sensors, VPN, automatic updates, host firewall; each change applies at once), update, ports check, logs, repair, leave or join, and remove. `./suckerpot edit name`, `./suckerpot edit country` and the others ask their question without the menu; `./suckerpot help` lists every command.
+
 | Command | What it does |
 | --- | --- |
 | `./scripts/participant.sh status` | Same as `./scripts/status.sh` |
+| `./scripts/participant.sh set-name NAME` (`--none`) | Change the node name. A member sends it to the hub at once and the command waits for the answer: a name another node uses is refused, and everything is put back. The hub allows one change per 7 days |
+| `./scripts/participant.sh set-country CC` (`--hide`, `--none`) | Show a country (`--hide`: send it, do not show it; `--none`: no country). The code is compared with a GeoIP database on this machine only; a mismatch is a warning |
 | `./scripts/participant.sh leave` | Leave the network. The sensors keep running |
 | `./scripts/participant.sh join [--pseudonym NAME]` | Show the consent again and join. After a refused join, or for a new pseudonym, run it with `--pseudonym` |
 | `./scripts/participant.sh vpn FILE` | Send everything through your VPN |
 | `./scripts/participant.sh auto-update on\|off` | Turn the automatic update schedule on or off |
 | `./scripts/participant.sh uninstall` | Leave, stop the stack and remove the schedule. It prints the command that removes the data volumes and never runs it |
+| `./suckerpot remove` | The same, step by step: it shows what it keeps, and only on your explicit answer removes the host firewall and deletes the data (see [Remove SuckerPot](install.md#remove-suckerpot)) |
 
 If a newer release widens what is shared, the node waits until you run `join` again. It never agrees for you.
 
@@ -175,7 +188,9 @@ The installer takes a backup, starts the dashboard and the VPN service, and keep
 | Flag | Meaning |
 | --- | --- |
 | `--yes` | No prompt. This is your consent to join |
-| `--pseudonym NAME` / `--no-pseudonym` | Choose your pseudonym, or have none |
+| `--node-name NAME` / `--no-node-name` | Choose the node name, or have none (the same as `--pseudonym NAME` / `--no-pseudonym`) |
+| `--country CC --show-country` | Show a country (checked against a GeoIP database on this machine only) |
+| `--non-interactive` | Never read the terminal, as in CI (the consent then needs `--yes`) |
 | `--sensors LIST` | `recommended` (default), `all`, or a list such as `ssh,telnet` |
 | `--feeds` | Also fetch the public blocklist feed |
 | `--self-address ADDR` | Tell the node your own public address so it is never recorded |

@@ -37,6 +37,9 @@ COPIED = [
     "scripts/lib/firewall.sh",
     "scripts/lib/fwcheck.sh",
     "scripts/lib/ui.sh",
+    "scripts/lib/ask.sh",
+    "scripts/lib/geocheck.sh",
+    "scripts/lib/nodeprofile.sh",
     "scripts/lib/pseudonym.sh",
     "scripts/lib/enrol_wait.sh",
     "scripts/lib/ports-check.sh",
@@ -173,6 +176,14 @@ exit 0
 
 SLEEP_SHIM = "#!/bin/sh\nexit 0\n"
 
+# The addresses of this machine's interfaces, as `ip -o addr show scope global` prints them: none
+# unless a test sets SHIM_IP_ADDRS (the country check must never see the host running the tests).
+IP_SHIM = r"""#!/bin/sh
+echo "ip $*" >> "$SHIM_LOG"
+for a in ${SHIM_IP_ADDRS:-}; do echo "2: eth0    inet $a/24 brd + scope global eth0"; done
+exit 0
+"""
+
 # The admin SSH port probe (lib/firewall.sh fw_admin_port) must never see the host running the tests:
 # no ssh.socket, no sshd. Tests that need one write their own shim over these.
 HOST_FREE_SHIM = "#!/bin/sh\nexit 1\n"
@@ -259,6 +270,7 @@ def sandbox(tmp_path: Path) -> Sandbox:
         "curl": CURL_SHIM,
         "ss": SS_SHIM,
         "sleep": SLEEP_SHIM,
+        "ip": IP_SHIM,
         "systemctl": HOST_FREE_SHIM,
         "sshd": HOST_FREE_SHIM,
     }.items():
