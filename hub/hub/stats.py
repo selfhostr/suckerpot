@@ -2,7 +2,8 @@
 
 Nothing here is per-node and fine-grained: members get an activity count of the last full ISO
 week (0 to 7 days) and a tier (0 to 4, log scale), published with that week's delay. Countries
-appear only when at least three members who chose to show one share it.
+appear only when at least two members who chose to show one share it
+(``buckets.MIN_MEMBERS_COUNTRY_SHOWN``).
 """
 
 from __future__ import annotations
@@ -171,7 +172,9 @@ async def build_summary(session: AsyncSession, today: date) -> models.NetworkSum
         if n.show_country and n.country:
             cc = n.country.strip()
             showing[cc] = showing.get(cc, 0) + 1
-    countries = sorted(cc for cc, count in showing.items() if count >= buckets.MIN_COUNTRIES_SHOWN)
+    countries = sorted(
+        cc for cc, count in showing.items() if count >= buckets.MIN_MEMBERS_COUNTRY_SHOWN
+    )
     members = [
         models.NetworkMember(
             fingerprint=sign.fingerprint(bytes(n.pubkey)),

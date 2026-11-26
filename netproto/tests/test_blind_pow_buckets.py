@@ -135,6 +135,12 @@ def test_nodes_bucket_tier_countries() -> None:
     assert buckets.countries_or_none(3) == 3
 
 
+def test_country_thresholds_are_apart() -> None:
+    # a member's country shows from 2 members; a count of countries still needs 3
+    assert buckets.MIN_MEMBERS_COUNTRY_SHOWN == 2
+    assert buckets.MIN_COUNTRIES_SHOWN == 3
+
+
 def test_batch_day_rules() -> None:
     today = date(2026, 11, 1)
     assert buckets.check_batch_day(date(2026, 11, 1), today) == "day_not_closed"

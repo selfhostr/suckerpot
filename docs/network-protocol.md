@@ -151,7 +151,7 @@ The node records these codes itself. The hub never sends them.
 | GET | `/v1/targets?since=<cursor>&limit=<1..1000>` | yes | returns `{cursor, targets, reveal, recheck}`. `limit` defaults to 200 |
 | POST | `/v1/reveals` | yes | `{protocol, items: [{kind, value_b, value}]}` (at most 200) returns `{accepted, rejected}` |
 | POST | `/v1/rechecks` | yes | `{protocol, day, items: [{id, state}]}` (at most 500) returns `{accepted}` |
-| GET | `/v1/network` | yes | returns the network summary |
+| GET | `/v1/network` | yes | returns the network summary. A country in `countries` and a member's `country` need at least 2 members who show it (`MIN_MEMBERS_COUNTRY_SHOWN`; 3 up to v0.15.1, whose nodes refuse a summary that lists a country with 2 members) |
 | GET | `/v1/verify/reveals` | yes | returns `{items: [{kind: "url", value_b}]}` (at most 200): links this node reported recently that wait for their clear value |
 | GET | `/v1/verify/tasks?limit=<1..20>` | yes, verifier | returns `{tasks: [{id, url, lease_until}]}`. Leases queued tasks. Others get `not_verifier` |
 | POST | `/v1/verify/results` | yes, verifier | `{protocol, items: [Result]}` (at most 50) returns `{accepted, rejected}` |

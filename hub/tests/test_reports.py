@@ -59,6 +59,9 @@ def test_render_hides_countries_below_three_and_defangs() -> None:
     r = render.render("malware_host", [rt("url", "http://198.51.100.9/x.sh", country_count=2)])
     assert "countries" not in r.body
     assert "hxxp://198[.]51[.]100[.]9/x[.]sh" in r.body and "http://" not in r.body
+    # the member-country rule (2) does not lower the report wording: it stays at 3 countries
+    r = render.render("malware_host", [rt("url", "http://198.51.100.9/x.sh", country_count=3)])
+    assert "in 3 or more countries" in r.body
 
 
 def test_render_template_and_no_node_identity() -> None:

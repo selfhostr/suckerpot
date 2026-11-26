@@ -101,11 +101,11 @@ function buildMembers(): NetworkMember[] {
       })
     }
   }
-  // k-anonymity, like the hub: a country shows only when at least 3 members share it.
+  // Like the hub: a country shows only when at least 2 members share it.
   const count = new Map<string, number>()
   for (const m of members) if (m.country) count.set(m.country, (count.get(m.country) ?? 0) + 1)
   return members.map((m) =>
-    m.country && (count.get(m.country) ?? 0) < 3 ? { ...m, country: null } : m,
+    m.country && (count.get(m.country) ?? 0) < 2 ? { ...m, country: null } : m,
   )
 }
 

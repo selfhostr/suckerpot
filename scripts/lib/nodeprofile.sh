@@ -96,7 +96,7 @@ profile_ask_country() {
   _ask_say_block \
     "Country" \
     "You may show the country of this node next to its name. It is never detected or filled in" \
-    "for you, and the network shows a country only once at least three nodes show it."
+    "for you, and the network shows a country only once at least two nodes show it."
   [ -z "$cur" ] || def=y
   if ! ask_yn "Show a country for this node?" "$def"; then
     PROFILE_COUNTRY=""

@@ -23,7 +23,7 @@ from pydantic import (
     model_validator,
 )
 
-from .buckets import parse_day
+from .buckets import MIN_COUNTRIES_SHOWN, MIN_MEMBERS_COUNTRY_SHOWN, parse_day
 from .enums import (
     ACTIVITIES,
     FAMILIES_V1,
@@ -400,7 +400,7 @@ class Target(ProtoModel):
     value_b: Hex64 | None
     state: Literal["confirmed", "reported", "taken_down", "disputed", "expired"]
     nodes: Annotated[int, Field(ge=0, le=2)]
-    countries: Annotated[int, Field(ge=3)] | None
+    countries: Annotated[int, Field(ge=MIN_COUNTRIES_SHOWN)] | None
     first_day: Day
     last_day: Day
     services: TargetServices
@@ -557,7 +557,7 @@ class NetworkWeek(ProtoModel):
 
 class NetworkCountry(ProtoModel):
     cc: Country
-    members: Annotated[int, Field(ge=3)]
+    members: Annotated[int, Field(ge=MIN_MEMBERS_COUNTRY_SHOWN)]
 
 
 class NetworkMember(ProtoModel):

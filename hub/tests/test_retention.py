@@ -147,15 +147,17 @@ async def test_every_node_table_cascades() -> None:
 
 async def test_summary_k_rules_and_no_ranking(env: Env) -> None:
     ch = await add_nodes(env.worker, 3, countries=["CH"] * 3, show_country=True)
-    await add_nodes(env.worker, 2, countries=["DE", "DE"], show_country=True)  # only two: hidden
-    await add_nodes(env.worker, 1, countries=["FR"], show_country=False)
+    await add_nodes(env.worker, 2, countries=["DE", "DE"], show_country=True)  # two: shown
+    await add_nodes(env.worker, 1, countries=["NL"], show_country=True)  # only one: hidden
+    await add_nodes(env.worker, 2, countries=["FR", "FR"], show_country=False)  # not opted in
     await observe(env.worker, ch[:1], "ip", "203.0.113.201", [TODAY - timedelta(days=8)])
     async with env.worker() as s:
         summary = await stats.run_daily(s, TODAY)
-    assert summary.totals.members == 6 and summary.totals.countries == 1
-    assert [(c.cc, c.members) for c in summary.countries] == [("CH", 3)]
-    assert {m.country for m in summary.members} == {"CH", None}
+    assert summary.totals.members == 8 and summary.totals.countries == 2
+    assert [(c.cc, c.members) for c in summary.countries] == [("CH", 3), ("DE", 2)]
+    assert {m.country for m in summary.members} == {"CH", "DE", None}
     assert sum(1 for m in summary.members if m.country == "CH") == 3
+    assert sum(1 for m in summary.members if m.country == "DE") == 2
     assert all(0 <= m.tier <= 4 and 0 <= m.active_days <= 7 for m in summary.members)
     raw = json.dumps(summary.model_dump(mode="json"))
     for n in ch:
@@ -163,7 +165,7 @@ async def test_summary_k_rules_and_no_ranking(env: Env) -> None:
     # stored once, read back by the API model
     async with env.worker() as s:
         data = (await s.execute(text("SELECT data FROM network_summary"))).scalar_one()
-    assert data["totals"]["members"] == 6
+    assert data["totals"]["members"] == 8
 
 
 async def test_summary_member_order_changes_daily_and_ignores_activity(env: Env) -> None:
