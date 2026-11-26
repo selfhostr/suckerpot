@@ -383,7 +383,8 @@ def test_without_a_local_database_nothing_is_downloaded_unless_asked(
         sandbox, "y\n1\ny\nfr\nn\n", "--self-address", "203.0.113.9"
     )
     assert rc == 0, out
-    assert "download.db-ip.com" in out and "Download it and check FR? [y/N]" in out
+    # The text names the host; this is not a URL check.
+    assert re.search(r"download\.db-ip\.com", out) and "Download it and check FR? [y/N]" in out
     assert "FR not checked: no GeoIP database on this machine." in out
     assert not [c for c in sandbox.calls() if c.startswith("curl ")]
     assert parse_env(target)["NETWORK_COUNTRY"] == "FR"
