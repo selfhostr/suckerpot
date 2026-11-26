@@ -437,3 +437,11 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - Duplicate content is merged and low-value charts are removed or replaced. Attacks gets a shared filter bar kept in the URL. One scroll model with sticky column headers, one type scale and control heights, motion that respects reduced motion, and contextual help on every page.
 - The UI is in nine languages (en, fr, de, es, it, pt, pt-BR, ru, zh-Hans) with i18next and ICU messages. Text produced by the API and abuse report output stay in English.
 - Only `web/` and its docs change. No API change, no database change and no migration.
+
+## 2026-11-26: v0.15.1 (one-command install, node menu)
+
+- One pull request since v0.15.0 (#198). The details are in `CHANGELOG.md`.
+- `get.sh` installs a node without git, from a node bundle that the release workflow builds, signs in the release manifest and attaches to the release. This is the first release that carries the bundle.
+- `./suckerpot.sh` is one menu and one command set for a node: install, status, edit (name, country, sensors, VPN, auto-update, firewall), update, ports, logs, repair, leave or join, remove. Notices at the top say what is missing.
+- The participant installer asks its questions first (consent, node name, country checked against a local GeoIP database only), then runs alone with a progress bar and a log.
+- The ingest image gets `python -m ingest.network.cli update`, used by `participant.sh set-name` and `set-country`. No API change, no database change and no migration.

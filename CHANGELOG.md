@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-26
+
 ### Added
 
 - `./suckerpot.sh` (also `scripts/suckerpot.sh` and `just menu`): one entry point for a node, in the terminal. It opens a menu (arrow keys and Enter, or the key of an item; plain numbered list without a terminal or with `TERM=dumb`; no colour with `NO_COLOR`) to install a participant node or a full install, then to see the status, edit the node, update, check the ports, read the logs, repair, leave or join, and remove it. Every item is also a command: `./suckerpot.sh status`, `./suckerpot.sh edit name`, `./suckerpot.sh remove`, ... (`./suckerpot.sh help`).
@@ -1150,7 +1152,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Isolation: four networks with an internal backend, one Redis ACL user per sensor limited to `XADD` on its own stream, least-privilege database roles, no outbound route for the API, non-root read-only containers with all capabilities dropped.
 - The first review of the M1 stack found unbounded stream growth, egress, poison-message and default-credential issues; all were fixed and the second pass passed.
 
-[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/selfhostr/suckerpot/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/selfhostr/suckerpot/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/selfhostr/suckerpot/compare/v0.14.2...v0.15.0
 [0.14.2]: https://github.com/selfhostr/suckerpot/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/selfhostr/suckerpot/compare/v0.14.0...v0.14.1
