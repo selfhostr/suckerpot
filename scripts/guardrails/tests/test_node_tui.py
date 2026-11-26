@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 from conftest import ROOT, Sandbox
 from test_install import add_participant_files, p_real, wrap_docker
+from test_install_ui import run_pty
 from vt import Screen
 
 LIB = ROOT / "scripts" / "lib"
@@ -999,24 +1000,100 @@ def test_docker_setup_under_sudo_is_for_the_calling_user(sandbox: Sandbox) -> No
     assert "  apt-get install -y docker-ce" in proc.stdout and "sudo apt-get" not in proc.stdout
 
 
-def test_sudo_starts_again_as_the_owner_of_the_checkout(sandbox: Sandbox) -> None:
-    import pwd
+def sudo_shim(sb: Sandbox, body: str) -> None:
+    (sb.shim / "sudo").write_text('#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\n' + body)
+    (sb.shim / "sudo").chmod(0o755)
 
-    try:
-        me = pwd.getpwuid(os.getuid()).pw_name
-    except KeyError:
-        pytest.skip("this uid has no name")
-    if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", me) or me == "root":
-        pytest.skip("needs a plain user name")
-    add_participant_files(sandbox)
-    add_tools(sandbox)
-    (sandbox.shim / "sudo").write_text('#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\nexit 0\n')
-    (sandbox.shim / "sudo").chmod(0o755)
+
+def firewall_tools(sb: Sandbox) -> None:
+    add_participant_files(sb)
+    render = sb.root / "scripts/host/render-firewall.sh"
+    render.write_text('#!/bin/sh\necho "render-firewall $*" >> "$SHIM_LOG"\n')
+    render.chmod(0o755)
+
+
+def test_started_with_sudo_nothing_calls_sudo_again(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    """As root through sudo: no sudo call, no password; the owner gets the schedule."""
+    firewall_tools(sandbox)
+    sudo_shim(sandbox, "exit 1\n")
     proc = sandbox.run(
-        "suckerpot.sh", "help", extra_env={"SELFHOSTR_EUID": "0", "SUDO_USER": me, "TERM": "dumb"}
+        "scripts/install.sh",
+        *("--participant", "--yes", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        extra_env={"SELFHOSTR_EUID": "0", "SUDO_USER": "alice", "SELFHOSTR_DIR_OWNER": "alice"},
     )
-    assert proc.returncode == 0, proc.stderr
-    assert f"Running as {me}, who owns this folder" in proc.stderr
-    call = [c for c in sandbox.calls() if c.startswith("sudo ")][-1]
-    assert call.startswith(f"sudo -u {me} -H -- env TERM=dumb")
-    assert call.endswith(f"bash {sandbox.root}/scripts/suckerpot.sh help")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = sandbox.calls()
+    assert not [c for c in calls if c.startswith("sudo")], calls
+    assert any(c.startswith("install-firewall ") for c in calls)  # root: the firewall loads
+    assert any(c.startswith("crontab -u alice ") for c in calls)
+    assert "sudo asks for your password" not in proc.stdout + proc.stderr
+
+
+def test_passwordless_sudo_asks_nothing(sandbox: Sandbox) -> None:
+    firewall_tools(sandbox)
+    sudo_shim(sandbox, '[ "$1" = -n ] && exit 0\n[ "$1" = -v ] && exit 1\nexit 0\n')
+    (sandbox.root / "answers").write_text("y\n")
+    rc, raw = run_pty(
+        sandbox,
+        *("--participant", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        env={"SELFHOSTR_TTY": str(sandbox.root / "answers")},
+    )
+    assert rc == 0, raw
+    assert "sudo asks for your password" not in raw
+    calls = sandbox.calls()
+    assert not [c for c in calls if c.startswith("sudo -v")]
+    assert any(c.startswith("install-firewall ") for c in calls)
+
+
+def test_sudo_with_a_password_says_it_once(sandbox: Sandbox) -> None:
+    firewall_tools(sandbox)
+    # The password is typed: -n fails (a prompt is needed), -v succeeds.
+    sudo_shim(
+        sandbox,
+        '[ "$1" = -v ] && { touch "$SHIM_DIR/sudo-ok"; exit 0; }\n'
+        '[ "$1" = -n ] && { [ -f "$SHIM_DIR/sudo-ok" ]; exit $?; }\nexit 0\n',
+    )
+    (sandbox.root / "answers").write_text("y\n")
+    rc, raw = run_pty(
+        sandbox,
+        *("--participant", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        env={"SELFHOSTR_TTY": str(sandbox.root / "answers")},
+    )
+    assert rc == 0, raw
+    assert raw.count("sudo asks for your password") == 1
+    assert len([c for c in sandbox.calls() if c.startswith("sudo -v")]) == 1
+
+
+def test_without_sudo_and_not_root_the_firewall_waits(sandbox: Sandbox, tmp_path: Path) -> None:
+    from conftest import tools_without
+
+    firewall_tools(sandbox)
+    (sandbox.shim / "sudo").unlink(missing_ok=True)
+    sysbin = tools_without(sandbox, ("sudo",), tmp_path / "nosudo")
+    sandbox.env["PATH"] = f"{sandbox.shim}:{sysbin}"
+    (sandbox.root / "answers").write_text("y\n")
+    rc, raw = run_pty(
+        sandbox,
+        *("--participant", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        env={"SELFHOSTR_TTY": str(sandbox.root / "answers")},
+    )
+    assert rc == 0, raw
+    s = Screen(100)
+    s.feed(raw)
+    assert "needs sudo: ./scripts/participant.sh firewall" in s.text()
+
+
+def test_get_started_with_sudo_gives_the_folder_to_the_user(
+    sandbox: Sandbox, tmp_path: Path
+) -> None:
+    from test_bundle import Web
+
+    web = Web(sandbox, tmp_path)
+    web.release()
+    proc = web.run("--yes", SELFHOSTR_EUID="0", SUDO_USER="alice")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "runs as root (started with sudo) and calls no sudo" in proc.stdout
+    assert "belong to alice" in proc.stdout
+    assert not [c for c in sandbox.calls() if c.startswith("sudo")]

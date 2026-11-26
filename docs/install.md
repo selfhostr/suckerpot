@@ -208,7 +208,13 @@ All questions come first, on the terminal; then the install runs by itself.
 
 **A checkout of a branch** (for example `git clone -b dev`) is not a release, so it has no images of its own. On a terminal the installer asks first: run the signed images of the newest release it knows (the default, verified like any release), or build this checkout from source (slower, for testing the branch). Without a terminal it stops and says which flag to add: `--version latest` (the newest release tag of the checkout), `--version vX.Y.Z` or `--source`. A later `./suckerpot.sh update` keeps the branch and changes only the images.
 
-**sudo.** Run the installer and `./suckerpot.sh` as your own user; they ask for `sudo` themselves where they need it (Docker's setup, the host firewall). Started with `sudo` by the user who owns the checkout, they start again as that user, so `.env`, `install.log`, `.suckerpot-state` and the update schedule stay yours, and Docker's setup adds that user, not root, to the `docker` group. Run as root (a root login on a VPS, or a checkout owned by root), everything belongs to root and no group is needed.
+**sudo.** Three ways work, and none asks for a password twice:
+
+- **As your user.** The scripts call `sudo` only for the steps that need root (Docker's setup, the host firewall, the Podman units). With passwordless sudo (`NOPASSWD`) nothing is asked. Otherwise they say once, before the first such step, that sudo asks for your password, and sudo itself asks; the scripts never read a password. Without a terminal, a step that would need a password is skipped with the command to run.
+- **With sudo** (`sudo ./suckerpot.sh`, `sudo sh get.sh`). Everything runs as root and `sudo` is never called again. When you own the folder, `.env`, `install.log` and `.suckerpot-state` are given back to you, the update schedule goes into your crontab and Docker's setup adds you, not root, to the `docker` group.
+- **As root** (a root login on a VPS). Everything runs as root, belongs to root, and no group is needed.
+
+Without sudo and not root, a step that needs root says so and stops or is skipped.
 
 `--non-interactive` never reads the terminal: the installer behaves as without one (the type needs a flag or `--yes`, the consent needs `--yes`, and no name or country question is asked).
 

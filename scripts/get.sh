@@ -16,7 +16,9 @@
 #   4. creates DIR (default ~/suckerpot; it must not exist, or be empty), unpacks the bundle there
 #      (only plain files and folders, every path inside DIR);
 #   5. starts DIR/suckerpot.sh, the menu (unless --no-menu, or without a terminal).
-# It runs as your user and never uses sudo; the installer asks for sudo itself where it needs it.
+# It never calls sudo. Run it as your user (the installer asks for sudo itself, only where it needs
+# it), or as root: started with sudo, the folder goes to the home of the user who called sudo and
+# belongs to them, and the menu then runs as root without asking for any password again.
 #
 # Testing a branch before a release (NOT SIGNED: only HTTPS protects the download):
 #   sh get.sh --ref dev [--dir DIR]
@@ -41,7 +43,18 @@ ISSUER=https://token.actions.githubusercontent.com
 say() { if [ -t 1 ]; then printf '%s\n' "$*" | fold -s -w 78; else printf '%s\n' "$*"; fi; }
 die() { printf 'get: %s\n' "$*" >&2; exit 1; }
 
-dir="${HOME:-}/suckerpot"
+owner=""
+uid=${SELFHOSTR_EUID:-$(id -u)}
+if [ "$uid" = 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] \
+  && printf '%s' "$SUDO_USER" | grep -Eq '^[a-z_][a-z0-9_-]{0,31}$'; then
+  owner=$SUDO_USER
+fi
+home=${HOME:-}
+if [ -n "$owner" ]; then
+  home=$(getent passwd "$owner" 2> /dev/null | cut -d: -f6 || true)
+  [ -n "$home" ] || home=${HOME:-}
+fi
+dir="$home/suckerpot"
 version=""
 ref=""
 yes=0
@@ -115,7 +128,11 @@ else
 fi
 [ "$menu" = 0 ] || say "    - start $dir/suckerpot.sh (the menu: install, status, edit, update, remove)"
 me=$(id -un 2> /dev/null || true)
-say "  It runs as ${me:-your user} and uses no sudo."
+if [ -n "$owner" ]; then
+  say "  It runs as root (started with sudo) and calls no sudo; $dir will belong to $owner."
+else
+  say "  It runs as ${me:-your user} and calls no sudo."
+fi
 say ""
 if [ "$yes" = 0 ]; then
   [ "$tty" = 1 ] || die "no terminal to ask on: add --yes to go ahead"
@@ -214,6 +231,9 @@ fi
 mkdir -p "$dir"
 (cd "$stage" && tar -cf - .) | (cd "$dir" && tar -xf -)
 chmod 755 "$dir"
+if [ -n "$owner" ]; then
+  chown -R "$owner:" "$dir" 2> /dev/null || say "  warning: could not give $dir to $owner (chown -R $owner: $dir)"
+fi
 say ""
 say "SuckerPot is in $dir ($(cd "$dir" && find . -type f | wc -l | tr -d ' ') files$( [ -n "$ref" ] && printf ', testing build of %s, NOT signed' "$ref" || printf ', %s, signed' "$version"))."
 say "Everything else happens from there:  cd $dir && ./suckerpot.sh"

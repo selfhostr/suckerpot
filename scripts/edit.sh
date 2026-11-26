@@ -19,7 +19,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
-sudo_drop scripts/edit.sh "$@"
+owner_init
 # shellcheck source=scripts/lib/ask.sh
 . scripts/lib/ask.sh
 # shellcheck source=scripts/lib/pseudonym.sh

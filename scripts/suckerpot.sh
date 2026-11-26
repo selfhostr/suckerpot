@@ -25,7 +25,7 @@ cd "$(dirname "$0")/.."
 ENGINE_LENIENT=1
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
-sudo_drop scripts/suckerpot.sh "$@"
+owner_init
 # shellcheck source=scripts/lib/ask.sh
 . scripts/lib/ask.sh
 
@@ -145,6 +145,7 @@ run_step() {
   trap ':' INT
   "$@" || rc=$?
   trap - INT
+  owner_fix
   echo 1>&"$ASK_OUT"
   case $rc in
     0) printf '  %sDone.%s\n' "$ASK_OK" "$ASK_R" 1>&"$ASK_OUT" ;;

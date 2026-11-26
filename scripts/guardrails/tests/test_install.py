@@ -583,6 +583,8 @@ CRONTAB_SHIM = r"""#!/bin/sh
 # Fake crontab: a text file in $SHIM_DIR, never the real crontab of the user running the tests.
 f="$SHIM_DIR/crontab.txt"
 echo "crontab $*" >> "$SHIM_LOG"
+# -u USER (root writing the crontab of the owner of the checkout): the same file.
+if [ "$1" = -u ]; then shift 2; fi
 case "$1" in
   -l) if [ -f "$f" ]; then cat "$f"; else echo "no crontab for user" >&2; exit 1; fi ;;
   -r) rm -f "$f" ;;

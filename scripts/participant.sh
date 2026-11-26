@@ -29,7 +29,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
-sudo_drop scripts/participant.sh "$@"
+owner_init
 
 # On a terminal the message wraps at its width (text_out, scripts/lib/ask.sh, once it is loaded).
 die() {
@@ -81,7 +81,7 @@ confirm() {
 
 # Keeps a private copy of .env while a change is applied, so it can be put back.
 backup=""
-cleanup() { [ -n "$backup" ] && rm -f "$backup"; return 0; }
+cleanup() { [ -n "$backup" ] && rm -f "$backup"; owner_fix; return 0; }
 trap cleanup EXIT
 begin() {
   backup=$(mktemp)

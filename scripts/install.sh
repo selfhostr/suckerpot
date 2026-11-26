@@ -70,7 +70,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
-sudo_drop scripts/install.sh "$@"
+owner_init
 
 TOTAL=10
 LOG=install.log
@@ -128,7 +128,10 @@ plain_result() {
     echo "result: failed step=${cur_step:-0} log=$where"
   fi
 }
-UI_ON_EXIT=plain_result
+# At the end, however it ends: the plain result line, and the files given back to the owner of
+# the folder when the installer runs as root through sudo (owner_fix, scripts/lib/env.sh).
+install_exit() { owner_fix; plain_result "$1"; }
+UI_ON_EXIT=install_exit
 # A command that fails where no message was planned (set -e) names itself and its line, on the
 # screen and in install.log, instead of a bare "failed" step.
 on_err() {
@@ -710,7 +713,7 @@ docker_plan() {
   # root needs no group; anyone else joins the docker group.
   [ "$user" = root ] || DOCKER_CMDS+=("sudo usermod -aG docker $user")
   # As root, sudo is not needed (and may not be installed on a minimal VPS).
-  if [ "${SELFHOSTR_EUID:-$EUID}" = 0 ]; then
+  if is_root; then
     local i
     for i in "${!DOCKER_CMDS[@]}"; do DOCKER_CMDS[i]=${DOCKER_CMDS[i]//sudo /}; done
   fi
@@ -754,7 +757,13 @@ offer_docker() {
     UI_ENDED=1
     exit 1
   fi
-  printf '%sRun them now? sudo asks for your password. [Y/n] ' "$UI_IND" 1>&"$UI_ERR"
+  if is_root; then
+    printf '%sRun them now? [Y/n] ' "$UI_IND" 1>&"$UI_ERR"
+  elif command -v sudo > /dev/null 2>&1 && sudo -n true > /dev/null 2>&1; then
+    printf '%sRun them now (with sudo)? [Y/n] ' "$UI_IND" 1>&"$UI_ERR"
+  else
+    printf '%sRun them now? sudo asks for your password. [Y/n] ' "$UI_IND" 1>&"$UI_ERR"
+  fi
   IFS= read -r a <&3 || a=n
   answered
   case $a in
@@ -766,17 +775,14 @@ offer_docker() {
       exit 1
       ;;
   esac
-  if [ "${SELFHOSTR_EUID:-$EUID}" != 0 ]; then
-    command -v sudo > /dev/null 2>&1 || die "sudo is needed to install Docker. Run the commands above as root."
-    sudo -v || die "sudo failed: Docker was not installed."
-  fi
+  root_ready "Installing Docker" || die "Docker was not installed: run the commands above as root, or with sudo."
   for c in "${DOCKER_CMDS[@]}"; do
     ui_detail "installing Docker: ${c:0:60}"
     ui_run --expect 30 -- bash -c "$c" || die "this command failed (see the log): $c"
   done
   log "Docker installed; starting again in the docker group"
   ui_pause
-  if [ "${SELFHOSTR_EUID:-$EUID}" = 0 ] && [ "$(id -un 2> /dev/null)" = root ]; then
+  if is_root && [ "$(id -un 2> /dev/null)" = root ]; then
     # root uses Docker without a group: the installer simply starts again.
     again=("$PWD/scripts/install.sh" "${orig_args[@]}")
     case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
@@ -820,8 +826,8 @@ podman_prepare() {
   if ! ctr version > /dev/null 2>&1; then
     [ "${SELFHOSTR_PODMAN_GROUP:-0}" = 0 ] ||
       die "the root Podman socket still does not answer for this user. Log out and back in, then run the installer again."
-    command -v sudo > /dev/null 2>&1 || die "sudo is needed to open the root Podman socket to this user. As root: scripts/host/podman-socket.sh USER"
-    if ! sudo -n true > /dev/null 2>&1 && { [ "$has_tty" = 0 ] || [ "$assume_yes" = 1 ]; }; then
+    is_root || command -v sudo > /dev/null 2>&1 || die "sudo is needed to open the root Podman socket to this user. As root: scripts/host/podman-socket.sh USER"
+    if ! root_free && { [ "$has_tty" = 0 ] || [ "$assume_yes" = 1 ]; }; then
       die "the root Podman socket is not open to this user, and sudo needs a password. Run: sudo scripts/host/podman-socket.sh $user, then the installer again."
     fi
     # Always on screen, before anything changes: what is about to be given, and why.
@@ -831,11 +837,7 @@ podman_prepare() {
       echo "${UI_IND}suckerpot-podman, which may use the root Podman socket. That group is root-equivalent"
       echo "${UI_IND}(like the docker group): remove it later with sudo scripts/host/podman-socket.sh --uninstall $user."
     } 1>&"$UI_ERR"
-    if ! sudo -n true > /dev/null 2>&1; then
-      printf '%ssudo asks for your password.\n' "$UI_IND" 1>&"$UI_ERR"
-      # shellcheck disable=SC2024 # the redirects are the terminal, on purpose
-      sudo -v < /dev/tty > /dev/tty 2>&1 || die "sudo failed: the Podman socket was not opened"
-    fi
+    root_ready "Opening the Podman socket" || die "sudo failed: the Podman socket was not opened"
     ui_run --expect 10 -- engine_setup_socket_access || die "the root Podman socket could not be opened to this user (see the log)"
     if ! reason=$(sg suckerpot-podman -c true 2>&1); then
       say "Podman is ready for this user. Log out and back in, then run the installer again."
@@ -1597,9 +1599,7 @@ if [ "$ENGINE_ID" = podman ]; then
         die "on Podman the host firewall is required, and it needs sudo without a password here. Run the installer on a terminal, or pass --no-firewall if you filter elsewhere."
       fi
       ui_pause
-      printf '  The host firewall (required on Podman) needs root rights: sudo asks for your password.\n' 1>&"$UI_ERR"
-      # shellcheck disable=SC2024 # the redirects are the terminal, on purpose
-      sudo -v < /dev/tty > /dev/tty 2>&1 || die "sudo failed: on Podman the host firewall is required"
+      root_ready "The host firewall (required on Podman)" || die "sudo failed: on Podman the host firewall is required"
     fi
     ui_run --expect 10 -- fw_step "$fw_mode" auto || die "on Podman the host firewall is required and was not installed (see the log)"
     ui_run --expect 5 -- engine_install_boot_unit || die "the boot unit could not be installed (see the log)"
@@ -1687,9 +1687,7 @@ fw_rich() {
       return 0
     fi
     ui_pause
-    printf '  The host firewall needs root rights: sudo asks for your password.\n' 1>&"$UI_ERR"
-    # shellcheck disable=SC2024 # the redirects are the terminal, on purpose
-    if ! sudo -v < /dev/tty > /dev/tty 2>&1; then
+    if ! root_ready "The host firewall"; then
       ui_skip "sudo failed: ./scripts/participant.sh firewall"
       return 0
     fi
@@ -1934,8 +1932,7 @@ if [ "$stack" = participant ]; then
   else
     if [ "$assume_yes" = 0 ] && [ "$has_tty" = 1 ] && ! fw_can_sudo && command -v sudo > /dev/null 2>&1; then
       echo
-      echo "The host firewall needs root rights: sudo asks for your password."
-      sudo -v || true
+      root_ready "The host firewall" || true
     fi
     fw_step participant auto
   fi

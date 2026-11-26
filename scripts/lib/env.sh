@@ -235,24 +235,79 @@ latest_release_refresh() {
   mkdir -p .suckerpot-state && printf '%s\n' "$t" > "$c"
 }
 
-# sudo_drop SCRIPT ARGS...: the host scripts run as the user who owns the checkout. Started with
-# sudo by that user (sudo ./suckerpot.sh), the script starts again as that user, so .env, install.log,
-# .suckerpot-state and the update schedule belong to them, and docker runs as them (the scripts ask
-# for sudo themselves where they need it). A checkout owned by root keeps running as root.
-# SCRIPT is relative to the top of the checkout (the current folder). SELFHOSTR_EUID: the tests.
-sudo_drop() {
-  local script=$1 u=${SUDO_USER:-} owner v keep=()
-  shift
-  [ "${SELFHOSTR_EUID:-$EUID}" = 0 ] && [ -n "$u" ] && [ "$u" != root ] || return 0
+# ----------------------------------------------------------------------- root and sudo
+# The host scripts run as the user who starts them and ask for root only for the steps that need
+# it (Docker's setup, the host firewall, the Podman units), through as_root:
+#   - as root (a root login, or started with sudo): every step runs as it is, sudo is never
+#     called and no password is ever asked. Started with sudo by the user who owns the checkout,
+#     SUCKERPOT_OWNER is that user: the files the scripts write here (.env, install.log,
+#     .suckerpot-state) are given back to them (owner_fix), the update schedule goes into their
+#     crontab and the Docker setup adds them to the docker group.
+#   - as another user: sudo, only for those steps. root_ready says once, before the first one,
+#     that sudo will ask for a password, and only when it will (sudo -n true fails). With
+#     passwordless sudo (NOPASSWD) nothing is asked. The scripts never read a password themselves.
+#   - neither root nor sudo: root_ready says so and the step is skipped or stops with the command.
+# SELFHOSTR_EUID stands in for the user id in the tests.
+
+is_root() { [ "${SELFHOSTR_EUID:-$(id -u)}" = 0 ]; }
+# root_free: root rights without any prompt (root, or passwordless sudo).
+root_free() { is_root || { command -v sudo > /dev/null 2>&1 && sudo -n true > /dev/null 2>&1; }; }
+
+# owner_init: as root started with sudo by the owner of this folder, SUCKERPOT_OWNER=that user.
+owner_init() {
+  local u=${SUDO_USER:-} owner
+  SUCKERPOT_OWNER=${SUCKERPOT_OWNER:-}
+  is_root && [ -n "$u" ] && [ "$u" != root ] || return 0
   [[ $u =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || return 0
   owner=$(stat -c %U . 2> /dev/null || true)
+  # The tests, which cannot be root, name the owner of the folder (only with SELFHOSTR_EUID).
+  [ -z "${SELFHOSTR_EUID:-}" ] || owner=${SELFHOSTR_DIR_OWNER:-$owner}
   [ "$owner" = "$u" ] || return 0
-  command -v sudo > /dev/null 2>&1 || return 0
-  for v in TERM LANG LC_ALL LC_CTYPE COLORTERM NO_COLOR COLUMNS LINES SUCKERPOT_UI; do
-    [ -z "${!v+x}" ] || keep+=("$v=${!v}")
+  SUCKERPOT_OWNER=$u
+  export SUCKERPOT_OWNER
+}
+
+# owner_fix: gives the files written here back to SUCKERPOT_OWNER (nothing to do otherwise).
+owner_fix() {
+  [ -n "${SUCKERPOT_OWNER:-}" ] && is_root || return 0
+  local f
+  for f in .env .env.* install.log .suckerpot-state .suckerpot-bundle; do
+    [ -e "$f" ] || continue
+    chown -R "$SUCKERPOT_OWNER:" -- "$f" 2> /dev/null || true
   done
-  echo "Running as $u, who owns this folder (sudo is asked for only where it is needed)." >&2
-  exec sudo -u "$u" -H -- env ${keep[@]+"${keep[@]}"} bash "$PWD/$script" "$@"
+  return 0
+}
+
+# root_ready REASON: before a step that needs root. Returns 0 when root rights are there (root,
+# passwordless sudo, or sudo that may ask on the terminal: it says so once, here), 1 when sudo
+# would ask and there is no terminal to ask on, 3 without sudo. Prints why on stderr for 1 and 3.
+ROOT_ASKED=0
+root_ready() {
+  is_root && return 0
+  if ! command -v sudo > /dev/null 2>&1; then
+    echo "${1:-this step} needs root rights, and sudo is not installed: run it as root" >&2
+    return 3
+  fi
+  sudo -n true > /dev/null 2>&1 && return 0
+  if [ -n "${ROOT_NO_TTY:-}" ] || ! { [ -r /dev/tty ] && (: < /dev/tty) 2> /dev/null; }; then
+    echo "${1:-this step} needs sudo, which asks for a password, and there is no terminal to ask on" >&2
+    return 1
+  fi
+  # Once: say why, and let sudo itself ask on the terminal (the scripts never read a password).
+  # Later steps, also those that run in the background, use what sudo remembers.
+  if [ "$ROOT_ASKED" = 0 ]; then
+    echo "  ${1:-this step} needs root rights: sudo asks for your password." > /dev/tty
+    ROOT_ASKED=1
+  fi
+  # shellcheck disable=SC2024 # the terminal, on purpose
+  sudo -v < /dev/tty > /dev/tty 2>&1 || { echo "sudo did not give root rights" >&2; return 1; }
+  return 0
+}
+
+# as_root CMD...: CMD as root: as it is for root, else through sudo (which may ask on the terminal
+# when root_ready said so; with passwordless sudo it never does).
+as_root() {
+  if is_root; then "$@"; else sudo -- "$@"; fi
 }
 
 in_linked_worktree() {

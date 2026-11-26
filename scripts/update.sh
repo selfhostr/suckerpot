@@ -32,7 +32,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
-sudo_drop scripts/update.sh "$@"
+owner_init
 
 STATE_DIR=.suckerpot-state
 STATE=$STATE_DIR/last-update.json
@@ -351,6 +351,7 @@ umask "$caller_umask"
 changed=0
 on_exit() {
   rc=$?
+  owner_fix
   [ -z "$expect_file" ] || rm -f "$expect_file"
   if [ "$rc" -ne 0 ] && [ "$changed" = 1 ]; then
     echo >&2

@@ -20,7 +20,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
-sudo_drop scripts/uninstall.sh "$@"
+owner_init
 # shellcheck source=scripts/lib/ask.sh
 . scripts/lib/ask.sh
 
@@ -130,3 +130,4 @@ else
   say "Kept: the data volumes ${prefix}_* and .env. Install again with your data: ./scripts/install.sh --repair"
   say "Delete them later: ./scripts/uninstall.sh --delete-data"
 fi
+owner_fix
