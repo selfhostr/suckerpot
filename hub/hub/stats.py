@@ -103,9 +103,11 @@ async def weekly_stats(session: AsyncSession, today: date) -> int:
     return len(payload)
 
 
-async def daily_row(session: AsyncSession, today: date) -> None:
+async def daily_row(
+    session: AsyncSession, today: date, dormant_days: int = dormant.DORMANT_DAYS
+) -> None:
     """The ``network_daily`` row of today (transitions counted by their recorded day)."""
-    counted = await dormant.count_params(session, today)
+    counted = await dormant.count_params(session, today, dormant_days)
     row = (
         await session.execute(
             text(
@@ -147,10 +149,12 @@ def _order_key(today: date, fingerprint: str) -> str:
     return hashlib.sha256(f"{today.isoformat()}|{fingerprint}".encode()).hexdigest()
 
 
-async def build_summary(session: AsyncSession, today: date) -> models.NetworkSummary:
+async def build_summary(
+    session: AsyncSession, today: date, dormant_days: int = dormant.DORMANT_DAYS
+) -> models.NetworkSummary:
     """Dormant members (``hub/hub/dormant.py``) are left out of the list, the member count and the
     countries. The wire format has no field to flag them: older nodes refuse unknown fields."""
-    counted = await dormant.count_params(session, today)
+    counted = await dormant.count_params(session, today, dormant_days)
     since30 = today - timedelta(days=30)
     nodes = (
         await session.execute(
@@ -250,8 +254,10 @@ async def build_summary(session: AsyncSession, today: date) -> models.NetworkSum
     )
 
 
-async def store_summary(session: AsyncSession, today: date) -> models.NetworkSummary:
-    summary = await build_summary(session, today)
+async def store_summary(
+    session: AsyncSession, today: date, dormant_days: int = dormant.DORMANT_DAYS
+) -> models.NetworkSummary:
+    summary = await build_summary(session, today, dormant_days)
     data: dict[str, Any] = summary.model_dump(mode="json")
     await session.execute(
         text(
@@ -265,7 +271,9 @@ async def store_summary(session: AsyncSession, today: date) -> models.NetworkSum
     return summary
 
 
-async def run_daily(session: AsyncSession, today: date) -> models.NetworkSummary:
+async def run_daily(
+    session: AsyncSession, today: date, dormant_days: int = dormant.DORMANT_DAYS
+) -> models.NetworkSummary:
     await weekly_stats(session, today)
-    await daily_row(session, today)
-    return await store_summary(session, today)
+    await daily_row(session, today, dormant_days)
+    return await store_summary(session, today, dormant_days)

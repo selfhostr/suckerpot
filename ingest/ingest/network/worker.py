@@ -11,7 +11,10 @@ One cycle:
    generated name that is taken is replaced (with backoff), and a chosen one is tried again once
    a day;
 4. member: sync a changed pseudonym/country, send due days, pull targets (6 hourly), answer
-   reveals and rechecks, fetch the daily summary.
+   reveals and rechecks, fetch the daily summary. A signed ``unknown_node`` means the hub no
+   longer holds the membership (it expires a node with no request for 30 days, or the operator
+   expired it): the node enrols again with its key, as the owner never left
+   (``membership_expired`` is shown until the hub accepts it).
 
 Every hub call goes through ``HubClient`` (egress gate, pinned key). A failure ends the cycle with
 a protocol error code in ``last_error_code``; no value from the hub or the database is logged.
@@ -59,6 +62,8 @@ TEMPORARY = frozenset({"enrolment_closed", "pow_timeout"})
 BACKOFF_FIRST = timedelta(minutes=15)
 BACKOFF_MAX = timedelta(hours=6)
 WAITING_ENROLMENT = "waiting_enrolment"
+# The hub answered a signed request with ``unknown_node``: it expired this membership.
+MEMBERSHIP_EXPIRED = "membership_expired"
 FAST_INTERVAL_S = 60.0
 VERIFY_REVEAL_EVERY = timedelta(minutes=15)
 VERIFY_RETRY = timedelta(hours=24)
@@ -545,6 +550,9 @@ class NetworkWorker(FeatureWorker):
                         raise
                     failed.append(exc.code)
                 except HubError as exc:
+                    if exc.code == "unknown_node":
+                        await self._membership_expired()
+                        return
                     failed.append(exc.code if exc.code != "server_error" else "hub_error")
                 except asyncio.CancelledError:
                     raise
@@ -561,6 +569,22 @@ class NetworkWorker(FeatureWorker):
             # A refused pseudonym stays shown until the owner picks another one.
             await store.update(last_error_code=None)
             self.reason = None
+
+    async def _membership_expired(self) -> None:
+        """The hub holds nothing of ours any more (a signed ``unknown_node``). The owner never
+        left, so the node enrols again, with the same key and name, from the next cycle on. The
+        days already sent are not sent again (the hub dropped them with the membership)."""
+        store = self.store
+        assert store is not None  # noqa: S101
+        log.warning("network: the hub no longer knows this node (membership expired), rejoining")
+        await store.update(
+            state="enrolling", node_id=None, enrolled_day=None, eligible_from_day=None,
+            standing=None, pull_cursor=None, last_pull_at=None, last_summary_at=None,
+            synced_pseudonym=None, synced_country=None, synced_show_country=None,
+            last_error_code=MEMBERSHIP_EXPIRED,
+        )  # fmt: skip
+        self.state, self.reason = "enrolling", MEMBERSHIP_EXPIRED
+        self.interval_s = FAST_INTERVAL_S
 
     async def _summary(self, m: Membership, hub: HubClient) -> None:
         store = self.store

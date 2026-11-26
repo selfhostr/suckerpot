@@ -122,7 +122,11 @@ class Settings:
 
     # Retention.
     obs_retention_days: int = 14
-    inactive_node_days: int = 30
+    # Members (hub/hub/dormant.py). Dormant: no accepted batch for this many days (left out of
+    # every count). Expired: no request at all for this many days (deleted like a leave). The
+    # expiry is capped at 30 days, the retention promise of design M29 H3.
+    member_dormant_days: int = 30
+    member_expire_days: int = 30
     contributor_retention_days: int = 30
     vote_retention_days: int = 30
 
@@ -296,6 +300,8 @@ class Settings:
             cohort_max_share=_float(e, "HUB_COHORT_MAX_SHARE", 0.5),
             auto_min_cohorts=_int(e, "HUB_AUTO_MIN_COHORTS", 5, 1),
             obs_retention_days=_int(e, "HUB_OBS_RETENTION_DAYS", 14, 1, 60),
+            member_dormant_days=_int(e, "HUB_MEMBER_DORMANT_DAYS", 30, 14, 90),
+            member_expire_days=_int(e, "HUB_MEMBER_EXPIRE_DAYS", 30, 7, 30),
             worker_interval_s=_int(e, "HUB_WORKER_INTERVAL_S", 3600, 5),
             report_mode=mode,
             report_hold_hours=_int(e, "HUB_REPORT_HOLD_HOURS", 24, 0),

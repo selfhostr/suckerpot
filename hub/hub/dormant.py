@@ -1,15 +1,30 @@
-"""Dormant members and freed pseudonyms (2026-11-21 field report).
+"""Dormant and expired members, freed pseudonyms (2026-11-21 field report, 2026-11-26).
+
+A membership has one life cycle, the same for every way out: **member**, then **dormant** (a
+counting rule only), then **gone** (the row is deleted with everything linked to it, exactly like
+a leave, ``DELETE /v1/node``). There is no tombstone: nothing about a gone node is kept.
 
 **Dormant (a counting rule only).** A node is dormant when it enrolled more than ``GHOST_DAYS``
-ago and never sent a batch, or when its last accepted batch is more than ``DORMANT_DAYS`` old.
-Dormant nodes are kept (nothing is deleted here; retention still drops a node with no request for
-30 days) but they are left out of the member counts and lists: the network summary, the public
-feed statistics and the observatory. The counted (non-dormant) set is a snapshot taken once per
-ISO week, for ``count_ref`` (a Monday), and stored in ``hub_count_snapshot`` (hub-internal, kept
-five weeks). Members and countries are counted from that snapshot all week, so a single node's
-batches cannot move a published count (a country at the k = 3 edge) from one day to the next. A
-node enrolled after the snapshot was taken counts as a new member, as before. A dormant node that
-sends again counts again from the next snapshot.
+ago and never sent a batch, or when its last accepted batch is more than
+``HUB_MEMBER_DORMANT_DAYS`` (default ``DORMANT_DAYS``, 30) old. A node with no hub contact at all
+sends no batch either, so it is dormant too. Dormant nodes are kept but left out of the member
+counts and lists: the network summary, the public feed statistics and the observatory. They are
+never eligible for consensus either (that rule wants batches on 7 of the last 14 days, and the
+dormant threshold is at least 14 days). The counted (non-dormant) set is a snapshot taken once
+per ISO week, for ``count_ref`` (a Monday), and stored in ``hub_count_snapshot`` (hub-internal,
+kept five weeks). Members and countries are counted from that snapshot all week, so a single
+node's batches cannot move a published count (a country at the k = 3 edge) from one day to the
+next. A node enrolled after the snapshot was taken counts as a new member, as before. A dormant
+node that sends again counts again from the next snapshot: it keeps its membership, its name and
+its age, and needs no new proof of work.
+
+**Expired.** A node that made no authenticated request for ``HUB_MEMBER_EXPIRE_DAYS`` (default
+``EXPIRE_DAYS``, 30, at most 30: the retention promise of design M29 H3) is deleted by the
+worker's retention step (``expire``), or at once by the operator (``hub-admin node expire``). A
+reinstalled node has a new key, so this is how the old membership ends. The network-wide history
+it contributed stays as it is: frozen observatory days, the daily network rows and the targets
+hold no node reference and are never recounted. An expired node that comes back gets a signed
+``unknown_node`` and enrols again (with a new proof of work), as a new member.
 
 The last batch day is the later of ``nodes.last_batch_day`` (kept beyond the 14 days of batch
 markers) and the newest marker in ``batches``.
@@ -29,6 +44,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import text
@@ -37,7 +53,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from suckerpot_netproto import buckets
 
 GHOST_DAYS = 7
-DORMANT_DAYS = 30
+DORMANT_DAYS = 30  # default of HUB_MEMBER_DORMANT_DAYS
+EXPIRE_DAYS = 30  # default and most of HUB_MEMBER_EXPIRE_DAYS (M29 H3)
 # A batch day is settled (no batch for it can arrive any more) this many days later.
 SETTLE_DAYS = buckets.MAX_BATCH_AGE_DAYS + 1
 # Served hub days without any request from a never-batched holder before its name is freed.
@@ -83,16 +100,19 @@ def count_ref(today: date) -> date:
     return settled - timedelta(days=settled.weekday())
 
 
-def _snapshot_params(ref: date) -> dict[str, date]:
+def _snapshot_params(ref: date, dormant_days: int) -> dict[str, date]:
     return {
         "ghost_since": ref - timedelta(days=GHOST_DAYS),
-        "dormant_since": ref - timedelta(days=DORMANT_DAYS),
+        "dormant_since": ref - timedelta(days=dormant_days),
     }
 
 
-async def count_params(session: AsyncSession, today: date) -> dict[str, date]:
+async def count_params(
+    session: AsyncSession, today: date, dormant_days: int = DORMANT_DAYS
+) -> dict[str, date]:
     """Parameters of ``ACTIVE``. Takes this week's snapshot first if there is none yet (the worker
-    and the admin tool; not committed here, the caller commits)."""
+    and the admin tool; not committed here, the caller commits). ``dormant_days`` only matters
+    for the first call of a week: the snapshot holds the rule for the rest of it."""
     ref = count_ref(today)
     raw = (
         await session.execute(
@@ -109,7 +129,7 @@ async def count_params(session: AsyncSession, today: date) -> dict[str, date]:
             f"SELECT :ref, n.id FROM nodes n WHERE {_COUNTED_AT_REF} "
             "ON CONFLICT (ref, node_id) DO NOTHING"  # two workers at once
         ),
-        {"ref": ref, **_snapshot_params(ref)},
+        {"ref": ref, **_snapshot_params(ref, dormant_days)},
     )
     value = json.dumps({"ref": ref.isoformat(), "taken": today.isoformat()})
     await session.execute(
@@ -127,12 +147,84 @@ def name_params(today: date) -> dict[str, object]:
     return {"today": today, "silent_days": NAME_SILENT_DAYS}
 
 
-def is_dormant(enrolled_day: date, last_batch_day: date | None, today: date) -> bool:
+def is_dormant(
+    enrolled_day: date,
+    last_batch_day: date | None,
+    today: date,
+    dormant_days: int = DORMANT_DAYS,
+) -> bool:
     """The snapshot rule, negated, in Python (tests)."""
     ref = count_ref(today)
     if last_batch_day is None:
         return enrolled_day < ref - timedelta(days=GHOST_DAYS)
-    return last_batch_day < ref - timedelta(days=DORMANT_DAYS)
+    return last_batch_day < ref - timedelta(days=dormant_days)
+
+
+def expire_cutoff(today: date, expire_days: int = EXPIRE_DAYS) -> date:
+    """A node whose last request was before this day is expired."""
+    return today - timedelta(days=expire_days)
+
+
+async def expire(session: AsyncSession, today: date, expire_days: int = EXPIRE_DAYS) -> int:
+    """Delete every expired node, like a leave: the foreign keys cascade to its nonces, batches,
+    observations, contributor links, votes, weekly statistics, roles and attestations. Returns the
+    count; the caller commits."""
+    result = await session.execute(
+        text("DELETE FROM nodes WHERE last_active_day < :c"),
+        {"c": expire_cutoff(today, expire_days)},
+    )
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+@dataclass(frozen=True)
+class MemberRow:
+    """One line of ``hub-admin node list`` (operator only, never published)."""
+
+    fingerprint: str
+    pseudonym: str | None
+    enrolled_day: date
+    last_active_day: date
+    last_batch_day: date | None
+    counted: bool
+    standing: str
+    expires_day: date
+
+
+async def members(
+    session: AsyncSession,
+    today: date,
+    *,
+    dormant_days: int = DORMANT_DAYS,
+    expire_days: int = EXPIRE_DAYS,
+    inactive_days: int | None = None,
+) -> list[MemberRow]:
+    """Every member with its last contact and whether it is counted, oldest contact first.
+    ``inactive_days``: only nodes with no request for at least that many days."""
+    params = await count_params(session, today, dormant_days)
+    since = today - timedelta(days=inactive_days) if inactive_days is not None else None
+    rows = await session.execute(
+        text(
+            "SELECT substr(encode(sha256(n.pubkey), 'hex'), 1, 8) AS fp, n.pseudonym, "  # noqa: S608
+            f"n.enrolled_day, n.last_active_day, {LAST_BATCH} AS last_batch, "
+            f"{ACTIVE} AS counted, n.standing FROM nodes n "
+            "WHERE CAST(:since AS date) IS NULL OR n.last_active_day <= :since "
+            "ORDER BY n.last_active_day, n.enrolled_day, fp"
+        ),
+        {**params, "since": since},
+    )
+    return [
+        MemberRow(
+            fingerprint=r.fp,
+            pseudonym=r.pseudonym,
+            enrolled_day=r.enrolled_day,
+            last_active_day=r.last_active_day,
+            last_batch_day=r.last_batch,
+            counted=bool(r.counted),
+            standing=r.standing,
+            expires_day=r.last_active_day + timedelta(days=expire_days),
+        )
+        for r in rows
+    ]
 
 
 def clean_day(served: int, blocked: int, auth_failures: int = 0) -> bool:

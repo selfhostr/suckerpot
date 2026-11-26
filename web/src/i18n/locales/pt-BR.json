@@ -1904,6 +1904,7 @@
   "network_error_guard_failed": "A verificação de privacidade interrompeu o último lote, então nada foi enviado.",
   "network_error_hub_signature": "A resposta do hub não pôde ser verificada, então foi ignorada.",
   "network_error_leave_unconfirmed": "Não foi possível alcançar o hub para confirmar que os seus dados foram excluídos.",
+  "network_error_membership_expired": "O hub tinha removido este sensor após 30 dias sem contato. Ele volta a participar sozinho, com a mesma chave e o mesmo nome.",
   "network_error_no_settings_key": "A chave de criptografia das configurações não está definida.",
   "network_error_rate_limited": "O hub pediu a este sensor que reduza o ritmo. Ele tenta de novo mais tarde.",
   "network_explainer_never_title": "O que nunca é compartilhado",

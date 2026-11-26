@@ -149,9 +149,27 @@ How the file protects nodes:
 - **Only eligible nodes count.** A node counts only once it is eligible for consensus (old enough, active enough, good reputation). Freshly enrolled nodes cannot unlock finer figures or test what another node saw.
 - **Coarse while the network is small.** A day with fewer than three eligible nodes is never shown alone: its week is one average of attacking addresses, logins and commands, with one significant figure, and the smaller figures (downloads, exploits, links, files, command servers) stay empty. A single node's day off or exact volume does not show. A service, tag or family needs enough support, over several weeks, before it is named; a CVE tag needs two nodes.
 - **Countries.** A country appears only when at least three nodes chose to show it.
-- **Dormant nodes are not counted.** A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is left out of the node and country counts (and of the member list and counts of the network summary). It is not deleted. The counted set is a snapshot taken once a week and used all week, so a single node's batches cannot move a count from one day to the next (a node enrolled since the snapshot counts as new). A dormant node counts again from the next snapshot after its batch.
+- **`members` counts live members only.** It is the number of enrolled nodes that are not dormant (see [Dormant and expired members](#dormant-and-expired-members)); `active_last_week` is the number of nodes that sent a non-empty batch in the last complete week. Dormant nodes are left out of the node and country counts, and of the member list and counts of the network summary.
 
 The activity figures describe attackers, not nodes. They show the traffic the network received, never where a sensor is or who runs it. With very few nodes, the list of services also shows which sensors those nodes run.
+
+### Dormant and expired members
+
+A membership ends the same way whatever the cause: the hub deletes the node record and everything linked to it, exactly as for a [leave](#how-to-leave). Before that, a silent member is only left out of the counts.
+
+| State | When | What it means |
+| --- | --- | --- |
+| Member | It sends batches | Counted in `members`, in the country counts and in the member list. Eligible for consensus once it is old and active enough |
+| Dormant | It enrolled more than 7 days ago and never sent a batch, or it sent no batch for 30 days (`HUB_MEMBER_DORMANT_DAYS`, 14 to 90). A node with no contact at all sends no batch, so it is dormant too | Kept, but not counted anywhere and never eligible for consensus. Its name, age and key stay. It counts again from the next weekly snapshot after a batch, with no new enrolment and no proof of work |
+| Expired | It made no request at all for 30 days (`HUB_MEMBER_EXPIRE_DAYS`, 7 to 30) | Deleted with its observations, batches, links to targets, votes, weekly statistics and roles. Nothing is kept about it (no tombstone). The operator can also expire a member at once (`hub-admin node expire`) |
+
+The counted set is a snapshot taken once a week and used all week, so a single node's batches cannot move a count from one day to the next (a node enrolled since the snapshot counts as new). So a node that still contacts the hub but sends nothing drops out of `members` 5 to 11 days after the dormant threshold. A node that stopped altogether is deleted 30 days after its last request, which takes it out of every count at once.
+
+A crashed node that never comes back, or the old key of a reinstalled node (a reinstall makes a new key and enrols again), ends this way. The hub can never keep a silent node longer than 30 days: that is its retention promise (the expiry setting cannot go higher).
+
+The history a member contributed stays as it was: a frozen day of the public figures, a daily network row or a confirmed target holds no node reference and is never recounted when a node goes.
+
+An expired node that comes back gets a signed `unknown_node`. It then enrols again by itself with the same key and name (a new proof of work; its standing starts as `new`), because its owner never left. The status shows `membership_expired` until the hub has accepted it. A node whose owner left never rejoins this way.
 
 ## How consensus protects against poisoning
 
@@ -274,7 +292,7 @@ Open **Settings, Network** and press **Leave the network**. The dialog says what
 2. Your node deletes its local key, its membership record, the list of targets it kept and its history of batches, including the exact JSON you could read.
 3. The Network pages show that you have not joined.
 
-If the hub cannot be reached, the worker retries each cycle for up to seven days. After that it deletes everything locally and records `leave_unconfirmed`. The hub removes a node that stays silent for 30 days, so nothing stays active.
+If the hub cannot be reached, the worker retries each cycle for up to seven days. After that it deletes everything locally and records `leave_unconfirmed`. The hub removes a node that stays silent for 30 days (see [Dormant and expired members](#dormant-and-expired-members)), so nothing stays active.
 
 A leave is final. To remove the installer's consent record from `.env` as well, run `just set NETWORK_CONSENT=` (an empty value is the only value `just set` accepts for this key).
 

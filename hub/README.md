@@ -180,6 +180,8 @@ The price is per address prefix. An IPv4 address is its own prefix. An IPv6 addr
 | `HUB_WINDOW_DAYS` | `7` | Days of sightings that one consensus run looks at, from 1 to 14 |
 | `HUB_COHORT_MAX_SHARE` | `0.5` | Most of the nodes one enrolment week may supply |
 | `HUB_OBS_RETENTION_DAYS` | `14` | Days to keep per-node observations, from 1 to 60 |
+| `HUB_MEMBER_DORMANT_DAYS` | `30` | Days without a batch after which a member is dormant: left out of `members`, the country counts and the member list, from 14 to 90. See [Dormant and expired members](../docs/network.md#dormant-and-expired-members) |
+| `HUB_MEMBER_EXPIRE_DAYS` | `30` | Days without any request after which a member is deleted like a leave, from 7 to 30 (30 is the retention promise, it cannot go higher) |
 
 Lower the thresholds only on a test hub. A smaller `HUB_MIN_NODES` makes the network easier to poison.
 
@@ -340,6 +342,7 @@ When a desk replies, or a node or someone else reports a mistake:
 - `target dispute <id> --note "..."` marks the target disputed, and lowers the reputation of the nodes that supported it. Use it when a report was wrong.
 - `never add <value> --kind ip|domain|sha256 --note "..."` puts a value on the never-list. The hub stops confirming it, and recheck disputes any confirmed target that matches.
 - `node suspend <fingerprint>` (and `unsuspend`) stops a node's data from counting. The node is not told.
+- `node list --inactive 7` shows the members that went silent, and `node expire <fingerprint>` removes a dead one at once (a crashed test node, the old key of a reinstall) instead of waiting for the automatic expiry.
 
 Each CLI action that changes state writes an entry to `hub_audit`, with the actor and the action. The audit holds no node data.
 
@@ -621,6 +624,8 @@ docker compose run --rm hub-admin <command>
 | `never remove <value>` | Removes a value from the never-list |
 | `never list` | Lists the never-list |
 | `node suspend <fingerprint>` / `node unsuspend <fingerprint>` | Suspends or restores a node |
+| `node list [--inactive DAYS]` | Lists the members, oldest contact first: fingerprint, pseudonym, day joined, day of the last request, day of the last batch, `active` or `dormant` (plus the standing when it is not `active`) and the day it expires. `--inactive DAYS` keeps the nodes with no request for at least DAYS days |
+| `node expire <fingerprint>... [--yes]` | Expires members at once, the same deletion as the automatic expiry and as a leave. It shows them and asks you to type `expire N`; `--yes` skips the question (needed without a terminal). Audited with the count only |
 | `stats` | Prints the figures |
 
 There is no web admin. The CLI keeps the attack surface small. Every change above writes a `hub_audit` row with the action and counts only: no link, no fingerprint, no node id.
@@ -663,7 +668,7 @@ Takedown votes come from nodes' local re-checks. A vote counts only for a target
 | Reports sent, failed or cancelled | 365 days |
 | abuse.ch submissions sent, failed or rejected | 365 days |
 | Observatory daily aggregates (network-wide, no node reference) | 400 days |
-| Nodes with no request for 30 days | Deleted, with everything linked to them |
+| Nodes with no request for `HUB_MEMBER_EXPIRE_DAYS` (30) | Deleted, with everything linked to them, like a leave |
 | Delisting requests | 180 days once decided (an open request is kept until its decision); evidence and contact 30 days after the decision, or 180 days after the request while it is still open |
 
 ## Backups

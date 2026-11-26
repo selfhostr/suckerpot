@@ -1904,6 +1904,7 @@
   "network_error_guard_failed": "隐私检查拦下了上一批数据，因此没有发送任何内容。",
   "network_error_hub_signature": "无法验证中心节点的应答，因此已将其忽略。",
   "network_error_leave_unconfirmed": "无法连接到中心节点，因此无法确认您的数据已被删除。",
+  "network_error_membership_expired": "中心节点在 30 天无联系后移除了此传感器。它正在自动重新加入，使用相同的密钥和名称。",
   "network_error_no_settings_key": "未设置设置加密密钥。",
   "network_error_rate_limited": "中心节点要求此传感器降低发送速度。它稍后会重试。",
   "network_explainer_never_title": "绝不共享的内容",
