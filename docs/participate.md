@@ -157,6 +157,10 @@ A verifier is opt-in on two sides:
 
 At first, only the operator's own node is a verifier.
 
+## A node installed with an earlier release
+
+The menu works on a node installed with an earlier release too: in the install folder, take the newer scripts (`git fetch`, then `git switch` to the branch or tag that has them) and run `./suckerpot`. It finds the existing install (its `.env`) and opens the menu of the installed node; it never offers to install over it. The top of the menu says when an update is available (`v0.14.2 -> v0.15.0`) and **Update now** installs the newest signed release; on a branch that holds that release only the images change, so the menu stays. A change of the country needs an ingest image newer than v0.15.0: on an older one the menu says which version runs and changes nothing; a new node name still works.
+
 ## Manage your membership
 
 `./suckerpot` gathers all of this in one menu: status, **Edit the node** (name, country, sensors, VPN, automatic updates, host firewall; each change applies at once), update, ports check, logs, repair, leave or join, and remove. `./suckerpot edit name`, `./suckerpot edit country` and the others ask their question without the menu; `./suckerpot help` lists every command.

@@ -29,8 +29,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+sudo_drop scripts/participant.sh "$@"
 
-die() { echo "participant: $*" >&2; exit 1; }
+# On a terminal the message wraps at its width (text_out, scripts/lib/ask.sh, once it is loaded).
+die() {
+  if declare -F text_out > /dev/null; then printf 'participant: %s\n' "$*" | text_out 2; else echo "participant: $*" >&2; fi
+  exit 1
+}
 engine_ready || die "$ENGINE_UNREADY_MSG"
 note() { echo "  $*"; }
 
@@ -101,6 +106,25 @@ tell_err() { printf '%s\n' "$*" | text_out 2; }
 # an "off" there would end the wait before the worker has told the hub.
 json_top_state() {
   json_top_string state
+}
+
+# cli_has_update: the running ingest has `ingest.network.cli update` (newer than v0.15.0).
+cli_has_update() {
+  dc exec -T ingest python -m ingest.network.cli update --help > /dev/null 2>&1
+}
+
+# old_ingest_text WHAT: why WHAT cannot change with the ingest that runs, and what to do.
+old_ingest_text() {
+  local running latest
+  running=$(dc exec -T ingest printenv SUCKERPOT_RUNNING_VERSION 2> /dev/null | tr -d '\r' || true)
+  latest=$(git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+  if [ "$install_mode" = source ]; then
+    printf 'this node runs images built from an older checkout (%s), whose ingest cannot change %s. Update first (./suckerpot update rebuilds them from this checkout), then try again. Nothing was changed.' "${running:-unknown}" "$1"
+  elif [ -n "$latest" ] && [ -n "$running" ] && [ "$latest" != "$running" ] && ver_ge "${latest#v}" "${running#v}"; then
+    printf 'this node runs %s, whose ingest cannot change %s. Update first (./suckerpot update, to %s), then try again; if it still says this, the change needs a release newer than %s. Nothing was changed.' "$running" "$1" "$latest" "$latest"
+  else
+    printf 'this node runs %s, whose ingest cannot change %s: that needs a release newer than %s (the scripts of this checkout are newer than the images). Nothing was changed.' "${running:-an older release}" "$1" "${running:-it}"
+  fi
 }
 
 # The top-level state of the network status ("" when ingest does not answer).
@@ -234,23 +258,26 @@ case $cmd in
     . scripts/lib/pseudonym.sh
     # shellcheck source=scripts/lib/geocheck.sh
     . scripts/lib/geocheck.sh
-    check=1 hide=0 value="" none=0
+    check=1 hide=0 value="" none=0 only_check=0
     while [ $# -gt 0 ]; do
       case $1 in
         --none) none=1 ;;
         --hide) [ "$cmd" = set-country ] || die "usage: set-name NAME | --none"; hide=1 ;;
         --no-check) [ "$cmd" = set-country ] || die "usage: set-name NAME | --none"; check=0 ;;
+        --check) only_check=1 ;;
         -*) die "unknown option '$1'" ;;
         *) [ -z "$value" ] || die "one value only (quote a name with spaces)"; value=$1 ;;
       esac
       shift
     done
-    if [ "$cmd" = set-name ]; then
+    if [ "$only_check" = 1 ]; then
+      :
+    elif [ "$cmd" = set-name ]; then
       { [ "$none" = 1 ] && [ -z "$value" ]; } || { [ "$none" = 0 ] && [ -n "$value" ]; } || die "usage: set-name NAME | --none"
       [ "$none" = 1 ] || pseudonym_valid "$value" || die "this name is not allowed"
       cli_args=(--pseudonym "$value")
       [ "$none" = 0 ] || cli_args=(--no-pseudonym)
-    else
+    elif [ "$only_check" = 0 ]; then
       { [ "$none" = 1 ] && [ -z "$value" ] && [ "$hide" = 0 ]; } || { [ "$none" = 0 ] && [ -n "$value" ]; } || die "usage: set-country CC [--hide] | --none"
       if [ "$none" = 0 ]; then
         why=$(geo_code_ok "$value") || die "$why"
@@ -263,6 +290,22 @@ case $cmd in
     fi
     # The country is compared with a GeoIP database on this machine (never an outside service):
     # a mismatch is a warning, the owner's choice stands.
+    # Before anything changes: a node in the network needs ingest to take the change in its own
+    # record. The ingest of a release before this feature has no `update` command: a country
+    # change is then refused here, with the version, and nothing is changed.
+    st=""
+    if [ "$(env_get NETWORK_ENABLED false)" = true ]; then
+      st=$(cli_state) || st=""
+      if [ -z "$st" ]; then
+        # ingest is down or busy: start it first (with the settings as they are).
+        quiet_up --no-deps ingest || die "ingest did not start; nothing was changed (./scripts/install.sh --repair)"
+        st=$(cli_state) || st=""
+      fi
+      if [ "$cmd" = set-country ] && { [ "$st" = member ] || [ "$st" = enrolling ]; } && ! cli_has_update; then
+        die "$(old_ingest_text "the country of a node that is in the network")"
+      fi
+    fi
+    [ "$only_check" = 0 ] || exit 0
     if [ "$cmd" = set-country ] && [ "$none" = 0 ] && [ "$check" = 1 ]; then
       geo_check "$value"
       case $GEO_RESULT in
@@ -292,12 +335,6 @@ case $cmd in
       tell "participant: the $what is saved ($shown). This node is not in the network: it is used when you join (./scripts/participant.sh join)."
       exit 0
     fi
-    st=$(cli_state) || st=""
-    if [ -z "$st" ]; then
-      # ingest is down or busy: start it first, so a member's record can take the change.
-      quiet_up --no-deps ingest || { revert; die "ingest did not start; .env was put back"; }
-      st=$(cli_state) || st=""
-    fi
     case $st in
       member | enrolling | not_joined)
         # A member (or a join in progress) takes the change in its own record; the worker sends it to
@@ -307,11 +344,13 @@ case $cmd in
           if [ -z "$reason" ] && [ "$cmd" = set-name ] && [ "$none" = 0 ]; then
             dc exec -T ingest python -m ingest.network.cli join --pseudonym "$value" > /dev/null 2>&1 \
               || { revert; die "ingest did not take the new name; .env was put back"; }
+            # An older ingest says nothing about the hub having it: no wait for that.
+            old_cli=1
           elif [ "$reason" = not_member ]; then
             :
           elif [ -z "$reason" ]; then
             revert
-            die "the ingest container of this version cannot change the $what of a member; update first (just update). .env was put back"
+            die "$(old_ingest_text "the $what of a node that is in the network") .env was put back."
           else
             revert
             die "ingest refused the change (${reason:-no answer}); .env was put back"
@@ -326,6 +365,7 @@ case $cmd in
       member)
         tell "participant: waiting for the hub to take the new $what..."
         waited=0 limit=${SUCKERPOT_PROFILE_WAIT:-90} synced="" code=""
+        [ "${old_cli:-0}" = 0 ] || limit=15
         while [ "$waited" -lt "$limit" ]; do
           doc=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null) || doc=""
           code=$(printf '%s' "$doc" | json_top_string error_code)

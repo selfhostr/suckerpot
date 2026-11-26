@@ -37,7 +37,7 @@ Flags can be combined, for example `just update v0.9.0 --yes`.
 1. **Check the installation.** `.env` must exist and name the project and the volume prefix. The stack must be up, with the `backup` service healthy. Tracked files must not have local changes (source mode refuses, images mode warns). It then fetches the tags and works out the target.
 2. **Back up the database.** The `backup` service takes a dump named `suckerpot-preupdate-<time>.dump`. If the dump fails, nothing is changed.
 3. **Record how to roll back.** It writes `.suckerpot-state/last-update.json` (mode `0600`, ignored by git). The file holds the versions, the commit, the dump name and the image IDs. It holds no secret.
-4. **Fetch the new code.** It checks out the release tag. In source mode on a branch, it runs `git pull --ff-only` instead. Git runs under `umask 022` and the tracked files are made readable again afterwards, so the containers can read them (see [unreadable files after an update](#unreadable-files-after-an-update)).
+4. **Fetch the new code.** It checks out the release tag. In source mode on a branch, it runs `git pull --ff-only` instead. In images mode on a branch that already holds the release (for example `dev` or `main`, ahead of the newest tag), the code stays as it is and only the images change. Git runs under `umask 022` and the tracked files are made readable again afterwards, so the containers can read them (see [unreadable files after an update](#unreadable-files-after-an-update)).
 5. **Update `.env`.** `scripts/env-migrate.sh` adds the secrets and defaults that are new, and never changes a line that already exists. See [settings that are added](#settings-that-are-added).
 6. **Get the new images.** Images mode verifies the signatures and pulls exactly the verified images. Source mode rebuilds from the checkout.
 7. **Restart.** `docker compose up` runs. The `migrate` service applies the database changes first.
@@ -52,7 +52,8 @@ If you are already on the target, it says `Already on vX.Y.Z. Nothing to update.
 
 | Install mode | `just update` with no version | Notes |
 | --- | --- | --- |
-| `images` | The newest `v*.*.*` tag. | The release images for that tag are pulled. |
+| `images` | The newest `v*.*.*` tag. | The release images for that tag are pulled. A detached checkout, or a branch behind the tag, is checked out at the tag. |
+| `images`, on a branch that holds the tag | The newest `v*.*.*` tag. | Only the images change: the scripts of the branch stay (checking out the tag would take them away). |
 | `source`, on a branch | The newest commit of the branch (`git pull --ff-only`). | The checkout must be clean. |
 | `source`, on a tag | The newest `v*.*.*` tag. | The images are rebuilt from the checkout. |
 

@@ -25,6 +25,7 @@ cd "$(dirname "$0")/.."
 ENGINE_LENIENT=1
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+sudo_drop scripts/suckerpot.sh "$@"
 # shellcheck source=scripts/lib/ask.sh
 . scripts/lib/ask.sh
 
@@ -71,6 +72,27 @@ net_state() {
 
 # ---------------------------------------------------------------- display
 
+# What the header found, for the notices and the menu.
+H_ALL=0 H_NET=""
+
+# latest_release: the newest release tag this checkout knows ("" when none).
+latest_release() {
+  git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' | head -n 1 || true
+}
+
+# update_text: the running version and the newest known one, in a few words.
+update_text() {
+  local v latest
+  [ "$(env_get SUCKERPOT_INSTALL_MODE source)" = images ] || { echo "built from source: just update pulls and builds"; return 0; }
+  v=$(env_get SUCKERPOT_VERSION)
+  latest=$(latest_release)
+  if [ -n "$latest" ] && [ "$latest" != "$v" ] && ver_ge "${latest#v}" "${v#v}"; then
+    echo "runs ${v:-?}; $latest is available (backup first)"
+  else
+    echo "runs ${v:-?}, the newest this checkout knows (it checks for newer ones)"
+  fi
+}
+
 header() {
   local mode version run ok all net cc path line
   _ask_style
@@ -92,6 +114,7 @@ header() {
     printf '  %-9s  http://%s:%s (Admin user %s)\n' "Dashboard" "$(env_get DASHBOARD_BIND 127.0.0.1)" "$(env_get DASHBOARD_PORT 8443)" "$(env_get ADMIN_USERNAME admin)" 1>&"$ASK_OUT"
   fi
   read -r run ok all < <(ps_counts)
+  H_ALL=$all H_NET=""
   if [ "$all" = 0 ]; then
     line="stopped (no container): Repair starts it again"
   elif [ "$ok" = "$all" ]; then
@@ -101,6 +124,7 @@ header() {
   fi
   if [ "$run" -gt 0 ] && [ "$(env_get NETWORK_ENABLED false)" = true ]; then
     net=$(net_state)
+    H_NET=$net
     [ -z "$net" ] || line="$line · network: $net"
   elif [ "$(env_get NETWORK_ENABLED false)" != true ] && [ "$mode" = participant ]; then
     line="$line · network: not joined"
@@ -217,36 +241,95 @@ menu_fresh() {
   esac
 }
 
+# notices: what is missing or worth doing, each with the key that does it (ASK_HIDDEN). Read
+# from .env and from what the header found; nothing is asked of the network.
+notices() {
+  local mode v latest
+  NOTICES=() ASK_HIDDEN=""
+  mode=$(stack)
+  note_add() { NOTICES+=("$1|$2"); ASK_HIDDEN+=" $1"; }
+  [ "$H_ALL" != 0 ] || note_add r "SuckerPot is not running: press r to start it again (repair)"
+  if [ "$(env_get SUCKERPOT_INSTALL_MODE source)" = images ]; then
+    v=$(env_get SUCKERPOT_VERSION)
+    latest=$(latest_release)
+    if [ -n "$latest" ] && [ -n "$v" ] && [ "$latest" != "$v" ] && ver_ge "${latest#v}" "${v#v}"; then
+      note_add u "Update available: $v -> $latest: press u to update (a backup is taken first)"
+    fi
+  fi
+  if [ "$mode" = participant ]; then
+    if [ "$(env_get NETWORK_ENABLED false)" != true ]; then
+      note_add j "Not in the network: press j to join"
+    else
+      case $H_NET in
+        waiting* | joining) note_add w "Not accepted by the hub yet (a new node first solves a puzzle): press w to wait for the answer" ;;
+        refused*) note_add s "The hub refused this node: press s to see why and what to do" ;;
+      esac
+      [ -n "$(node_name)" ] || note_add n "No node name: the network shows a number. Press n to choose one"
+      [ -n "$(env_get NETWORK_COUNTRY)" ] || note_add c "Country not set: press c to show one (optional)"
+    fi
+    if [ "$(env_get SUCKERPOT_NO_FIREWALL)" != 1 ]; then
+      # shellcheck source=scripts/lib/fwcheck.sh
+      . scripts/lib/fwcheck.sh
+      fw_installed || note_add f "The host firewall is not installed: press f to install it (sudo)"
+    fi
+    if [ "$(env_get SUCKERPOT_INSTALL_MODE source)" = images ] && [ "$(env_get AUTO_UPDATE_ENABLED false)" != true ]; then
+      note_add a "Automatic updates are off: press a to turn them on"
+    fi
+  fi
+  local n
+  _ask_style
+  for n in "${NOTICES[@]}"; do ask_lines "$ASK_WARN" "! ${n#*|}"; done
+  [ "${#NOTICES[@]}" = 0 ] || echo 1>&"$ASK_OUT"
+}
+
+# notice_action KEY: what the key of a notice does.
+notice_action() {
+  case $1 in
+    r) run_step "Repair" bash scripts/install.sh --repair ;;
+    u) run_step "Update" bash scripts/update.sh ;;
+    j) run_step "Join the network" bash scripts/participant.sh join ;;
+    w) run_step "Waiting for the hub" bash scripts/status.sh --wait 600 ;;
+    s) run_step "Node status" status_item ;;
+    n) run_step "Choose the node name" bash scripts/edit.sh name ;;
+    c) run_step "Show a country" bash scripts/edit.sh country ;;
+    f) run_step "Host firewall" bash scripts/participant.sh firewall install ;;
+    a) run_step "Automatic updates" bash scripts/participant.sh auto-update on ;;
+  esac
+}
+
 menu_installed() {
   local a mode joined items
   mode=$(stack)
   joined=$(env_get NETWORK_ENABLED false)
-  items=("1|Node status|stack, sensors, network enrolment, last batch")
+  notices
+  items=("status|Node status|stack, sensors, network enrolment, last batch")
   if [ "$mode" = participant ]; then
-    items+=("2|Edit the node|name, country, sensors, VPN, updates, firewall")
+    items+=("edit|Edit the node|see and change name, country, sensors, VPN, updates")
   else
-    items+=("2|Edit the install|sensors, updates, firewall (name, country: the dashboard)")
+    items+=("edit|Edit the install|sensors, updates, firewall (name, country: the dashboard)")
   fi
   items+=(
-    "3|Update now|the newest signed release, backup first"
-    "4|Check the ports|does the internet reach the sensors?"
-    "5|Logs|the network node, a service, the install"
-    "6|Repair|run the install steps again, settings kept"
+    "update|Update now|$(update_text)"
+    "ports|Check the ports|does the internet reach the sensors?"
+    "logs|Logs|the network node, a service, the install"
+    "repair|Repair|run the install steps again, settings kept"
   )
   if [ "$mode" = participant ]; then
-    if [ "$joined" = true ]; then items+=("7|Leave the network|the sensors keep running"); else items+=("7|Join the network|shows what is shared first"); fi
+    if [ "$joined" = true ]; then items+=("net|Leave the network|the sensors keep running"); else items+=("net|Join the network|shows what is shared first"); fi
   fi
-  items+=("8|Remove the node|uninstall; your data stays unless you say so" "q|Quit|")
-  ask_menu a 1 "What do you want to do?" "${items[@]}"
-  [ "$ASK_EOF" = 0 ] || [ "$a" != 1 ] || a=q
+  items+=("remove|Remove the node|uninstall; your data stays unless you say so" "q|Quit|")
+  ask_pick a status "What do you want to do?" "${items[@]}"
+  ASK_HIDDEN=""
+  [ "$ASK_EOF" = 0 ] || [ "$a" != status ] || a=q
   case $a in
-    1) run_step "Node status" status_item ;;
-    2) bash scripts/edit.sh || true ;;
-    3) run_step "Update" bash scripts/update.sh ;;
-    4) run_step "Ports check" bash scripts/participant.sh ports-check --wait 60 ;;
-    5) logs_menu ;;
-    6) run_step "Repair" bash scripts/install.sh --repair ;;
-    7)
+    status) run_step "Node status" status_item ;;
+    edit) bash scripts/edit.sh || true ;;
+    update) run_step "Update" bash scripts/update.sh ;;
+    ports) run_step "Ports check" bash scripts/participant.sh ports-check --wait 60 ;;
+    logs) logs_menu ;;
+    repair) run_step "Repair" bash scripts/install.sh --repair ;;
+    [rujwsncfa]) notice_action "$a" ;;
+    net)
       if [ "$joined" = true ]; then
         if ask_yn "Leave the network? The hub deletes this node and what it sent." n; then
           run_step "Leave the network" bash scripts/participant.sh leave
@@ -255,12 +338,23 @@ menu_installed() {
         run_step "Join the network" bash scripts/participant.sh join
       fi
       ;;
-    8) run_step "Remove the node" bash scripts/uninstall.sh ;;
+    remove) run_step "Remove the node" bash scripts/uninstall.sh ;;
     *) return 1 ;;
   esac
 }
 
+# docker_group: this login was added to the docker group (by the installer's Docker setup) but
+# does not have it yet: the menu starts again in that group (sg docker), so its items reach Docker.
+docker_group() {
+  [ "$ENGINE_ID" = docker ] && [ -z "${SELFHOSTR_MENU_SG:-}" ] || return 0
+  command -v docker > /dev/null 2>&1 && command -v sg > /dev/null 2>&1 || return 0
+  ctr version > /dev/null 2>&1 && return 0
+  sg docker -c "docker version" > /dev/null 2>&1 || return 0
+  exec sg docker -c "SELFHOSTR_MENU_SG=1 $(printf '%q ' bash "$PWD/scripts/suckerpot.sh")"
+}
+
 menu() {
+  docker_group
   ask_open
   ASK_IND="  "
   [ "$ASK_TTY" = 1 ] || die "the menu needs a terminal. Without one: ./suckerpot help"
@@ -268,6 +362,7 @@ menu() {
     header
     echo 1>&"$ASK_OUT"
     if installed; then menu_installed || break; else menu_fresh || break; fi
+    docker_group
     [ "$ASK_EOF" = 0 ] || break
   done
   echo 1>&"$ASK_OUT"

@@ -314,7 +314,7 @@ def test_after_the_consent_it_asks_the_node_name_and_the_country(
 ) -> None:
     geo_sandbox(sandbox)
     rc, out, target = interactive_dry_run(
-        sandbox, "y\n4\nGrey Heron 7\ny\nch\n", "--self-address", "203.0.113.9"
+        sandbox, "y\n2\nGrey Heron 7\ny\nch\n", "--self-address", "203.0.113.9"
     )
     assert rc == 0, out
     assert "Node name and country: you choose them after this screen." in out
@@ -345,7 +345,7 @@ def test_a_country_elsewhere_than_the_database_asks_what_to_do(
 ) -> None:
     geo_sandbox(sandbox)
     rc, out, target = interactive_dry_run(
-        sandbox, "y\n5\ny\nde\n2\n", "--self-address", "203.0.113.9"
+        sandbox, "y\n3\ny\nde\n2\n", "--self-address", "203.0.113.9"
     )
     assert rc == 0, out
     assert "places this machine (203.0.113.9) in CH, not in DE." in out
@@ -354,7 +354,7 @@ def test_a_country_elsewhere_than_the_database_asks_what_to_do(
     assert env["NETWORK_PSEUDONYM"] == ""
     assert env["NETWORK_COUNTRY"] == "CH"  # the owner chose it; never filled in by itself
     rc, out, target = interactive_dry_run(
-        sandbox, "y\n2\ny\nde\n1\n", "--self-address", "203.0.113.9"
+        sandbox, "y\n1\ny\nde\n1\n", "--self-address", "203.0.113.9"
     )
     assert rc == 0, out
     assert parse_env(target)["NETWORK_COUNTRY"] == "DE"
@@ -366,7 +366,7 @@ def test_without_a_local_database_nothing_is_downloaded_unless_asked(
     add_participant_files(sandbox)
     sandbox.env["SELFHOSTR_GEO_ALLOW_DOC"] = "1"
     rc, out, target = interactive_dry_run(
-        sandbox, "y\n2\ny\nfr\nn\n", "--self-address", "203.0.113.9"
+        sandbox, "y\n1\ny\nfr\nn\n", "--self-address", "203.0.113.9"
     )
     assert rc == 0, out
     assert "download.db-ip.com" in out and "Download it and check FR? [y/N]" in out
@@ -620,7 +620,8 @@ def test_the_edit_menu_with_answers(
     (node.root / "answers").write_text("2\ny\nch\nb\n")
     proc = node.run("scripts/edit.sh", extra_env={"SELFHOSTR_TTY": str(node.root / "answers")})
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "Edit this node (a change applies at once)" in proc.stderr
+    assert "The configuration of this node" in proc.stderr
+    assert re.search(r"Version +v0\.8\.0 \(signed images", proc.stderr)
     assert re.search(r"1   Node name +[a-z]+-[a-z]+-\d\d", proc.stderr)
     assert "Show a country for this node? [y/N]" in proc.stderr
     assert parse_env(node.root / ".env")["NETWORK_COUNTRY"] == "CH"
@@ -794,3 +795,228 @@ def test_a_long_question_wraps_on_a_narrow_terminal() -> None:
     s.feed(raw)
     assert not s.overflow
     assert "minutes)? [Y/n]" in s.text()
+
+
+# ------------------------------------------------------------------ round 2: re-runs and old nodes
+
+
+def test_pick_numbers_the_shown_items_and_takes_notice_keys(tmp_path: Path) -> None:
+    proc = lib_bash(
+        """
+        ask_open
+        ask_pick a own "" "random|Random|" "own|Own|" "q|Quit|"
+        ASK_HIDDEN=" c u"
+        ask_pick b random "" "random|Random|" "own|Own|"
+        ask_pick c random "" "random|Random|" "own|Own|"
+        echo "a=$a b=$b c=$c"
+        """,
+        tmp_path,
+        answers(tmp_path, "\nc\n1\n"),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == "a=own b=c c=random\n"
+    assert (
+        "  1   Random" in proc.stderr and "  2   Own" in proc.stderr and "  q   Quit" in proc.stderr
+    )
+    assert "Choose [2]:" in proc.stderr
+
+
+def test_the_name_menu_has_no_gaps(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    geo_sandbox(sandbox)
+    sandbox.env["SHIM_HOSTNAME"] = "vps-paris-1"
+    rc, out, target = interactive_dry_run(sandbox, "y\n2\ny\n")
+    assert rc == 0, out
+    assert re.search(r"  1   [a-z]+-[a-z]+-\d\d +a random name", out)
+    assert "  2   vps-paris-1" in out and "  3   Type a name" in out and "  4   No name" in out
+    assert parse_env(target)["NETWORK_PSEUDONYM"] == "vps-paris-1"
+    assert "Use 'vps-paris-1' anyway? [y/N]" in out
+
+
+def branch_checkout(sb: Sandbox) -> None:
+    add_participant_files(sb)
+    sb.git_mode("normal")
+    sb.git_set("branch", "dev")
+    sb.git_set("head", "c" * 40)
+    sb.git_set("tags", "v0.8.0\nv0.9.0\n")
+
+
+def test_a_branch_checkout_asks_which_images_to_run(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    branch_checkout(sandbox)
+    (sandbox.root / "answers").write_text("1\ny\n")
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--sensors", "ssh,web"),
+        extra_env={"SELFHOSTR_TTY": str(sandbox.root / "answers")},
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert "This checkout is the branch dev, not a release. Which images should run?" in out
+    assert "1   Signed images of v0.9.0" in out and "2   Build from this checkout" in out
+    env = parse_env(sandbox.root / ".env")
+    assert (env["SUCKERPOT_INSTALL_MODE"], env["SUCKERPOT_VERSION"]) == ("images", "v0.9.0")
+
+
+def test_a_branch_checkout_can_build_from_source(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    branch_checkout(sandbox)
+    (sandbox.root / "answers").write_text("2\ny\n")
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--sensors", "ssh,web"),
+        extra_env={"SELFHOSTR_TTY": str(sandbox.root / "answers")},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert parse_env(sandbox.root / ".env")["SUCKERPOT_INSTALL_MODE"] == "source"
+
+
+def test_without_a_terminal_a_branch_needs_a_flag(
+    sandbox: Sandbox, parse_env: Callable[[Path], dict[str, str]]
+) -> None:
+    branch_checkout(sandbox)
+    proc = sandbox.run("scripts/install.sh", "--participant", "--yes", "--sensors", "ssh")
+    assert proc.returncode != 0
+    assert (
+        "pass --version latest (the signed images of v0.9.0), --version vX.Y.Z or --source"
+        in proc.stderr
+    )
+    assert "this checkout (dev) is not a release tag" in proc.stderr
+    proc = sandbox.run(
+        "scripts/install.sh", "--participant", "--yes", "--sensors", "ssh", "--version", "latest"
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert parse_env(sandbox.root / ".env")["SUCKERPOT_VERSION"] == "v0.9.0"
+
+
+def test_the_node_name_log_line(sandbox: Sandbox) -> None:
+    geo_sandbox(sandbox)
+    (sandbox.root / "answers").write_text("y\n2\nGrey Heron 7\n")
+    proc = sandbox.run(
+        "scripts/install.sh",
+        *("--participant", "--version", "v0.8.0", "--sensors", "ssh,web"),
+        extra_env={"SELFHOSTR_TTY": str(sandbox.root / "answers")},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    log = (sandbox.root / "install.log").read_text()
+    assert "node name chosen (set)" in log and "Grey Heron" not in log
+
+
+def test_an_old_ingest_refuses_a_country_change_and_changes_nothing(node: Sandbox) -> None:
+    wrap_docker(
+        node,
+        '  "compose exec -T ingest python -m ingest.network.cli update"*) echo "invalid choice" >&2; exit 2 ;;\n'
+        '  "compose exec -T ingest printenv SUCKERPOT_RUNNING_VERSION") echo v0.8.0; exit 0 ;;\n'
+        + PROFILE_CASES,
+    )
+    node.git_set("tags", "v0.8.0\n")
+    before = (node.root / ".env").read_text()
+    start = len(node.calls())
+    proc = node.run("scripts/participant.sh", "set-country", "CH")
+    assert proc.returncode != 0
+    assert "this node runs v0.8.0, whose ingest cannot change the country" in proc.stderr
+    assert "Nothing was changed." in proc.stderr
+    assert (node.root / ".env").read_text() == before
+    assert not [c for c in node.calls()[start:] if c.startswith("docker compose up")]
+    # A name still changes through the join of the older ingest.
+    proc = node.run("scripts/participant.sh", "set-name", "grey-heron")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert any("cli join --pseudonym grey-heron" in c for c in node.calls())
+
+
+def test_an_installed_node_opens_the_installed_menu_with_notices(node: Sandbox) -> None:
+    add_tools(node)
+    fake_scripts(node)
+    node.git_set("tags", "v0.8.0\nv0.9.0\n")
+    proc = menu(node, "")
+    assert proc.returncode == 0, proc.stderr
+    assert "Install a participant node" not in proc.stderr
+    assert "! Update available: v0.8.0 -> v0.9.0: press u to update" in proc.stderr
+    assert "! Country not set: press c to show one (optional)" in proc.stderr
+    assert "runs v0.8.0; v0.9.0 is available" in proc.stderr
+    menu(node, "c\n")
+    assert script_calls(node)[-1] == "edit.sh country"
+    menu(node, "u\n")
+    assert script_calls(node)[-1] == "update.sh"
+
+
+def test_an_old_install_env_opens_the_installed_menu(sandbox: Sandbox) -> None:
+    """An .env written by an older installer (v0.14): the menu never offers to install over it."""
+    add_participant_files(sandbox)
+    add_tools(sandbox)
+    fake_scripts(sandbox)
+    sandbox.write_env(
+        "COMPOSE_PROJECT_NAME=suckerpot\nSUCKERPOT_VOLUME_PREFIX=suckerpot\n"
+        "SUCKERPOT_STACK_MODE=participant\nSUCKERPOT_INSTALL_MODE=images\nSUCKERPOT_VERSION=v0.14.2\n"
+        "NETWORK_ENABLED=true\nNETWORK_PSEUDONYM=amber-falcon-42\nAUTO_UPDATE_ENABLED=true\n"
+    )
+    sandbox.git_set("tags", "v0.14.2\nv0.15.0\n")
+    proc = menu(sandbox, "1\n")
+    assert proc.returncode == 0, proc.stderr
+    assert "participant node · v0.14.2" in proc.stderr
+    assert "Install a participant node" not in proc.stderr
+    assert "Update available: v0.14.2 -> v0.15.0" in proc.stderr
+    assert script_calls(sandbox)[-1] == "status.sh"
+    shutil.copy2(ROOT / "scripts/install.sh", sandbox.root / "scripts/install.sh")
+    proc = sandbox.run("scripts/install.sh", "--participant")
+    assert "already installed here in participant mode" in proc.stdout + proc.stderr
+
+
+def test_update_on_a_branch_that_holds_the_release_changes_only_the_images(
+    sandbox: Sandbox,
+) -> None:
+    from test_update import prepare, run_update
+
+    prepare(sandbox, branch="dev")
+    sandbox.git_set("ancestor", "1")
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0, out
+    assert "only the images change" in out
+    assert not [c for c in sandbox.calls() if c.startswith("git checkout")]
+    assert "SUCKERPOT_VERSION=v0.9.0" in (sandbox.root / ".env").read_text()
+    rc, out = run_update(sandbox, "--yes")
+    assert rc == 0 and "Already on v0.9.0 (the images" in out
+
+
+def test_docker_setup_under_sudo_is_for_the_calling_user(sandbox: Sandbox) -> None:
+    from test_install_ui import _without_an_engine, _write
+
+    _without_an_engine(sandbox)
+    _write(
+        sandbox, "id", '#!/bin/sh\n[ "$1" = -un ] && echo root && exit 0\nexec /usr/bin/id "$@"\n'
+    )
+    sandbox.env["SUDO_USER"] = "alice"
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert "sudo usermod -aG docker alice" in proc.stdout
+    assert "usermod -aG docker root" not in proc.stdout
+    del sandbox.env["SUDO_USER"]
+    sandbox.env["SELFHOSTR_EUID"] = "0"
+    proc = sandbox.run("scripts/install.sh", "--yes")
+    assert "usermod" not in proc.stdout  # root needs no group
+    assert "  apt-get install -y docker-ce" in proc.stdout and "sudo apt-get" not in proc.stdout
+
+
+def test_sudo_starts_again_as_the_owner_of_the_checkout(sandbox: Sandbox) -> None:
+    import pwd
+
+    try:
+        me = pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        pytest.skip("this uid has no name")
+    if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", me) or me == "root":
+        pytest.skip("needs a plain user name")
+    add_participant_files(sandbox)
+    add_tools(sandbox)
+    (sandbox.shim / "sudo").write_text('#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\nexit 0\n')
+    (sandbox.shim / "sudo").chmod(0o755)
+    proc = sandbox.run(
+        "suckerpot", "help", extra_env={"SELFHOSTR_EUID": "0", "SUDO_USER": me, "TERM": "dumb"}
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert f"Running as {me}, who owns this folder" in proc.stderr
+    call = [c for c in sandbox.calls() if c.startswith("sudo ")][-1]
+    assert call.startswith(f"sudo -u {me} -H -- env TERM=dumb")
+    assert call.endswith(f"bash {sandbox.root}/scripts/suckerpot.sh help")

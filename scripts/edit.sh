@@ -19,6 +19,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+sudo_drop scripts/edit.sh "$@"
 # shellcheck source=scripts/lib/ask.sh
 . scripts/lib/ask.sh
 # shellcheck source=scripts/lib/pseudonym.sh
@@ -84,6 +85,8 @@ edit_country() {
   need_participant country
   if [ $# -eq 0 ]; then
     need_tty country
+    # An ingest too old to change the country of a member says so before any question.
+    bash scripts/participant.sh set-country --check || return 0
     local cur
     cur=$(env_get NETWORK_COUNTRY)
     profile_ask_country "$cur" ask || die "no valid country was given; nothing was changed"
@@ -164,28 +167,51 @@ edit_auto() {
   bash scripts/participant.sh auto-update "$v"
 }
 
+version_text() {
+  local v latest mode
+  mode=$(env_get SUCKERPOT_INSTALL_MODE source)
+  v=$(env_get SUCKERPOT_VERSION)
+  latest=$(git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+  if [ "$mode" != images ]; then
+    echo "built from source ($(git describe --tags --always 2> /dev/null || echo unknown))"
+  elif [ -n "$latest" ] && [ "$latest" != "$v" ] && ver_ge "${latest#v}" "${v#v}"; then
+    echo "${v:-unknown} (signed images), $latest available: ./suckerpot update"
+  else
+    echo "${v:-unknown} (signed images, the newest this checkout knows)"
+  fi
+}
+
+# The configuration screen: every setting with its value; pick one to change it, then the screen
+# comes back with the new value.
 edit_menu() {
   local a items
   [ "$ASK_TTY" = 1 ] || die "no terminal for the menu; see: scripts/edit.sh --help"
   while :; do
     items=()
     if [ "$stack" = participant ]; then
-      items+=("1|Node name|$(cur_name || true)" "2|Country|$(country_text)")
+      items+=("name|Node name|$(cur_name || true)" "country|Country|$(country_text)")
     fi
-    items+=("3|Sensors|$(cur_sensors)")
-    [ "$stack" != participant ] || items+=("4|VPN|$(vpn_text)")
-    items+=("5|Automatic updates|$(auto_text)" "6|Host firewall|$(fw_text)" "b|Back|")
+    items+=("sensors|Sensors|$(cur_sensors)")
+    [ "$stack" != participant ] || items+=("vpn|VPN|$(vpn_text)")
+    items+=("auto|Automatic updates|$(auto_text)" "firewall|Host firewall|$(fw_text)" "b|Back|")
+    _ask_style
+    printf '\n  %sThe configuration of this node%s\n' "$ASK_B" "$ASK_R" 1>&"$ASK_OUT"
+    printf '  Pick a setting to change it; the change applies at once.\n\n' 1>&"$ASK_OUT"
+    printf '  %-20s %s\n' "Version" "$(version_text)" 1>&"$ASK_OUT"
+    [ "$stack" = participant ] || printf '  %-20s %s\n' "Name, country" "in the dashboard (Settings, Network)" 1>&"$ASK_OUT"
     echo 1>&"$ASK_OUT"
-    ask_menu a b "Edit this node (a change applies at once)" "${items[@]}"
+    ask_pick a b "" "${items[@]}"
+    [ "$ASK_EOF" = 0 ] || [ "$a" != b ] || return 0
     case $a in
-      1) edit_name || true ;;
-      2) edit_country || true ;;
-      3) edit_sensors || true ;;
-      4) edit_vpn || true ;;
-      5) edit_auto || true ;;
-      6) bash scripts/participant.sh firewall install || true ;;
+      name) edit_name || true ;;
+      country) edit_country || true ;;
+      sensors) edit_sensors || true ;;
+      vpn) edit_vpn || true ;;
+      auto) edit_auto || true ;;
+      firewall) bash scripts/participant.sh firewall install || true ;;
       *) return 0 ;;
     esac
+    [ "$ASK_EOF" = 0 ] || return 0
   done
 }
 

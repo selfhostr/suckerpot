@@ -32,6 +32,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+sudo_drop scripts/update.sh "$@"
 
 STATE_DIR=.suckerpot-state
 STATE=$STATE_DIR/last-update.json
@@ -177,10 +178,20 @@ if [ -z "$target" ]; then
     [ -n "$target" ] || die "no release tag found"
   fi
 fi
+# A node whose checkout is a branch that already contains the release (dev, main, ahead of the
+# newest tag) keeps its scripts: only the images change. Checking out the tag would take the newer
+# scripts away. A branch behind the release is checked out at the tag, as a detached checkout is.
+keep_code=0
 if [ -n "$target" ]; then
   git rev-parse -q --verify "refs/tags/$target" > /dev/null || die "tag $target not found"
   target_commit=$(git rev-parse "refs/tags/$target^{commit}")
-  if [ "$target" = "$from_version" ] && [ "$(git rev-parse "$target^{commit}")" = "$from_ref" ]; then
+  if [ "$mode" = images ] && [ -n "$from_branch" ] && git merge-base --is-ancestor "$target_commit" "$from_ref" 2> /dev/null; then
+    keep_code=1
+    if [ "$(env_get SUCKERPOT_VERSION)" = "$target" ]; then
+      echo "Already on $target (the images; this checkout is the branch $from_branch). Nothing to update."
+      exit 0
+    fi
+  elif [ "$target" = "$from_version" ] && [ "$(git rev-parse "$target^{commit}")" = "$from_ref" ]; then
     echo "Already on $target. Nothing to update."
     exit 0
   fi
@@ -218,6 +229,7 @@ if [ "$pull_branch" = 1 ]; then
   echo "      target:  newest commit of branch $from_branch (git pull --ff-only)"
 else
   echo "      target:  $target"
+  [ "$keep_code" = 0 ] || echo "      the checkout stays on the branch $from_branch (it already holds $target): only the images change"
   notes=$(git tag -l --format='%(contents)' "$target" 2> /dev/null | tr -d '\000-\010\013-\037\177' || true)
   if [ -n "$notes" ]; then
     echo "      release notes:"
@@ -314,14 +326,16 @@ trap on_exit EXIT
 # ---------------------------------------------------------------- 4. code
 step 4 "Fetching the new code"
 changed=1
-if [ "$pull_branch" = 1 ]; then
+if [ "$keep_code" = 1 ]; then
+  echo "      kept: the branch $from_branch at ${from_ref:0:12}"
+elif [ "$pull_branch" = 1 ]; then
   with_public_umask git pull --ff-only --quiet || die "git pull --ff-only failed"
 else
   # By commit, never by name: a local branch of the same name or a re-pointed tag must not win.
   with_public_umask git checkout --quiet --detach "$target_commit" || die "could not check out $target"
 fi
 new_ref=$(git rev-parse HEAD)
-if [ "$pull_branch" = 0 ] && [ "$new_ref" != "$target_commit" ]; then
+if [ "$pull_branch" = 0 ] && [ "$keep_code" = 0 ] && [ "$new_ref" != "$target_commit" ]; then
   die "the checkout is at ${new_ref:0:12}, not the verified ${target_commit:0:12}"
 fi
 [ -f scripts/lib/env.sh ] && . scripts/lib/env.sh

@@ -20,6 +20,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+sudo_drop scripts/uninstall.sh "$@"
 # shellcheck source=scripts/lib/ask.sh
 . scripts/lib/ask.sh
 

@@ -40,30 +40,31 @@ profile_ask_name() {
     "The network shows your node under this name (in the member list and in its figures), or as" \
     "\"Node\" and a number if you choose none. Do not use a name you use anywhere else: it would" \
     "link this node to you. You can change it later: ./suckerpot edit"
-  def=1
-  if [ -n "$cur" ]; then items+=("1|Keep $cur|the current name"); fi
-  if [ -n "$random" ]; then items+=("2|$random|a random name (recommended)"); fi
+  def=keep
+  if [ -n "$cur" ]; then items+=("keep|Keep $cur|the current name"); fi
+  if [ -n "$random" ]; then items+=("random|$random|a random name (recommended)"); fi
   if [ -n "$host" ] && [ "$host" != "$cur" ]; then
-    items+=("3|$host|this machine's host name: it may identify you")
+    items+=("host|$host|this machine's host name: it may identify you")
   fi
-  items+=("4|Type a name|3 to 24 letters, digits, space, _ . -" "5|No name|the network shows \"Node\" and a number")
-  [ -n "$cur" ] || def=2
-  [ -n "$random" ] || [ -n "$cur" ] || def=4
-  ask_menu choice "$def" "" "${items[@]}"
+  items+=("own|Type a name|3 to 24 letters, digits, space, _ . -" "none|No name|the network shows \"Node\" and a number")
+  [ -n "$cur" ] || def=random
+  [ -n "$random" ] || [ -n "$cur" ] || def=own
+  # The keys are 1..n in the order shown, whatever choices this machine has.
+  ask_pick choice "$def" "" "${items[@]}"
   case $choice in
-    1) PROFILE_NAME=$cur ;;
-    2) PROFILE_NAME=$random ;;
-    3)
+    keep) PROFILE_NAME=$cur ;;
+    random) PROFILE_NAME=$random ;;
+    host)
       PROFILE_NAME=$host
       _ask_say_block "" "Your host name can be seen by others (for example in reverse DNS, TLS certificates or" \
         "your provider's panel). If it names you or your provider, pick another name."
       ask_yn "Use '$host' anyway?" n || { profile_ask_name "$cur"; return $?; }
       ;;
-    4)
+    own)
       ask_text own "Node name" "" _profile_name_check || return 1
       PROFILE_NAME=$own
       ;;
-    5) PROFILE_NAME="" ;;
+    none) PROFILE_NAME="" ;;
     *) return 1 ;;
   esac
   return 0

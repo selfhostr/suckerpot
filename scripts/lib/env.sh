@@ -163,6 +163,26 @@ settable_value() { [[ $1 =~ ^[A-Za-z0-9._,:/@+_-]{0,512}$ ]]; }
 ver_ge() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$2" ]; }
 
 # Succeeds inside a linked git worktree (a scratch checkout: never act on a live stack there).
+# sudo_drop SCRIPT ARGS...: the host scripts run as the user who owns the checkout. Started with
+# sudo by that user (sudo ./suckerpot), the script starts again as that user, so .env, install.log,
+# .suckerpot-state and the update schedule belong to them, and docker runs as them (the scripts ask
+# for sudo themselves where they need it). A checkout owned by root keeps running as root.
+# SCRIPT is relative to the top of the checkout (the current folder). SELFHOSTR_EUID: the tests.
+sudo_drop() {
+  local script=$1 u=${SUDO_USER:-} owner v keep=()
+  shift
+  [ "${SELFHOSTR_EUID:-$EUID}" = 0 ] && [ -n "$u" ] && [ "$u" != root ] || return 0
+  [[ $u =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || return 0
+  owner=$(stat -c %U . 2> /dev/null || true)
+  [ "$owner" = "$u" ] || return 0
+  command -v sudo > /dev/null 2>&1 || return 0
+  for v in TERM LANG LC_ALL LC_CTYPE COLORTERM NO_COLOR COLUMNS LINES SUCKERPOT_UI; do
+    [ -z "${!v+x}" ] || keep+=("$v=${!v}")
+  done
+  echo "Running as $u, who owns this folder (sudo is asked for only where it is needed)." >&2
+  exec sudo -u "$u" -H -- env ${keep[@]+"${keep[@]}"} bash "$PWD/$script" "$@"
+}
+
 in_linked_worktree() {
   git rev-parse --git-dir > /dev/null 2>&1 || return 1
   [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]

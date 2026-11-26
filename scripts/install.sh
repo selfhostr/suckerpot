@@ -70,6 +70,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+sudo_drop scripts/install.sh "$@"
 
 TOTAL=10
 LOG=install.log
@@ -377,6 +378,54 @@ if [ -z "$stack" ] && [ "$existing" = 0 ] && [ "$has_tty" = 0 ] && [ "$assume_ye
 fi
 stack=${stack:-full}
 fresh=$((1 - existing))
+
+# The release of the images. A checkout of a release tag uses that tag. A checkout of a branch (dev,
+# main) has no release of its own: on a terminal the installer asks whether to run the signed
+# images of the newest release, or to build this checkout from source. Without a terminal it stops
+# at step 5 as before, unless --version (latest or vX.Y.Z) or --source says it.
+release_hint=""
+release_args=()
+latest_release() {
+  git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' | head -n 1 || true
+}
+if [ "$version" = latest ]; then
+  version=$(latest_release)
+  [ -n "$version" ] || die "--version latest: this checkout knows no release tag (git fetch --tags, then try again)"
+  log "release: $version (--version latest)"
+fi
+if [ "$fresh" = 1 ] && [ "$dry_run" = 0 ] && [ "$mode" != source ] && [ -z "$version" ] \
+  && ! git describe --tags --exact-match HEAD > /dev/null 2>&1; then
+  rel_latest=$(latest_release)
+  rel_where=$(git symbolic-ref --short -q HEAD 2> /dev/null || git rev-parse --short HEAD 2> /dev/null || echo "this checkout")
+  if [ -n "$rel_latest" ]; then
+    release_hint="this checkout (${rel_where}) is not a release tag: pass --version latest (the signed images of $rel_latest), --version vX.Y.Z or --source"
+    if [ "$has_tty" = 1 ] && [ -z "$mode" ]; then
+      if [ "$UI_MODE" = rich ] && [ "$header_done" = 0 ]; then
+        if [ "$stack" = participant ]; then ui_header "participant node"; else ui_header "full install"; fi
+        header_done=1
+      fi
+      ui_pause
+      ASK_TTY=1 ASK_OUT=$UI_ERR ASK_IND=$UI_IND
+      [ "$UI_MODE" = rich ] || ASK_PLAIN=1
+      echo 1>&"$UI_ERR"
+      ask_lines "" "This checkout is the branch $rel_where, not a release. Which images should run?"
+      echo 1>&"$UI_ERR"
+      rel_choice=images
+      ask_pick rel_choice images "" \
+        "images|Signed images of $rel_latest|recommended: verified, ready to run" \
+        "source|Build from this checkout|slower; for testing the branch"
+      case $rel_choice in
+        source) mode=source; release_args=(--source) ;;
+        *) mode=images; version=$rel_latest; release_args=(--version "$rel_latest") ;;
+      esac
+      log "release: ${version:-source build of $rel_where} (asked)"
+    elif [ "$mode" = images ] && [ "$has_tty" = 1 ]; then
+      version=$rel_latest
+      release_args=(--version "$rel_latest")
+      note "--images on the branch $rel_where: the signed images of $rel_latest"
+    fi
+  fi
+fi
 # The container engine. An existing install keeps the one in its .env (none there means Docker).
 # A fresh install takes --engine, else SUCKERPOT_ENGINE from the environment, else the engine this
 # host has. With both installed (UI phase D), a terminal asks; Docker wins while it is active,
@@ -645,7 +694,13 @@ docker_plan() {
       return 1
       ;;
   esac
-  DOCKER_CMDS+=("sudo usermod -aG docker $user")
+  # root needs no group; anyone else joins the docker group.
+  [ "$user" = root ] || DOCKER_CMDS+=("sudo usermod -aG docker $user")
+  # As root, sudo is not needed (and may not be installed on a minimal VPS).
+  if [ "${SELFHOSTR_EUID:-$EUID}" = 0 ]; then
+    local i
+    for i in "${!DOCKER_CMDS[@]}"; do DOCKER_CMDS[i]=${DOCKER_CMDS[i]//sudo /}; done
+  fi
   return 0
 }
 
@@ -658,9 +713,11 @@ docker_plan() {
 offer_docker() {
   local a again user c reason
   docker_test_keys
-  # id -un prints the number when this uid has no name (a container): then $USER.
+  # The user who will run docker: the one who called sudo, when the installer runs under sudo
+  # (never root's own group). id -un prints the number when this uid has no name (a container).
   user=$(id -un 2> /dev/null || true)
   [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || user=${USER:-}
+  if [ "$user" = root ] && [[ ${SUDO_USER:-} =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] && [ "$SUDO_USER" != root ]; then user=$SUDO_USER; fi
   if [ "${SELFHOSTR_DOCKER_INSTALLED:-0}" = 1 ]; then
     die "Docker was installed, but the docker command is still not found. Log out and back in, then run the installer again."
   fi
@@ -696,14 +753,26 @@ offer_docker() {
       exit 1
       ;;
   esac
-  command -v sudo > /dev/null 2>&1 || die "sudo is needed to install Docker. Run the commands above as root."
-  sudo -v || die "sudo failed: Docker was not installed."
+  if [ "${SELFHOSTR_EUID:-$EUID}" != 0 ]; then
+    command -v sudo > /dev/null 2>&1 || die "sudo is needed to install Docker. Run the commands above as root."
+    sudo -v || die "sudo failed: Docker was not installed."
+  fi
   for c in "${DOCKER_CMDS[@]}"; do
     ui_detail "installing Docker: ${c:0:60}"
     ui_run --expect 30 -- bash -c "$c" || die "this command failed (see the log): $c"
   done
   log "Docker installed; starting again in the docker group"
   ui_pause
+  if [ "${SELFHOSTR_EUID:-$EUID}" = 0 ] && [ "$(id -un 2> /dev/null)" = root ]; then
+    # root uses Docker without a group: the installer simply starts again.
+    again=("$PWD/scripts/install.sh" "${orig_args[@]}")
+    case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
+    again+=(${release_args[@]+"${release_args[@]}"})
+    say "Docker is installed. The installer starts again."
+    UI_ENDED=1
+    exec 1>&"$UI_OUT" 2>&"$UI_ERR" 3<&-
+    SELFHOSTR_DOCKER_INSTALLED=1 exec bash "${again[@]}"
+  fi
   # The new group is active only in a new login; sg gives it to the new run. Check it first.
   if ! reason=$(sg docker -c true 2>&1); then
     say "Docker is installed. Log out and back in, then run the installer again."
@@ -715,6 +784,7 @@ offer_docker() {
   # The new run asks nothing again: it gets the install type as a flag.
   again=("$PWD/scripts/install.sh" "${orig_args[@]}")
   case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
+  again+=(${release_args[@]+"${release_args[@]}"})
   say "Docker is installed. The installer starts again in the docker group (sg docker)."
   UI_ENDED=1
   # The new run draws its own screen and asks its own questions on the terminal, not in the log.
@@ -764,6 +834,7 @@ podman_prepare() {
     # The new run asks nothing again: the type, the engine, the pseudonym and the consent go along.
     again=("$PWD/scripts/install.sh" "${orig_args[@]}")
     case " ${orig_args[*]} " in *" --participant "* | *" --full "*) ;; *) again+=("--$stack") ;; esac
+    again+=(${release_args[@]+"${release_args[@]}"})
     case " ${orig_args[*]} " in *" --engine "*) ;; *) again+=(--engine podman) ;; esac
     if [ -n "${pseudonym:-}" ] && [ -z "$pseudonym_arg" ] && [ "$no_pseudonym" = 0 ]; then again+=(--pseudonym "$pseudonym"); fi
     if [ -z "${pseudonym:-}" ] && [ "${ask_name:-0}" = 1 ]; then again+=(--no-pseudonym); fi
@@ -1034,7 +1105,7 @@ if [ "$stack" = participant ] && [ "$fresh" = 1 ]; then
     if [ "$ask_name" = 1 ]; then
       profile_ask_name "" || die "no valid node name was given (run again, or pass --node-name NAME or --no-node-name)"
       pseudonym=$PROFILE_NAME
-      log "node name chosen (${pseudonym:+set}${pseudonym:-none})"
+      if [ -n "$pseudonym" ]; then log "node name chosen (set)"; else log "node name chosen (none)"; fi
     fi
     if [ "$ask_country" = 1 ]; then
       profile_ask_country "" "${country_check:-ask}" || die "no valid country was given (run again, or pass --country CC --show-country)"
@@ -1178,7 +1249,7 @@ if [ "$mode" = images ] && [ -z "$version" ]; then
 fi
 if [ "$mode" = images ]; then
   if [ -z "$version" ]; then
-    [ "$dry_run" = 1 ] && version=dev || die "images mode needs --version vX.Y.Z (or install from a release tag, or use --source)"
+    [ "$dry_run" = 1 ] && version=dev || die "images mode needs --version vX.Y.Z (or install from a release tag, or use --source)${release_hint:+: $release_hint}"
   fi
   [[ $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || ( $dry_run = 1 && $version = dev ) ]] || die "--version must look like v1.2.3"
 fi

@@ -138,6 +138,8 @@ Once something is installed, the same command shows what runs (the node name, th
   q  Quit
 ```
 
+Above the menu, a short list says what is missing or worth doing, each with its own key: an update is available (`u`), the node is not accepted by the hub yet (`w` waits for the answer), it has no node name (`n`) or no country (`c`), the host firewall is missing (`f`), automatic updates are off (`a`), the stack is not running (`r`). **Edit the node** opens the configuration of the node with its values (version, node name, country shown or not, sensors, VPN, automatic updates, host firewall); pick one to change it, and the screen comes back with the new value.
+
 Each item runs one of the scripts below, so every item also works without the menu:
 
 | Command | What it does |
@@ -175,6 +177,10 @@ All questions come first, on the terminal; then the install runs by itself.
 2. **Join the SuckerPot network as described?** Participant installs only, after the consent screen. `--yes` counts as your consent. Without a terminal, a participant install needs `--yes`.
 3. **Node name.** Participant installs on a terminal, unless `--node-name` (or `--pseudonym`) or `--no-node-name` answers it. The name the network shows for your node: a random name (the default), this machine's host name (the installer warns that it may identify you), your own, or none (the network then shows `Node` and a number). The rules are in [the network](network.md#pseudonyms). Do not use a name you use anywhere else.
 4. **Show a country for this node?** Participant installs on a terminal, unless `--country` answers it. The default is no. If you say yes, you type the two-letter code, and the installer compares it with a GeoIP database on this machine, never with an outside service (see [the country check](network.md#the-country-check)). When the database places this machine elsewhere, it says so and you choose: keep your code, take the other one, type another, or show none.
+
+**A checkout of a branch** (for example `git clone -b dev`) is not a release, so it has no images of its own. On a terminal the installer asks first: run the signed images of the newest release it knows (the default, verified like any release), or build this checkout from source (slower, for testing the branch). Without a terminal it stops and says which flag to add: `--version latest` (the newest release tag of the checkout), `--version vX.Y.Z` or `--source`. A later `./suckerpot update` keeps the branch and changes only the images.
+
+**sudo.** Run the installer and `./suckerpot` as your own user; they ask for `sudo` themselves where they need it (Docker's setup, the host firewall). Started with `sudo` by the user who owns the checkout, they start again as that user, so `.env`, `install.log`, `.suckerpot-state` and the update schedule stay yours, and Docker's setup adds that user, not root, to the `docker` group. Run as root (a root login on a VPS, or a checkout owned by root), everything belongs to root and no group is needed.
 
 `--non-interactive` never reads the terminal: the installer behaves as without one (the type needs a flag or `--yes`, the consent needs `--yes`, and no name or country question is asked).
 
@@ -228,7 +234,7 @@ On a terminal, the installer shows a short list of steps with one progress bar, 
 | `--yes`, `-y` | Take the default for every question. Use `--admin-password-stdin` for your own password, or the password is generated. |
 | `--images` | Install from signed release images. This is the default. Needs a release version (see `--version`). |
 | `--source` | Build the images from this checkout. |
-| `--version vX.Y.Z` | Release to install in images mode. Default: the tag of the checkout. |
+| `--version vX.Y.Z` | Release to install in images mode. Default: the tag of the checkout. `latest` takes the newest release tag of the checkout (for a branch checkout). |
 | `--project NAME` | Compose project name. Default `suckerpot`. Lowercase letters, digits, `-` and `_`, at most 41 characters. |
 | `--prefix NAME` | Prefix of the data volumes. Default: the same as `--project`. Same rules. |
 | `--sensors LIST` | `recommended`, `all`, or a list such as `ssh,telnet,web`. |

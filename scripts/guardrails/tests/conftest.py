@@ -147,6 +147,7 @@ case "$*" in
   "rev-parse -q --verify refs/heads/"*) echo "$(rd head)" ;;
   "rev-parse -q --verify "*) echo deadbeefdeadbeef ;;
   "rev-parse v"*|"rev-parse refs/tags/"*) rd tagcommit ;;
+  "merge-base --is-ancestor "*) [ "$(rd ancestor)" = 1 ]; exit $? ;;
   "symbolic-ref --short -q HEAD") b=$(rd branch); [ -n "$b" ] && echo "$b" || exit 1 ;;
   "describe --tags --always"*) rd describe ;;
   "describe --tags --exact-match HEAD") exit 128 ;;
@@ -271,6 +272,7 @@ def sandbox(tmp_path: Path) -> Sandbox:
         "ss": SS_SHIM,
         "sleep": SLEEP_SHIM,
         "ip": IP_SHIM,
+        "hostname": '#!/bin/sh\necho "${SHIM_HOSTNAME:-localhost}"\n',
         "systemctl": HOST_FREE_SHIM,
         "sshd": HOST_FREE_SHIM,
     }.items():

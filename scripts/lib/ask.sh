@@ -284,9 +284,31 @@ _ask_menu_lines() {
   _MENU_N=$((${#_K[@]} + 2))
 }
 
+# ask_pick VAR DEFAULT_ID TITLE "id|Label|hint" ...: ask_menu with the keys numbered 1..n in the
+# order shown (an item hidden by the caller leaves no gap); an id of one letter (q, b) keeps it as
+# its key. VAR gets the id, or a key of ASK_HIDDEN.
+ask_pick() {
+  local _pvar=$1 _pdef=$2 _ptitle=$3 _spec _id _rest _n=0 _key _pk
+  shift 3
+  local -a _items=() _ids=() _keys=()
+  for _spec in "$@"; do
+    _id=${_spec%%|*}
+    _rest=${_spec#*|}
+    if [[ $_id =~ ^[a-z]$ ]]; then _key=$_id; else _n=$((_n + 1)); _key=$_n; fi
+    _items+=("$_key|$_rest") _ids+=("$_id") _keys+=("$_key")
+  done
+  _pk=${_keys[0]:-1}
+  for _n in "${!_ids[@]}"; do [ "${_ids[$_n]}" != "$_pdef" ] || _pk=${_keys[$_n]}; done
+  ask_menu _key "$_pk" "$_ptitle" "${_items[@]}"
+  for _n in "${!_keys[@]}"; do
+    if [ "${_keys[$_n]}" = "$_key" ]; then printf -v "$_pvar" '%s' "${_ids[$_n]}"; return 0; fi
+  done
+  printf -v "$_pvar" '%s' "$_key"
+}
+
 # ask_menu VAR DEFAULT TITLE ITEM...
 ask_menu() {
-  local _var=$1 _def=$2 _title=$3 _cur=0 _i _k _rest _a _try=0 _rc
+  local _var=$1 _def=$2 _title=$3 _cur=0 _i _k _rest _a _try=0 _rc _hidden=""
   shift 3
   _ask_style
   _ask_items "$@"
@@ -326,6 +348,8 @@ ask_menu() {
           for _i in "${!_K[@]}"; do
             if [ "${_K[$_i],,}" = "${_k,,}" ]; then _cur=$_i; break 2; fi
           done
+          # A key of a notice above the menu (ASK_HIDDEN): taken as it is.
+          if [ -n "$_k" ] && [[ " ${ASK_HIDDEN:-} " == *" ${_k,,} "* ]]; then _hidden=${_k,,}; break; fi
           continue
           ;;
       esac
@@ -335,9 +359,9 @@ ask_menu() {
     done
     # The final frame shows the choice, then the cursor comes back.
     printf '\033[%dA\r\033[J' "$_MENU_N" 1>&"$ASK_OUT"
-    _ask_menu_lines "$_cur"
+    if [ -n "$_hidden" ]; then _ask_menu_lines -1; else _ask_menu_lines "$_cur"; fi
     printf '%s\033[?25h\n' "$_MENU" 1>&"$ASK_OUT"
-    printf -v "$_var" '%s' "${_K[$_cur]}"
+    if [ -n "$_hidden" ]; then printf -v "$_var" '%s' "$_hidden"; else printf -v "$_var" '%s' "${_K[$_cur]}"; fi
     return 0
   fi
   # A numbered list and one line (no terminal, TERM=dumb, an answers file).
@@ -356,6 +380,7 @@ ask_menu() {
     for _i in "${!_K[@]}"; do
       if [ "${_K[$_i],,}" = "${_a,,}" ]; then printf -v "$_var" '%s' "${_K[$_i]}"; return 0; fi
     done
+    if [ -n "$_a" ] && [[ " ${ASK_HIDDEN:-} " == *" ${_a,,} "* ]]; then printf -v "$_var" '%s' "${_a,,}"; return 0; fi
     _try=$((_try + 1))
     printf '%s  answer one of: %s\n' "$ASK_IND" "${_K[*]}" 1>&"$ASK_OUT"
     # An answers file with a wrong answer must not loop for ever.
