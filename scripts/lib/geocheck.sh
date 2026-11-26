@@ -86,7 +86,7 @@ geo_public() {
 # home router has none: its public address is the router's, and only an outside service could
 # tell it, which this check never asks.
 geo_own_addresses() {
-  local a list="" seen=" "
+  local a list="" seen=" " found=0
   list="${GEO_SELF_ADDRESS:-}"
   if [ -f .env ]; then list+=",$(env_get SELF_ADDRESS)"; fi
   if command -v ip > /dev/null 2>&1; then
@@ -96,8 +96,30 @@ geo_own_addresses() {
     [ -n "$a" ] || continue
     case $seen in *" $a "*) continue ;; esac
     seen+="$a "
-    if geo_public "$a"; then printf '%s\n' "$a"; fi
+    if geo_public "$a"; then printf '%s\n' "$a"; found=1; fi
   done < <(printf '%s\n' "$list" | tr ' ,' '\n\n')
+  # Optional (SUCKERPOT_GEO_METADATA=1): the cloud's own metadata service, when no address was
+  # found. It answers on the link-local address 169.254.169.254 inside the provider's network
+  # (never on the internet), so the address is not asked of an outside service.
+  if [ "$found" = 0 ] && [ "${SUCKERPOT_GEO_METADATA:-}" = 1 ]; then
+    a=$(_geo_metadata_address)
+    [ -z "$a" ] || ! geo_public "$a" || printf '%s\n' "$a"
+  fi
+}
+
+# _geo_metadata_address: the public IPv4 the metadata service of AWS, Google Cloud or Azure gives
+# this VM (2 s at most each, the link-local address only). Oracle Cloud's does not list it.
+_geo_metadata_address() {
+  local m=http://169.254.169.254 tok a=""
+  command -v curl > /dev/null 2>&1 || return 0
+  local c=(curl -fsS --max-time 2 --noproxy '*')
+  if tok=$("${c[@]}" -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$m/latest/api/token" 2> /dev/null); then
+    a=$("${c[@]}" -H "X-aws-ec2-metadata-token: $tok" "$m/latest/meta-data/public-ipv4" 2> /dev/null || true)
+  fi
+  [ -n "$a" ] || a=$("${c[@]}" -H 'Metadata-Flavor: Google' "$m/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip" 2> /dev/null || true)
+  [ -n "$a" ] || a=$("${c[@]}" -H 'Metadata: true' "$m/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01&format=text" 2> /dev/null || true)
+  [[ $a =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] && printf '%s' "$a"
+  return 0
 }
 
 # _geo_csv_lookup FILE ADDR: the country of ADDR in a DB-IP country CSV ("first,last,CC" rows,
@@ -196,9 +218,11 @@ geo_sources() {
 geo_check() {
   local want=${1^^} addr found="" src="" file out
   GEO_RESULT=unknown GEO_FOUND="" GEO_ADDR="" GEO_SOURCE="" GEO_WHY=""
-  addr=$(geo_own_addresses | head -n 1)
+  # sed reads it all: head would close the pipe early and, under pipefail, the SIGPIPE of the
+  # loop that still writes ended the calling script without a word (exit 141).
+  addr=$(geo_own_addresses | sed -n 1p)
   if [ -z "$addr" ]; then
-    GEO_WHY="no public address on this machine's interfaces (behind a home router?), and no SELF_ADDRESS: only an outside service could tell where it is, and the check never asks one"
+    GEO_WHY="no public address on this machine's interfaces (a home router, or a cloud server behind NAT such as Oracle Cloud, AWS or Google Cloud), and no SELF_ADDRESS. Give it with --self-address ADDR (or SELF_ADDRESS in .env); on AWS, Google Cloud or Azure, SUCKERPOT_GEO_METADATA=1 asks the cloud's local metadata service. The check never asks an outside service"
     return 0
   fi
   GEO_ADDR=$addr
@@ -215,7 +239,7 @@ geo_check() {
   fi
   if [ -z "$found" ] && command -v mmdblookup > /dev/null 2>&1; then
     while IFS= read -r file; do
-      found=$(mmdblookup --file "$file" --ip "$addr" country iso_code 2> /dev/null | sed -n 's/^ *"\([A-Za-z][A-Za-z]\)".*/\1/p' | head -n 1)
+      found=$(mmdblookup --file "$file" --ip "$addr" country iso_code 2> /dev/null | sed -n 's/^ *"\([A-Za-z][A-Za-z]\)".*/\1/p' | sed -n 1p)
       if [ -n "$found" ]; then src="$file (mmdblookup)"; break; fi
     done < <(_geo_mmdb_files)
   fi

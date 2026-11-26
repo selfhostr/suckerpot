@@ -63,10 +63,23 @@ chmod 700 "$STATE_DIR"
 [ -f .env ] || exit 0
 [ "$(env_get AUTO_UPDATE_ENABLED false)" = true ] || exit 0
 
-# One run at a time, quietly.
+# Spread the fleet out: the random wait comes BEFORE the update lock, so a manual update is never
+# blocked by an automatic one that only sleeps. auto-update.waiting says who waits, until when.
+jitter=${AUTO_UPDATE_JITTER_S:-1800}
+[[ $jitter =~ ^[0-9]{1,5}$ ]] || jitter=1800
+if [ "$jitter" -gt 0 ]; then
+  pause=$((RANDOM % (jitter + 1)))
+  printf 'pid=%s until=%s\n' "$$" "$(($(date +%s) + pause))" > "$STATE_DIR/auto-update.waiting"
+  sleep "$pause"
+  rm -f "$STATE_DIR/auto-update.waiting"
+fi
+
+# One run at a time, quietly. Everything below is checked after the wait (a manual update may have
+# run meanwhile: then there is nothing left to do).
 exec 9> "$LOCK"
 flock -n 9 || exit 0
 export SELFHOSTR_UPDATE_LOCK_HELD=1
+lock_note auto-update
 
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 1048576 ]; then mv -f "$LOG" "$LOG.1"; fi
 exec 3>&1
@@ -105,11 +118,6 @@ fi
 
 if [ "$(env_get SUCKERPOT_INSTALL_MODE source)" != images ]; then record skipped source_mode; fi
 if [ -f "$STATE" ] && grep -q '"completed": false' "$STATE"; then record skipped unfinished_update; fi
-
-# Spread the fleet out.
-jitter=${AUTO_UPDATE_JITTER_S:-1800}
-[[ $jitter =~ ^[0-9]{1,5}$ ]] || jitter=1800
-if [ "$jitter" -gt 0 ]; then sleep "$((RANDOM % (jitter + 1)))"; fi
 
 from_version=$(env_get SUCKERPOT_VERSION)
 [[ $from_version =~ ^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || record skipped unknown_version

@@ -169,7 +169,7 @@ The menu works on a node installed with an earlier release too (a git checkout k
 | --- | --- |
 | `./scripts/participant.sh status` | Same as `./scripts/status.sh` |
 | `./scripts/participant.sh set-name NAME` (`--none`) | Change the node name. A member sends it to the hub at once and the command waits for the answer: a name another node uses is refused, and everything is put back. The hub allows one change per 7 days |
-| `./scripts/participant.sh set-country CC` (`--hide`, `--none`) | Show a country (`--hide`: send it, do not show it; `--none`: no country). The code is compared with a GeoIP database on this machine only; a mismatch is a warning |
+| `./scripts/participant.sh set-country CC` (`--hide`, `--none`) | Show a country (`--hide`: send it, do not show it; `--none`: no country). The code is compared with a GeoIP database on this machine only; a mismatch is a warning. A member keeps running: ingest sends the change to the hub within seconds, no restart |
 | `./scripts/participant.sh leave` | Leave the network. The sensors keep running |
 | `./scripts/participant.sh join [--pseudonym NAME]` | Show the consent again and join. After a refused join, or for a new pseudonym, run it with `--pseudonym` |
 | `./scripts/participant.sh vpn FILE` | Send everything through your VPN |

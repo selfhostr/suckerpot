@@ -235,6 +235,92 @@ latest_release_refresh() {
   mkdir -p .suckerpot-state && printf '%s\n' "$t" > "$c"
 }
 
+# update_unfinished: the target of an update that was cut off ("completed": false in the state
+# file), or "unknown" when the file names none; nothing when the last update finished.
+update_unfinished() {
+  local f=.suckerpot-state/last-update.json t
+  [ -f "$f" ] && grep -q '"completed": false' "$f" || return 0
+  t=$(sed -n 's/.*"target": "\(v[0-9.]*\)".*/\1/p' "$f" | head -n 1)
+  printf '%s' "${t:-unknown}"
+}
+
+# update_mark_finished: the stack runs the version .env names, so a cut-off update is over (its
+# state file says "completed": true, as a finished update leaves it). Used by install.sh --repair.
+update_mark_finished() {
+  local f=.suckerpot-state/last-update.json tmp
+  [ -f "$f" ] && grep -q '"completed": false' "$f" || return 0
+  tmp=$(mktemp "$f.XXXXXX") || return 0
+  sed 's/"completed": false,/"completed": true,/' "$f" > "$tmp" && chmod 600 "$tmp" && mv "$tmp" "$f" || rm -f "$tmp"
+}
+
+# running_version: the version the ingest container reports (SUCKERPOT_RUNNING_VERSION), or nothing.
+running_version() {
+  local v
+  v=$(dc exec -T ingest printenv SUCKERPOT_RUNNING_VERSION 2> /dev/null | tr -d '\r' | head -n 1 || true)
+  [[ $v =~ ^[A-Za-z0-9._+-]{1,64}$ ]] && printf '%s' "$v"
+  return 0
+}
+
+# ----------------------------------------------------------------------- the update lock
+# update.sh, rollback.sh and auto-update.sh take .suckerpot-state/update.lock (flock); the one that
+# holds it writes who it is next to it, so another one can say who it waits for.
+lock_note() {
+  printf 'pid=%s what=%s since=%s\n' "$$" "$1" "$(date +%s)" > .suckerpot-state/update.lock.info 2> /dev/null || true
+}
+
+# lock_holder: who holds the update lock, in words ("" when nothing tells).
+lock_holder() {
+  local f=.suckerpot-state/update.lock.info pid what since
+  [ -f "$f" ] || return 0
+  pid=$(sed -n 's/.*pid=\([0-9]*\).*/\1/p' "$f")
+  what=$(sed -n 's/.*what=\([a-z-]*\).*/\1/p' "$f")
+  since=$(sed -n 's/.*since=\([0-9]*\).*/\1/p' "$f")
+  [ -n "$pid" ] && kill -0 "$pid" 2> /dev/null || return 0
+  printf '%s (pid %s, for %s min)' "${what:-an update}" "$pid" "$(( ($(date +%s) - ${since:-$(date +%s)}) / 60 ))"
+}
+
+# lock_sleeper: the pid of an automatic update of an older release that holds the lock while it
+# only sleeps (its random wait); empty otherwise.
+lock_sleeper() {
+  local pid
+  for pid in $(pgrep -u "$(id -u)" -f 'scripts/auto-update.sh' 2> /dev/null || true); do
+    [ "$pid" != "$$" ] || continue
+    if pgrep -P "$pid" -x sleep > /dev/null 2>&1; then printf '%s' "$pid"; return 0; fi
+  done
+  return 0
+}
+
+# lock_take FD WHAT: takes the update lock on FD, or says who holds it and fails. An older
+# automatic update that only sleeps is offered to be stopped (on a terminal), then the lock taken.
+lock_take() {
+  local fd=$1 what=$2 who pid a=""
+  if flock -n "$fd"; then lock_note "$what"; return 0; fi
+  who=$(lock_holder)
+  pid=$(lock_sleeper)
+  if [ -n "$pid" ] && [ -z "$who" ]; then
+    echo "An automatic update of an older release (pid $pid) holds the update lock while it only waits (its random delay before checking)." >&2
+    if [ -r /dev/tty ] && (: < /dev/tty) 2> /dev/null; then
+      printf 'Stop that wait and update now? [Y/n] ' > /dev/tty
+      IFS= read -r a < /dev/tty || a=n
+    fi
+    case $a in
+      "" | y | Y | yes)
+        pkill -P "$pid" -x sleep 2> /dev/null || true
+        kill "$pid" 2> /dev/null || true
+        if flock -w 15 "$fd"; then lock_note "$what"; return 0; fi
+        ;;
+    esac
+    echo "The update lock is still held: try again in a few minutes." >&2
+    return 1
+  fi
+  if [ -n "$who" ]; then
+    echo "another update or rollback is running: $who. Wait for it to end (the automatic one writes .suckerpot-state/auto-update.log)." >&2
+  else
+    echo "another update or rollback is running (lock .suckerpot-state/update.lock)." >&2
+  fi
+  return 1
+}
+
 # ----------------------------------------------------------------------- root and sudo
 # The host scripts run as the user who starts them and ask for root only for the steps that need
 # it (Docker's setup, the host firewall, the Podman units), through as_root:

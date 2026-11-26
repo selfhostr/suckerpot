@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Slow nodes (1 vCPU / 1 GB cloud VMs): `participant.sh set-name` and `set-country` no longer restart ingest for a member. The change goes into the node's record and the network worker, which now looks between its cycles for a change made from the terminal (or a leave), sends it to the hub within seconds; the script shows the time while it waits. Only a refused join, which must read the new name from `.env`, still restarts ingest.
+- A restart of a service (`participant.sh`, `edit.sh`, `update.sh`) runs in its own session: Ctrl-C (or TERM) says that the current step finishes first and never leaves the stack half recreated. Its output goes to `.suckerpot-state/stack.log`, and the screen shows what runs and for how long instead of going silent.
+- Those restarts no longer use `compose up --wait`, which gave up at the first unhealthy check of a loaded node: they wait for the service to be healthy until a deadline (`SUCKERPOT_WAIT_TIMEOUT`, 900 s on a small machine, 300 s elsewhere). A change that ingest (and the hub) already took is never undone because ingest was slow to come back: the script says what is true.
+- A container left by an interrupted restart (renamed `<id>_<project>-<service>-<n>`) made the next `up --wait` fail with "has no healthcheck configured". It is removed before every restart and by `install.sh --repair`.
+- When ingest does not answer, the scripts wait for it (with the time shown, `SUCKERPOT_INGEST_WAIT`, 300 s on a small machine) and tell "not running" from "busy or starting"; an ingest that does not start is shown with its state and the last lines of its log.
+- The ingest healthcheck gives a loaded machine time: 120 s to start, 20 s per check, 4 tries.
+- The automatic updater takes its random wait (up to 30 min) before the update lock, so `update.sh` is never blocked by an automatic update that only sleeps. A held lock now says who holds it and since when; an automatic update of an older release that holds it while it sleeps can be stopped from the prompt.
+- `status.sh` shows the version the containers run, and says when it differs from the scripts and `.env` ("Scripts v0.15.1, images v0.12.1: the update did not finish"), with the fix (`./suckerpot.sh update --resume`); the menu says so too. The Network section shows the node name and the country (shown, hidden or none) and whether the hub has them.
+- An update that was cut off (often a dropped SSH session on a slow host, which leaves the new scripts with the old images) is now easy to finish: `update.sh --resume` (`./suckerpot.sh update --resume`) runs it again to the version it was going to, even when `.env` already names it. The "previous update never finished" message names that command and suggests tmux or screen on a slow host; `status.sh` and the menu offer it (the menu's `u` runs it). On a terminal, `update.sh` now ignores a hangup and copies its output to `.suckerpot-state/update.log`, so a dropped connection no longer stops it half way (`tail -f` the log after logging in again).
+- `participant.sh set-country` and `set-name` could end without a word (exit 141) on a machine with more than one public address (for example `--self-address` and the interface): the country check read the first address with `| head`, and the broken pipe ended the script. That is fixed.
+- `status.sh` no longer shows a closed path to the hub as the current error once the hub answered since ("recovered since"), and on the direct path it no longer advises to check the VPN (`egress_closed` there means hubproxy was not up yet, after a restart). The network worker tries again as soon as the gate is open, instead of a whole interval later.
+- The country check no longer says "behind a home router?" on cloud servers behind NAT (Oracle Cloud, AWS, Google Cloud), and names `--self-address` and `SELF_ADDRESS`. `SUCKERPOT_GEO_METADATA=1` lets it ask the cloud's own metadata service (link-local 169.254.169.254, AWS, Google Cloud, Azure; off by default).
+- `SESSION_FOLD_TIMEOUT_MS` (default 2000) sets how long a fold call of ingest's writer may take; on a slow disk, `SQLSTATE 57014` from `floods.fold` is harmless and `8000` makes it rare.
+
 ## [0.15.1] - 2026-11-26
 
 ### Added

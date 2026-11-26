@@ -52,7 +52,7 @@ mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 if [ "${SELFHOSTR_UPDATE_LOCK_HELD:-}" != 1 ]; then
   exec 9> "$STATE_DIR/update.lock"
-  flock -n 9 || die "another update or rollback is running (lock $STATE_DIR/update.lock)"
+  lock_take 9 rollback || die "nothing was changed"
 fi
 [ -f "$STATE" ] || die "no update to roll back ($STATE not found)"
 

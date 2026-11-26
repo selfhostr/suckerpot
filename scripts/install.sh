@@ -79,6 +79,8 @@ LOG=install.log
 . scripts/lib/ui.sh
 # shellcheck source=scripts/lib/ask.sh
 . scripts/lib/ask.sh
+# shellcheck source=scripts/lib/stackop.sh
+. scripts/lib/stackop.sh
 UI_PREFIX=install
 
 # Plain mode (no terminal, TERM=dumb, --plain) prints exactly what the installer always printed.
@@ -1620,6 +1622,8 @@ if [ "$mode" = images ]; then
   fi
   if [ "$skip_verify" = 1 ]; then ui_done "pulled, signatures NOT checked"; else ui_done "${UI_COUNT:-0} signatures valid"; fi
   ui_begin start
+  # What an interrupted restart left behind would make the start fail (scripts/lib/stackop.sh).
+  stack_clean_leftovers
   ui_run --expect 150 -- "${start_cmd[@]}" -d --no-build --pull never --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 else
   SUCKERPOT_BUILD_VERSION=$(git describe --tags --always --dirty 2> /dev/null || echo dev)
@@ -1627,9 +1631,19 @@ else
   export SUCKERPOT_BUILD_VERSION SUCKERPOT_BUILD_COMMIT
   ui_skip "source mode: built during the start"
   ui_begin start
+  # What an interrupted restart left behind would make the start fail (scripts/lib/stackop.sh).
+  stack_clean_leftovers
   ui_run --expect 600 -- with_public_umask "${start_cmd[@]}" -d --build --wait --wait-timeout 900 ${up_extra[@]+"${up_extra[@]}"} || die "the stack did not become healthy. See: docker compose ps, docker compose logs"
 fi
 ui_done "all services healthy"
+# An update that was cut off leaves its state file unfinished; once the stack runs the version of
+# .env, there is nothing left to finish.
+if [ "$repair" = 1 ] && [ -n "$(update_unfinished)" ]; then
+  if [ "$(env_get SUCKERPOT_INSTALL_MODE source)" != images ] || [ "$(running_version)" = "$(env_get SUCKERPOT_VERSION)" ]; then
+    update_mark_finished
+    say "The update that was cut off is over: the stack runs $(env_get SUCKERPOT_VERSION source)."
+  fi
+fi
 if [ "$stack" = full ]; then
   if [ "$repair" = 1 ]; then
     bind=$(env_get DASHBOARD_BIND 127.0.0.1)

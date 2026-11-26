@@ -296,7 +296,7 @@ def test_the_check_compares_with_the_local_list_only(tmp_path: Path) -> None:
     assert (got["result"], got["found"]) == ("mismatch", "CH")
     # No public address: only an outside service could tell, and the check never asks one.
     got = geo(tmp_path, "CH", GEO_SELF_ADDRESS=PRIV_SELF, SUCKERPOT_GEOIP_CSV=csv)
-    assert got["result"] == "unknown" and "never asks one" in got["why"]
+    assert got["result"] == "unknown" and "never asks an outside service" in got["why"]
     got = geo(tmp_path, "CH", GEO_SELF_ADDRESS="203.0.113.9")
     assert got["result"] == "unknown" and got["why"] == "no GeoIP database on this machine"
 
@@ -474,9 +474,8 @@ def test_set_name_updates_a_member_and_waits_for_the_hub(
         "docker compose exec -T ingest python -m ingest.network.cli update --pseudonym Grey Heron 7"
         in calls
     )
-    assert any(
-        c.startswith("docker compose up") and c.endswith("--force-recreate ingest") for c in calls
-    )
+    # A member takes the change without a restart of ingest (slow 1 GB nodes).
+    assert not [c for c in calls if c.startswith("docker compose up")]
 
 
 def test_a_taken_name_puts_everything_back(node: Sandbox) -> None:
@@ -576,7 +575,7 @@ def test_status_brief_shows_the_enrolment(node: Sandbox) -> None:
     assert "country CH (shown to the network); last batch 2026-11-24 (412 sources)" in out
     assert "Overall  " in out
     full = node.run("scripts/status.sh", extra_env=status_env).stdout
-    assert "  Country: CH (shown to the network)" in full
+    assert "  Node name: amber-falcon-42; country: CH (shown); the hub has them" in full
     cli.update(state="error", error_code="pseudonym_taken", last_error={"code": "pseudonym_taken"})
     (node.shim / "cli-state.json").write_text(json.dumps(cli))
     out = node.run("scripts/status.sh", "--brief", extra_env=status_env).stdout

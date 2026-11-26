@@ -5,6 +5,9 @@
 Reads one JSON document on stdin, written by status.sh:
 
     stack, install, version        strings from .env
+    running                        the version the ingest container runs (absent in older status.sh)
+    unfinished                     the target of an update that was cut off ("unknown" when the
+                                   state file names none), or empty
     ps                             [[service, state, health], ...] from `docker compose ps`
     ports                          [[router_port, host_port, protocol, sensor], ...]
     auto_enabled, auto_schedule    AUTO_UPDATE_ENABLED and `schedule_status` ("cron 04:37/6h", "off")
@@ -63,6 +66,8 @@ KNOWN_TEXT = {
     "stack_unit_missing": "the boot unit suckerpot-stack.service is not installed: the stack does not come back after a reboot (./scripts/participant.sh firewall installs it)",
     "stack_unit_inactive": "the boot unit suckerpot-stack.service is not active: sudo systemctl start suckerpot-stack.service",
     "release_outdated": "this node runs an older release than the newest one it knows",
+    "images_behind": "the containers run another version than .env names: ./suckerpot.sh update --resume",
+    "update_unfinished": "an update was interrupted and never finished: ./suckerpot.sh update --resume",
     "auto_update_failed": "the last automatic update did not complete: .suckerpot-state/auto-update.log",
     "join_refused": "the hub refused to enrol this node: it is not a member",
     "hub_contact_none": f"no contact with the hub {NO_CONTACT_AFTER_H} h after joining",
@@ -96,6 +101,12 @@ ERROR_HELP = {
     "egress_closed": (
         "the path to the hub is closed (the VPN is down or not checked yet)",
         "check the VPN, or go back to the direct path: ./scripts/participant.sh vpn --remove",
+    ),
+    # The same code on the direct path: hubproxy (the one way out to the hub) was not up yet.
+    "egress_closed_direct": (
+        "the path to the hub was closed: hubproxy was not up (it starts after a restart of the "
+        "stack) or could not be reached",
+        "",
     ),
     "hub_error": ("the hub answered with an error", ""),
     "rate_limited": ("the hub asked this node to slow down", ""),
@@ -277,10 +288,20 @@ def analyse(doc: dict[str, Any], now: datetime) -> dict[str, Any]:
     # Installed but not in force (unit stopped, tables flushed): a warning on every stack.
     if doc.get("firewall") == "not_loaded":
         warnings.append("firewall_not_loaded")
+    if doc.get("unfinished"):
+        warnings.append("update_unfinished")
+    # .env names one version, the containers run another (an update that did not finish).
+    if (
+        doc.get("install") == "images"
+        and _ver(doc.get("running"))
+        and _ver(doc.get("version"))
+        and doc.get("running") != doc.get("version")
+    ):
+        warnings.append("images_behind")
     if stack == "participant":
         if doc.get("firewall") == "missing":
             warnings.append("firewall_missing")
-        running, newest = _ver(doc.get("version")), _ver(doc.get("latest"))
+        running, newest = _ver(doc.get("running") or doc.get("version")), _ver(doc.get("latest"))
         if (
             running
             and newest
@@ -362,10 +383,26 @@ def needs_attention(doc: dict[str, Any], info: dict[str, Any]) -> list[tuple[str
         items.append(("The boot unit is not installed", "./scripts/participant.sh firewall"))
     if "stack_unit_inactive" in info["warnings"]:
         items.append(("The boot unit is not active", "sudo systemctl start suckerpot-stack.service"))
+    if "update_unfinished" in info["warnings"]:
+        target = doc.get("unfinished")
+        to = f" to {target}" if target and target != "unknown" else ""
+        items.append(
+            (
+                f"The update{to} was interrupted and never finished; finish it (inside tmux or screen on a slow host)",
+                "./suckerpot.sh update --resume",
+            )
+        )
+    elif "images_behind" in info["warnings"]:
+        items.append(
+            (
+                f"The scripts and .env are {doc.get('version')}, the containers run {doc.get('running')}",
+                "./suckerpot.sh update --resume",
+            )
+        )
     if "release_outdated" in info["warnings"]:
         items.append(
             (
-                f"This node runs {doc.get('version')}, the newest release is {doc.get('latest')}",
+                f"This node runs {doc.get('running') or doc.get('version')}, the newest release is {doc.get('latest')}",
                 "just update",
             )
         )
@@ -426,8 +463,15 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
     out: list[str] = []
     version = doc.get("version") or "source build"
     status = {0: "OK", 1: "WARNING", 2: "ERROR"}[info["exit"]]
+    running = doc.get("running")
+    if running and running != version and "images_behind" in info["warnings"]:
+        version = f"{running} (scripts {doc.get('version')})"
     head = f"SuckerPot {version}, {info['stack']} mode, {doc.get('install') or 'source'}"
     out.append(f"{head:<66}{status}")
+    if "images_behind" in info["warnings"]:
+        out.append(
+            f"Scripts {doc.get('version')}, images {running}: the update did not finish. Run ./suckerpot.sh update --resume"
+        )
     engine = str(doc.get("engine") or "")
     if engine.startswith("podman"):
         unit = {"active": "active", "inactive": "not active", "missing": "not installed"}.get(
@@ -499,9 +543,7 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
         )
         standing = f", standing: {cli['standing']}" if cli.get("standing") else ""
         out.append(f"  Member as {who}{standing}")
-        line = _country_line(cli)
-        if line:
-            out.append(f"  {line}")
+        out.append(f"  {_profile_line(cli)}")
         if cli.get("counts_from"):
             out.append(f"  Counts toward consensus from {cli['counts_from']}")
         contact = _when(hub.get("last_contact"))
@@ -515,9 +557,23 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
             )
         code = info["error_code"]
         if code and code not in QUIET_ERRORS:
-            why, fix = ERROR_HELP.get(code, ("an unexpected problem", "docker compose logs ingest"))
+            key = "egress_closed_direct" if code == "egress_closed" and cli.get("path") == "direct" else code
+            why, fix = ERROR_HELP.get(key, ("an unexpected problem", "docker compose logs ingest"))
             since = info["error_since"]
             when = f" ({_ago(since, now)})" if since is not None else ""
+            # A path error that a later hub contact proves gone (the worker clears it at its next
+            # cycle): shown as recovered, without a fix.
+            if (
+                code == "egress_closed"
+                and contact is not None
+                and since is not None
+                and contact > since
+            ):
+                out.append(
+                    f"  Last network error: {code}{when}, recovered since (hub contact {_ago(contact, now)})."
+                )
+                code = ""
+        if code and code not in QUIET_ERRORS:
             line = f"  Last network error: {code}{when}. {why[0].upper()}{why[1:]}."
             fix = _fix(fix, info["stack"])
             out.append(line + (f" Fix: {fix}" if fix else " SuckerPot keeps trying by itself."))
@@ -563,6 +619,25 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
     out.append("")
     out.append("Exit code 0 = OK, 1 = warning, 2 = error.")
     return "\n".join(out)
+
+
+def _profile_line(cli: dict[str, Any]) -> str:
+    """Node name and country as the owner set them, and whether the hub has them."""
+    name = cli.get("pseudonym") or "none (shown as Node and a number)"
+    country = cli.get("country")
+    if isinstance(country, str) and len(country) == 2:
+        where = f"{country.upper()} ({'shown' if cli.get('show_country') else 'hidden'})"
+    else:
+        where = "none"
+    synced = cli.get("profile_synced")
+    hub = (
+        "; the hub has them"
+        if synced is True
+        else "; not sent to the hub yet"
+        if synced is False
+        else ""
+    )
+    return f"Node name: {name}; country: {where}{hub}"
 
 
 def _country_line(cli: dict[str, Any]) -> str:

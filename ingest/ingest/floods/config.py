@@ -21,6 +21,9 @@ class FoldSettings:
     min_connections: int = 20
     #: A connection with no disconnect counts as closed after this many minutes of silence.
     idle_minutes: int = 15
+    #: Each fold call of the writer gives up after this long (SESSION_FOLD_TIMEOUT_MS). A slow
+    #: disk or CPU (a 1 GB cloud VM) may need more than the default; a timeout only pauses folding.
+    writer_timeout_ms: int = 2000
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> FoldSettings:
@@ -30,4 +33,5 @@ class FoldSettings:
             enabled=raw in TRUE_VALUES if raw else True,
             min_connections=_int(e, "SESSION_FOLD_MIN", 20, MIN_LOW, MIN_HIGH),
             idle_minutes=_int(e, "SESSION_FOLD_IDLE_MIN", 15, 5, 1_440),
+            writer_timeout_ms=_int(e, "SESSION_FOLD_TIMEOUT_MS", 2000, 500, 30_000),
         )
