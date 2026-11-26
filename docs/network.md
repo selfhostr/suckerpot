@@ -98,7 +98,7 @@ Test traffic counts. If you test your sensors from an outside address that is no
 
 | Item | What it is |
 | --- | --- |
-| Totals | Nodes, nodes active this week, countries with at least three nodes, confirmed, reported and taken-down targets over 30 days, median days to takedown |
+| Totals | Nodes, nodes active this week, countries shown by at least two nodes, confirmed, reported and taken-down targets over 30 days, median days to takedown |
 | Weekly figures | Confirmed, reported and taken-down targets per week |
 | Recently taken down | Targets, with the number of sensors (as a range) and a "You helped" mark when your node contributed |
 | Nodes | Pseudonym or node number, country (only if the node showed it), month of joining, active days in the last full week, and a tier |
@@ -136,7 +136,7 @@ The hub can publish one more public file, `network.json`, next to the lists on t
 
 | Section | What it says |
 | --- | --- |
-| Nodes | Nodes, nodes that sent a batch last week, and countries shown by at least three nodes |
+| Nodes | Nodes, nodes that sent a batch last week, and countries shown by at least two nodes |
 | Bootstrap | How many eligible nodes consensus needs (`HUB_MIN_NODES`) and how many are still missing, counted once a week once that week's late batches are in |
 | Outcomes | Targets confirmed, reported and taken down per day over 90 days, reports and abuse.ch submissions sent in 30 days, the median time to takedown. Exact only when the hub runs the production consensus thresholds; otherwise weekly and rounded to tens (totals over the last four complete weeks), or nothing at all when a confirmation could rest on fewer than three nodes |
 | Activity | Attacking addresses per day and how many logged in, ran commands, downloaded or sent exploits; download links, files and command servers seen; the most targeted services, the most frequent tags and malware families over 30 days |
@@ -148,7 +148,7 @@ How the file protects nodes:
 - **Rounded.** Activity counts have two significant figures and are never finer than tens. Lists give shares, not counts.
 - **Only eligible nodes count.** A node counts only once it is eligible for consensus (old enough, active enough, good reputation). Freshly enrolled nodes cannot unlock finer figures or test what another node saw.
 - **Coarse while the network is small.** A day with fewer than three eligible nodes is never shown alone: its week is one average of attacking addresses, logins and commands, with one significant figure, and the smaller figures (downloads, exploits, links, files, command servers) stay empty. A single node's day off or exact volume does not show. A service, tag or family needs enough support, over several weeks, before it is named; a CVE tag needs two nodes.
-- **Countries.** A country appears only when at least three nodes chose to show it.
+- **Countries.** A country appears only when at least two nodes chose to show it. Showing a country is opt-in, so a node that never ticks it is never part of a country figure.
 - **`members` counts live members only.** It is the number of enrolled nodes that are not dormant (see [Dormant and expired members](#dormant-and-expired-members)); `active_last_week` is the number of nodes that sent a non-empty batch in the last complete week. Dormant nodes are left out of the node and country counts, and of the member list and counts of the network summary.
 
 The activity figures describe attackers, not nodes. They show the traffic the network received, never where a sensor is or who runs it. With very few nodes, the list of services also shows which sensors those nodes run.
@@ -250,7 +250,7 @@ Then:
 3. Press **Join the network**. The dialog asks for:
    - the five items, shown for you to confirm;
    - an optional pseudonym. Do not use a name that you use anywhere else;
-   - an optional country. It is never detected or filled in for you. It is shown only if you tick "Show my country" and at least three nodes share it;
+   - an optional country. It is never detected or filled in for you. It is shown only if you tick "Show my country" and at least two nodes share it;
    - your dashboard password again.
 4. The sensor creates its key and solves a proof-of-work puzzle. This can take a few minutes on a small machine. It runs at low priority, so ingest keeps working. The hub can raise the puzzle's price when many systems sign up at once. While the hub is closed or the puzzle is too hard, the page says that enrolment is waiting, and the sensor retries by itself.
 5. Your install is now a node. Its standing shows `new`. It sends its first batch after the next day ends, plus a random wait of 2 to 20 hours. By default, your sensor counts toward confirmations after 14 days of regular batches. The standing then changes to `good`.
@@ -272,7 +272,7 @@ The terminal tools call the pseudonym the **node name**. A participant install a
 
 ### Country
 
-A node may show a country next to its name. It is your choice and it is optional: nothing on your node or on the hub ever detects it, fills it in or sends it for you. The member list shows it only when you chose to show it and at least three nodes show the same country. A participant install asks `Show a country for this node?` on the terminal (no by default) and changes it with `./scripts/participant.sh set-country CC` (`--hide` sends it without showing it, `--none` removes it) or `./suckerpot.sh edit country`.
+A node may show a country next to its name. It is your choice and it is optional: nothing on your node or on the hub ever detects it, fills it in or sends it for you. The member list shows it only when you chose to show it and at least two nodes show the same country. With two, each of the two members can tell that the other one shows the same country; nobody else learns more than the country and the two pseudonyms the list already shows. If that is too much, do not tick it: it is off by default. A count of countries (on a target, in an abuse report, in the public `stats.json`) is a different rule and still needs three countries. A participant install asks `Show a country for this node?` on the terminal (no by default) and changes it with `./scripts/participant.sh set-country CC` (`--hide` sends it without showing it, `--none` removes it) or `./suckerpot.sh edit country`.
 
 ### The country check
 

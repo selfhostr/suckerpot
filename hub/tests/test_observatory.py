@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from suckerpot_netproto import buckets
 
 from hub import observatory as obs
 from hub.config import Settings
@@ -212,14 +213,25 @@ def test_bootstrap_reads_min_nodes_from_the_input() -> None:
     assert "first_consensus_day" not in doc["bootstrap"]
 
 
-# --- countries (k = 3) ------------------------------------------------------------------------------
+# --- countries (2 members) -------------------------------------------------------------------------
 
 
-def test_node_countries_need_three_members() -> None:
+def test_node_countries_need_two_members() -> None:
     doc = obs.render(scenario(1, country_members={"CH": 2, "DE": 3, "FR": 1, "NL": 7}))
-    assert doc["nodes"]["countries"] == [{"cc": "DE", "members": 3}, {"cc": "NL", "members": 7}]
+    assert doc["nodes"]["countries"] == [
+        {"cc": "CH", "members": 2},
+        {"cc": "DE", "members": 3},
+        {"cc": "NL", "members": 7},
+    ]
     doc = obs.render(scenario(1, country_members={"CH": 1}))
     assert doc["nodes"]["countries"] == []
+
+
+def test_country_rule_is_apart_from_the_node_threshold() -> None:
+    rules = obs.render(scenario(1))["rules"]
+    assert rules["min_countries_shown"] == buckets.MIN_MEMBERS_COUNTRY_SHOWN == 2
+    assert rules["min_nodes_standard"] == obs.MIN_NODES_STANDARD == 3
+    assert buckets.MIN_COUNTRIES_SHOWN == 3
 
 
 # --- activity: suppression and precision ------------------------------------------------------------

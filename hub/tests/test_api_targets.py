@@ -305,8 +305,8 @@ async def test_network_summary(env: Env) -> None:
         )
         await s.commit()
     assert (await node.call("GET", "/v1/network")).json == summary
-    # a cached document that breaks a privacy rule (a country below 3 members) never goes out
-    summary["countries"] = [{"cc": "CH", "members": 2}]
+    # a cached document that breaks a privacy rule (a country below 2 members) never goes out
+    summary["countries"] = [{"cc": "CH", "members": 1}]
     async with env.worker() as s:
         await s.execute(
             text("UPDATE network_summary SET data = CAST(:d AS jsonb)"), {"d": json.dumps(summary)}

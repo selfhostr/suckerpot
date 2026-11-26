@@ -51,7 +51,7 @@ SERIES_DAYS = 90
 WINDOW_DAYS = 30
 RETENTION_DAYS = 400
 # k: a figure needs this many eligible nodes behind it, otherwise it is coarse or null.
-MIN_NODES_STANDARD = buckets.MIN_COUNTRIES_SHOWN
+MIN_NODES_STANDARD = 3
 # An item (service, tag, family) needs this much support over the window to be named...
 ITEM_MIN = 20
 # ...and in coarse mode much more, spread over at least ITEM_MIN_WEEKS different ISO weeks.
@@ -430,7 +430,7 @@ def render(inp: ObservatoryInput) -> dict[str, Any]:
         allow_standard=inp.allow_standard,
     )
     countries = sorted(
-        (cc, n) for cc, n in inp.country_members.items() if n >= buckets.MIN_COUNTRIES_SHOWN
+        (cc, n) for cc, n in inp.country_members.items() if n >= buckets.MIN_MEMBERS_COUNTRY_SHOWN
     )
     week = inp.week or _week_start(today)
     return {
@@ -456,7 +456,7 @@ def render(inp: ObservatoryInput) -> dict[str, Any]:
         },
         "rules": {
             "min_nodes_standard": MIN_NODES_STANDARD,
-            "min_countries_shown": buckets.MIN_COUNTRIES_SHOWN,
+            "min_countries_shown": buckets.MIN_MEMBERS_COUNTRY_SHOWN,
             "activity_lag_days": FINAL_LAG_DAYS,
             "outcome_lag_days": OUTCOME_LAG_DAYS,
             "item_min": ITEM_MIN,

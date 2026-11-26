@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A member's country is shown once two members show it, instead of three: on the member list, in the network summary's `countries` (and its count of countries), and in `nodes.countries[]` of the public `network.json`, whose `rules.min_countries_shown` is now 2. The rule has its own constant, `MIN_MEMBERS_COUNTRY_SHOWN` in `suckerpot_netproto.buckets`; `MIN_COUNTRIES_SHOWN` stays 3 for counts of countries (a target's `countries`, "in N or more countries" in abuse reports, `network.countries` in the feed's `stats.json`), and the observatory's three-node threshold for standard figures no longer borrows it. With two, each of the two members can tell that the other shows the same country; showing a country stays opt-in and off by default. Nodes on v0.15.1 or older refuse a network summary that lists a country with two members, so they need this release before the hub shows one.
 - Network docs: what `members` means in the public figures (enrolled nodes that are not dormant) and the member life cycle (member, dormant, expired), in `docs/network.md`. The history a member contributed (frozen days, daily rows, targets) is never recounted when it goes.
 
 ## [0.15.1] - 2026-11-26

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-MIN_COUNTRIES_SHOWN = 3  # a country count or a member country below this is hidden
+MIN_COUNTRIES_SHOWN = 3  # a count of countries below this is hidden
+# A member's country is shown only when at least this many members chose to show it. With 2,
+# each of the two can tell that the other shows the same country: showing one is opt-in.
+MIN_MEMBERS_COUNTRY_SHOWN = 2
 MAX_BATCH_AGE_DAYS = 3
 
 COUNT_BUCKET_LABELS = ("0-1", "2-9", "10-99", "100-999", "1000+")

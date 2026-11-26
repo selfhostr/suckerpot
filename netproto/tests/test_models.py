@@ -320,3 +320,10 @@ def test_target_fields_are_bounded() -> None:
     assert models.Target.model_validate(_target(value="a" * 2048)).value == "a" * 2048
     kept = models.Target.model_validate(_target(tags=["mirai", "x" * 5000, "mirai"]))
     assert kept.tags == ["mirai"]  # unknown tags are dropped, never stored
+
+
+def test_network_country_needs_two_members() -> None:
+    assert models.NetworkCountry.model_validate({"cc": "CH", "members": 2}).members == 2
+    for members in (0, 1):
+        with pytest.raises(ValueError):
+            models.NetworkCountry.model_validate({"cc": "CH", "members": members})

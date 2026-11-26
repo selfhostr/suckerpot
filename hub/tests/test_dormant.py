@@ -163,7 +163,7 @@ async def test_dormant_members_are_left_out_of_every_count(env: Env) -> None:
 
 @pytest.mark.integration
 async def test_a_country_at_the_edge_does_not_flip_day_by_day(env: Env) -> None:
-    await add_nodes(env.worker, 2, countries=["CH"] * 2, show_country=True)
+    await add_nodes(env.worker, 1, countries=["CH"], show_country=True)
     (edge,) = await add_nodes(
         env.worker, 1, active_days=0, countries=["CH"], show_country=True,
         enrolled=[TODAY - 90 * D],
@@ -176,8 +176,8 @@ async def test_a_country_at_the_edge_does_not_flip_day_by_day(env: Env) -> None:
             summary = await stats.build_summary(s, date(2026, 10, 30) + i * D)
             seen.add((summary.totals.members, tuple((c.cc, c.members) for c in summary.countries)))
         later = await stats.build_summary(s, date(2026, 11, 13))
-    assert seen == {(3, (("CH", 3),))}
-    assert later.totals.members == 2 and later.countries == []
+    assert seen == {(2, (("CH", 2),))}
+    assert later.totals.members == 1 and later.countries == []
 
 
 @pytest.mark.integration
