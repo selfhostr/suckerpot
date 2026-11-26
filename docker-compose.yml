@@ -237,6 +237,7 @@ services:
       SESSION_FOLD_ENABLED: ${SESSION_FOLD_ENABLED:-true}
       SESSION_FOLD_MIN: ${SESSION_FOLD_MIN:-20}
       SESSION_FOLD_IDLE_MIN: ${SESSION_FOLD_IDLE_MIN:-15}
+      SESSION_FOLD_TIMEOUT_MS: ${SESSION_FOLD_TIMEOUT_MS:-2000}
       GEOIP_PROVIDER: ${GEOIP_PROVIDER:-auto}
       GEOIP_REFRESH_DAYS: ${GEOIP_REFRESH_DAYS:-30}
       GEOIP_FAKE_FOR_PRIVATE: ${GEOIP_FAKE_FOR_PRIVATE:-false}
@@ -423,9 +424,11 @@ services:
     healthcheck:
       test: ["CMD", "python", "-m", "ingest.healthcheck"]
       interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      # A loaded 1-vCPU / 1 GB node takes up to ~10 s to start the check's Python and a minute or
+      # more to start ingest: a short timeout or start period marked it unhealthy for nothing.
+      timeout: 20s
+      retries: 4
+      start_period: 120s
 
   api:
     image: ${SUCKERPOT_IMAGE_PREFIX:-local/${COMPOSE_PROJECT_NAME:-unset}}-api:${SUCKERPOT_VERSION:-dev}

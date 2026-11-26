@@ -1,0 +1,4 @@
+# Example private addresses in a test fixture of an early installer commit (dev history,
+# rewritten in 6559cd4 "spell private IPv4 examples in parts"). Not a real network layout.
+3a34614c669a022ff0456289b3884f6a16230781:scripts/guardrails/tests/test_node_tui.py:private-ipv4:216
+3a34614c669a022ff0456289b3884f6a16230781:scripts/guardrails/tests/test_node_tui.py:private-ipv4:284

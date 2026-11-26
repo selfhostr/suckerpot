@@ -157,7 +157,13 @@ class FloodFold:
         plain_tags: frozenset[str],
         clock: Callable[[], float] = time.monotonic,
     ) -> FloodFold:
-        return cls(settings, plain_tags, FloodGate(threshold=settings.min_connections), clock=clock)
+        return cls(
+            settings,
+            plain_tags,
+            FloodGate(threshold=settings.min_connections),
+            timeout_ms=settings.writer_timeout_ms,
+            clock=clock,
+        )
 
     def record(self, events: Iterable[Event]) -> set[BucketKey]:
         """Count the batch's connections in the gate. Returns the (address, sensor, hour) of every

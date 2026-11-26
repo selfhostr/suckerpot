@@ -92,7 +92,7 @@ A full install can turn them on at any time, if it uses the signed release image
 
 The update runs from the **crontab of the installing user**, or from a systemd user timer when that is not available. It calls `scripts/auto-update.sh`. This is the one documented exception to "nothing runs on the host except Docker". The reason: an updater container would need the Docker socket (root on the host) and a route to the internet, and that is worse. The cron line is visible with `crontab -l`. It carries the marker `# selfhostr-auto-update`, so install and removal never touch your other lines. No `sudo` is needed.
 
-It runs every 6 hours. The first run of the day is at a random minute between 03:00 and 05:59 local time, chosen at install, and the next ones follow 6, 12 and 18 hours later (for example 04:37, 10:37, 16:37 and 22:37). A random wait of up to 30 minutes is added, so many machines do not update at the same second. A release still waits its minimum age (step 4); checking every 6 hours means it is installed at most about 6 hours after that age is reached, instead of up to a day after.
+It runs every 6 hours. The first run of the day is at a random minute between 03:00 and 05:59 local time, chosen at install, and the next ones follow 6, 12 and 18 hours later (for example 04:37, 10:37, 16:37 and 22:37). A random wait of up to 30 minutes is added, so many machines do not update at the same second. It waits before it takes the update lock, so a manual `update.sh` during that wait is not blocked; a manual update that finds the lock held says who holds it (PID, since when). A release still waits its minimum age (step 4); checking every 6 hours means it is installed at most about 6 hours after that age is reached, instead of up to a day after.
 
 An install from before v0.11.10 had a once-a-day schedule. Its first run on v0.11.10 or later moves it to every 6 hours, at the same minute, and keeps it a cron line or a systemd timer as it was.
 
@@ -238,13 +238,18 @@ It is a record for `just rollback`. It has no password and no secret. Step 9 cha
 An update that stops after step 3 leaves `"completed": false` in the state file. A new `just update` then refuses to start:
 
 ```text
-update: the previous update never finished (see .suckerpot-state/last-update.json). Run just rollback, or finish it, or retry with --force
+update: the previous update to v0.15.1 was interrupted and never finished (see .suckerpot-state/last-update.json).
+  Finish it (the safe way forward):  ./suckerpot.sh update --resume
+  On a slow host, run it inside tmux or screen so a dropped connection cannot cut it off.
+  (To go back to the version before it instead: just rollback)
 ```
 
-The lock protects you from a second update on top of a half-done one. There is no automatic way to finish the first one. Choose one of these:
+The lock protects you from a second update on top of a half-done one. The usual cause is a dropped SSH session on a slow host, which leaves the new scripts with the old images (`./suckerpot.sh status` then says "Scripts v0.15.1, images v0.12.1", and the menu offers to finish the update).
 
+- **Finish it (recommended).** Run `./suckerpot.sh update --resume` (or `scripts/update.sh --resume`). It runs the same update again, to the version it was going to, with a new backup and the signature check. `--force` does the same for a version you name.
 - **Roll back.** Run `just rollback`. Read [Rollback](#rollback) first.
-- **Fix the cause and retry.** Run `just update --force`. This skips the lock check only. It does not skip the backup or the signature check.
+
+On a terminal (outside tmux or screen), `update.sh` ignores a hangup and copies its output to `.suckerpot-state/update.log`: if the connection drops, the update goes on, and `tail -f .suckerpot-state/update.log` follows it after you log in again. On a slow host, tmux or screen is still the better place to run it.
 
 After a successful rollback, the state file is kept but marked `"completed": true`, so the lock is released and the next `just update` does not need `--force`. A rollback that fails part way leaves the lock in place.
 

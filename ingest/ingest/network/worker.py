@@ -65,6 +65,9 @@ WAITING_ENROLMENT = "waiting_enrolment"
 # The hub answered a signed request with ``unknown_node``: it expired this membership.
 MEMBERSHIP_EXPIRED = "membership_expired"
 FAST_INTERVAL_S = 60.0
+#: Between two cycles the worker looks this often whether the owner asked for something that should
+#: not wait for the next cycle: a new name or country (``cli update``) or a leave. One cheap read.
+WAKE_POLL_S = 10.0
 VERIFY_REVEAL_EVERY = timedelta(minutes=15)
 VERIFY_RETRY = timedelta(hours=24)
 LEARN_EVERY = timedelta(hours=1)
@@ -179,6 +182,39 @@ class NetworkWorker(FeatureWorker):
             except Exception as exc:
                 log.warning("network local leave failed (%s)", type(exc).__name__)
             await asyncio.sleep(self.network.interval_s)
+
+    async def pause(self) -> None:
+        """Waits for the next cycle, and ends early for a change the owner just made from the
+        terminal (``cli update`` of a member's name or country, ``cli leave``), so the scripts
+        never have to restart ingest to make it act now."""
+        remaining = float(self.interval_s)
+        while remaining > 0:
+            step = min(WAKE_POLL_S, remaining)
+            await asyncio.sleep(step)
+            remaining -= step
+            if remaining > 0 and await self._wake_wanted():
+                return
+
+    async def _wake_wanted(self) -> bool:
+        if self.store is None:
+            return False
+        try:
+            m = await self.store.membership()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # a busy database only delays the change to the next cycle
+            return False
+        if m.desired == "leave":
+            return True
+        # The gate was closed at the last cycle (hubproxy or the VPN still starting, right after a
+        # restart) and is open again: try now, so the error does not stand for a whole interval.
+        if m.last_error_code == "egress_closed" and gate_open(
+            self._gate, host=self.network.hub_host
+        ):
+            return True
+        profile = (m.pseudonym, m.country, bool(m.show_country))
+        synced = (m.synced_pseudonym, m.synced_country, bool(m.synced_show_country))
+        return m.state == "member" and m.desired == "member" and profile != synced
 
     async def run_once(self) -> None:
         try:

@@ -139,7 +139,11 @@ class FeatureWorker:
                 self.last_error = summary
                 log.warning("%s cycle failed (%s)", self.name, summary)
             await self._publish(publish)
-            await asyncio.sleep(self.interval_s)
+            await self.pause()
+
+    async def pause(self) -> None:
+        """The wait between two cycles. A worker may end it early (NetworkWorker does)."""
+        await asyncio.sleep(self.interval_s)
 
     async def _publish(self, publish: Publish | None) -> None:
         if publish is None:

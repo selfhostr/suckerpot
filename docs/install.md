@@ -499,6 +499,9 @@ It keeps the data volumes, `.env` (the database password lives inside the data, 
 
 | Symptom | What to do |
 | --- | --- |
+| A restart takes minutes on a 1 GB VPS, or a change says ingest is still starting. | Normal on a loaded small machine: the scripts wait up to `SUCKERPOT_WAIT_TIMEOUT` seconds (900 on a small machine) and show the time; set it higher in the environment for very slow hosts. A change that ingest already took is never undone: `./suckerpot.sh status` shows it once ingest is up. The output of each restart is in `.suckerpot-state/stack.log`. |
+| Ctrl-C during a restart. | The current step finishes first (the stack is never left half recreated), then the script stops. A change that was not made yet is put back. |
+| `update: another update or rollback is running`. | It names who holds the lock and since when. The automatic update no longer holds it during its random wait; an older one that does can be stopped from the prompt. |
 | `Docker does not answer for this user`. | Run `sudo usermod -aG docker $USER`, log in again, and retry. |
 | `Data volumes named ... already exist`. | An earlier install used this prefix. Use the old `.env`, or install with `--prefix` set to a new name. |
 | `The stack did not become healthy`. | Run `docker compose ps` and `docker compose logs --tail=100`. Fix the cause, then run `just up`. Do not delete `.env` to retry: the volumes already hold the database. |

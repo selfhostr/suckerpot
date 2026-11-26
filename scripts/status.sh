@@ -206,8 +206,14 @@ while read -r rp hp proto sname; do
   ports_json+="${ports_json:+,}[$(json_str "$rp"),$(json_str "$hp"),$(json_str "$proto"),$(json_str "$sname")]"
 done < <(ports_table)
 
-doc=$(printf '{"stack":%s,"install":%s,"version":%s,"ps":[%s],"ports":[%s],"auto_enabled":%s,"auto_schedule":%s,"auto_state_raw":%s,"cli_raw":%s,"cli_error":%s,"firewall":%s,"latest":%s,"latest_age_h":%s,"engine":%s,"stack_unit":%s}' \
-  "$(json_str "$stack")" "$(json_str "$install")" "$(json_str "$version")" "$ps_json" "$ports_json" \
+# The version the containers really run (ingest says it), next to the one .env names: after an
+# update that did not finish they differ, and the scripts are then newer than the images.
+running=$(running_version)
+
+unfinished=$(update_unfinished)
+
+doc=$(printf '{"stack":%s,"install":%s,"version":%s,"running":%s,"unfinished":%s,"ps":[%s],"ports":[%s],"auto_enabled":%s,"auto_schedule":%s,"auto_state_raw":%s,"cli_raw":%s,"cli_error":%s,"firewall":%s,"latest":%s,"latest_age_h":%s,"engine":%s,"stack_unit":%s}' \
+  "$(json_str "$stack")" "$(json_str "$install")" "$(json_str "$version")" "$(json_str "$running")" "$(json_str "$unfinished")" "$ps_json" "$ports_json" \
   "$auto_enabled" "$(json_str "$auto_schedule")" "$(json_str "$auto_state")" "$(json_str "$cli_raw")" "$(json_str "$cli_error")" \
   "$(json_str "$firewall")" "$(json_str "$latest")" "$latest_age_h" "$(json_str "$engine")" "$(json_str "$stack_unit")")
 

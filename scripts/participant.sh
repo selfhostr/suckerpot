@@ -50,21 +50,39 @@ need_participant() {
   [ "$stack" = participant ] || die "'$1' is for participant installs. This is a full install: use the dashboard (Network page)."
 }
 
-# docker compose up with the flags that match the install mode (signed images are never built over).
+# shellcheck source=scripts/lib/stackop.sh
+. scripts/lib/stackop.sh
+
+# compose_up ARGS: docker compose up -d with the flags of the install mode (signed images are never
+# built over), in its own session (scripts/lib/stackop.sh: Ctrl-C never cuts it in half, the time
+# is shown, the output goes to .suckerpot-state/stack.log). It does not use --wait, which gives up
+# at the first unhealthy check of a slow node: it then waits for the named services (else ingest)
+# to be healthy, until the deadline of stack_wait_timeout. Returns 2 when compose itself failed
+# (nothing was restarted), 1 when it started them but they were not healthy by the deadline.
+COMPOSE_DESC=""
 compose_up() {
-  if [ "$install_mode" = images ]; then
-    engine_stack_up -d --no-build --pull never --wait --wait-timeout 300 "$@"
-  else
-    engine_stack_up -d --build --wait --wait-timeout 600 "$@"
-  fi
+  local a svcs=() up=(engine_stack_up -d)
+  for a in "$@"; do case $a in -*) ;; *) svcs+=("$a") ;; esac; done
+  [ "${#svcs[@]}" -gt 0 ] || svcs=(ingest)
+  if [ "$install_mode" = images ]; then up+=(--no-build --pull never); else up+=(--build); fi
+  stack_run "${COMPOSE_DESC:-Restarting ${svcs[*]}}" "${up[@]}" "$@" || return 2
+  stack_wait_healthy "$(stack_wait_timeout)" "${svcs[@]}" || return 1
+}
+quiet_up() { compose_up "$@"; }
+
+# why_ingest: what is wrong with ingest, in a line (its state, and the last lines of its log).
+why_ingest() {
+  local line
+  line=$(dc ps -a --format '{{.Service}} {{.State}} {{.Status}}' 2> /dev/null | awk '$1 == "ingest" { $1 = ""; print; exit }')
+  echo "  ingest: ${line:- no container}" >&2
+  dc logs --no-color --tail 8 ingest 2> /dev/null | sed 's/^/    | /' >&2 || true
 }
 
-# compose_up with its output kept out of the way: shown only when it fails.
-quiet_up() {
-  local out rc=0
-  out=$(compose_up "$@" 2>&1) || rc=$?
-  [ "$rc" = 0 ] || printf '%s\n' "$out" | tail -n 20 >&2
-  return "$rc"
+# How long to wait for ingest to answer a status request (SUCKERPOT_INGEST_WAIT; longer on a
+# small machine, where a busy ingest answers late).
+ingest_answer_timeout() {
+  local t=${SUCKERPOT_INGEST_WAIT:-}
+  if [[ $t =~ ^[0-9]{1,4}$ ]]; then echo "$t"; elif stack_slow; then echo 300; else echo 90; fi
 }
 
 # Asks a yes/no question on the terminal; --yes (assume_yes=1) answers yes.
@@ -144,18 +162,22 @@ do_leave() {
     echo "participant: warning: ingest did not confirm the leave" >&2
     return 1
   fi
-  # The worker acts on the leave at its next cycle (every 15 minutes by default); a restart runs
-  # that cycle now, so the hub hears of the leave before the stack may be stopped.
-  echo "participant: telling the hub (this takes up to 2 minutes)..."
-  dc restart ingest > /dev/null 2>&1 || true
-  local waited=0
-  while [ "$waited" -lt 120 ]; do
-    if cli_state_off; then break; fi
+  # The worker sees the leave within seconds (it looks between its cycles); an older ingest only at
+  # its next cycle, so after a minute it is restarted, which runs that cycle at once.
+  echo "participant: telling the hub..."
+  local waited=0 limit restarted=0
+  limit=$(stack_wait_timeout)
+  while [ "$waited" -lt "$limit" ]; do
+    if cli_state_off; then return 0; fi
+    if [ "$waited" -ge 60 ] && [ "$restarted" = 0 ]; then
+      restarted=1
+      stack_run "Restarting ingest so it tells the hub now" dc restart ingest || true
+    fi
     sleep 5
     waited=$((waited + 5))
   done
-  [ "$waited" -lt 120 ] || { echo "participant: warning: the node is not off after 2 minutes" >&2; return 1; }
-  return 0
+  echo "participant: warning: the node is not off after $limit s" >&2
+  return 1
 }
 
 cmd=${1:-}
@@ -172,7 +194,10 @@ case $cmd in
     do_leave || die "could not confirm the leave. Check: ./scripts/status.sh"
     begin
     env_set_line .env NETWORK_ENABLED false
-    compose_up --no-deps ingest || { revert; die "ingest did not restart; .env was put back"; }
+    up_rc=0
+    COMPOSE_DESC="Restarting ingest without the network" compose_up --no-deps ingest || up_rc=$?
+    [ "$up_rc" != 2 ] || { revert; die "ingest did not restart; .env was put back"; }
+    [ "$up_rc" = 0 ] || echo "participant: ingest is still starting (a slow machine); it starts without the network." >&2
     echo "participant: you left the network. The sensors keep running. Join again: ./scripts/participant.sh join"
     ;;
 
@@ -215,14 +240,17 @@ case $cmd in
         *) env_set_line .env NETWORK_PSEUDONYM "$new_pseudonym" ;;
       esac
     fi
-    compose_up --no-deps ingest || { revert; die "ingest did not restart; .env was put back"; }
+    up_rc=0
+    COMPOSE_DESC="Restarting ingest with the network on" compose_up --no-deps ingest || up_rc=$?
+    [ "$up_rc" != 2 ] || { revert; why_ingest; die "ingest did not restart; .env was put back"; }
+    [ "$up_rc" = 0 ] || ingest_wait_answer "$(ingest_answer_timeout)" > /dev/null
     # Clears a refused join (state error) or the leave marker, and hands a member its new name.
     cli_join=(python -m ingest.network.cli join)
     [ "$have_pseudonym" = 0 ] || cli_join+=(--pseudonym "$new_pseudonym")
     if answer=$(dc exec -T ingest "${cli_join[@]}" 2> /dev/null); then
       case $(printf '%s' "$answer" | json_top_string state) in
         # The worker only joins from a clean state at its start: restart it once more.
-        error | off) dc restart ingest > /dev/null 2>&1 || echo "participant: warning: ingest did not restart" >&2 ;;
+        error | off) stack_run "Restarting ingest once more so it joins" dc restart ingest || echo "participant: warning: ingest did not restart" >&2 ;;
       esac
     else
       echo "participant: warning: ingest did not accept the join request" >&2
@@ -295,11 +323,21 @@ case $cmd in
     # change is then refused here, with the version, and nothing is changed.
     st=""
     if [ "$(env_get NETWORK_ENABLED false)" = true ]; then
-      st=$(cli_state) || st=""
+      # A busy or starting ingest answers late on a small machine: wait for it (with the time
+      # shown) before deciding anything. Only an ingest that does not run is started.
+      st=$(ingest_wait_answer "$(ingest_answer_timeout)")
       if [ -z "$st" ]; then
-        # ingest is down or busy: start it first (with the settings as they are).
-        quiet_up --no-deps ingest || die "ingest did not start; nothing was changed (./scripts/install.sh --repair)"
-        st=$(cli_state) || st=""
+        if [ -n "$(dc ps --status running -q ingest 2> /dev/null)" ]; then
+          why_ingest
+          die "ingest runs but did not answer within $(ingest_answer_timeout) s (it is busy or still starting). Nothing was changed; try again in a few minutes (SUCKERPOT_INGEST_WAIT=600 waits longer)."
+        fi
+        up_rc=0
+        COMPOSE_DESC="Starting ingest (it is not running)" compose_up --no-deps ingest || up_rc=$?
+        st=$(ingest_wait_answer "$(ingest_answer_timeout)")
+        if [ -z "$st" ]; then
+          why_ingest
+          die "ingest did not start or does not answer (see above). Nothing was changed. Then: ./scripts/install.sh --repair"
+        fi
       fi
       if [ "$cmd" = set-country ] && { [ "$st" = member ] || [ "$st" = enrolling ]; } && ! cli_has_update; then
         die "$(old_ingest_text "the country of a node that is in the network")"
@@ -315,6 +353,24 @@ case $cmd in
       esac
     fi
     begin
+    # Ctrl-C (or TERM) from here: before the change reached ingest, .env is put back; after, the
+    # change stands (ingest and maybe the hub have it), and the script says so.
+    applied=0
+    on_break() {
+      if [ "$applied" = 0 ]; then
+        revert
+        echo >&2
+        tell_err "participant: interrupted before the change was made: nothing was changed."
+      else
+        echo >&2
+        tell_err "participant: interrupted, but the $what is changed already ($shown); the hub gets it at the next contact. Check: ./suckerpot.sh status"
+      fi
+      exit 130
+    }
+    what="node name"
+    [ "$cmd" = set-name ] || what=country
+    shown=${value:-none}
+    trap on_break INT TERM HUP
     if [ "$cmd" = set-name ]; then
       case $value in
         *" "*) env_set_line .env NETWORK_PSEUDONYM "'$value'" ;;
@@ -328,9 +384,6 @@ case $cmd in
         env_set_line .env NETWORK_SHOW_COUNTRY false
       fi
     fi
-    what="node name"
-    [ "$cmd" = set-name ] || what=country
-    shown=${value:-none}
     if [ "$(env_get NETWORK_ENABLED false)" != true ]; then
       tell "participant: the $what is saved ($shown). This node is not in the network: it is used when you join (./scripts/participant.sh join)."
       exit 0
@@ -346,6 +399,7 @@ case $cmd in
               || { revert; die "ingest did not take the new name; .env was put back"; }
             # An older ingest says nothing about the hub having it: no wait for that.
             old_cli=1
+            applied=1
           elif [ "$reason" = not_member ]; then
             :
           elif [ -z "$reason" ]; then
@@ -355,22 +409,40 @@ case $cmd in
             revert
             die "ingest refused the change (${reason:-no answer}); .env was put back"
           fi
+        else
+          applied=1
         fi
         ;;
+      error)
+        # A refused join tries again with the name of .env, which ingest reads when it starts: the
+        # one case that needs a restart. Once it is recreated it has the new value, so a slow
+        # start is reported, not undone.
+        # Once the restart ran (even after a Ctrl-C, which lets it finish), ingest has the new value.
+        up_rc=0 applied=1
+        COMPOSE_DESC="Restarting ingest so it joins again with the new $what" compose_up --no-deps --force-recreate ingest || up_rc=$?
+        if [ "$up_rc" = 2 ]; then
+          revert
+          COMPOSE_DESC="Putting ingest back" compose_up --no-deps ingest || true
+          why_ingest
+          die "ingest could not be restarted (see above); .env was put back"
+        fi
+        applied=1
+        [ "$up_rc" = 0 ] || tell "participant: ingest is still starting (a slow machine); it uses the new $what once it is up."
+        ;;
     esac
-    # A restart runs the worker's cycle at once: the hub gets the change now, and a node whose join
-    # was refused (for example a taken name) tries again with the new name by itself.
-    quiet_up --no-deps --force-recreate ingest || { revert; die "ingest did not restart; .env was put back"; }
+    # The worker of a member sends the change within seconds (it looks between its cycles): no
+    # restart is needed, so ingest never stops for a new name or country.
     case $st in
       member)
         tell "participant: waiting for the hub to take the new $what..."
-        waited=0 limit=${SUCKERPOT_PROFILE_WAIT:-90} synced="" code=""
+        waited=0 limit=${SUCKERPOT_PROFILE_WAIT:-$(stack_slow && echo 240 || echo 90)} synced="" code=""
         [ "${old_cli:-0}" = 0 ] || limit=15
         while [ "$waited" -lt "$limit" ]; do
           doc=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null) || doc=""
           code=$(printf '%s' "$doc" | json_top_string error_code)
           case $code in pseudonym_taken | pseudonym_invalid) break ;; esac
           case $doc in *'"profile_synced": true'*) synced=1; break ;; esac
+          [ ! -t 1 ] || printf '\r  waiting for the hub %d:%02d (Ctrl-C: the change stays, the hub gets it later) ' $((waited / 60)) $((waited % 60))
           sleep 5
           waited=$((waited + 5))
         done
@@ -379,17 +451,17 @@ case $cmd in
           kept="no name"
           [ -z "$name" ] || kept="the name '$name'"
           revert
-          compose_up --no-deps ingest > /dev/null 2>&1 || true
           tell_err "participant: the hub refused the name '$value': another node already uses it. The node keeps $kept; .env was put back."
           tell_err "  Try another one: ./scripts/participant.sh set-name $(pseudonym_suggest "$value" || echo NEW-NAME)"
           exit 1
         elif [ "$code" = pseudonym_invalid ]; then
           revert
-          compose_up --no-deps ingest > /dev/null 2>&1 || true
           die "the identity check or the hub refused the name '$value' (it may contain one of your own names). .env was put back."
         elif [ -n "$synced" ]; then
+          [ ! -t 1 ] || printf '\r\033[K'
           tell "participant: the $what is now $shown, and the hub has it."
         else
+          [ ! -t 1 ] || printf '\r\033[K'
           tell "participant: the $what is now $shown here. The hub gets it at the next contact (at most 15 minutes). Check: ./suckerpot.sh status"
         fi
         ;;
@@ -454,7 +526,10 @@ case $cmd in
     # A service of a profile that is no longer on is not an orphan to compose: stop it by name.
     # shellcheck disable=SC2086
     dc --profile "$stop_profile" rm -sf $stop_services > /dev/null 2>&1 || true
-    compose_up --remove-orphans || { revert; die "the stack did not become healthy; .env was put back (run: ./scripts/install.sh --repair)"; }
+    up_rc=0
+    COMPOSE_DESC="Restarting the stack on the new path" compose_up --remove-orphans || up_rc=$?
+    [ "$up_rc" != 2 ] || { revert; why_ingest; die "the stack did not restart; .env was put back (run: ./scripts/install.sh --repair)"; }
+    [ "$up_rc" = 0 ] || echo "participant: warning: ingest is still starting (a slow machine): ./scripts/status.sh in a few minutes" >&2
     if [ "$1" = --remove ]; then
       echo "participant: the VPN was removed. The hub now sees this machine's address (direct path)."
       echo "participant: re-run ./scripts/participant.sh firewall so the host firewall matches this path."

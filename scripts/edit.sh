@@ -130,7 +130,12 @@ edit_sensors() {
   fi
   _sensor_list_ok "$list" > /dev/null || die "$(_sensor_list_ok "$list")"
   bash scripts/env-set.sh sensors "$list"
-  bash scripts/compose-fresh.sh up -d --wait
+  # shellcheck source=scripts/lib/stackop.sh
+  . scripts/lib/stackop.sh
+  local svcs=() s
+  for s in "${SENSORS[@]}"; do [ "$(env_get "$(sensor_var "$s")" 1)" = 0 ] || svcs+=("sensor-$s"); done
+  stack_run "Starting the chosen sensors" bash scripts/compose-fresh.sh up -d || die "the sensors did not start (see above)"
+  stack_wait_healthy "$(stack_wait_timeout)" "${svcs[@]}" || echo "edit: some sensors are still starting (a slow machine): ./scripts/status.sh in a few minutes" >&2
   echo "edit: the sensors now running: $(cur_sensors). Forward their ports on your router (./scripts/status.sh lists them)."
 }
 
