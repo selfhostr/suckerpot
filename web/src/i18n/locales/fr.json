@@ -1904,6 +1904,7 @@
   "network_error_guard_failed": "La vérification de confidentialité a arrêté le dernier lot, donc rien n'a été envoyé.",
   "network_error_hub_signature": "La réponse du hub n'a pas pu être vérifiée, donc elle a été ignorée.",
   "network_error_leave_unconfirmed": "Le hub n'a pas pu être joint pour confirmer que vos données ont été supprimées.",
+  "network_error_membership_expired": "Le hub avait retiré ce capteur après 30 jours sans contact. Il rejoint le réseau de lui-même, avec la même clé et le même nom.",
   "network_error_no_settings_key": "La clé de chiffrement des paramètres n'est pas définie.",
   "network_error_rate_limited": "Le hub a demandé à cette sonde de ralentir. Elle réessaie plus tard.",
   "network_explainer_never_title": "Ce qui n'est jamais partagé",

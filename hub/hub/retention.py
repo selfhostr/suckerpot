@@ -14,7 +14,8 @@
 * observatory aggregates (network-wide, no node reference): 400 days;
 * the API's per-day request counters (``hub_served_days``, no node data): 60 days;
 * the weekly snapshot of counted members (``hub_count_snapshot``): 5 weeks;
-* nodes with no request for 30 days are deleted with everything linked to them.
+* nodes with no request for ``HUB_MEMBER_EXPIRE_DAYS`` (30, at most 30) are deleted with
+  everything linked to them, like a leave (``dormant.expire``).
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import dormant
 from .config import Settings
 from .dormant import SERVED_DAYS_KEPT, SNAPSHOT_WEEKS_KEPT
 
@@ -231,12 +233,7 @@ async def run_retention(
         {"c": today - timedelta(weeks=SNAPSHOT_WEEKS_KEPT)},
         out,
     )
-    await _delete(
-        session,
-        "inactive_nodes",
-        "DELETE FROM nodes WHERE last_active_day < :c",
-        {"c": today - timedelta(days=s.inactive_node_days)},
-        out,
-    )
+    # Expired members (hub/hub/dormant.py): the same deletion as a leave.
+    out.deleted["inactive_nodes"] = await dormant.expire(session, today, s.member_expire_days)
     await session.commit()
     return out

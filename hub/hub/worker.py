@@ -164,7 +164,7 @@ async def run_cycle(ctx: WorkerContext) -> CycleReport:
     async def do_stats(ses: AsyncSession) -> object:
         if await _get_marker(ses, STATS_MARKER) == today.isoformat():
             return "done_today"
-        await stats.run_daily(ses, today)
+        await stats.run_daily(ses, today, s.member_dormant_days)
         await _set_marker(ses, STATS_MARKER, today.isoformat())
         return "ran"
 

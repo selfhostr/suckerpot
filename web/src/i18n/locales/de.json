@@ -1904,6 +1904,7 @@
   "network_error_guard_failed": "Die Datenschutzprüfung hat den letzten Batch gestoppt, daher wurde nichts gesendet.",
   "network_error_hub_signature": "Die Antwort des Hubs konnte nicht verifiziert werden, daher wurde sie ignoriert.",
   "network_error_leave_unconfirmed": "Der Hub war nicht erreichbar, um die Löschung Ihrer Daten zu bestätigen.",
+  "network_error_membership_expired": "Der Hub hatte diesen Sensor nach 30 Tagen ohne Kontakt entfernt. Er tritt von selbst wieder bei, mit demselben Schlüssel und Namen.",
   "network_error_no_settings_key": "Der Schlüssel zur Verschlüsselung der Einstellungen ist nicht gesetzt.",
   "network_error_rate_limited": "Der Hub hat diesen Sensor gebeten, langsamer zu senden. Er versucht es später erneut.",
   "network_explainer_never_title": "Was nie geteilt wird",

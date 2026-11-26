@@ -398,6 +398,7 @@ const ERROR_TEXT: Record<string, string> = {
   guard_failed: tk("network_error_guard_failed"),
   hub_signature: tk("network_error_hub_signature"),
   leave_unconfirmed: tk("network_error_leave_unconfirmed"),
+  membership_expired: tk("network_error_membership_expired"),
   no_settings_key: tk("network_error_no_settings_key"),
   egress_closed: tk("network_error_egress_closed"),
   rate_limited: tk("network_error_rate_limited"),

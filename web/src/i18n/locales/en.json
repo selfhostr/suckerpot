@@ -1904,6 +1904,7 @@
   "network_error_guard_failed": "The privacy check stopped the last batch, so nothing was sent.",
   "network_error_hub_signature": "The answer of the hub could not be verified, so it was ignored.",
   "network_error_leave_unconfirmed": "The hub could not be reached to confirm that your data was deleted.",
+  "network_error_membership_expired": "The hub had removed this sensor after 30 days without contact. It is joining again by itself, with the same key and name.",
   "network_error_no_settings_key": "The settings encryption key is not set.",
   "network_error_rate_limited": "The hub asked this sensor to slow down. It tries again later.",
   "network_explainer_never_title": "What is never shared",

@@ -421,6 +421,36 @@ async def test_leaving_deletes_at_the_hub_then_everywhere_locally() -> None:
     assert store.m.last_error_code is None
 
 
+async def test_an_expired_membership_enrols_again_with_the_same_key() -> None:
+    """The hub deleted the node after a long silence: a signed unknown_node, then a new join."""
+    store = member_store(
+        pseudonym="amber-falcon-42", synced_pseudonym="amber-falcon-42", last_summary_at=None
+    )
+    key = store.m.pubkey
+    rig = Rig(store)
+    for route in ("POST /v1/observations", "GET /v1/network", "GET /v1/node"):
+        rig.hub.fail[route] = (401, "unknown_node")
+    await rig.cycle()
+    assert store.m.state == "enrolling" and store.m.desired == "member"
+    assert store.m.node_id is None and store.m.last_error_code == worker.MEMBERSHIP_EXPIRED
+    assert store.m.pubkey == key and store.wiped == 0  # nothing local is wiped: not a leave
+    assert rig.worker.interval_s == worker.FAST_INTERVAL_S
+    rig.hub.fail.clear()
+    await rig.cycle()
+    assert rig.hub.enrolled and store.m.state == "member" and store.m.last_error_code is None
+    assert store.m.pubkey == key and rig.hub.bodies[-1]["pseudonym"] == "amber-falcon-42"
+
+
+async def test_an_unsigned_unknown_node_is_not_believed() -> None:
+    store = member_store(last_summary_at=None)
+    rig = Rig(store)
+    rig.hub.unsigned_errors = True
+    for route in ("POST /v1/observations", "GET /v1/network", "GET /v1/node"):
+        rig.hub.fail[route] = (401, "unknown_node")
+    await rig.cycle()
+    assert store.m.state == "member" and store.m.node_id is not None
+
+
 async def test_leaving_when_the_hub_does_not_know_the_node_still_wipes() -> None:
     store = member_store(desired="leave")
     rig = Rig(store)

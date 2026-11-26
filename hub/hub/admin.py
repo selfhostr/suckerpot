@@ -2,7 +2,7 @@
 
 Commands: gen-signing-key, gen-feed-key, show-public-key, reports list|show|approve|cancel,
 abusech list|approve|reject|cancel, target dispute, never add|remove|list,
-node suspend|unsuspend|role grant|role revoke|roles, verify status|list|show|approve|refuse,
+node list|expire|suspend|unsuspend|role grant|role revoke|roles, verify status|list|show|approve|refuse,
 stats, feeds
 status|diff|release|discard|pause|resume|rebuild, allow add|remove|list, delist
 list|show|accept|reject, ranges status|refresh. Every change writes ``hub_audit`` with the action
@@ -34,6 +34,17 @@ from .feeds.select import BASE_LISTS as DELIST_LISTS
 from .reports import tunnel as report_tunnel
 
 Out = Callable[[str], None]
+Ask = Callable[[str], str]
+
+
+def _ask_terminal(prompt: str) -> str:
+    """A confirmation from the operator's terminal; none without one."""
+    if not sys.stdin.isatty():
+        return ""
+    try:
+        return input(prompt)
+    except EOFError:
+        return ""
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -99,6 +110,18 @@ def _parser() -> argparse.ArgumentParser:
         rp.add_argument("fingerprint")
         rp.add_argument("role", choices=sorted(NODE_ROLES))
     nds.add_parser("roles", help="list the nodes that hold a role")
+    ndl = nds.add_parser("list", help="members with their last contact and whether they count")
+    ndl.add_argument(
+        "--inactive",
+        type=int,
+        metavar="DAYS",
+        help="only nodes with no request for at least DAYS days",
+    )
+    ndx = nds.add_parser(
+        "expire", help="delete members now, like a leave (the automatic expiry, at once)"
+    )
+    ndx.add_argument("fingerprint", nargs="+")
+    ndx.add_argument("--yes", action="store_true", help="do not ask for a confirmation")
 
     vf = sub.add_parser("verify", help="link verification tasks (M32)")
     vfs = vf.add_subparsers(dest="action", required=True)
@@ -264,6 +287,7 @@ async def run(
     out: Out = print,
     actor: str | None = None,
     settings: Settings | None = None,
+    ask: Ask = _ask_terminal,
 ) -> int:
     args = _parser().parse_args(argv)
     if args.cmd == "gen-signing-key":
@@ -301,7 +325,7 @@ async def run(
     who = actor or os.environ.get("HUB_ADMIN_ACTOR", "cli")
     try:
         async with sessionmaker() as session:
-            return await _dispatch(args, session, who, out, settings)
+            return await _dispatch(args, session, who, out, settings, ask)
     finally:
         if engine is not None:
             await engine.dispose()
@@ -313,6 +337,7 @@ async def _dispatch(
     who: str,
     out: Out,
     settings: Settings | None = None,
+    ask: Ask = _ask_terminal,
 ) -> int:
     if args.cmd == "feeds":
         return await _feeds(args, session, who, out, settings)
@@ -341,6 +366,8 @@ async def _dispatch(
         return await _verify(args, session, who, out, settings)
     if args.cmd == "node" and args.action in ("role", "roles"):
         return await _node_roles(args, session, who, out)
+    if args.cmd == "node" and args.action in ("list", "expire"):
+        return await _members(args, session, who, out, settings or Settings(), ask)
     if args.cmd == "node":
         state = "soft_suspended" if args.action == "suspend" else "active"
         result = await session.execute(
@@ -367,7 +394,11 @@ async def _dispatch(
                     "(SELECT count(*) FROM targets WHERE state = 'taken_down') AS taken_down, "
                     "(SELECT count(*) FROM reports WHERE state = 'queued') AS reports_queued"
                 ),
-                await dormant.count_params(session, utcnow().date()),
+                await dormant.count_params(
+                    session,
+                    utcnow().date(),
+                    settings.member_dormant_days if settings else dormant.DORMANT_DAYS,
+                ),
             )
         ).one()
         for key, value in rows._mapping.items():
@@ -505,6 +536,75 @@ async def _abusech_cancel(
     await session.commit()
     out(f"cancelled {count} submission(s)")
     return 0 if count else 1
+
+
+def _member_line(m: dormant.MemberRow) -> str:
+    state = "active" if m.counted else "dormant"
+    if m.standing != "active":
+        state += f",{m.standing}"
+    return (
+        f"{m.fingerprint}\t{_safe(m.pseudonym or '-')}\t{m.enrolled_day}\t{m.last_active_day}\t"
+        f"{m.last_batch_day or '-'}\t{state}\t{m.expires_day}"
+    )
+
+
+async def _members(
+    args: argparse.Namespace,
+    session: AsyncSession,
+    who: str,
+    out: Out,
+    settings: Settings,
+    ask: Ask,
+) -> int:
+    """``node list`` and ``node expire``. Expiry is the automatic one (``dormant.expire``), at
+    once: the row goes with everything linked to it, exactly like a leave."""
+    if args.action == "list" and args.inactive is not None and args.inactive < 0:
+        out("--inactive must be 0 or more")
+        return 2
+    today = utcnow().date()
+    rows = await dormant.members(
+        session,
+        today,
+        dormant_days=settings.member_dormant_days,
+        expire_days=settings.member_expire_days,
+        inactive_days=args.inactive if args.action == "list" else None,
+    )
+    if args.action == "list":
+        out("node\tpseudonym\tjoined\tlast_contact\tlast_batch\tstate\texpires")
+        for m in rows:
+            out(_member_line(m))
+        dormant_count = sum(1 for m in rows if not m.counted)
+        out(f"{len(rows)} node(s), {dormant_count} dormant")
+        return 0
+    wanted = [fp.lower() for fp in args.fingerprint]
+    chosen: list[dormant.MemberRow] = []
+    for fp in dict.fromkeys(wanted):
+        hits = [m for m in rows if m.fingerprint == fp]
+        if len(hits) != 1:
+            out(f"{_safe(fp)}: " + ("no node has that fingerprint" if not hits else "ambiguous"))
+            return 1
+        chosen.append(hits[0])
+    out("node\tpseudonym\tjoined\tlast_contact\tlast_batch\tstate\texpires")
+    for m in chosen:
+        out(_member_line(m))
+    out(
+        f"expire {len(chosen)} node(s): each is deleted with its observations, batches, links, "
+        "votes, statistics and roles, like a leave. A node that comes back must enrol again."
+    )
+    if not args.yes:
+        answer = ask(f"type 'expire {len(chosen)}' to confirm: ").strip()
+        if answer != f"expire {len(chosen)}":
+            out("nothing expired (confirm on a terminal, or pass --yes)")
+            return 1
+    res = await session.execute(
+        text("DELETE FROM nodes WHERE substr(encode(sha256(pubkey), 'hex'), 1, 8) = ANY(:fps)"),
+        {"fps": [m.fingerprint for m in chosen]},
+    )
+    count = int(getattr(res, "rowcount", 0) or 0)
+    await _audit(session, who, "node.expire", {"nodes": count})
+    await session.commit()
+    out(f"expired {count} node(s)")
+    return 0 if count == len(chosen) else 1
 
 
 async def _node_roles(args: argparse.Namespace, session: AsyncSession, who: str, out: Out) -> int:
