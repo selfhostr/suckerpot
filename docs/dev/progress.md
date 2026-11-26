@@ -445,3 +445,12 @@ Newest entries at the bottom. One entry per milestone or significant step: date,
 - `./suckerpot.sh` is one menu and one command set for a node: install, status, edit (name, country, sensors, VPN, auto-update, firewall), update, ports, logs, repair, leave or join, remove. Notices at the top say what is missing.
 - The participant installer asks its questions first (consent, node name, country checked against a local GeoIP database only), then runs alone with a progress bar and a log.
 - The ingest image gets `python -m ingest.network.cli update`, used by `participant.sh set-name` and `set-country`. No API change, no database change and no migration.
+
+## 2026-11-26: v0.15.2 (slow nodes, member expiry, countries from two members)
+
+- Three pull requests since v0.15.1 (#200, #201, #204). The details are in `CHANGELOG.md`.
+- Slow nodes (1 vCPU / 1 GB): service restarts run in their own session and wait for health instead of `compose up --wait`, Ctrl-C never leaves a half-restarted stack, a cut-off update is easy to finish, and `status.sh` shows the version the containers run.
+- The hub's member life cycle is one path: member, dormant (left out of the counts), gone (deleted like a leave). `hub-admin node list` / `node expire` let the operator remove dead members at once, and a node whose membership expired enrols again by itself with the same key and name.
+- A member's country is shown from two members instead of three. Nodes on v0.15.1 or older refuse a network summary with a two-member country, so the hub runs this release only once the nodes do.
+- `.gitleaksignore` lists two example addresses in an old test fixture of the `dev` branch, which CI scans with every branch.
+- No migration.
