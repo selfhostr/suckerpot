@@ -585,7 +585,7 @@ def enrolment(info: dict[str, Any], stack: str) -> tuple[str, str]:
         why = f" (last problem: {JOIN_PROBLEMS.get(error, error)})" if error else ""
         return (
             f"waiting for the hub to accept this node{why}; it keeps trying by itself",
-            "./suckerpot status --wait",
+            "./suckerpot.sh status --wait",
         )
     if info["refused"]:
         code = info["error_code"] or "unknown"

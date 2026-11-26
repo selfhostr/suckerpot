@@ -53,6 +53,7 @@ If you are already on the target, it says `Already on vX.Y.Z. Nothing to update.
 | Install mode | `just update` with no version | Notes |
 | --- | --- | --- |
 | `images` | The newest `v*.*.*` tag. | The release images for that tag are pulled. A detached checkout, or a branch behind the tag, is checked out at the tag. |
+| `images`, a node bundle install (`get.sh`, no git) | The newest release on GitHub. | The release's node bundle is downloaded and must have the SHA-256 its signed manifest names (`verify-release.sh --bundle`), and the commit and network defaults it names; the previous files are kept in `.suckerpot-state/bundle-before.tar.gz` for `just rollback`. A testing bundle (`get.sh --ref`, not signed) keeps its scripts: only the images change. |
 | `images`, on a branch that holds the tag | The newest `v*.*.*` tag. | Only the images change: the scripts of the branch stay (checking out the tag would take them away). |
 | `source`, on a branch | The newest commit of the branch (`git pull --ff-only`). | The checkout must be clean. |
 | `source`, on a tag | The newest `v*.*.*` tag. | The images are rebuilt from the checkout. |

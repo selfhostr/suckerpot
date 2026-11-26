@@ -385,13 +385,26 @@ fresh=$((1 - existing))
 # at step 5 as before, unless --version (latest or vX.Y.Z) or --source says it.
 release_hint=""
 release_args=()
-latest_release() {
-  git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' | head -n 1 || true
-}
+latest_release() { latest_known_release; }
 if [ "$version" = latest ]; then
   version=$(latest_release)
   [ -n "$version" ] || die "--version latest: this checkout knows no release tag (git fetch --tags, then try again)"
   log "release: $version (--version latest)"
+fi
+# A node bundle (scripts/get.sh, no git): its own release, or for a testing bundle of a branch the
+# newest release it knows. It holds no sources, so it never builds.
+if layout_bundle && [ "$fresh" = 1 ]; then
+  [ "$mode" != source ] || die "a node bundle holds no sources, so --source cannot build here: use the signed images (the default), or a git checkout to build"
+  mode=images
+  if [ -z "$version" ]; then
+    if [ "$(bundle_get signed)" = 1 ]; then
+      version=$(bundle_get version)
+    else
+      version=$(latest_release)
+      [ -n "$version" ] || die "this testing bundle ($(bundle_get ref)) knows no release to take the images from: pass --version vX.Y.Z"
+      note "testing scripts of $(bundle_get ref) (not signed), with the signed images of $version"
+    fi
+  fi
 fi
 if [ "$fresh" = 1 ] && [ "$dry_run" = 0 ] && [ "$mode" != source ] && [ -z "$version" ] \
   && ! git describe --tags --exact-match HEAD > /dev/null 2>&1; then
@@ -1731,8 +1744,8 @@ participant_rich() {
         fi
         ;;
       enrolling)
-        ui_done "not decided yet: ./suckerpot status --wait"
-        enrol_msg="The hub has not decided yet. Watch for its answer: ./suckerpot status --wait (or ./scripts/status.sh later)."
+        ui_done "not decided yet: ./suckerpot.sh status --wait"
+        enrol_msg="The hub has not decided yet. Watch for its answer: ./suckerpot.sh status --wait (or ./scripts/status.sh later)."
         ;;
       *) ui_skip "no answer yet: ./scripts/status.sh" ;;
     esac
@@ -1785,7 +1798,7 @@ participant_rich() {
     ui_wrap 2 "Never forward the admin SSH port of this machine."
   fi
   [ -z "$enrol_msg" ] || ui_wrap 2 "$enrol_msg"
-  # The node as status.sh sees it now (stack, sensors, network): the same view as ./suckerpot status.
+  # The node as status.sh sees it now (stack, sensors, network): the same view as ./suckerpot.sh status.
   if [ -f scripts/status.sh ]; then
     ui_wrap 2 ""
     ui_wrap 2 "Status now:" b
@@ -1795,7 +1808,7 @@ participant_rich() {
     done < <(bash scripts/status.sh --brief 2> /dev/null || true)
   fi
   ui_wrap 2 ""
-  ui_kv 2 7 Next "./suckerpot   the menu: status, edit, update, logs, remove"
+  ui_kv 2 7 Next "./suckerpot.sh   the menu: status, edit, update, logs, remove"
   ui_kv 2 7 "" "./scripts/participant.sh ports-check   once the ports are forwarded"
   ui_kv 2 7 "" "./scripts/status.sh   any time (what needs attention)"
   ui_kv 2 7 More "docs/participate.md#open-the-ports (DMZ, firewall, updates). Take a snapshot of this machine now."

@@ -1,7 +1,7 @@
 """The terminal tools of a node: the questions and menus (scripts/lib/ask.sh), the node name and
 country questions of the installer (scripts/lib/nodeprofile.sh), the local country check
 (scripts/lib/geocheck.sh), participant.sh set-name and set-country, status --brief and --wait,
-edit.sh, uninstall.sh and the menu (scripts/suckerpot.sh, ./suckerpot).
+edit.sh, uninstall.sh and the menu (scripts/suckerpot.sh, ./suckerpot.sh).
 
 Everything runs in the sandbox of conftest.py: fake docker, no network, no real terminal unless a
 test opens a pseudo-terminal itself.
@@ -588,7 +588,7 @@ def test_status_wait_waits_only_for_a_join_in_progress(node: Sandbox) -> None:
 
 
 def add_tools(sb: Sandbox) -> None:
-    for rel in ("scripts/edit.sh", "scripts/uninstall.sh", "scripts/suckerpot.sh", "suckerpot"):
+    for rel in ("scripts/edit.sh", "scripts/uninstall.sh", "scripts/suckerpot.sh", "suckerpot.sh"):
         dest = sb.root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, dest)
@@ -675,7 +675,7 @@ def fake_scripts(sb: Sandbox) -> None:
 
 def menu(sb: Sandbox, text: str, *args: str) -> subprocess.CompletedProcess[str]:
     (sb.root / "answers").write_text(text)
-    return sb.run("suckerpot", *args, extra_env={"SELFHOSTR_TTY": str(sb.root / "answers")})
+    return sb.run("suckerpot.sh", *args, extra_env={"SELFHOSTR_TTY": str(sb.root / "answers")})
 
 
 def script_calls(sb: Sandbox) -> list[str]:
@@ -741,14 +741,14 @@ def test_the_menu_commands_without_a_terminal(node: Sandbox) -> None:
         (("repair",), "install.sh --repair"),
         (("install", "--participant", "--lite"), "install.sh --participant --lite"),
     ):
-        proc = node.run("suckerpot", *args)
+        proc = node.run("suckerpot.sh", *args)
         assert proc.returncode == 0, proc.stderr
         assert script_calls(node)[-1] == want
-    proc = node.run("suckerpot", extra_env={"SELFHOSTR_TTY": "/nonexistent"})
+    proc = node.run("suckerpot.sh", extra_env={"SELFHOSTR_TTY": "/nonexistent"})
     assert proc.returncode != 0 and "the menu needs a terminal" in proc.stderr
-    proc = node.run("suckerpot", "frobnicate")
+    proc = node.run("suckerpot.sh", "frobnicate")
     assert proc.returncode != 0 and "unknown command" in proc.stderr
-    assert "./suckerpot install [FLAGS]" in node.run("suckerpot", "help").stdout
+    assert "./suckerpot.sh install [FLAGS]" in node.run("suckerpot.sh", "help").stdout
 
 
 # ------------------------------------------------------------------ text wrapped at the terminal
@@ -1013,7 +1013,7 @@ def test_sudo_starts_again_as_the_owner_of_the_checkout(sandbox: Sandbox) -> Non
     (sandbox.shim / "sudo").write_text('#!/bin/sh\necho "sudo $*" >> "$SHIM_LOG"\nexit 0\n')
     (sandbox.shim / "sudo").chmod(0o755)
     proc = sandbox.run(
-        "suckerpot", "help", extra_env={"SELFHOSTR_EUID": "0", "SUDO_USER": me, "TERM": "dumb"}
+        "suckerpot.sh", "help", extra_env={"SELFHOSTR_EUID": "0", "SUDO_USER": me, "TERM": "dumb"}
     )
     assert proc.returncode == 0, proc.stderr
     assert f"Running as {me}, who owns this folder" in proc.stderr

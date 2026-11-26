@@ -124,7 +124,7 @@ if [ "$rm_data" = 1 ]; then
   mv .env "$moved"
   chmod 600 "$moved"
   say "uninstall: the data volumes are deleted. .env is now $moved (delete it when you are sure)."
-  say "uninstall: this folder can install again: ./suckerpot install"
+  say "uninstall: this folder can install again: ./suckerpot.sh install"
 else
   say ""
   say "Kept: the data volumes ${prefix}_* and .env. Install again with your data: ./scripts/install.sh --repair"

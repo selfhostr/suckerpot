@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Change the settings of an installed node from the terminal, and apply them at once.
 #
-#   scripts/edit.sh                       a menu of the settings (also: ./suckerpot edit)
+#   scripts/edit.sh                       a menu of the settings (also: ./suckerpot.sh edit)
 #   scripts/edit.sh name [NAME | --none]  the node name (participant; asks without a value)
 #   scripts/edit.sh country [CC [--hide] | --none]
 #                                         the country shown (participant; asks without a value)
@@ -31,7 +31,7 @@ sudo_drop scripts/edit.sh "$@"
 
 die() { echo "edit: $*" >&2; exit 1; }
 
-[ -f .env ] || die "nothing is installed in this folder (no .env): ./suckerpot install"
+[ -f .env ] || die "nothing is installed in this folder (no .env): ./suckerpot.sh install"
 env_drop_loaded
 stack=$(env_get SUCKERPOT_STACK_MODE full)
 ask_open
@@ -171,11 +171,11 @@ version_text() {
   local v latest mode
   mode=$(env_get SUCKERPOT_INSTALL_MODE source)
   v=$(env_get SUCKERPOT_VERSION)
-  latest=$(git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+  latest=$(latest_known_release)
   if [ "$mode" != images ]; then
     echo "built from source ($(git describe --tags --always 2> /dev/null || echo unknown))"
   elif [ -n "$latest" ] && [ "$latest" != "$v" ] && ver_ge "${latest#v}" "${v#v}"; then
-    echo "${v:-unknown} (signed images), $latest available: ./suckerpot update"
+    echo "${v:-unknown} (signed images), $latest available: ./suckerpot.sh update"
   else
     echo "${v:-unknown} (signed images, the newest this checkout knows)"
   fi

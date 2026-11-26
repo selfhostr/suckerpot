@@ -267,7 +267,7 @@ http-test:
 install *args:
     bash scripts/install.sh "$@"
 
-# The menu of this node: install, status, edit, update, ports, logs, remove (same as ./suckerpot).
+# The menu of this node: install, status, edit, update, ports, logs, remove (same as ./suckerpot.sh).
 menu:
     bash scripts/suckerpot.sh
 

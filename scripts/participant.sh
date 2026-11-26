@@ -117,11 +117,11 @@ cli_has_update() {
 old_ingest_text() {
   local running latest
   running=$(dc exec -T ingest printenv SUCKERPOT_RUNNING_VERSION 2> /dev/null | tr -d '\r' || true)
-  latest=$(git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+  latest=$(latest_known_release)
   if [ "$install_mode" = source ]; then
-    printf 'this node runs images built from an older checkout (%s), whose ingest cannot change %s. Update first (./suckerpot update rebuilds them from this checkout), then try again. Nothing was changed.' "${running:-unknown}" "$1"
+    printf 'this node runs images built from an older checkout (%s), whose ingest cannot change %s. Update first (./suckerpot.sh update rebuilds them from this checkout), then try again. Nothing was changed.' "${running:-unknown}" "$1"
   elif [ -n "$latest" ] && [ -n "$running" ] && [ "$latest" != "$running" ] && ver_ge "${latest#v}" "${running#v}"; then
-    printf 'this node runs %s, whose ingest cannot change %s. Update first (./suckerpot update, to %s), then try again; if it still says this, the change needs a release newer than %s. Nothing was changed.' "$running" "$1" "$latest" "$latest"
+    printf 'this node runs %s, whose ingest cannot change %s. Update first (./suckerpot.sh update, to %s), then try again; if it still says this, the change needs a release newer than %s. Nothing was changed.' "$running" "$1" "$latest" "$latest"
   else
     printf 'this node runs %s, whose ingest cannot change %s: that needs a release newer than %s (the scripts of this checkout are newer than the images). Nothing was changed.' "${running:-an older release}" "$1" "${running:-it}"
   fi
@@ -390,15 +390,15 @@ case $cmd in
         elif [ -n "$synced" ]; then
           tell "participant: the $what is now $shown, and the hub has it."
         else
-          tell "participant: the $what is now $shown here. The hub gets it at the next contact (at most 15 minutes). Check: ./suckerpot status"
+          tell "participant: the $what is now $shown here. The hub gets it at the next contact (at most 15 minutes). Check: ./suckerpot.sh status"
         fi
         ;;
       error)
         tell "participant: the $what is saved ($shown). The node was refused before; it now tries to join again with it."
-        tell "  Watch for the answer: ./suckerpot status --wait"
+        tell "  Watch for the answer: ./suckerpot.sh status --wait"
         ;;
       enrolling | not_joined)
-        tell "participant: the $what is saved ($shown) and goes with the join that is in progress. Check: ./suckerpot status --wait"
+        tell "participant: the $what is saved ($shown) and goes with the join that is in progress. Check: ./suckerpot.sh status --wait"
         ;;
       *)
         tell "participant: the $what is saved ($shown). It is used when this node joins: ./scripts/participant.sh join"

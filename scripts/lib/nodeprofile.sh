@@ -39,7 +39,7 @@ profile_ask_name() {
     "Node name" \
     "The network shows your node under this name (in the member list and in its figures), or as" \
     "\"Node\" and a number if you choose none. Do not use a name you use anywhere else: it would" \
-    "link this node to you. You can change it later: ./suckerpot edit"
+    "link this node to you. You can change it later: ./suckerpot.sh edit"
   def=keep
   if [ -n "$cur" ]; then items+=("keep|Keep $cur|the current name"); fi
   if [ -n "$random" ]; then items+=("random|$random|a random name (recommended)"); fi

@@ -201,7 +201,7 @@ A patient operator with at least five aged, well-behaved nodes can get a false t
 There are two ways to join. Both mean the same thing for the data that is shared.
 
 - **Full install.** You join from the dashboard, as described in [How to join](#how-to-join).
-- **Participant install.** You run `./scripts/install.sh --participant`, which is the consent, and the node joins by itself. There is no dashboard. See [Join the network in three commands](participate.md).
+- **Participant install.** You run `./scripts/install.sh --participant`, which is the consent, and the node joins by itself. There is no dashboard. See [Join the network in one command](participate.md).
 
 ### The no-VPN trade-off
 
@@ -250,15 +250,15 @@ Then:
 
 Empty means the network shows you as `Node` followed by your fingerprint, for example `Node 3f9a1c07`.
 
-The terminal tools call the pseudonym the **node name**. A participant install asks for it on the terminal (a random name by default; this machine's host name is offered with a warning, because a host name can identify you) and changes it with `./scripts/participant.sh set-name NAME` or `./suckerpot edit name`. The command waits for the hub's answer and puts everything back when the hub refuses the name. A full install changes it in Settings, Network.
+The terminal tools call the pseudonym the **node name**. A participant install asks for it on the terminal (a random name by default; this machine's host name is offered with a warning, because a host name can identify you) and changes it with `./scripts/participant.sh set-name NAME` or `./suckerpot.sh edit name`. The command waits for the hub's answer and puts everything back when the hub refuses the name. A full install changes it in Settings, Network.
 
 ### Country
 
-A node may show a country next to its name. It is your choice and it is optional: nothing on your node or on the hub ever detects it, fills it in or sends it for you. The member list shows it only when you chose to show it and at least three nodes show the same country. A participant install asks `Show a country for this node?` on the terminal (no by default) and changes it with `./scripts/participant.sh set-country CC` (`--hide` sends it without showing it, `--none` removes it) or `./suckerpot edit country`.
+A node may show a country next to its name. It is your choice and it is optional: nothing on your node or on the hub ever detects it, fills it in or sends it for you. The member list shows it only when you chose to show it and at least three nodes show the same country. A participant install asks `Show a country for this node?` on the terminal (no by default) and changes it with `./scripts/participant.sh set-country CC` (`--hide` sends it without showing it, `--none` removes it) or `./suckerpot.sh edit country`.
 
 ### The country check
 
-When you type a country in the terminal tools, they compare it with where a GeoIP database places this machine, to catch a typo or a VPS that runs in another country than you expected. The check only warns: on a mismatch the installer and `./suckerpot edit country` ask what you want (keep your code, take the database's, type another, or show none), and `--country` or `set-country` with a mismatch keeps your code and prints a warning. The node shows the country it runs in, not where you live.
+When you type a country in the terminal tools, they compare it with where a GeoIP database places this machine, to catch a typo or a VPS that runs in another country than you expected. The check only warns: on a mismatch the installer and `./suckerpot.sh edit country` ask what you want (keep your code, take the database's, type another, or show none), and `--country` or `set-country` with a mismatch keeps your code and prints a warning. The node shows the country it runs in, not where you live.
 
 The check never asks an outside service where this machine is, and never sends this machine's address anywhere:
 
@@ -413,7 +413,7 @@ The lists are public, so they are visible to everyone, attackers included.
 | Read | When |
 | --- | --- |
 | [Network protocol](network-protocol.md) | You build a client or want to check a signature |
-| [Join the network in three commands](participate.md) | You want to help the network with a small install |
+| [Join the network in one command](participate.md) | You want to help the network with a small install |
 | `hub/README.md` | You run a hub |
 | [Configuration](configuration.md#suckerpot-network-m29) | You want every `NETWORK_*` variable |
 | [M29 design](dev/design/m29.md) | You want the full analysis and the decisions |

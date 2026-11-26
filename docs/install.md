@@ -95,6 +95,34 @@ The mode is saved as `SUCKERPOT_INSTALL_MODE` in `.env`. Updates use the same mo
 
 ## Install in one command
 
+```bash
+curl -fsSLO https://github.com/selfhostr/suckerpot/releases/latest/download/get.sh && sh get.sh
+```
+
+`get.sh` needs only `curl`, `tar`, `gzip`, `sha256sum` and `bash`, runs as your user and never uses `sudo`. Before anything, it prints what it will do and asks. Then:
+
+1. it asks GitHub for the newest release (or takes `--version vX.Y.Z`);
+2. it downloads that release's **node bundle** (`suckerpot-node-vX.Y.Z.tar.gz`: the files of `config/node-bundle.list`, the compose files, scripts and settings a node needs, not the sources), its signed release manifest and the manifest's Sigstore signature;
+3. it downloads cosign (a pinned release, checked against its pinned SHA-256) and checks that the manifest is signed by this repository's release workflow for that very tag, then that the bundle has the SHA-256 the manifest names and the commit it names. Any failure stops here, and nothing is written outside a temporary folder;
+4. it creates `~/suckerpot` (`--dir` for another folder; it must not exist or be empty, and a folder that already holds a node is never touched) and unpacks the bundle there, refusing links and paths outside the folder;
+5. it starts `~/suckerpot/suckerpot.sh`, the menu (`--no-menu` to stop before).
+
+Everything after that happens with `~/suckerpot/suckerpot.sh`: install, status, edit, update, remove. An update of a bundle install downloads the new release's bundle and checks it the same way (the signed manifest names its SHA-256) before it replaces the files; `just rollback` puts the previous files back. A bundle install runs the signed release images only; to build from source, use a git checkout (below).
+
+You can read `get.sh` before you run it; the command above downloads it first on purpose (the project never pipes a script into a shell in its docs).
+
+### Testing a branch (not signed)
+
+To test a branch before it is released (the `dev` branch, for example):
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/selfhostr/suckerpot/dev/scripts/get.sh && sh get.sh --ref dev
+```
+
+This fetches the branch as GitHub archives it and keeps only the files of the bundle. **Nothing is signed**: only HTTPS protects the download, and `get.sh` says so and asks you to type `yes`. The node then runs the scripts of the branch with the signed images of the newest release; its updates change only the images (run `get.sh --ref dev --dir NEW` again for newer scripts).
+
+### From a git checkout
+
 Clone the repository, switch to the latest release, then run the installer from the checkout:
 
 ```bash
@@ -115,7 +143,7 @@ The installer does not use `curl | bash`. Read the script first, then run it fro
 
 ### Or use the menu
 
-`./suckerpot` at the top of the checkout opens a menu in the terminal (also `just menu`). Move with the arrow keys (or `j` and `k`) and press Enter, or press the key shown before an item; `q` quits. It works over SSH, in an 80x24 terminal and without colour (`NO_COLOR`). Before an install it offers:
+`./suckerpot.sh` at the top of the checkout opens a menu in the terminal (also `just menu`). Move with the arrow keys (or `j` and `k`) and press Enter, or press the key shown before an item; `q` quits. It works over SSH, in an 80x24 terminal and without colour (`NO_COLOR`). Before an install it offers:
 
 ```
   1  Install a participant node   sensors only, joins the network (a VPS with 1 GiB or more)
@@ -144,15 +172,15 @@ Each item runs one of the scripts below, so every item also works without the me
 
 | Command | What it does |
 | --- | --- |
-| `./suckerpot install [FLAGS]` | `./scripts/install.sh` with the same flags |
-| `./suckerpot status [--wait] [--brief \| --json]` | `./scripts/status.sh`: what runs, the network enrolment, the last batch, what needs attention. `--wait` first waits for the hub's answer to a join in progress (the proof of work of a new node can take minutes) |
-| `./suckerpot edit [SETTING [VALUE]]` | `./scripts/edit.sh`: `name`, `country`, `sensors`, `vpn`, `auto-update`, `firewall`. Without a value it asks; every change is applied at once |
-| `./suckerpot update` | `./scripts/update.sh` (as `just update`) |
-| `./suckerpot ports` | `./scripts/participant.sh ports-check` |
-| `./suckerpot logs [SERVICE]` | the last lines of the logs |
-| `./suckerpot repair` | `./scripts/install.sh --repair` |
-| `./suckerpot leave`, `./suckerpot join` | leave the network, or join again (participant node) |
-| `./suckerpot remove` | `./scripts/uninstall.sh`, see [Remove SuckerPot](#remove-suckerpot) |
+| `./suckerpot.sh install [FLAGS]` | `./scripts/install.sh` with the same flags |
+| `./suckerpot.sh status [--wait] [--brief \| --json]` | `./scripts/status.sh`: what runs, the network enrolment, the last batch, what needs attention. `--wait` first waits for the hub's answer to a join in progress (the proof of work of a new node can take minutes) |
+| `./suckerpot.sh edit [SETTING [VALUE]]` | `./scripts/edit.sh`: `name`, `country`, `sensors`, `vpn`, `auto-update`, `firewall`. Without a value it asks; every change is applied at once |
+| `./suckerpot.sh update` | `./scripts/update.sh` (as `just update`) |
+| `./suckerpot.sh ports` | `./scripts/participant.sh ports-check` |
+| `./suckerpot.sh logs [SERVICE]` | the last lines of the logs |
+| `./suckerpot.sh repair` | `./scripts/install.sh --repair` |
+| `./suckerpot.sh leave`, `./suckerpot.sh join` | leave the network, or join again (participant node) |
+| `./suckerpot.sh remove` | `./scripts/uninstall.sh`, see [Remove SuckerPot](#remove-suckerpot) |
 
 To install without any question, use `--yes`. With no `--participant`, it makes a full install. **It does not join the SuckerPot network**: that needs your explicit `--join-network`. The admin password is generated and printed once, or you can pass your own on standard input:
 
@@ -178,13 +206,13 @@ All questions come first, on the terminal; then the install runs by itself.
 3. **Node name.** Participant installs on a terminal, unless `--node-name` (or `--pseudonym`) or `--no-node-name` answers it. The name the network shows for your node: a random name (the default), this machine's host name (the installer warns that it may identify you), your own, or none (the network then shows `Node` and a number). The rules are in [the network](network.md#pseudonyms). Do not use a name you use anywhere else.
 4. **Show a country for this node?** Participant installs on a terminal, unless `--country` answers it. The default is no. If you say yes, you type the two-letter code, and the installer compares it with a GeoIP database on this machine, never with an outside service (see [the country check](network.md#the-country-check)). When the database places this machine elsewhere, it says so and you choose: keep your code, take the other one, type another, or show none.
 
-**A checkout of a branch** (for example `git clone -b dev`) is not a release, so it has no images of its own. On a terminal the installer asks first: run the signed images of the newest release it knows (the default, verified like any release), or build this checkout from source (slower, for testing the branch). Without a terminal it stops and says which flag to add: `--version latest` (the newest release tag of the checkout), `--version vX.Y.Z` or `--source`. A later `./suckerpot update` keeps the branch and changes only the images.
+**A checkout of a branch** (for example `git clone -b dev`) is not a release, so it has no images of its own. On a terminal the installer asks first: run the signed images of the newest release it knows (the default, verified like any release), or build this checkout from source (slower, for testing the branch). Without a terminal it stops and says which flag to add: `--version latest` (the newest release tag of the checkout), `--version vX.Y.Z` or `--source`. A later `./suckerpot.sh update` keeps the branch and changes only the images.
 
-**sudo.** Run the installer and `./suckerpot` as your own user; they ask for `sudo` themselves where they need it (Docker's setup, the host firewall). Started with `sudo` by the user who owns the checkout, they start again as that user, so `.env`, `install.log`, `.suckerpot-state` and the update schedule stay yours, and Docker's setup adds that user, not root, to the `docker` group. Run as root (a root login on a VPS, or a checkout owned by root), everything belongs to root and no group is needed.
+**sudo.** Run the installer and `./suckerpot.sh` as your own user; they ask for `sudo` themselves where they need it (Docker's setup, the host firewall). Started with `sudo` by the user who owns the checkout, they start again as that user, so `.env`, `install.log`, `.suckerpot-state` and the update schedule stay yours, and Docker's setup adds that user, not root, to the `docker` group. Run as root (a root login on a VPS, or a checkout owned by root), everything belongs to root and no group is needed.
 
 `--non-interactive` never reads the terminal: the installer behaves as without one (the type needs a flag or `--yes`, the consent needs `--yes`, and no name or country question is asked).
 
-While it runs, the screen shows the list of steps, one progress bar with the percentage and the time, and the result of each step on its right; the full output of every command goes to `install.log`. At the end it waits up to three minutes for the hub to accept a participant node. If the hub has not decided yet (a new node first solves a proof-of-work puzzle), it offers to wait ten more minutes; otherwise `./suckerpot status --wait` shows the answer later. The final screen ends with the node's status: the stack, the sensors, the network enrolment and the first things to fix.
+While it runs, the screen shows the list of steps, one progress bar with the percentage and the time, and the result of each step on its right; the full output of every command goes to `install.log`. At the end it waits up to three minutes for the hub to accept a participant node. If the hub has not decided yet (a new node first solves a proof-of-work puzzle), it offers to wait ten more minutes; otherwise `./suckerpot.sh status --wait` shows the answer later. The final screen ends with the node's status: the stack, the sensors, the network enrolment and the first things to fix.
 
 Everything else takes a default. Each default has a flag:
 
@@ -444,7 +472,7 @@ This traffic shows the host's address to the registry and to GitHub. It is outsi
 
 ## Remove SuckerPot
 
-`./suckerpot remove` (or `./scripts/uninstall.sh`) shows what it will do and what it keeps, and asks first:
+`./suckerpot.sh remove` (or `./scripts/uninstall.sh`) shows what it will do and what it keeps, and asks first:
 
 - a participant node leaves the network (the hub deletes the node and what it sent);
 - the automatic update schedule is removed (and, on Podman, the boot unit);
@@ -475,7 +503,7 @@ It keeps the data volumes, `.env` (the database password lives inside the data, 
 
 ## Next steps
 
-- [Join the network in three commands](participate.md)
+- [Join the network in one command](participate.md)
 - [Updates and rollback](updates.md)
 - [Configuration](configuration.md#install-updates-and-sensor-switches-m28)
 - [Deployment](deployment.md)

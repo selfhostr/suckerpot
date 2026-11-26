@@ -1,4 +1,4 @@
-# Join the network in three commands
+# Join the network in one command
 
 This page is for people who want to help the SuckerPot network and nothing else. You do not need a dashboard, an admin account, an API key or a VPN. You run sensors on a machine, and the machine shares what they see with the network.
 
@@ -26,15 +26,15 @@ No spare machine, or no access to your router? Use a cheap VPS or a Raspberry Pi
 
 The full list of checks is in [Install SuckerPot](install.md#requirements).
 
-## The three commands
+## One command
 
 ```bash
-git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
-git switch --detach "$(git describe --tags --abbrev=0)"
-./suckerpot
+curl -fsSLO https://github.com/selfhostr/suckerpot/releases/latest/download/get.sh && sh get.sh
 ```
 
-`./suckerpot` opens a menu; choose **Install a participant node** with the arrow keys and Enter (or press `1`). `./scripts/install.sh --participant` does the same without the menu. The installer asks everything first, then runs by itself:
+`get.sh` shows what it will do, downloads the signed node bundle of the newest release into `~/suckerpot`, checks its signature and opens the menu (details: [Install in one command](install.md#install-in-one-command)). No git needed; from a git checkout, `./suckerpot.sh` opens the same menu. To test the `dev` branch before a release (not signed): `curl -fsSLO https://raw.githubusercontent.com/selfhostr/suckerpot/dev/scripts/get.sh && sh get.sh --ref dev`.
+
+In the menu (`~/suckerpot/suckerpot.sh`), choose **Install a participant node** with the arrow keys and Enter (or press `1`). `./scripts/install.sh --participant` does the same without the menu. The installer asks everything first, then runs by itself:
 
 1. It prints what it will share and asks `Join the SuckerPot network as described? [y/N]`.
 2. **Node name**: the name the network shows for your node (the protocol calls it the pseudonym). A random name such as `amber-falcon-42` is the default; you can also take this machine's host name (it may identify you, the installer says so), type your own, or have none. Do not use a name you use anywhere else.
@@ -46,7 +46,7 @@ It then creates every secret on this machine and starts the sensors, the databas
 
 A machine sold as "2 GB" reports about 1.9 GiB and runs the default setup with the low-memory limits: add swap (the installer warns when there is less than 512 MiB). If the machine reports less than 1.75 GiB, the installer says so and takes the lite setup by itself, with a note. That is the same as passing `--lite` yourself, which stays the explicit way: `./scripts/install.sh --participant --lite`.
 
-Near the end it installs the **host firewall**, without a question. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the three commands stay three commands. `sudo` asks for your password on the terminal. With `--yes` it installs the firewall by itself when `sudo` works without a password, and otherwise prints the one command to run (`./scripts/participant.sh firewall`). If you filter the containers elsewhere, pass `--no-firewall`. On Podman the firewall is required: the install stops without it, and `--no-firewall` only skips it with a warning. You can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
+Near the end it installs the **host firewall**, without a question. It is a small nftables table that stops a compromised sensor from reaching this machine or the internet. It is part of the installer, so the one command stays one command. `sudo` asks for your password on the terminal. With `--yes` it installs the firewall by itself when `sudo` works without a password, and otherwise prints the one command to run (`./scripts/participant.sh firewall`). If you filter the containers elsewhere, pass `--no-firewall`. On Podman the firewall is required: the install stops without it, and `--no-firewall` only skips it with a warning. You can also run `./scripts/participant.sh firewall` at any time (`uninstall` removes it, `status` shows whether it is loaded). It never touches your LAN interface, and the installer says which admin SSH port it used (from `ADMIN_SSH_PORT` in `.env`, or detected from sshd, or 22).
 
 After that, your only job is to open the printed ports.
 
@@ -109,9 +109,9 @@ Everything then goes through the VPN, and the collector and enrichment can run. 
 ## Check what it does
 
 ```bash
-./suckerpot status          # or ./scripts/status.sh
-./suckerpot status --wait   # first wait for the hub's answer to a join in progress
-./suckerpot status --brief  # five lines: stack, sensors, network, what to fix
+./suckerpot.sh status          # or ./scripts/status.sh
+./suckerpot.sh status --wait   # first wait for the hub's answer to a join in progress
+./suckerpot.sh status --brief  # five lines: stack, sensors, network, what to fix
 ```
 
 It shows the sensors and their ports, your standing in the network, the last contact with the hub, what was sent each day, and the update schedule. Exit code 0 is OK, 1 is a warning, 2 is an error. `--json` prints the same data for monitoring tools. `--last-batch` prints the exact data of the last submission.
@@ -159,11 +159,11 @@ At first, only the operator's own node is a verifier.
 
 ## A node installed with an earlier release
 
-The menu works on a node installed with an earlier release too: in the install folder, take the newer scripts (`git fetch`, then `git switch` to the branch or tag that has them) and run `./suckerpot`. It finds the existing install (its `.env`) and opens the menu of the installed node; it never offers to install over it. The top of the menu says when an update is available (`v0.14.2 -> v0.15.0`) and **Update now** installs the newest signed release; on a branch that holds that release only the images change, so the menu stays. A change of the country needs an ingest image newer than v0.15.0: on an older one the menu says which version runs and changes nothing; a new node name still works.
+The menu works on a node installed with an earlier release too (a git checkout keeps updating as before): in the install folder, take the newer scripts (`git fetch`, then `git switch` to the branch or tag that has them) and run `./suckerpot.sh`. It finds the existing install (its `.env`) and opens the menu of the installed node; it never offers to install over it. The top of the menu says when an update is available (`v0.14.2 -> v0.15.0`) and **Update now** installs the newest signed release; on a branch that holds that release only the images change, so the menu stays. A change of the country needs an ingest image newer than v0.15.0: on an older one the menu says which version runs and changes nothing; a new node name still works.
 
 ## Manage your membership
 
-`./suckerpot` gathers all of this in one menu: status, **Edit the node** (name, country, sensors, VPN, automatic updates, host firewall; each change applies at once), update, ports check, logs, repair, leave or join, and remove. `./suckerpot edit name`, `./suckerpot edit country` and the others ask their question without the menu; `./suckerpot help` lists every command.
+`./suckerpot.sh` gathers all of this in one menu: status, **Edit the node** (name, country, sensors, VPN, automatic updates, host firewall; each change applies at once), update, ports check, logs, repair, leave or join, and remove. `./suckerpot.sh edit name`, `./suckerpot.sh edit country` and the others ask their question without the menu; `./suckerpot.sh help` lists every command.
 
 | Command | What it does |
 | --- | --- |
@@ -175,7 +175,7 @@ The menu works on a node installed with an earlier release too: in the install f
 | `./scripts/participant.sh vpn FILE` | Send everything through your VPN |
 | `./scripts/participant.sh auto-update on\|off` | Turn the automatic update schedule on or off |
 | `./scripts/participant.sh uninstall` | Leave, stop the stack and remove the schedule. It prints the command that removes the data volumes and never runs it |
-| `./suckerpot remove` | The same, step by step: it shows what it keeps, and only on your explicit answer removes the host firewall and deletes the data (see [Remove SuckerPot](install.md#remove-suckerpot)) |
+| `./suckerpot.sh remove` | The same, step by step: it shows what it keeps, and only on your explicit answer removes the host firewall and deletes the data (see [Remove SuckerPot](install.md#remove-suckerpot)) |
 
 If a newer release widens what is shared, the node waits until you run `join` again. It never agrees for you.
 

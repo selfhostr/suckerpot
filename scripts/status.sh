@@ -9,7 +9,7 @@
 # only), so the host needs nothing but Docker and bash.
 #
 # --json prints the same data as JSON, for monitoring. --brief prints a few lines (stack, sensors,
-# network, the first things to fix): the view of ./suckerpot and of the end of the install.
+# network, the first things to fix): the view of ./suckerpot.sh and of the end of the install.
 # --last-batch prints the exact JSON of the last submission to the network (attacker addresses
 # only, kept 7 days) and nothing else. --wait first waits (default 600 s) while the hub has not
 # decided on a join in progress, for example the proof of work of a new node; Ctrl-C stops waiting.

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# SuckerPot on this machine: one command for everything (also ./suckerpot and `just menu`).
+# SuckerPot on this machine: one command for everything (also ./suckerpot.sh and `just menu`).
 #
-#   ./suckerpot                       a menu: install, status, edit, update, ports, logs, remove
-#   ./suckerpot install [FLAGS]       install a node (scripts/install.sh; no flag: it asks)
-#   ./suckerpot status [--wait] [--brief | --json]
+#   ./suckerpot.sh                       a menu: install, status, edit, update, ports, logs, remove
+#   ./suckerpot.sh install [FLAGS]       install a node (scripts/install.sh; no flag: it asks)
+#   ./suckerpot.sh status [--wait] [--brief | --json]
 #                                     what runs, the network enrolment, the last batch
-#   ./suckerpot edit [SETTING [VALUE]]
+#   ./suckerpot.sh edit [SETTING [VALUE]]
 #                                     name, country, sensors, vpn, auto-update, firewall
-#   ./suckerpot update [FLAGS]        the newest signed release, backup first (scripts/update.sh)
-#   ./suckerpot ports                 does the internet reach the sensors?
-#   ./suckerpot logs [SERVICE]        the last lines of the logs (all services, or one)
-#   ./suckerpot repair                run the install steps again, settings kept
-#   ./suckerpot leave | join          leave the network, or join it again (participant node)
-#   ./suckerpot remove [FLAGS]        uninstall (scripts/uninstall.sh): your data stays unless
+#   ./suckerpot.sh update [FLAGS]        the newest signed release, backup first (scripts/update.sh)
+#   ./suckerpot.sh ports                 does the internet reach the sensors?
+#   ./suckerpot.sh logs [SERVICE]        the last lines of the logs (all services, or one)
+#   ./suckerpot.sh repair                run the install steps again, settings kept
+#   ./suckerpot.sh leave | join          leave the network, or join it again (participant node)
+#   ./suckerpot.sh remove [FLAGS]        uninstall (scripts/uninstall.sh): your data stays unless
 #                                     you say so
 #
 # The menu needs a terminal; every other form works without one. Keys: Up/Down (or j/k) and
@@ -63,7 +63,7 @@ net_state() {
     member) echo "accepted, standing ${standing:-new}" ;;
     enrolling) echo "waiting for the hub's answer" ;;
     not_joined) case $doc in *'"desired": "member"'*) echo "joining" ;; *) echo "not joined" ;; esac ;;
-    error) echo "refused: ./suckerpot status" ;;
+    error) echo "refused: ./suckerpot.sh status" ;;
     left) echo "left" ;;
     "") ;;
     *) echo "$st" ;;
@@ -76,9 +76,7 @@ net_state() {
 H_ALL=0 H_NET=""
 
 # latest_release: the newest release tag this checkout knows ("" when none).
-latest_release() {
-  git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' | head -n 1 || true
-}
+latest_release() { latest_known_release; }
 
 # update_text: the running version and the newest known one, in a few words.
 update_text() {
@@ -112,6 +110,11 @@ header() {
     printf '  %-9s  %s%s · %s\n' "Node" "${line:-no name}" "${cc:+ · $cc}" "$path" 1>&"$ASK_OUT"
   else
     printf '  %-9s  http://%s:%s (Admin user %s)\n' "Dashboard" "$(env_get DASHBOARD_BIND 127.0.0.1)" "$(env_get DASHBOARD_PORT 8443)" "$(env_get ADMIN_USERNAME admin)" 1>&"$ASK_OUT"
+  fi
+  # A node installed by get.sh: which bundle its files come from.
+  if layout_bundle; then
+    if [ "$(bundle_get signed)" = 1 ]; then line="the signed node bundle $(bundle_get version)"; else line="a TESTING build of $(bundle_get ref), not signed"; fi
+    printf '  %-9s  %s\n' "Files" "$line" 1>&"$ASK_OUT"
   fi
   read -r run ok all < <(ps_counts)
   H_ALL=$all H_NET=""
@@ -355,9 +358,11 @@ docker_group() {
 
 menu() {
   docker_group
+  # A bundle install has no tags: it asks GitHub for the newest release at most every 6 hours.
+  latest_release_refresh 6 || true
   ask_open
   ASK_IND="  "
-  [ "$ASK_TTY" = 1 ] || die "the menu needs a terminal. Without one: ./suckerpot help"
+  [ "$ASK_TTY" = 1 ] || die "the menu needs a terminal. Without one: ./suckerpot.sh help"
   while :; do
     header
     echo 1>&"$ASK_OUT"
@@ -370,7 +375,7 @@ menu() {
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
-need_install() { installed || die "nothing is installed in this folder: ./suckerpot install"; }
+need_install() { installed || die "nothing is installed in this folder: ./suckerpot.sh install"; }
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -386,5 +391,5 @@ case $cmd in
   leave | join) need_install; exec bash scripts/participant.sh "$cmd" "$@" ;;
   remove | uninstall) need_install; exec bash scripts/uninstall.sh "$@" ;;
   help | -h | --help) usage ;;
-  *) die "unknown command '$cmd' (./suckerpot help)" ;;
+  *) die "unknown command '$cmd' (./suckerpot.sh help)" ;;
 esac

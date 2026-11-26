@@ -163,8 +163,80 @@ settable_value() { [[ $1 =~ ^[A-Za-z0-9._,:/@+_-]{0,512}$ ]]; }
 ver_ge() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$2" ]; }
 
 # Succeeds inside a linked git worktree (a scratch checkout: never act on a live stack there).
+# ----------------------------------------------------------------------- node bundle (no git)
+# A node installed with scripts/get.sh has no git checkout: it holds the files of a node bundle
+# (config/node-bundle.list) and .suckerpot-bundle, which says what they are:
+#   version=vX.Y.Z  ref=vX.Y.Z|<branch>  commit=<sha>  signed=1|0  latest=vX.Y.Z (newest release
+#   known when the bundle was fetched)
+# A git checkout keeps working as before; these helpers tell the two layouts apart.
+BUNDLE_FILE=.suckerpot-bundle
+SUCKERPOT_REPO_URL=${SUCKERPOT_REPO_URL:-https://github.com/selfhostr/suckerpot}
+layout_bundle() { [ -f "$BUNDLE_FILE" ] && [ ! -e .git ]; }
+bundle_get() { sed -n "s/^$1=//p" "$BUNDLE_FILE" 2> /dev/null | tail -n 1 | tr -cd 'A-Za-z0-9._/-'; }
+
+# bundle_unpack FILE: unpacks a node bundle over this folder, after checking that it holds only
+# plain files and folders, every path inside. The caller has verified FILE first.
+bundle_unpack() {
+  local f=$1
+  tar -tvzf "$f" 2> /dev/null | awk '{ t = substr($1, 1, 1); if (t != "-" && t != "d") bad = 1 } END { exit bad }' \
+    || { echo "the bundle holds links or special files" >&2; return 1; }
+  if tar -tzf "$f" 2> /dev/null | grep -Eq '(^/|(^|/)\.\.(/|$))'; then echo "the bundle has a path outside its folder" >&2; return 1; fi
+  ( umask 022 && tar -xzf "$f" -C . )
+}
+
+# bundle_save OUT: the files of this bundle install as they are now (config/node-bundle.list and
+# .suckerpot-bundle), for a rollback.
+bundle_save() {
+  local out=$1 line f
+  local -a files=()
+  shopt -s nullglob
+  if [ -f config/node-bundle.list ]; then
+    while IFS= read -r line; do
+      case $line in "" | \#*) continue ;; esac
+      # shellcheck disable=SC2206 # a glob on purpose
+      for f in $line; do [ -f "$f" ] && files+=("./$f"); done
+    done < config/node-bundle.list
+  fi
+  shopt -u nullglob
+  tar -czf "$out" "./$BUNDLE_FILE" ${files[@]+"${files[@]}"}
+}
+
+# latest_known_release: the newest release this install knows. A checkout: its tags. A bundle:
+# the release named when its bundle was fetched, or later by latest_release_refresh.
+latest_known_release() {
+  local t c=.suckerpot-state/latest-release
+  if ! layout_bundle; then
+    git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' | head -n 1 || true
+    return 0
+  fi
+  t=$(head -n 1 "$c" 2> /dev/null | tr -cd 'v0-9.')
+  [ -n "$t" ] || t=$(bundle_get latest)
+  [[ $t =~ ^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && printf '%s\n' "$t"
+  return 0
+}
+
+# latest_release_fetch: the newest published release, asked of GitHub (the "latest" redirect: one
+# HTTPS request from this machine's own address, as the update checks). Prints vX.Y.Z or fails.
+latest_release_fetch() {
+  local u
+  u=$(curl -fsSLI --proto '=https' --tlsv1.2 --max-time 15 -o /dev/null -w '%{url_effective}' "$SUCKERPOT_REPO_URL/releases/latest" 2> /dev/null) || return 1
+  u=${u##*/}
+  [[ $u =~ ^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
+  printf '%s\n' "$u"
+}
+
+# latest_release_refresh [MAX_AGE_H]: a bundle install asks GitHub again when its note is older
+# than MAX_AGE_H hours (default 6), and keeps the answer in .suckerpot-state/latest-release.
+latest_release_refresh() {
+  local c=.suckerpot-state/latest-release age=${1:-6} t
+  layout_bundle || return 0
+  if [ -f "$c" ] && [ -n "$(find "$c" -mmin "-$((age * 60))" 2> /dev/null)" ]; then return 0; fi
+  t=$(latest_release_fetch) || return 0
+  mkdir -p .suckerpot-state && printf '%s\n' "$t" > "$c"
+}
+
 # sudo_drop SCRIPT ARGS...: the host scripts run as the user who owns the checkout. Started with
-# sudo by that user (sudo ./suckerpot), the script starts again as that user, so .env, install.log,
+# sudo by that user (sudo ./suckerpot.sh), the script starts again as that user, so .env, install.log,
 # .suckerpot-state and the update schedule belong to them, and docker runs as them (the scripts ask
 # for sudo themselves where they need it). A checkout owned by root keeps running as root.
 # SCRIPT is relative to the top of the checkout (the current folder). SELFHOSTR_EUID: the tests.
@@ -215,6 +287,8 @@ fix_tracked_modes_exempt() {
 fix_tracked_modes() {
   local f p top ok i
   local paths=() real=() keep=()
+  # A node bundle is unpacked readable (umask 022, scripts/get.sh); it has no git tree to walk.
+  if layout_bundle; then return 0; fi
   top=$(git rev-parse --show-toplevel 2> /dev/null) && top=$(realpath -e -- "$top" 2> /dev/null) || {
     echo "warning: could not find the top of the checkout; file modes were not repaired" >&2
     return 0

@@ -489,6 +489,10 @@ def test_script_never_looks_up_a_public_address() -> None:
                 # The only other curl: Docker's key and repository files, when Docker is missing.
                 if "https://download.docker.com/linux/" in line or "apt-get install" in line:
                     continue
+                # A node bundle install asks this project's GitHub releases for the newest release
+                # and downloads its signed bundle: the release, never an address lookup.
+                if "$SUCKERPOT_REPO_URL/releases/" in line:
+                    continue
                 assert "healthz" in line, (rel, line)
                 assert re.search(r"http://(\$hbind|\$bind|127\.0\.0\.1)", line), (rel, line)
 

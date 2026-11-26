@@ -157,20 +157,54 @@ if [ "$force" = 0 ] && [ -f "$STATE" ] && grep -q '"completed": false' "$STATE";
   die "the previous update never finished (see $STATE). Run just rollback, or finish it, or retry with --force"
 fi
 
-from_ref=$(git rev-parse HEAD 2> /dev/null || true)
-[ -n "$from_ref" ] || die "this folder is not a git checkout"
-from_branch=$(git symbolic-ref --short -q HEAD 2> /dev/null || true)
-from_version=$(git describe --tags --always 2> /dev/null || echo unknown)
-if [ "$mode" = images ]; then
-  from_version=$(env_get SUCKERPOT_VERSION "$from_version")
+# A node bundle install (scripts/get.sh) has no git: the new code is the signed node bundle of the
+# release, downloaded and checked like the release itself (verify-release.sh --bundle). A testing
+# bundle of a branch (not signed) keeps its scripts and only changes the images.
+bundle=0
+if layout_bundle; then
+  bundle=1
+  [ "$mode" = images ] || die "a node bundle install runs the signed images only (SUCKERPOT_INSTALL_MODE=images)"
+  from_ref=$(bundle_get commit)
+  [[ $from_ref =~ ^[0-9a-f]{40}$ ]] || from_ref=0000000000000000000000000000000000000000
+  from_branch=""
+  from_version=$(env_get SUCKERPOT_VERSION "$(bundle_get version)")
+else
+  from_ref=$(git rev-parse HEAD 2> /dev/null || true)
+  [ -n "$from_ref" ] || die "this folder is not a git checkout"
+  from_branch=$(git symbolic-ref --short -q HEAD 2> /dev/null || true)
+  from_version=$(git describe --tags --always 2> /dev/null || echo unknown)
+  if [ "$mode" = images ]; then
+    from_version=$(env_get SUCKERPOT_VERSION "$from_version")
+  fi
+
+  fetched=1
+  git fetch --tags --quiet 2> /dev/null || fetched=0
+  [ "$fetched" = 1 ] || echo "      warning: could not fetch tags from the remote; using the local ones" >&2
 fi
 
-fetched=1
-git fetch --tags --quiet 2> /dev/null || fetched=0
-[ "$fetched" = 1 ] || echo "      warning: could not fetch tags from the remote; using the local ones" >&2
-
 pull_branch=0
-if [ -z "$target" ]; then
+new_bundle=""
+keep_code=0
+if [ "$bundle" = 1 ]; then
+  if [ -z "$target" ]; then
+    target=$(latest_release_fetch) || die "could not ask GitHub for the newest release (no network?)"
+  fi
+  mkdir -p "$STATE_DIR" && printf '%s\n' "$target" > "$STATE_DIR/latest-release"
+  if [ "$(env_get SUCKERPOT_VERSION)" = "$target" ] && { [ "$(bundle_get signed)" != 1 ] || [ "$(bundle_get version)" = "$target" ]; }; then
+    echo "Already on $target. Nothing to update."
+    exit 0
+  fi
+  if [ "$(bundle_get signed)" = 1 ]; then
+    new_bundle="$STATE_DIR/suckerpot-node-$target.tar.gz"
+    curl -fsSL --proto '=https' --tlsv1.2 --max-time 300 -o "$new_bundle" "$SUCKERPOT_REPO_URL/releases/download/$target/suckerpot-node-$target.tar.gz" \
+      || die "could not download the node bundle of $target; nothing was changed"
+  else
+    keep_code=1
+  fi
+fi
+if [ "$bundle" = 1 ]; then
+  :
+elif [ -z "$target" ]; then
   if [ "$mode" = source ] && [ -n "$from_branch" ]; then
     pull_branch=1
   else
@@ -181,8 +215,7 @@ fi
 # A node whose checkout is a branch that already contains the release (dev, main, ahead of the
 # newest tag) keeps its scripts: only the images change. Checking out the tag would take the newer
 # scripts away. A branch behind the release is checked out at the tag, as a detached checkout is.
-keep_code=0
-if [ -n "$target" ]; then
+if [ -n "$target" ] && [ "$bundle" = 0 ]; then
   git rev-parse -q --verify "refs/tags/$target" > /dev/null || die "tag $target not found"
   target_commit=$(git rev-parse "refs/tags/$target^{commit}")
   if [ "$mode" = images ] && [ -n "$from_branch" ] && git merge-base --is-ancestor "$target_commit" "$from_ref" 2> /dev/null; then
@@ -204,6 +237,9 @@ if [ -n "$target" ] && [ "$mode" = images ]; then
   else
     vr_args=()
     [ "$auto" = 1 ] && vr_args+=(--auto)
+    [ -z "$new_bundle" ] || vr_args+=(--bundle "$new_bundle")
+    # A testing bundle keeps its scripts: only the release's images are taken, so only they count.
+    if [ "$bundle" = 1 ] && [ -z "$new_bundle" ]; then vr_args+=(--no-code); fi
     vr_rc=0
     vr_out=$(bash scripts/verify-release.sh ${vr_args[@]+"${vr_args[@]}"} "$target") || vr_rc=$?
     printf '%s\n' "$vr_out"
@@ -229,8 +265,14 @@ if [ "$pull_branch" = 1 ]; then
   echo "      target:  newest commit of branch $from_branch (git pull --ff-only)"
 else
   echo "      target:  $target"
-  [ "$keep_code" = 0 ] || echo "      the checkout stays on the branch $from_branch (it already holds $target): only the images change"
-  notes=$(git tag -l --format='%(contents)' "$target" 2> /dev/null | tr -d '\000-\010\013-\037\177' || true)
+  if [ "$keep_code" = 1 ] && [ "$bundle" = 1 ]; then
+    echo "      the testing scripts of $(bundle_get ref) stay (not signed): only the images change (sh scripts/get.sh --ref ... fetches newer scripts)"
+  elif [ "$keep_code" = 1 ]; then
+    echo "      the checkout stays on the branch $from_branch (it already holds $target): only the images change"
+  fi
+  [ -z "$new_bundle" ] || echo "      the scripts come from the signed node bundle of $target"
+  notes=""
+  [ "$bundle" = 1 ] || notes=$(git tag -l --format='%(contents)' "$target" 2> /dev/null | tr -d '\000-\010\013-\037\177' || true)
   if [ -n "$notes" ]; then
     echo "      release notes:"
     printf '%s\n' "$notes" | sed 's/^/        /'
@@ -291,6 +333,7 @@ cat > "$tmp" << EOF
   "from_ref": "$(clean "$from_ref")",
   "from_branch": "$(clean "$from_branch")",
   "mode": "$mode",
+  "layout": "$([ "$bundle" = 1 ] && echo bundle || echo git)",
   "dump": "$(clean "$dump")",
   "alembic_before": "$(clean "$alembic_before")",
   "target": "$(clean "$target")",
@@ -326,16 +369,22 @@ trap on_exit EXIT
 # ---------------------------------------------------------------- 4. code
 step 4 "Fetching the new code"
 changed=1
-if [ "$keep_code" = 1 ]; then
-  echo "      kept: the branch $from_branch at ${from_ref:0:12}"
+if [ -n "$new_bundle" ]; then
+  # The files as they are, for a rollback; then the verified bundle over them.
+  bundle_save "$STATE_DIR/bundle-before.tar.gz" || die "could not save the current files; nothing was changed"
+  bundle_unpack "$new_bundle" || die "the new node bundle could not be unpacked (see above); run: just rollback"
+  rm -f "$new_bundle"
+  echo "      unpacked the node bundle of $target"
+elif [ "$keep_code" = 1 ]; then
+  echo "      kept: ${from_branch:+the branch $from_branch at }${from_ref:0:12}"
 elif [ "$pull_branch" = 1 ]; then
   with_public_umask git pull --ff-only --quiet || die "git pull --ff-only failed"
 else
   # By commit, never by name: a local branch of the same name or a re-pointed tag must not win.
   with_public_umask git checkout --quiet --detach "$target_commit" || die "could not check out $target"
 fi
-new_ref=$(git rev-parse HEAD)
-if [ "$pull_branch" = 0 ] && [ "$keep_code" = 0 ] && [ "$new_ref" != "$target_commit" ]; then
+if [ "$bundle" = 1 ]; then new_ref=$(bundle_get commit); [ -n "$new_ref" ] || new_ref=$from_ref; else new_ref=$(git rev-parse HEAD); fi
+if [ "$bundle" = 0 ] && [ "$pull_branch" = 0 ] && [ "$keep_code" = 0 ] && [ "$new_ref" != "$target_commit" ]; then
   die "the checkout is at ${new_ref:0:12}, not the verified ${target_commit:0:12}"
 fi
 [ -f scripts/lib/env.sh ] && . scripts/lib/env.sh

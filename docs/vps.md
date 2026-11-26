@@ -2,7 +2,7 @@
 
 You can join the SuckerPot network without a spare PC at home and without touching your router. This page covers the two small setups: a VPS with 1 GiB of memory, and a Raspberry Pi. Both use the `--lite` option of the participant installer.
 
-Read [Join the network in three commands](participate.md) first. This page only adds what is different on a small machine.
+Read [Join the network in one command](participate.md) first. This page only adds what is different on a small machine.
 
 ```{warning}
 SuckerPot is built to be attacked. Use a machine that holds nothing else you care about, and never one that carries your own services or keys.
@@ -221,7 +221,7 @@ In the SuckerPot folder you cloned for the script above (if you moved your SSH b
 ./scripts/install.sh --participant --lite
 ```
 
-Or run `./suckerpot` and choose **Install a participant node**: on a 1 GiB machine the installer takes the lite setup by itself. Over SSH everything happens in the terminal: the consent, the node name, whether to show a country (checked against a GeoIP database on the VPS itself, never an outside service; a VPS often runs in another country than you live in, and the node shows where it runs), then a progress bar while it installs. The full output goes to `install.log`.
+Or run `./suckerpot.sh` and choose **Install a participant node**: on a 1 GiB machine the installer takes the lite setup by itself. Over SSH everything happens in the terminal: the consent, the node name, whether to show a country (checked against a GeoIP database on the VPS itself, never an outside service; a VPS often runs in another country than you live in, and the node shows where it runs), then a progress bar while it installs. The full output goes to `install.log`.
 
 The installer finds your admin SSH port from what `sshd` listens on (22222 with the script's default) and records it as `ADMIN_SSH_PORT`, so the host firewall protects it. You can check it with `grep ADMIN_SSH_PORT .env`. It never edits your `sshd` configuration. It also installs the host firewall (`sudo` asks for your password). More about the installer: [Join the network](participate.md).
 
@@ -267,7 +267,7 @@ Then run the same installer:
 ## After the install
 
 ```bash
-./suckerpot status    # or ./scripts/status.sh
+./suckerpot.sh status    # or ./scripts/status.sh
 ```
 
-shows the sensors, your standing in the network and the last contact with the hub. A participant node has no dashboard, so everything else happens in the terminal too: `./suckerpot` opens the menu (status, edit the node name, country, sensors, VPN, updates and firewall, update, ports check, logs, repair, leave, remove), and `./suckerpot help` lists the same actions as commands, for example `./suckerpot edit name` or `./suckerpot remove`. With several VPS, run it on each one; `./suckerpot status --brief` prints five lines per node. Updates install themselves and keep the lite settings, because they live in `.env`. To go back to the normal limits, remove the `docker-compose.lite.yml` and `docker-compose.lowmem.yml` entries from the `COMPOSE_FILE` line of `.env` by hand and run `just up` (see [low-memory hosts](install.md#low-memory-hosts)).
+shows the sensors, your standing in the network and the last contact with the hub. A participant node has no dashboard, so everything else happens in the terminal too: `./suckerpot.sh` opens the menu (status, edit the node name, country, sensors, VPN, updates and firewall, update, ports check, logs, repair, leave, remove), and `./suckerpot.sh help` lists the same actions as commands, for example `./suckerpot.sh edit name` or `./suckerpot.sh remove`. With several VPS, run it on each one; `./suckerpot.sh status --brief` prints five lines per node. Updates install themselves and keep the lite settings, because they live in `.env`. To go back to the normal limits, remove the `docker-compose.lite.yml` and `docker-compose.lowmem.yml` entries from the `COMPOSE_FILE` line of `.env` by hand and run `just up` (see [low-memory hosts](install.md#low-memory-hosts)).
