@@ -793,15 +793,15 @@
    },
    "healthcheck": {
     "interval": "15s",
-    "retries": 3,
-    "start_period": "20s",
+    "retries": 4,
+    "start_period": "120s",
     "test": [
      "CMD",
      "python",
      "-m",
      "ingest.healthcheck"
     ],
-    "timeout": "5s"
+    "timeout": "20s"
    },
    "image": "${SUCKERPOT_IMAGE_PREFIX:-local/${COMPOSE_PROJECT_NAME:-unset}}-ingest:${SUCKERPOT_VERSION:-dev}",
    "logging": {

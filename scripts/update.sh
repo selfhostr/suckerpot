@@ -2,7 +2,13 @@
 # Safe update of an installed SuckerPot: backup first, then new code, new images, restart, health
 # check. Called by `just update [vX.Y.Z]`. See docs/dev/design/m28.md section 6.
 #
-#   scripts/update.sh [--yes] [--no-backup] [--skip-verify] [--force] [--auto] [vX.Y.Z]
+#   scripts/update.sh [--yes] [--no-backup] [--skip-verify] [--force] [--resume] [--auto] [vX.Y.Z]
+#
+# --resume finishes an update that was cut off (a dropped SSH session on a slow host): it runs
+# the same update again, to the version it was going to, even when .env already names it (the
+# containers may still run the old images). It is the safe way forward; just rollback is the
+# way back. On a terminal the script ignores a hangup and copies its output to
+# .suckerpot-state/update.log, so a dropped connection does not stop it half way.
 #
 # --auto is for scripts/auto-update.sh: no prompt at all, a signed release manifest is mandatory
 # (and the release must be old enough), and nothing is printed about a manual rollback.
@@ -42,6 +48,7 @@ assume_yes=0
 no_backup=0
 skip_verify=0
 force=0
+resume=0
 auto=0
 target=""
 target_commit=""
@@ -52,10 +59,11 @@ while [ $# -gt 0 ]; do
     --no-backup) no_backup=1 ;;
     --skip-verify) skip_verify=1 ;;
     --force) force=1 ;;
+    --resume) force=1; resume=1 ;;
     --auto) auto=1; assume_yes=1 ;;
     -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     v[0-9]*) target=$1 ;;
-    *) echo "update: unknown argument: $1 (usage: update.sh [--yes] [--no-backup] [--skip-verify] [--force] [--auto] [vX.Y.Z])" >&2; exit 2 ;;
+    *) echo "update: unknown argument: $1 (usage: update.sh [--yes] [--no-backup] [--skip-verify] [--force] [--resume] [--auto] [vX.Y.Z])" >&2; exit 2 ;;
   esac
   shift
 done
@@ -70,6 +78,25 @@ if [ "$auto" = 1 ] && { [ "$no_backup" = 1 ] || [ "$skip_verify" = 1 ] || [ "$fo
 fi
 
 die() { echo "update: $*" >&2; exit 1; }
+
+# A dropped SSH session must not stop an update half way (the checkout new, the images old). On a
+# terminal outside tmux or screen: a hangup is ignored (by compose too), and the output also goes
+# to .suckerpot-state/update.log through a tee that keeps writing the file when the terminal is gone.
+tee_pid=""
+log_flush() {
+  [ -n "$tee_pid" ] || return 0
+  exec > /dev/null 2>&1
+  wait "$tee_pid" 2> /dev/null || true
+}
+if [ "$auto" = 0 ] && [ -t 0 ] && [ -t 1 ] && [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ] \
+  && tee --output-error=warn /dev/null < /dev/null > /dev/null 2>&1; then
+  mkdir -p "$STATE_DIR"
+  trap '' HUP
+  exec > >(tee --output-error=warn -a "$STATE_DIR/update.log") 2>&1
+  tee_pid=$!
+  trap log_flush EXIT
+  echo "(A copy of this output goes to $STATE_DIR/update.log. If the connection drops, the update goes on: log in again and follow it with: tail -f $STATE_DIR/update.log)"
+fi
 # Podman is refused until its support is finished (scripts/lib/engine.sh).
 engine_ready || die "$ENGINE_UNREADY_MSG"
 # A failure caused by the release itself (exit 10, see the header).
@@ -129,7 +156,7 @@ mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 if [ "${SELFHOSTR_UPDATE_LOCK_HELD:-}" != 1 ]; then
   exec 9> "$STATE_DIR/update.lock"
-  flock -n 9 || die "another update or rollback is running (lock $STATE_DIR/update.lock)"
+  lock_take 9 update || die "nothing was changed"
 fi
 
 # Safe characters only, for anything that ends up in the state file.
@@ -153,8 +180,41 @@ if [ "$backup_health" != healthy ]; then
   echo "      warning: the backup service is not healthy" >&2
 fi
 
+# An update that was cut off (the checkout new, the images maybe old): finish it, the safe way
+# forward. --resume goes to the version it was going to.
+unfinished_target=""
+if [ -f "$STATE" ] && grep -q '"completed": false' "$STATE"; then
+  unfinished_target=$(sed -n 's/.*"target": "\(v[0-9.]*\)".*/\1/p' "$STATE" | head -n 1)
+fi
 if [ "$force" = 0 ] && [ -f "$STATE" ] && grep -q '"completed": false' "$STATE"; then
-  die "the previous update never finished (see $STATE). Run just rollback, or finish it, or retry with --force"
+  echo "update: the previous update${unfinished_target:+ to $unfinished_target} was interrupted and never finished (see $STATE)." >&2
+  echo "  Finish it (the safe way forward):  ./suckerpot.sh update --resume" >&2
+  echo "  On a slow host, run it inside tmux or screen so a dropped connection cannot cut it off." >&2
+  echo "  (To go back to the version before it instead: just rollback)" >&2
+  # On a terminal, finishing it is the default answer.
+  a=n
+  if [ "$auto" = 0 ] && [ "$assume_yes" = 0 ] && [ -t 0 ]; then
+    printf 'Finish it now? [Y/n]: ' >&2
+    read -r a || a=n
+    case $a in "" | y | Y | yes) a=y ;; esac
+  fi
+  [ "$a" = y ] || exit 1
+  force=1 resume=1
+fi
+# "Already on" trusts .env only when the containers run that version too: after an update cut off
+# between the checkout and the restart, .env is new and the images old. Then the update goes on.
+images_on() {
+  [ "$mode" = images ] || return 0
+  local r
+  r=$(running_version)
+  [ -z "$r" ] || [ "$r" = "$1" ] && return 0
+  echo "      .env names $1 but the containers run $r: finishing the update"
+  resume=1
+  return 1
+}
+if [ "$resume" = 1 ] && [ -z "$target" ]; then
+  target=$unfinished_target
+  [ -z "$target" ] || echo "      finishing the interrupted update to $target"
 fi
 
 # A node bundle install (scripts/get.sh) has no git: the new code is the signed node bundle of the
@@ -190,7 +250,7 @@ if [ "$bundle" = 1 ]; then
     target=$(latest_release_fetch) || die "could not ask GitHub for the newest release (no network?)"
   fi
   mkdir -p "$STATE_DIR" && printf '%s\n' "$target" > "$STATE_DIR/latest-release"
-  if [ "$(env_get SUCKERPOT_VERSION)" = "$target" ] && { [ "$(bundle_get signed)" != 1 ] || [ "$(bundle_get version)" = "$target" ]; }; then
+  if [ "$resume" = 0 ] && [ "$(env_get SUCKERPOT_VERSION)" = "$target" ] && { [ "$(bundle_get signed)" != 1 ] || [ "$(bundle_get version)" = "$target" ]; } && images_on "$target"; then
     echo "Already on $target. Nothing to update."
     exit 0
   fi
@@ -220,11 +280,11 @@ if [ -n "$target" ] && [ "$bundle" = 0 ]; then
   target_commit=$(git rev-parse "refs/tags/$target^{commit}")
   if [ "$mode" = images ] && [ -n "$from_branch" ] && git merge-base --is-ancestor "$target_commit" "$from_ref" 2> /dev/null; then
     keep_code=1
-    if [ "$(env_get SUCKERPOT_VERSION)" = "$target" ]; then
+    if [ "$resume" = 0 ] && [ "$(env_get SUCKERPOT_VERSION)" = "$target" ] && images_on "$target"; then
       echo "Already on $target (the images; this checkout is the branch $from_branch). Nothing to update."
       exit 0
     fi
-  elif [ "$target" = "$from_version" ] && [ "$(git rev-parse "$target^{commit}")" = "$from_ref" ]; then
+  elif [ "$resume" = 0 ] && [ "$target" = "$from_version" ] && [ "$(git rev-parse "$target^{commit}")" = "$from_ref" ] && images_on "$target"; then
     echo "Already on $target. Nothing to update."
     exit 0
   fi
@@ -281,7 +341,13 @@ fi
 confirm "Update now? A database backup is taken first." || { echo "aborted"; exit 1; }
 
 # What the node looks like before anything changes: the update is judged against this.
-wait_s=$(env_get UPDATE_HEALTH_WAIT_SECONDS "${UPDATE_HEALTH_WAIT_SECONDS:-180}")
+# shellcheck source=scripts/lib/stackop.sh
+. scripts/lib/stackop.sh
+# Ctrl-C during the restart: the step finishes, then the health check still runs (the update must
+# record whether it worked), and the update ends as usual.
+STACK_EXIT_ON_INTERRUPT=0
+# A small machine (1 CPU or 1 GB) starts the services slowly: it gets a longer wait by default.
+wait_s=$(env_get UPDATE_HEALTH_WAIT_SECONDS "${UPDATE_HEALTH_WAIT_SECONDS:-$(stack_slow && echo 600 || echo 180)}")
 [[ $wait_s =~ ^[0-9]{1,4}$ ]] || wait_s=180
 # Let services that are still starting settle first (at most 60 s). One that is still starting
 # after that counts as good: the release is then held to the normal standard for it.
@@ -364,6 +430,7 @@ on_exit() {
       echo "  (events received since the dump are lost only if the database schema changed)" >&2
     fi
   fi
+  log_flush
 }
 trap on_exit EXIT
 
@@ -425,9 +492,11 @@ step 7 "Restarting (migrations run first)"
 bash scripts/check-ports.sh --dotenv-only
 up_rc=0
 if [ "$mode" = images ]; then
-  compose_up_recreating -d --no-build --pull never --wait --wait-timeout 600 || up_rc=$?
+  # In its own session (Ctrl-C never leaves the stack half recreated), after removing what an
+  # interrupted restart left behind (scripts/lib/stackop.sh).
+  stack_run "Restarting with $expected" compose_up_recreating -d --no-build --pull never --wait --wait-timeout "$(t=$(stack_wait_timeout); [ "$t" -gt 600 ] && echo "$t" || echo 600)" || up_rc=$?
 else
-  compose_up_recreating -d --wait --wait-timeout 600 || up_rc=$?
+  stack_run "Restarting with $expected" compose_up_recreating -d --wait --wait-timeout "$(t=$(stack_wait_timeout); [ "$t" -gt 600 ] && echo "$t" || echo 600)" || up_rc=$?
 fi
 if [ "$up_rc" -ne 0 ]; then
   # `up --wait` also fails for a service that was already unhealthy. Go on only when the

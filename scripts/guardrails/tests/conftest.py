@@ -40,6 +40,7 @@ COPIED = [
     "scripts/lib/ask.sh",
     "scripts/lib/geocheck.sh",
     "scripts/lib/nodeprofile.sh",
+    "scripts/lib/stackop.sh",
     "scripts/lib/pseudonym.sh",
     "scripts/lib/enrol_wait.sh",
     "scripts/lib/ports-check.sh",
@@ -78,7 +79,7 @@ case "$*" in
   "compose ps --format"*)
     # SHIM_HEALTH_BEFORE / SHIM_HEALTH_AFTER: "service health" lines, switched by the first `up`.
     if [ -f "$SHIM_DIR/upped" ]; then h="${SHIM_HEALTH_AFTER:-}"; else h="${SHIM_HEALTH_BEFORE:-}"; fi
-    [ -n "$h" ] || h=$(printf 'api healthy\ndb healthy')
+    [ -n "$h" ] || h=$(printf 'api healthy\ndb healthy\ningest healthy')
     # Lines are "service health" (shorthand for a running container) or "service state health".
     printf '%s\n' "$h" | awk '{
       if (NF == 1) print $1, "running", "";
@@ -92,6 +93,7 @@ case "$*" in
   "compose exec -T backup /bin/sh /backup-service.sh now preupdate") exit "${SHIM_BACKUP_RC:-0}" ;;
   "compose exec -T backup sh -c"*) echo "/backups/suckerpot-preupdate-20261101T020000Z.dump" ;;
   "compose exec -T api printenv SUCKERPOT_RUNNING_VERSION") echo "${SHIM_RUNNING_VERSION:-}" ;;
+  "compose exec -T ingest printenv SUCKERPOT_RUNNING_VERSION") echo "${SHIM_INGEST_VERSION:-}" ;;
   "compose up"*)
     touch "$SHIM_DIR/upped"
     echo "ENV_AT_UP SUCKERPOT_VERSION=${SUCKERPOT_VERSION:-unset} DASHBOARD_PORT=${DASHBOARD_PORT:-unset} SENSOR_WEB=${SENSOR_WEB:-unset}" >> "$SHIM_LOG"
@@ -298,6 +300,8 @@ def sandbox(tmp_path: Path) -> Sandbox:
         "SUCKERPOT_CONF_ROOT": str(confroot),
         "SUCKERPOT_UNIT_ROOT": str(confroot),
         "SELFHOSTR_SSH_DIR": str(shim / "etc-ssh"),
+        # The health waits of scripts/lib/stackop.sh end within seconds in the sandbox.
+        "SUCKERPOT_WAIT_TIMEOUT": "10",
     }
     return Sandbox(root=root, shim=shim, env=env)
 

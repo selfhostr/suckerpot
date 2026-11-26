@@ -248,7 +248,7 @@ menu_fresh() {
 # notices: what is missing or worth doing, each with the key that does it (ASK_HIDDEN). Read
 # from .env and from what the header found; nothing is asked of the network.
 notices() {
-  local mode v latest
+  local mode v latest running unfinished
   NOTICES=() ASK_HIDDEN=""
   mode=$(stack)
   note_add() { NOTICES+=("$1|$2"); ASK_HIDDEN+=" $1"; }
@@ -256,7 +256,14 @@ notices() {
   if [ "$(env_get SUCKERPOT_INSTALL_MODE source)" = images ]; then
     v=$(env_get SUCKERPOT_VERSION)
     latest=$(latest_release)
-    if [ -n "$latest" ] && [ -n "$v" ] && [ "$latest" != "$v" ] && ver_ge "${latest#v}" "${v#v}"; then
+    running=""
+    [ "$H_ALL" = 0 ] || running=$(running_version)
+    unfinished=$(update_unfinished)
+    if [ -n "$unfinished" ]; then
+      note_add u "The update$([ "$unfinished" = unknown ] || echo " to $unfinished") was interrupted and never finished: press u to finish it (./suckerpot.sh update --resume)"
+    elif [[ $running =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ -n "$v" ] && [ "$running" != "$v" ]; then
+      note_add u "The containers run $running, the scripts are $v (an update did not finish): press u to finish it (./suckerpot.sh update --resume)"
+    elif [ -n "$latest" ] && [ -n "$v" ] && [ "$latest" != "$v" ] && ver_ge "${latest#v}" "${v#v}"; then
       note_add u "Update available: $v -> $latest: press u to update (a backup is taken first)"
     fi
   fi
@@ -290,7 +297,15 @@ notices() {
 notice_action() {
   case $1 in
     r) run_step "Repair" bash scripts/install.sh --repair ;;
-    u) run_step "Update" bash scripts/update.sh ;;
+    u)
+      local r
+      r=$(running_version)
+      if [ -n "$(update_unfinished)" ] || { [[ $r =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ "$r" != "$(env_get SUCKERPOT_VERSION)" ]; }; then
+        run_step "Finishing the update" bash scripts/update.sh --resume
+      else
+        run_step "Update" bash scripts/update.sh
+      fi
+      ;;
     j) run_step "Join the network" bash scripts/participant.sh join ;;
     w) run_step "Waiting for the hub" bash scripts/status.sh --wait 600 ;;
     s) run_step "Node status" status_item ;;

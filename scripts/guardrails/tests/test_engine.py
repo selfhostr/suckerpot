@@ -32,9 +32,22 @@ UNREADY = "Podman support is not ready yet"
 SOCK = "unix:///run/podman/podman.sock"
 
 
+# Read-only probes added on purpose after v0.12.1, which the recorded calls do not have: the list
+# of containers left by an interrupted restart (scripts/lib/stackop.sh) and the version the
+# containers run (status.sh). They change nothing; every other call must stay the same.
+ADDED_PROBES = (
+    re.compile(
+        r"^docker ps -a --filter label=com\.docker\.compose\.project=\S+ --format \{\{\.Names\}\} \{\{\.State\}\}$"
+    ),
+    re.compile(r"^docker compose exec -T ingest printenv SUCKERPOT_RUNNING_VERSION$"),
+)
+
+
 def _norm(sb: Sandbox, calls: list[str]) -> list[str]:
     out = []
     for c in calls:
+        if any(p.match(c) for p in ADDED_PROBES):
+            continue
         c = c.replace(str(sb.root), "<root>").replace(str(sb.shim), "<shim>")
         out.append(c.replace(str(sb.root.parent), "<tmp>"))
     return out
