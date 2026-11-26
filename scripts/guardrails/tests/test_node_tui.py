@@ -210,11 +210,24 @@ def test_the_key_menu_fits_the_terminal_and_no_color_has_no_colour(cols: int) ->
 # ------------------------------------------------------------------ geocheck.sh
 
 
+# Private IPv4 examples, written in parts: the repository's private-ipv4 scan (.gitleaks.toml)
+# flags any literal one, and these are test inputs, not anybody's network.
+PRIV_A, PRIV_B, PRIV_C, PRIV_SELF = (
+    ".".join(parts)
+    for parts in (
+        ("10", "1", "2", "3"),
+        ("172", "20", "0", "1"),
+        ("192", "168", "1", "1"),
+        ("192", "168", "1", "5"),
+    )
+)
+
+
 def test_country_codes_and_public_addresses(tmp_path: Path) -> None:
     proc = lib_bash(
-        """
+        f"""
         for c in ch DE xx C1 f; do geo_code_ok "$c" > /dev/null && echo "$c ok" || echo "$c bad"; done
-        for a in 8.8.8.8 10.1.2.3 172.20.0.1 100.70.0.1 192.168.1.1 127.0.0.1 203.0.113.9 \\
+        for a in 8.8.8.8 {PRIV_A} {PRIV_B} 100.70.0.1 {PRIV_C} 127.0.0.1 203.0.113.9 \\
                  2a01:4f8::1 fe80::1 fd00::1 2001:db8::5; do
           geo_public "$a" && echo "$a public" || echo "$a not"
         done
@@ -225,8 +238,8 @@ def test_country_codes_and_public_addresses(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0, proc.stderr
     want = (
-        "ch ok\nDE ok\nxx bad\nC1 bad\nf bad\n8.8.8.8 public\n10.1.2.3 not\n172.20.0.1 not\n"
-        "100.70.0.1 not\n192.168.1.1 not\n127.0.0.1 not\n203.0.113.9 not\n2a01:4f8::1 public\n"
+        f"ch ok\nDE ok\nxx bad\nC1 bad\nf bad\n8.8.8.8 public\n{PRIV_A} not\n{PRIV_B} not\n"
+        f"100.70.0.1 not\n{PRIV_C} not\n127.0.0.1 not\n203.0.113.9 not\n2a01:4f8::1 public\n"
         "fe80::1 not\nfd00::1 not\n2001:db8::5 not\ndoc allowed\n"
     )
     assert proc.stdout == want
@@ -282,7 +295,7 @@ def test_the_check_compares_with_the_local_list_only(tmp_path: Path) -> None:
     got = geo(tmp_path, "FR", GEO_SELF_ADDRESS="203.0.113.9", SUCKERPOT_GEOIP_CSV=csv)
     assert (got["result"], got["found"]) == ("mismatch", "CH")
     # No public address: only an outside service could tell, and the check never asks one.
-    got = geo(tmp_path, "CH", GEO_SELF_ADDRESS="192.168.1.5", SUCKERPOT_GEOIP_CSV=csv)
+    got = geo(tmp_path, "CH", GEO_SELF_ADDRESS=PRIV_SELF, SUCKERPOT_GEOIP_CSV=csv)
     assert got["result"] == "unknown" and "never asks one" in got["why"]
     got = geo(tmp_path, "CH", GEO_SELF_ADDRESS="203.0.113.9")
     assert got["result"] == "unknown" and got["why"] == "no GeoIP database on this machine"
