@@ -33,14 +33,22 @@
 ## Quick start
 
 ```bash
+curl -fsSLO https://github.com/selfhostr/suckerpot/releases/latest/download/get.sh && sh get.sh
+```
+
+`get.sh` says what it will do, downloads the node bundle of the newest release (the compose files, scripts and settings a node needs, not the sources), checks that it is the one the release workflow signed, puts it in `~/suckerpot` and opens the menu: install a participant node or a full install, then see the status, edit the node, update, check the ports, read the logs or remove it, all with `~/suckerpot/suckerpot.sh` (`./suckerpot.sh help` lists the same actions as commands). No git needed. Details: [install guide](docs/install.md#install-in-one-command).
+
+From a git checkout instead (needed to build from source):
+
+```bash
 git clone https://github.com/selfhostr/suckerpot.git && cd suckerpot
 git switch --detach "$(git describe --tags --abbrev=0)"
-./scripts/install.sh --full
+./suckerpot.sh          # or ./scripts/install.sh --full
 ```
 
 Needs Docker with the compose plugin (the installer offers to install it from Docker's package repository), or Podman 5.4+ (experimental, see the [install guide](docs/install.md#podman-experimental)). The installer asks at most two questions, creates the secrets, starts the stack and prints the dashboard address; the six recommended sensors are on by default (`--sensors all` turns on all twelve). Back up with `just backup`. Before you expose anything, follow the [go-live checklist](https://suckerpot.selfhostr.io/docs/deployment/).
 
-The optional SuckerPot network is an experimental preview, off unless you ask for it: very few nodes exist, its shared feed may be empty, and a participant gets nothing back yet ([details](docs/network.md)). Only want to try it? `./scripts/install.sh --participant` installs sensors without a dashboard (see [Join the network](https://suckerpot.selfhostr.io/docs/participate/)); a 1 GiB VPS works with `--lite` ([VPS guide](https://suckerpot.selfhostr.io/docs/vps/)).
+The optional SuckerPot network is an experimental preview, off unless you ask for it: very few nodes exist, its shared feed may be empty, and a participant gets nothing back yet ([details](docs/network.md)). Only want to try it? `./scripts/install.sh --participant` (or `./suckerpot.sh`, then **Install a participant node**) installs sensors without a dashboard (see [Join the network](https://suckerpot.selfhostr.io/docs/participate/)); a 1 GiB VPS works with `--lite` ([VPS guide](https://suckerpot.selfhostr.io/docs/vps/)).
 
 ## Features
 

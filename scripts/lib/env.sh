@@ -163,6 +163,153 @@ settable_value() { [[ $1 =~ ^[A-Za-z0-9._,:/@+_-]{0,512}$ ]]; }
 ver_ge() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$2" ]; }
 
 # Succeeds inside a linked git worktree (a scratch checkout: never act on a live stack there).
+# ----------------------------------------------------------------------- node bundle (no git)
+# A node installed with scripts/get.sh has no git checkout: it holds the files of a node bundle
+# (config/node-bundle.list) and .suckerpot-bundle, which says what they are:
+#   version=vX.Y.Z  ref=vX.Y.Z|<branch>  commit=<sha>  signed=1|0  latest=vX.Y.Z (newest release
+#   known when the bundle was fetched)
+# A git checkout keeps working as before; these helpers tell the two layouts apart.
+BUNDLE_FILE=.suckerpot-bundle
+SUCKERPOT_REPO_URL=${SUCKERPOT_REPO_URL:-https://github.com/selfhostr/suckerpot}
+layout_bundle() { [ -f "$BUNDLE_FILE" ] && [ ! -e .git ]; }
+bundle_get() { sed -n "s/^$1=//p" "$BUNDLE_FILE" 2> /dev/null | tail -n 1 | tr -cd 'A-Za-z0-9._/-'; }
+
+# bundle_unpack FILE: unpacks a node bundle over this folder, after checking that it holds only
+# plain files and folders, every path inside. The caller has verified FILE first.
+bundle_unpack() {
+  local f=$1
+  tar -tvzf "$f" 2> /dev/null | awk '{ t = substr($1, 1, 1); if (t != "-" && t != "d") bad = 1 } END { exit bad }' \
+    || { echo "the bundle holds links or special files" >&2; return 1; }
+  if tar -tzf "$f" 2> /dev/null | grep -Eq '(^/|(^|/)\.\.(/|$))'; then echo "the bundle has a path outside its folder" >&2; return 1; fi
+  ( umask 022 && tar -xzf "$f" -C . )
+}
+
+# bundle_save OUT: the files of this bundle install as they are now (config/node-bundle.list and
+# .suckerpot-bundle), for a rollback.
+bundle_save() {
+  local out=$1 line f
+  local -a files=()
+  shopt -s nullglob
+  if [ -f config/node-bundle.list ]; then
+    while IFS= read -r line; do
+      case $line in "" | \#*) continue ;; esac
+      # shellcheck disable=SC2206 # a glob on purpose
+      for f in $line; do [ -f "$f" ] && files+=("./$f"); done
+    done < config/node-bundle.list
+  fi
+  shopt -u nullglob
+  tar -czf "$out" "./$BUNDLE_FILE" ${files[@]+"${files[@]}"}
+}
+
+# latest_known_release: the newest release this install knows. A checkout: its tags. A bundle:
+# the release named when its bundle was fetched, or later by latest_release_refresh.
+latest_known_release() {
+  local t c=.suckerpot-state/latest-release
+  if ! layout_bundle; then
+    git tag -l 'v*.*.*' --sort=-v:refname 2> /dev/null | grep -E '^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' | head -n 1 || true
+    return 0
+  fi
+  t=$(head -n 1 "$c" 2> /dev/null | tr -cd 'v0-9.')
+  [ -n "$t" ] || t=$(bundle_get latest)
+  [[ $t =~ ^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && printf '%s\n' "$t"
+  return 0
+}
+
+# latest_release_fetch: the newest published release, asked of GitHub (the "latest" redirect: one
+# HTTPS request from this machine's own address, as the update checks). Prints vX.Y.Z or fails.
+latest_release_fetch() {
+  local u
+  u=$(curl -fsSLI --proto '=https' --tlsv1.2 --max-time 15 -o /dev/null -w '%{url_effective}' "$SUCKERPOT_REPO_URL/releases/latest" 2> /dev/null) || return 1
+  u=${u##*/}
+  [[ $u =~ ^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
+  printf '%s\n' "$u"
+}
+
+# latest_release_refresh [MAX_AGE_H]: a bundle install asks GitHub again when its note is older
+# than MAX_AGE_H hours (default 6), and keeps the answer in .suckerpot-state/latest-release.
+latest_release_refresh() {
+  local c=.suckerpot-state/latest-release age=${1:-6} t
+  layout_bundle || return 0
+  if [ -f "$c" ] && [ -n "$(find "$c" -mmin "-$((age * 60))" 2> /dev/null)" ]; then return 0; fi
+  t=$(latest_release_fetch) || return 0
+  mkdir -p .suckerpot-state && printf '%s\n' "$t" > "$c"
+}
+
+# ----------------------------------------------------------------------- root and sudo
+# The host scripts run as the user who starts them and ask for root only for the steps that need
+# it (Docker's setup, the host firewall, the Podman units), through as_root:
+#   - as root (a root login, or started with sudo): every step runs as it is, sudo is never
+#     called and no password is ever asked. Started with sudo by the user who owns the checkout,
+#     SUCKERPOT_OWNER is that user: the files the scripts write here (.env, install.log,
+#     .suckerpot-state) are given back to them (owner_fix), the update schedule goes into their
+#     crontab and the Docker setup adds them to the docker group.
+#   - as another user: sudo, only for those steps. root_ready says once, before the first one,
+#     that sudo will ask for a password, and only when it will (sudo -n true fails). With
+#     passwordless sudo (NOPASSWD) nothing is asked. The scripts never read a password themselves.
+#   - neither root nor sudo: root_ready says so and the step is skipped or stops with the command.
+# SELFHOSTR_EUID stands in for the user id in the tests.
+
+is_root() { [ "${SELFHOSTR_EUID:-$(id -u)}" = 0 ]; }
+# root_free: root rights without any prompt (root, or passwordless sudo).
+root_free() { is_root || { command -v sudo > /dev/null 2>&1 && sudo -n true > /dev/null 2>&1; }; }
+
+# owner_init: as root started with sudo by the owner of this folder, SUCKERPOT_OWNER=that user.
+owner_init() {
+  local u=${SUDO_USER:-} owner
+  SUCKERPOT_OWNER=${SUCKERPOT_OWNER:-}
+  is_root && [ -n "$u" ] && [ "$u" != root ] || return 0
+  [[ $u =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || return 0
+  owner=$(stat -c %U . 2> /dev/null || true)
+  # The tests, which cannot be root, name the owner of the folder (only with SELFHOSTR_EUID).
+  [ -z "${SELFHOSTR_EUID:-}" ] || owner=${SELFHOSTR_DIR_OWNER:-$owner}
+  [ "$owner" = "$u" ] || return 0
+  SUCKERPOT_OWNER=$u
+  export SUCKERPOT_OWNER
+}
+
+# owner_fix: gives the files written here back to SUCKERPOT_OWNER (nothing to do otherwise).
+owner_fix() {
+  [ -n "${SUCKERPOT_OWNER:-}" ] && is_root || return 0
+  local f
+  for f in .env .env.* install.log .suckerpot-state .suckerpot-bundle; do
+    [ -e "$f" ] || continue
+    chown -R "$SUCKERPOT_OWNER:" -- "$f" 2> /dev/null || true
+  done
+  return 0
+}
+
+# root_ready REASON: before a step that needs root. Returns 0 when root rights are there (root,
+# passwordless sudo, or sudo that may ask on the terminal: it says so once, here), 1 when sudo
+# would ask and there is no terminal to ask on, 3 without sudo. Prints why on stderr for 1 and 3.
+ROOT_ASKED=0
+root_ready() {
+  is_root && return 0
+  if ! command -v sudo > /dev/null 2>&1; then
+    echo "${1:-this step} needs root rights, and sudo is not installed: run it as root" >&2
+    return 3
+  fi
+  sudo -n true > /dev/null 2>&1 && return 0
+  if [ -n "${ROOT_NO_TTY:-}" ] || ! { [ -r /dev/tty ] && (: < /dev/tty) 2> /dev/null; }; then
+    echo "${1:-this step} needs sudo, which asks for a password, and there is no terminal to ask on" >&2
+    return 1
+  fi
+  # Once: say why, and let sudo itself ask on the terminal (the scripts never read a password).
+  # Later steps, also those that run in the background, use what sudo remembers.
+  if [ "$ROOT_ASKED" = 0 ]; then
+    echo "  ${1:-this step} needs root rights: sudo asks for your password." > /dev/tty
+    ROOT_ASKED=1
+  fi
+  # shellcheck disable=SC2024 # the terminal, on purpose
+  sudo -v < /dev/tty > /dev/tty 2>&1 || { echo "sudo did not give root rights" >&2; return 1; }
+  return 0
+}
+
+# as_root CMD...: CMD as root: as it is for root, else through sudo (which may ask on the terminal
+# when root_ready said so; with passwordless sudo it never does).
+as_root() {
+  if is_root; then "$@"; else sudo -- "$@"; fi
+}
+
 in_linked_worktree() {
   git rev-parse --git-dir > /dev/null 2>&1 || return 1
   [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]
@@ -195,6 +342,8 @@ fix_tracked_modes_exempt() {
 fix_tracked_modes() {
   local f p top ok i
   local paths=() real=() keep=()
+  # A node bundle is unpacked readable (umask 022, scripts/get.sh); it has no git tree to walk.
+  if layout_bundle; then return 0; fi
   top=$(git rev-parse --show-toplevel 2> /dev/null) && top=$(realpath -e -- "$top" 2> /dev/null) || {
     echo "warning: could not find the top of the checkout; file modes were not repaired" >&2
     return 0
@@ -405,7 +554,8 @@ consent_record() {
   printf '%s:%s:%s' "$CONSENT_VERSION" "${1:-$CONSENT_ITEMS}" "$(date -u +%Y-%m-%d)"
 }
 
-# Prints the consent screen. $1 = pseudonym (empty = none), $2 = 1 when a VPN is used.
+# Prints the consent screen. $1 = pseudonym (empty = none), $2 = 1 when a VPN is used, $3 = ask
+# when the node name and the country are asked right after it (the installer on a terminal).
 # The installer and `participant.sh join` print the same text.
 consent_screen() {
   local pseudonym=$1 vpn=${2:-0}
@@ -438,7 +588,9 @@ consent_screen() {
   echo "with a VPN. Without a VPN, the hub name is also looked up through your normal DNS resolver."
   echo "Leave at any time: ./scripts/participant.sh leave"
   echo
-  if [ -n "$pseudonym" ]; then
+  if [ "${3:-}" = ask ]; then
+    echo "Node name and country: you choose them after this screen."
+  elif [ -n "$pseudonym" ]; then
     echo "Pseudonym: $pseudonym   (change: --pseudonym NAME, none: --no-pseudonym)"
   else
     echo "Pseudonym: none (the network shows an anonymous node number)"

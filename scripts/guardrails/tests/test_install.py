@@ -261,8 +261,10 @@ def test_the_type_question_picks_the_install(
             continue
         assert proc.returncode == 0, out
         assert parse_env(target).get("SUCKERPOT_STACK_MODE", "full") == stack
-        # No other question: no prompt but the type and the consent.
-        assert out.count("[y/N]") == (1 if stack == "participant" else 0)
+        # No other yes/no prompt but the consent and, on a participant node, the country (the
+        # node name and the country come after the consent; the end of the answers takes their
+        # defaults: a random name, no country).
+        assert out.count("[y/N]") == (2 if stack == "participant" else 0)
 
 
 def test_a_wrong_type_answer_is_refused(sandbox: Sandbox) -> None:
@@ -487,6 +489,10 @@ def test_script_never_looks_up_a_public_address() -> None:
                 # The only other curl: Docker's key and repository files, when Docker is missing.
                 if "https://download.docker.com/linux/" in line or "apt-get install" in line:
                     continue
+                # A node bundle install asks this project's GitHub releases for the newest release
+                # and downloads its signed bundle: the release, never an address lookup.
+                if "$SUCKERPOT_REPO_URL/releases/" in line:
+                    continue
                 assert "healthz" in line, (rel, line)
                 assert re.search(r"http://(\$hbind|\$bind|127\.0\.0\.1)", line), (rel, line)
 
@@ -577,6 +583,8 @@ CRONTAB_SHIM = r"""#!/bin/sh
 # Fake crontab: a text file in $SHIM_DIR, never the real crontab of the user running the tests.
 f="$SHIM_DIR/crontab.txt"
 echo "crontab $*" >> "$SHIM_LOG"
+# -u USER (root writing the crontab of the owner of the checkout): the same file.
+if [ "$1" = -u ]; then shift 2; fi
 case "$1" in
   -l) if [ -f "$f" ]; then cat "$f"; else echo "no crontab for user" >&2; exit 1; fi ;;
   -r) rm -f "$f" ;;
@@ -858,7 +866,10 @@ def test_participant_consent_prompt_accepted_is_the_only_question(
         extra_env={"SELFHOSTR_TTY": str(answers)},
     )
     assert proc.returncode == 0, proc.stderr
-    assert proc.stderr.count("[y/N]") == 1
+    # The consent, then the node name and the country questions, which take their defaults at
+    # the end of the answers (a random name, no country shown).
+    assert proc.stderr.count("[y/N]") == 2
+    assert "Show a country for this node? [y/N]" in proc.stderr
     assert "--yes was given" not in proc.stdout
     env = parse_env(target)
     assert env["SENSOR_SSH"] == "1"

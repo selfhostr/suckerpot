@@ -87,10 +87,7 @@ fw_render() {
 
 # fw_can_sudo: true when root rights are available without a password prompt (already root, or
 # `sudo -n` works). Used by the unattended install (--yes): it never waits for a password.
-fw_can_sudo() {
-  [ "$(id -u)" = 0 ] && return 0
-  command -v sudo > /dev/null 2>&1 && sudo -n true > /dev/null 2>&1
-}
+fw_can_sudo() { root_free; }
 
 # fw_opted_out: true when the owner said the host firewall is handled elsewhere (installer flag
 # --no-firewall, which writes SUCKERPOT_NO_FIREWALL=1 to .env; or the variable in the environment).

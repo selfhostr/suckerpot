@@ -914,9 +914,12 @@ def test_a_no_answer_runs_nothing(sandbox: Sandbox) -> None:
     answers.write_text("n\n")
     proc = sandbox.run("scripts/install.sh", "--full", extra_env={"SELFHOSTR_TTY": str(answers)})
     assert proc.returncode == 1, proc.stderr  # nothing was installed
-    assert "Run them now? sudo asks for your password. [Y/n]" in proc.stderr
+    # The fake sudo needs no password (as with NOPASSWD): the question does not promise a prompt.
+    # Only `sudo -n true` ran, to know that; nothing was installed.
+    assert "Run them now (with sudo)? [Y/n]" in proc.stderr
     assert "Run them yourself, log out and back in" in proc.stdout
-    assert not [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]
+    calls = [c for c in sandbox.calls() if c.startswith(("curl", "sudo", "sg"))]
+    assert calls in ([], ["sudo -n true"]), calls
 
 
 def test_a_failed_key_check_stops_before_the_package_manager(sandbox: Sandbox) -> None:

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# SuckerPot on this machine: a menu (install, status, edit, update, ports, logs, remove), and one
+# command for each of them. ./suckerpot.sh help lists them; scripts/suckerpot.sh does the work.
+exec bash "$(dirname "$0")/scripts/suckerpot.sh" "$@"

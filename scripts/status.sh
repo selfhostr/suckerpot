@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Shows what runs, what was sent to the network and how updates are doing (also: just status).
 #
-#   scripts/status.sh [--json] [--last-batch]
+#   scripts/status.sh [--json | --brief] [--last-batch] [--wait [SECONDS]]
 #
 # Reads `docker compose ps`, .env (no secret is read into the report), the state file of the
 # automatic updater and `python -m ingest.network.cli status --json` of the ingest container. The
 # report is rendered INSIDE the ingest container (scripts/lib/status_render.py, standard library
 # only), so the host needs nothing but Docker and bash.
 #
-# --json prints the same data as JSON, for monitoring. --last-batch prints the exact JSON of the
-# last submission to the network (attacker addresses only, kept 7 days) and nothing else.
+# --json prints the same data as JSON, for monitoring. --brief prints a few lines (stack, sensors,
+# network, the first things to fix): the view of ./suckerpot.sh and of the end of the install.
+# --last-batch prints the exact JSON of the last submission to the network (attacker addresses
+# only, kept 7 days) and nothing else. --wait first waits (default 600 s) while the hub has not
+# decided on a join in progress, for example the proof of work of a new node; Ctrl-C stops waiting.
 # Exit code: 0 OK, 1 warning, 2 error (design: docs/dev/design/m32.md section 10).
 set -euo pipefail
 
@@ -20,20 +23,32 @@ ENGINE_LENIENT=1
 . scripts/lib/env.sh
 # shellcheck source=scripts/lib/fwcheck.sh
 . scripts/lib/fwcheck.sh
+# shellcheck source=scripts/lib/enrol_wait.sh
+. scripts/lib/enrol_wait.sh
+# shellcheck source=scripts/lib/ask.sh
+. scripts/lib/ask.sh
 
 die() { echo "status: $*" >&2; exit 2; }
 
 want_json=0
+want_brief=0
 last_batch=0
+wait_s=0
 while [ $# -gt 0 ]; do
   case $1 in
     --json) want_json=1 ;;
+    --brief) want_brief=1 ;;
     --last-batch) last_batch=1 ;;
+    --wait)
+      wait_s=600
+      if [[ ${2:-} =~ ^[0-9]{1,5}$ ]]; then wait_s=$2; shift; fi
+      ;;
     -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) die "unknown option: $1 (usage: status.sh [--json] [--last-batch])" ;;
+    *) die "unknown option: $1 (usage: status.sh [--json | --brief] [--last-batch] [--wait [SECONDS]])" ;;
   esac
   shift
 done
+[ "$want_json$want_brief" != 11 ] || die "--json and --brief exclude each other"
 
 [ -f .env ] || die "no .env here: SuckerPot is not installed in this folder (./scripts/install.sh)"
 command -v "${ENGINE_CTR[0]}" > /dev/null 2>&1 || die "$(engine_name) is not installed"
@@ -67,7 +82,10 @@ if [ "$last_batch" = 1 ]; then
 fi
 
 if [ "$ingest_up" = 0 ]; then
-  if [ "$want_json" = 1 ]; then
+  if [ "$want_brief" = 1 ]; then
+    echo "Stack    ingest is not running: ./scripts/install.sh --repair"
+    echo "Overall  ERROR   (details: ./scripts/status.sh)"
+  elif [ "$want_json" = 1 ]; then
     printf '{"stack":%s,"version":%s,"errors":["ingest_down"],"exit":2}\n' "$(json_str "$stack")" "$(json_str "$version")"
   else
     echo "SuckerPot ${version:-source build}, $stack mode, $install                       ERROR"
@@ -76,6 +94,46 @@ if [ "$ingest_up" = 0 ]; then
     echo "Or look at: docker compose ps, docker compose logs ingest"
   fi
   exit 2
+fi
+
+# --wait: while a join is in progress (the hub has not decided yet), wait for its answer.
+if [ "$wait_s" -gt 0 ]; then
+  # shellcheck disable=SC1003 # a backslash, not an escape
+  waited=0 spin='|/-\' i=0 doc=""
+  t_end=$(($(date +%s) + wait_s))
+  stopped=0
+  trap 'stopped=1' INT
+  while [ "$stopped" = 0 ]; do
+    doc=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null) || doc=""
+    # The top-level state: a join is in progress while it is enrolling, or not joined yet while
+    # the membership is wanted (nested objects have their own "state" keys).
+    st=$(printf '%s' "$doc" | json_top_string state)
+    case $st in
+      enrolling) ;;
+      not_joined) case $doc in *'"desired": "member"'*) ;; *) break ;; esac ;;
+      *) break ;;
+    esac
+    [ "$(date +%s)" -lt "$t_end" ] || break
+    if [ "$waited" = 0 ]; then
+      if [ -t 2 ]; then
+        printf 'Waiting for the hub to accept this node (Ctrl-C stops waiting)...\n' >&2
+      else
+        echo "Waiting for the hub to accept this node, at most ${wait_s} s..." >&2
+      fi
+    fi
+    for _ in 1 2 3 4 5; do
+      [ "$stopped" = 0 ] || break
+      if [ -t 2 ]; then
+        el=$(( $(date +%s) - (t_end - wait_s) ))
+        printf '\r  %s %d:%02d ' "${spin:$((i % 4)):1}" $((el / 60)) $((el % 60)) >&2
+        i=$((i + 1))
+      fi
+      sleep 1
+    done
+    waited=1
+  done
+  trap - INT
+  if [ "$waited" = 1 ] && [ -t 2 ]; then printf '\r\033[K' >&2; fi
 fi
 
 cli_raw=""
@@ -157,7 +215,10 @@ src=$(cat scripts/lib/status_render.py)
 rc=0
 if [ "$want_json" = 1 ]; then
   printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" --json || rc=$?
+elif [ "$want_brief" = 1 ]; then
+  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" --brief | text_out 1 || rc=$?
 else
-  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" || rc=$?
+  # On a terminal the long lines wrap at its width (word boundaries); otherwise unchanged.
+  printf '%s' "$doc" | dc exec -T ingest python -I -c "$src" | text_out 1 || rc=$?
 fi
 exit "$rc"

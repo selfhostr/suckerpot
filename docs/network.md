@@ -80,7 +80,7 @@ The hub sees what a batch contains, and the requests that carry it. It does not 
 - your name, mailbox, payment or account (there is none);
 - your domain or host name (every item is checked for them before it leaves).
 
-If you choose a pseudonym, the hub sees it. If you choose a country and show it, the hub sees that too.
+If you choose a pseudonym, the hub sees it. If you choose a country, the hub sees that too (`--hide` sends it without showing it to other nodes). Nothing chooses a country for you; the optional country check runs on your machine only (see [the country check](#the-country-check)).
 
 The address your request comes from is not hidden by the protocol, see [What the hub can and cannot learn](#what-the-hub-can-and-cannot-learn).
 
@@ -201,7 +201,7 @@ A patient operator with at least five aged, well-behaved nodes can get a false t
 There are two ways to join. Both mean the same thing for the data that is shared.
 
 - **Full install.** You join from the dashboard, as described in [How to join](#how-to-join).
-- **Participant install.** You run `./scripts/install.sh --participant`, which is the consent, and the node joins by itself. There is no dashboard. See [Join the network in three commands](participate.md).
+- **Participant install.** You run `./scripts/install.sh --participant`, which is the consent, and the node joins by itself. There is no dashboard. See [Join the network in one command](participate.md).
 
 ### The no-VPN trade-off
 
@@ -232,7 +232,7 @@ Then:
 3. Press **Join the network**. The dialog asks for:
    - the five items, shown for you to confirm;
    - an optional pseudonym. Do not use a name that you use anywhere else;
-   - an optional country. It is never detected for you. It is shown only if you tick "Show my country" and at least three nodes share it;
+   - an optional country. It is never detected or filled in for you. It is shown only if you tick "Show my country" and at least three nodes share it;
    - your dashboard password again.
 4. The sensor creates its key and solves a proof-of-work puzzle. This can take a few minutes on a small machine. It runs at low priority, so ingest keeps working. The hub can raise the puzzle's price when many systems sign up at once. While the hub is closed or the puzzle is too hard, the page says that enrolment is waiting, and the sensor retries by itself.
 5. Your install is now a node. Its standing shows `new`. It sends its first batch after the next day ends, plus a random wait of 2 to 20 hours. By default, your sensor counts toward confirmations after 14 days of regular batches. The standing then changes to `good`.
@@ -249,6 +249,22 @@ Then:
 | Unique | A name used by another node is refused (`pseudonym_taken`). The hub frees the name of a node that never sent a batch and made no request on two days the hub was serving (a reinstall leaves such a node behind). Days of a hub outage, or days on which the hub's address limiter blocked a fifth of the requests or more (or at least 1000), or that saw at least 1000 authentication failures, do not count. A node that ever sent a batch never loses its name. A node whose name was freed shows without one and can pick a new name at once |
 
 Empty means the network shows you as `Node` followed by your fingerprint, for example `Node 3f9a1c07`.
+
+The terminal tools call the pseudonym the **node name**. A participant install asks for it on the terminal (a random name by default; this machine's host name is offered with a warning, because a host name can identify you) and changes it with `./scripts/participant.sh set-name NAME` or `./suckerpot.sh edit name`. The command waits for the hub's answer and puts everything back when the hub refuses the name. A full install changes it in Settings, Network.
+
+### Country
+
+A node may show a country next to its name. It is your choice and it is optional: nothing on your node or on the hub ever detects it, fills it in or sends it for you. The member list shows it only when you chose to show it and at least three nodes show the same country. A participant install asks `Show a country for this node?` on the terminal (no by default) and changes it with `./scripts/participant.sh set-country CC` (`--hide` sends it without showing it, `--none` removes it) or `./suckerpot.sh edit country`.
+
+### The country check
+
+When you type a country in the terminal tools, they compare it with where a GeoIP database places this machine, to catch a typo or a VPS that runs in another country than you expected. The check only warns: on a mismatch the installer and `./suckerpot.sh edit country` ask what you want (keep your code, take the database's, type another, or show none), and `--country` or `set-country` with a mismatch keeps your code and prints a warning. The node shows the country it runs in, not where you live.
+
+The check never asks an outside service where this machine is, and never sends this machine's address anywhere:
+
+- **The address** it looks up is read from this machine's own network interfaces (`ip addr`), or is the one you gave (`SELF_ADDRESS`, `--self-address`). A machine behind a home router has no public address on its interfaces; only an outside service could tell it, so the check says it cannot tell and stops there.
+- **The database** must already be on this machine. In this order: DB-IP's country list in `.suckerpot-state/geoip/` (or a file you name with `SUCKERPOT_GEOIP_CSV`); the GeoIP files ingest keeps in its `geoip-data` volume (full installs and VPN nodes download them through the VPN for enrichment), read inside the running ingest container; a system database (`/usr/share/GeoIP`, `/var/lib/GeoIP`, for example from `geoipupdate`) read with `mmdblookup`.
+- **Without a database** a direct participant node has none: its only route out is to the hub. On a terminal the check then offers, and only asks, to download [DB-IP's free country list](https://db-ip.com/db/download/ip-to-country-lite) (CC BY 4.0, about 5 MB): one HTTPS request to `download.db-ip.com` from this machine's own address, on the host, outside the stack. DB-IP then sees that this address downloaded its public list, nothing more; the lookup itself runs on this machine. The default answer is no. Without a terminal it never downloads, unless you pass `--country-check download`; `--country-check off` skips the check.
 
 ## How to leave
 
@@ -397,7 +413,7 @@ The lists are public, so they are visible to everyone, attackers included.
 | Read | When |
 | --- | --- |
 | [Network protocol](network-protocol.md) | You build a client or want to check a signature |
-| [Join the network in three commands](participate.md) | You want to help the network with a small install |
+| [Join the network in one command](participate.md) | You want to help the network with a small install |
 | `hub/README.md` | You run a hub |
 | [Configuration](configuration.md#suckerpot-network-m29) | You want every `NETWORK_*` variable |
 | [M29 design](dev/design/m29.md) | You want the full analysis and the decisions |

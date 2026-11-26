@@ -46,7 +46,8 @@ async def clean(engine: AsyncEngine) -> None:
                 "pubkey=NULL, privkey_enc=NULL, privkey_nonce=NULL, left_day=NULL, "
                 "requested_by=NULL, requested_at=NULL, last_error_code=NULL, enrolled_day=NULL, "
                 "eligible_from_day=NULL, fingerprint=NULL, standing=NULL, last_pull_at=NULL, "
-                "last_summary_at=NULL WHERE id = 1"
+                "last_summary_at=NULL, country=NULL, show_country=false, synced_pseudonym=NULL, "
+                "synced_country=NULL, synced_show_country=NULL WHERE id = 1"
             )
         )
 
@@ -272,6 +273,50 @@ async def test_leave_and_join_commands(engine: AsyncEngine, factory: Factory) ->
     await SqlStore(factory).update(desired="member", state="member")
     assert (await cli.leave(factory))["requested"] is True
     assert (await SqlStore(factory).membership()).desired == "leave"
+    await clean(engine)
+
+
+async def test_update_changes_the_name_and_the_country_of_a_member(
+    engine: AsyncEngine, factory: Factory
+) -> None:
+    await clean(engine)
+    store = SqlStore(factory)
+    doc, code = await cli.update(factory, ENV, pseudonym="grey heron")
+    assert code == 2 and doc["reason"] == "not_member"
+    await store.update(
+        desired="member",
+        state="member",
+        pseudonym="amber-falcon-42",
+        last_error_code="pseudonym_taken",
+    )
+    bad = await cli.update(factory, ENV, pseudonym="bad@name")
+    assert bad[0]["reason"] == "pseudonym_invalid"
+    assert (await cli.update(factory, ENV, country="X1"))[0]["reason"] == "country_invalid"
+    assert (await cli.update(factory, ENV, show_country=True))[0]["reason"] == "country_invalid"
+    doc, code = await cli.update(
+        factory, ENV, pseudonym="grey heron", country="ch", show_country=True
+    )
+    assert code == 0 and doc["changed"] == ["pseudonym", "country", "show_country"]
+    m = await store.membership()
+    assert (m.pseudonym, m.country, m.show_country) == ("grey heron", "CH", True)
+    assert m.last_error_code is None  # a new name clears the refusal of the old one
+    status = await cli.build_status(factory, ENV, now=NOW)
+    assert (status["country"], status["show_country"], status["profile_synced"]) == (
+        "CH",
+        True,
+        False,
+    )
+    assert status["network"]["membership"]["country"] == "CH"
+    await store.update(synced_pseudonym="grey heron", synced_country="CH", synced_show_country=True)
+    assert (await cli.build_status(factory, ENV, now=NOW))["profile_synced"] is True
+    doc, code = await cli.update(factory, ENV, pseudonym="grey heron")
+    assert code == 0 and doc["changed"] == []  # nothing to send
+    doc, code = await cli.update(factory, ENV, pseudonym=None, country=None)
+    assert code == 0
+    m = await store.membership()
+    assert (m.pseudonym, m.country, m.show_country) == (None, None, False)
+    off = {**ENV, "NETWORK_ENABLED": "false"}
+    assert (await cli.update(factory, off, country="CH"))[0]["reason"] == "network_disabled"
     await clean(engine)
 
 

@@ -31,6 +31,15 @@ if ! declare -F env_get > /dev/null 2>&1; then
 fi
 
 _schedule_err() { echo "schedule: $*" >&2; }
+# _crontab ARGS: the crontab of this user; as root started with sudo by the owner of the checkout
+# (SUCKERPOT_OWNER, scripts/lib/env.sh), the owner's crontab, so the updates run as them.
+_crontab() {
+  if [ -n "${SUCKERPOT_OWNER:-}" ] && [ "${SELFHOSTR_EUID:-$(id -u)}" = 0 ]; then
+    crontab -u "$SUCKERPOT_OWNER" "$@"
+  else
+    crontab "$@"
+  fi
+}
 
 # Prints the project name, or fails.
 _schedule_project() {
@@ -56,7 +65,7 @@ schedule_random_time() {
 _schedule_cron_without() {
   local project=$1 current rc=0
   command -v crontab > /dev/null 2>&1 || return 1
-  current=$(crontab -l 2>&1) || rc=$?
+  current=$(_crontab -l 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
     # "no crontab for user" is fine (empty); anything else means we must not overwrite it.
     printf '%s' "$current" | grep -qi 'no crontab' || return 1
@@ -111,7 +120,7 @@ schedule_install() {
   project=$(_schedule_project) || return 1
   line="$((10#$minute)) $(_schedule_hours "$hour") * * * cd $SCHEDULE_ROOT && bash scripts/auto-update.sh > /dev/null 2>&1 # $SCHEDULE_WORD $project"
   if others=$(_schedule_cron_without "$project"); then
-    { [ -z "$others" ] || printf '%s\n' "$others"; printf '%s\n' "$line"; } | crontab - && rc=0 || rc=$?
+    { [ -z "$others" ] || printf '%s\n' "$others"; printf '%s\n' "$line"; } | _crontab - && rc=0 || rc=$?
     if [ "$rc" -eq 0 ]; then SCHEDULE_METHOD=cron; return 0; fi
   fi
   _schedule_systemd_install "$project" "$hour" "$minute"
@@ -120,9 +129,9 @@ schedule_install() {
 schedule_remove() {
   local project others dir name had=0
   project=$(_schedule_project) || return 1
-  if command -v crontab > /dev/null 2>&1 && crontab -l 2> /dev/null | grep -qE "# $SCHEDULE_WORD $project\$"; then
+  if command -v crontab > /dev/null 2>&1 && _crontab -l 2> /dev/null | grep -qE "# $SCHEDULE_WORD $project\$"; then
     if others=$(_schedule_cron_without "$project"); then
-      if [ -n "$others" ]; then printf '%s\n' "$others" | crontab -; else crontab -r; fi
+      if [ -n "$others" ]; then printf '%s\n' "$others" | _crontab -; else _crontab -r; fi
     else
       _schedule_err "could not rewrite the crontab; remove the '$SCHEDULE_WORD $project' line by hand"
       return 1
@@ -157,7 +166,7 @@ schedule_status() {
   local project line dir name spec
   project=$(_schedule_project) || { echo off; return 1; }
   if command -v crontab > /dev/null 2>&1; then
-    line=$(crontab -l 2> /dev/null | grep -E "# $SCHEDULE_WORD $project\$" | head -n 1 || true)
+    line=$(_crontab -l 2> /dev/null | grep -E "# $SCHEDULE_WORD $project\$" | head -n 1 || true)
     if [ -n "$line" ]; then
       echo "cron $(_schedule_when "$(printf '%s' "$line" | awk '{print $2}')" "$(printf '%s' "$line" | awk '{print $1}')")"
       return 0

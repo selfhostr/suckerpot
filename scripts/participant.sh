@@ -5,6 +5,12 @@
 #   scripts/participant.sh leave                     leave the network; sensors keep running
 #   scripts/participant.sh join [--yes] [--pseudonym NAME]
 #                                                    show the consent screen again and join
+#   scripts/participant.sh set-name NAME | --none    change the node name (the pseudonym) and
+#                                                    send it to the hub; --none: no name
+#   scripts/participant.sh set-country CC [--hide] | --none [--no-check]
+#                                                    show a country (--hide: send it, do not show
+#                                                    it); the code is checked against a GeoIP
+#                                                    database on this machine only
 #   scripts/participant.sh vpn FILE.conf             send everything through your VPN
 #   scripts/participant.sh vpn --remove              back to the direct path (no VPN)
 #   scripts/participant.sh ports-check [--wait SECONDS] [--since ISO | --since-install]
@@ -14,7 +20,7 @@
 #   scripts/participant.sh auto-update on|off       install or remove the daily update schedule
 #   scripts/participant.sh uninstall [--yes]         leave, stop the stack, remove the schedule
 #
-# join, leave, vpn and uninstall are for participant installs. auto-update and ports-check work on any install.
+# join, leave, set-name, set-country, vpn and uninstall are for participant installs. auto-update and ports-check work on any install.
 # ports-check exits 0 when a public address reached a sensor, 3 when nothing did yet.
 # Nothing here deletes data: uninstall prints the volume removal command and never runs it.
 # Secrets are never printed.
@@ -23,8 +29,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/env.sh
 . scripts/lib/env.sh
+owner_init
 
-die() { echo "participant: $*" >&2; exit 1; }
+# On a terminal the message wraps at its width (text_out, scripts/lib/ask.sh, once it is loaded).
+die() {
+  if declare -F text_out > /dev/null; then printf 'participant: %s\n' "$*" | text_out 2; else echo "participant: $*" >&2; fi
+  exit 1
+}
 engine_ready || die "$ENGINE_UNREADY_MSG"
 note() { echo "  $*"; }
 
@@ -48,6 +59,14 @@ compose_up() {
   fi
 }
 
+# compose_up with its output kept out of the way: shown only when it fails.
+quiet_up() {
+  local out rc=0
+  out=$(compose_up "$@" 2>&1) || rc=$?
+  [ "$rc" = 0 ] || printf '%s\n' "$out" | tail -n 20 >&2
+  return "$rc"
+}
+
 # Asks a yes/no question on the terminal; --yes (assume_yes=1) answers yes.
 assume_yes=0
 confirm() {
@@ -62,7 +81,7 @@ confirm() {
 
 # Keeps a private copy of .env while a change is applied, so it can be put back.
 backup=""
-cleanup() { [ -n "$backup" ] && rm -f "$backup"; return 0; }
+cleanup() { [ -n "$backup" ] && rm -f "$backup"; owner_fix; return 0; }
 trap cleanup EXIT
 begin() {
   backup=$(mktemp)
@@ -76,12 +95,41 @@ revert() {
 
 # shellcheck source=scripts/lib/enrol_wait.sh
 . scripts/lib/enrol_wait.sh
+# shellcheck source=scripts/lib/ask.sh
+. scripts/lib/ask.sh
+# tell TEXT / tell_err TEXT: a message, wrapped at the width of a terminal (as given without one).
+tell() { printf '%s\n' "$*" | text_out 1; }
+tell_err() { printf '%s\n' "$*" | text_out 2; }
 
 # Prints the TOP-LEVEL "state" string of a JSON document on stdin. A grep over the whole document
 # is wrong: the nested verifier, consent and membership objects have their own "state" keys, and
 # an "off" there would end the wait before the worker has told the hub.
 json_top_state() {
   json_top_string state
+}
+
+# cli_has_update: the running ingest has `ingest.network.cli update` (newer than v0.15.0).
+cli_has_update() {
+  dc exec -T ingest python -m ingest.network.cli update --help > /dev/null 2>&1
+}
+
+# old_ingest_text WHAT: why WHAT cannot change with the ingest that runs, and what to do.
+old_ingest_text() {
+  local running latest
+  running=$(dc exec -T ingest printenv SUCKERPOT_RUNNING_VERSION 2> /dev/null | tr -d '\r' || true)
+  latest=$(latest_known_release)
+  if [ "$install_mode" = source ]; then
+    printf 'this node runs images built from an older checkout (%s), whose ingest cannot change %s. Update first (./suckerpot.sh update rebuilds them from this checkout), then try again. Nothing was changed.' "${running:-unknown}" "$1"
+  elif [ -n "$latest" ] && [ -n "$running" ] && [ "$latest" != "$running" ] && ver_ge "${latest#v}" "${running#v}"; then
+    printf 'this node runs %s, whose ingest cannot change %s. Update first (./suckerpot.sh update, to %s), then try again; if it still says this, the change needs a release newer than %s. Nothing was changed.' "$running" "$1" "$latest" "$latest"
+  else
+    printf 'this node runs %s, whose ingest cannot change %s: that needs a release newer than %s (the scripts of this checkout are newer than the images). Nothing was changed.' "${running:-an older release}" "$1" "${running:-it}"
+  fi
+}
+
+# The top-level state of the network status ("" when ingest does not answer).
+cli_state() {
+  dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null | json_top_state
 }
 
 # True when the top-level state of the network status is off, left or not_joined.
@@ -92,10 +140,14 @@ cli_state_off() {
 }
 
 do_leave() {
-  if ! dc exec -T ingest python -m ingest.network.cli leave; then
+  if ! dc exec -T ingest python -m ingest.network.cli leave > /dev/null; then
     echo "participant: warning: ingest did not confirm the leave" >&2
     return 1
   fi
+  # The worker acts on the leave at its next cycle (every 15 minutes by default); a restart runs
+  # that cycle now, so the hub hears of the leave before the stack may be stopped.
+  echo "participant: telling the hub (this takes up to 2 minutes)..."
+  dc restart ingest > /dev/null 2>&1 || true
   local waited=0
   while [ "$waited" -lt 120 ]; do
     if cli_state_off; then break; fi
@@ -152,7 +204,7 @@ case $cmd in
     vpn=0
     [ -z "$(env_get VPN_WG_PRIVATE_KEY)" ] || vpn=1
     echo
-    consent_screen "$shown" "$vpn"
+    consent_screen "$shown" "$vpn" | text_out 1 --join
     confirm "Join the SuckerPot network as described?" || die "not joined; nothing was changed"
     begin
     env_set_line .env NETWORK_CONSENT "$(consent_record)"
@@ -197,6 +249,160 @@ case $cmd in
         ;;
       unknown) echo "participant: joined. Check: ./scripts/status.sh" ;;
       *) echo "participant: the join is still in progress. Check in a few minutes: ./scripts/status.sh" ;;
+    esac
+    ;;
+
+  set-name | set-country)
+    need_participant "$cmd"
+    # shellcheck source=scripts/lib/pseudonym.sh
+    . scripts/lib/pseudonym.sh
+    # shellcheck source=scripts/lib/geocheck.sh
+    . scripts/lib/geocheck.sh
+    check=1 hide=0 value="" none=0 only_check=0
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --none) none=1 ;;
+        --hide) [ "$cmd" = set-country ] || die "usage: set-name NAME | --none"; hide=1 ;;
+        --no-check) [ "$cmd" = set-country ] || die "usage: set-name NAME | --none"; check=0 ;;
+        --check) only_check=1 ;;
+        -*) die "unknown option '$1'" ;;
+        *) [ -z "$value" ] || die "one value only (quote a name with spaces)"; value=$1 ;;
+      esac
+      shift
+    done
+    if [ "$only_check" = 1 ]; then
+      :
+    elif [ "$cmd" = set-name ]; then
+      { [ "$none" = 1 ] && [ -z "$value" ]; } || { [ "$none" = 0 ] && [ -n "$value" ]; } || die "usage: set-name NAME | --none"
+      [ "$none" = 1 ] || pseudonym_valid "$value" || die "this name is not allowed"
+      cli_args=(--pseudonym "$value")
+      [ "$none" = 0 ] || cli_args=(--no-pseudonym)
+    elif [ "$only_check" = 0 ]; then
+      { [ "$none" = 1 ] && [ -z "$value" ] && [ "$hide" = 0 ]; } || { [ "$none" = 0 ] && [ -n "$value" ]; } || die "usage: set-country CC [--hide] | --none"
+      if [ "$none" = 0 ]; then
+        why=$(geo_code_ok "$value") || die "$why"
+        value=${value^^}
+        cli_args=(--country "$value")
+        if [ "$hide" = 1 ]; then cli_args+=(--hide-country); else cli_args+=(--show-country); fi
+      else
+        cli_args=(--no-country)
+      fi
+    fi
+    # The country is compared with a GeoIP database on this machine (never an outside service):
+    # a mismatch is a warning, the owner's choice stands.
+    # Before anything changes: a node in the network needs ingest to take the change in its own
+    # record. The ingest of a release before this feature has no `update` command: a country
+    # change is then refused here, with the version, and nothing is changed.
+    st=""
+    if [ "$(env_get NETWORK_ENABLED false)" = true ]; then
+      st=$(cli_state) || st=""
+      if [ -z "$st" ]; then
+        # ingest is down or busy: start it first (with the settings as they are).
+        quiet_up --no-deps ingest || die "ingest did not start; nothing was changed (./scripts/install.sh --repair)"
+        st=$(cli_state) || st=""
+      fi
+      if [ "$cmd" = set-country ] && { [ "$st" = member ] || [ "$st" = enrolling ]; } && ! cli_has_update; then
+        die "$(old_ingest_text "the country of a node that is in the network")"
+      fi
+    fi
+    [ "$only_check" = 0 ] || exit 0
+    if [ "$cmd" = set-country ] && [ "$none" = 0 ] && [ "$check" = 1 ]; then
+      geo_check "$value"
+      case $GEO_RESULT in
+        match) note "$value matches: $GEO_SOURCE places this machine in $GEO_FOUND." ;;
+        mismatch) echo "participant: warning: $GEO_SOURCE places this machine ($GEO_ADDR) in $GEO_FOUND, not in $value. $value is kept as you asked." >&2 ;;
+        *) note "$value is not checked: $GEO_WHY." ;;
+      esac
+    fi
+    begin
+    if [ "$cmd" = set-name ]; then
+      case $value in
+        *" "*) env_set_line .env NETWORK_PSEUDONYM "'$value'" ;;
+        *) env_set_line .env NETWORK_PSEUDONYM "$value" ;;
+      esac
+    else
+      env_set_line .env NETWORK_COUNTRY "$value"
+      if [ -n "$value" ] && [ "$hide" = 0 ]; then
+        env_set_line .env NETWORK_SHOW_COUNTRY true
+      else
+        env_set_line .env NETWORK_SHOW_COUNTRY false
+      fi
+    fi
+    what="node name"
+    [ "$cmd" = set-name ] || what=country
+    shown=${value:-none}
+    if [ "$(env_get NETWORK_ENABLED false)" != true ]; then
+      tell "participant: the $what is saved ($shown). This node is not in the network: it is used when you join (./scripts/participant.sh join)."
+      exit 0
+    fi
+    case $st in
+      member | enrolling | not_joined)
+        # A member (or a join in progress) takes the change in its own record; the worker sends it to
+        # the hub. Older ingest images have no update command: a name still goes through join.
+        if ! answer=$(dc exec -T ingest python -m ingest.network.cli update "${cli_args[@]}" 2> /dev/null); then
+          reason=$(printf '%s' "$answer" | json_top_string reason)
+          if [ -z "$reason" ] && [ "$cmd" = set-name ] && [ "$none" = 0 ]; then
+            dc exec -T ingest python -m ingest.network.cli join --pseudonym "$value" > /dev/null 2>&1 \
+              || { revert; die "ingest did not take the new name; .env was put back"; }
+            # An older ingest says nothing about the hub having it: no wait for that.
+            old_cli=1
+          elif [ "$reason" = not_member ]; then
+            :
+          elif [ -z "$reason" ]; then
+            revert
+            die "$(old_ingest_text "the $what of a node that is in the network") .env was put back."
+          else
+            revert
+            die "ingest refused the change (${reason:-no answer}); .env was put back"
+          fi
+        fi
+        ;;
+    esac
+    # A restart runs the worker's cycle at once: the hub gets the change now, and a node whose join
+    # was refused (for example a taken name) tries again with the new name by itself.
+    quiet_up --no-deps --force-recreate ingest || { revert; die "ingest did not restart; .env was put back"; }
+    case $st in
+      member)
+        tell "participant: waiting for the hub to take the new $what..."
+        waited=0 limit=${SUCKERPOT_PROFILE_WAIT:-90} synced="" code=""
+        [ "${old_cli:-0}" = 0 ] || limit=15
+        while [ "$waited" -lt "$limit" ]; do
+          doc=$(dc exec -T ingest python -m ingest.network.cli status --json 2> /dev/null) || doc=""
+          code=$(printf '%s' "$doc" | json_top_string error_code)
+          case $code in pseudonym_taken | pseudonym_invalid) break ;; esac
+          case $doc in *'"profile_synced": true'*) synced=1; break ;; esac
+          sleep 5
+          waited=$((waited + 5))
+        done
+        if [ "$code" = pseudonym_taken ]; then
+          name=$(printf '%s' "$doc" | json_top_string pseudonym)
+          kept="no name"
+          [ -z "$name" ] || kept="the name '$name'"
+          revert
+          compose_up --no-deps ingest > /dev/null 2>&1 || true
+          tell_err "participant: the hub refused the name '$value': another node already uses it. The node keeps $kept; .env was put back."
+          tell_err "  Try another one: ./scripts/participant.sh set-name $(pseudonym_suggest "$value" || echo NEW-NAME)"
+          exit 1
+        elif [ "$code" = pseudonym_invalid ]; then
+          revert
+          compose_up --no-deps ingest > /dev/null 2>&1 || true
+          die "the identity check or the hub refused the name '$value' (it may contain one of your own names). .env was put back."
+        elif [ -n "$synced" ]; then
+          tell "participant: the $what is now $shown, and the hub has it."
+        else
+          tell "participant: the $what is now $shown here. The hub gets it at the next contact (at most 15 minutes). Check: ./suckerpot.sh status"
+        fi
+        ;;
+      error)
+        tell "participant: the $what is saved ($shown). The node was refused before; it now tries to join again with it."
+        tell "  Watch for the answer: ./suckerpot.sh status --wait"
+        ;;
+      enrolling | not_joined)
+        tell "participant: the $what is saved ($shown) and goes with the join that is in progress. Check: ./suckerpot.sh status --wait"
+        ;;
+      *)
+        tell "participant: the $what is saved ($shown). It is used when this node joins: ./scripts/participant.sh join"
+        ;;
     esac
     ;;
 
@@ -372,8 +578,8 @@ case $cmd in
     fi
     dc down
     prefix=$(env_get SUCKERPOT_VOLUME_PREFIX)
-    echo "participant: stopped. The sensors and the node are down; the schedule is removed."
-    echo "Your data volumes were NOT deleted. To delete them for good (this cannot be undone), run:"
+    tell "participant: stopped. The sensors and the node are down; the schedule is removed."
+    tell "Your data volumes were NOT deleted. To delete them for good (this cannot be undone), run:"
     echo "  ${ENGINE_CTR[*]} volume ls -q --filter \"name=^${prefix}_\" | xargs ${ENGINE_CTR[*]} volume rm"
     # Podman: the socket group is root-equivalent; it stays until removed. With --yes it is removed
     # (the commands above then need sudo, or a new login back in the group).
@@ -390,6 +596,6 @@ case $cmd in
     sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
     ;;
   *)
-    die "unknown command '$cmd' (status, leave, join, vpn, ports-check, auto-update, uninstall)"
+    die "unknown command '$cmd' (status, leave, join, set-name, set-country, vpn, ports-check, firewall, auto-update, uninstall)"
     ;;
 esac

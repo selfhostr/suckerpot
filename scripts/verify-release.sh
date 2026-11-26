@@ -3,7 +3,7 @@
 # commit, to the image digests and to the network defaults, signed by this project's release
 # workflow (cosign keyless, the same identity rule as the images).
 #
-#   scripts/verify-release.sh [--auto] vX.Y.Z
+#   scripts/verify-release.sh [--auto] [--bundle FILE | --no-code] vX.Y.Z
 #
 # What it checks, in this order (any failure stops with a non-zero exit):
 #   1. release-manifest.json and its Sigstore bundle download from the GitHub release;
@@ -12,6 +12,10 @@
 #   3. schema, version (= the tag), major, digest shapes;
 #   4. commit == `git rev-parse <tag>^{commit}` (the tag was not moved after signing);
 #   5. network_defaults_sha256 == sha256 of config/network-defaults.env in the tag's tree;
+#   With --bundle FILE (a node bundle install, which has no git): instead of 4 and 5, FILE has the
+#   node_bundle_sha256 of the manifest, the commit it names is the signed one, and its
+#   config/network-defaults.env has the signed hash. --no-code (a testing bundle, which keeps its
+#   own scripts and takes only the images) skips 4 and 5.
 #   6. the release time is not in the future. Its age is the later of the manifest's signed
 #      released_at and the Sigstore transparency-log time, when the bundle carries one.
 #
@@ -58,8 +62,18 @@ get() {
 }
 
 auto=0
-if [ "${1:-}" = "--auto" ]; then auto=1; shift; fi
-[ $# -eq 1 ] || die "usage: verify-release.sh [--auto] vX.Y.Z" 2
+bundle_file=""
+no_code=0
+while [ $# -gt 1 ]; do
+  case $1 in
+    --auto) auto=1; shift ;;
+    --bundle) bundle_file=$2; shift 2 ;;
+    --no-code) no_code=1; shift ;;
+    *) break ;;
+  esac
+done
+[ $# -eq 1 ] || die "usage: verify-release.sh [--auto] [--bundle FILE] vX.Y.Z" 2
+[ -z "$bundle_file" ] || [ -f "$bundle_file" ] || die "no bundle file $bundle_file" 2
 tag=$1
 [[ $tag =~ ^v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || die "'$tag' is not a release version (vX.Y.Z)" 2
 tag_major=${tag#v}
@@ -162,15 +176,29 @@ if printf '%s\n' "$digests" | grep -qvE '^sha256:[0-9a-f]{64}$'; then
   die "the manifest has a malformed image digest" 5
 fi
 
-# ---- 4. the tag still points at the signed commit
-tag_commit=$(git rev-parse "$tag^{commit}" 2> /dev/null || true)
-[ -n "$tag_commit" ] || die "tag $tag not found in this checkout (git fetch --tags)" 5
-[ "$tag_commit" = "$m_commit" ] \
-  || die "the tag $tag points at ${tag_commit:0:12} but the signed manifest names ${m_commit:0:12}" 5
+m_bundle=$(jstr node_bundle_sha256)
+if [ "$no_code" = 1 ]; then
+  # ---- 4 and 5 do not apply: the caller keeps its own code and takes only the signed images.
+  :
+elif [ -n "$bundle_file" ]; then
+  # ---- 4b and 5b. a node bundle: its hash, its commit and its defaults are the signed ones
+  [[ $m_bundle =~ ^[0-9a-f]{64}$ ]] || die "the manifest of $tag names no node bundle" 5
+  [ "$(sha256sum "$bundle_file" | cut -d' ' -f1)" = "$m_bundle" ] || die "the node bundle does not have the signed SHA-256" 5
+  b_commit=$(tar -xzOf "$bundle_file" ./.suckerpot-bundle 2> /dev/null | sed -n 's/^commit=//p' | head -n 1 || true)
+  [ "$b_commit" = "$m_commit" ] || die "the node bundle names commit ${b_commit:-none}, not the signed ${m_commit:0:12}" 5
+  defaults_sha=$(tar -xzOf "$bundle_file" ./config/network-defaults.env 2> /dev/null | sha256sum | cut -d' ' -f1 || true)
+  [ "$defaults_sha" = "$m_defaults" ] || die "config/network-defaults.env of the bundle does not match the signed hash" 5
+else
+  # ---- 4. the tag still points at the signed commit
+  tag_commit=$(git rev-parse "$tag^{commit}" 2> /dev/null || true)
+  [ -n "$tag_commit" ] || die "tag $tag not found in this checkout (git fetch --tags)" 5
+  [ "$tag_commit" = "$m_commit" ] \
+    || die "the tag $tag points at ${tag_commit:0:12} but the signed manifest names ${m_commit:0:12}" 5
 
-# ---- 5. the network defaults of that tag are the signed ones
-defaults_sha=$(git show "$tag:config/network-defaults.env" 2> /dev/null | sha256sum | cut -d' ' -f1 || true)
-[ "$defaults_sha" = "$m_defaults" ] || die "config/network-defaults.env of $tag does not match the signed hash" 5
+  # ---- 5. the network defaults of that tag are the signed ones
+  defaults_sha=$(git show "$tag:config/network-defaults.env" 2> /dev/null | sha256sum | cut -d' ' -f1 || true)
+  [ "$defaults_sha" = "$m_defaults" ] || die "config/network-defaults.env of $tag does not match the signed hash" 5
+fi
 
 # ---- 6. age
 now=$(date -u +%s)
@@ -205,6 +233,7 @@ echo "age_h=$age_h"
 echo "auto_min_age_h=$m_min_age"
 echo "effective_min_age_h=$min_age"
 echo "major=$m_major"
+[ -z "$m_bundle" ] || echo "bundle_sha256=$m_bundle"
 # The signed digest of each image: verify-images.sh --expect refuses an image that differs.
 printf '%s' "$flat" | grep -oE '"[a-z0-9-]{1,40}" *: *"sha256:[0-9a-f]{64}"' \
   | sed -E 's/^"([^"]*)" *: *"([^"]*)"$/image.\1=\2/' || true

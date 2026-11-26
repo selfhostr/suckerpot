@@ -1,0 +1,48 @@
+# The files of a node bundle: what a node needs to install, run, update and remove itself, without
+# the sources (scripts/make-bundle.sh packs them; scripts/get.sh and an update of a bundle install
+# unpack only these). One path or shell glob per line, relative to the top of the repository.
+# A bundle install runs the signed release images only; building needs a git checkout.
+suckerpot.sh
+LICENSE
+THIRD_PARTY_NOTICES.md
+justfile
+.env.example
+docker-compose.yml
+docker-compose.lowmem.yml
+docker-compose.lite.yml
+docker-compose.participant.yml
+docker-compose.podman.yml
+config/network-defaults.env
+config/node-bundle.list
+netproto/suckerpot_netproto/data/pseudonym_words.txt
+vpn/control-auth.toml
+vpn/entrypoint.sh
+vpn/health.sh
+scripts/auto-update.sh
+scripts/backup-db.sh
+scripts/backup-service.sh
+scripts/check-participant.sh
+scripts/check-ports.sh
+scripts/check-vpn-env.sh
+scripts/compose-fresh.sh
+scripts/edit.sh
+scripts/egress-check.sh
+scripts/ensure-networks.sh
+scripts/ensure-volumes.sh
+scripts/env-migrate.sh
+scripts/env-set.sh
+scripts/get.sh
+scripts/install.sh
+scripts/move-admin-ssh.sh
+scripts/participant.sh
+scripts/restore-db.sh
+scripts/rollback.sh
+scripts/status.sh
+scripts/suckerpot.sh
+scripts/uninstall.sh
+scripts/update.sh
+scripts/verify-images.sh
+scripts/verify-release.sh
+scripts/lib/*.sh
+scripts/lib/*.py
+scripts/host/*

@@ -1,6 +1,6 @@
 """Renders `scripts/status.sh` (docs/dev/design/m32.md section 10). Run inside the ingest container:
 
-    docker compose exec -T ingest python -I -c "$(cat scripts/lib/status_render.py)" [--json]
+    docker compose exec -T ingest python -I -c "$(cat scripts/lib/status_render.py)" [--json | --brief]
 
 Reads one JSON document on stdin, written by status.sh:
 
@@ -17,12 +17,14 @@ Reads one JSON document on stdin, written by status.sh:
 
 The network shape (written by ingest/network/cli.py) is read defensively: every key is optional.
     state, pseudonym, node, standing, counts_from, path, self_address, reveals_7d,
+    country, show_country, profile_synced (newer ingest images),
     hub {host, last_contact, signature_ok}, sent [{day, sources, links, files}],
     sessions_24h {sensor: n}, warnings [code], errors [code],
     report_effect {verdict, pairs, needed, seen_reported, seen_control, lo, hi, line} | null
     network {membership {desired, last_error, auto_retry}}   (older ingest images: no auto_retry)
 
-Prints the text report (or JSON with --json) and exits 0 (OK), 1 (warning) or 2 (error).
+Prints the text report (or JSON with --json, or a few lines with --brief: the view of the menu and
+of the end of the install) and exits 0 (OK), 1 (warning) or 2 (error).
 Standard library only. It never prints a secret: it never receives one.
 """
 
@@ -497,6 +499,9 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
         )
         standing = f", standing: {cli['standing']}" if cli.get("standing") else ""
         out.append(f"  Member as {who}{standing}")
+        line = _country_line(cli)
+        if line:
+            out.append(f"  {line}")
         if cli.get("counts_from"):
             out.append(f"  Counts toward consensus from {cli['counts_from']}")
         contact = _when(hub.get("last_contact"))
@@ -560,6 +565,100 @@ def render_text(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str
     return "\n".join(out)
 
 
+def _country_line(cli: dict[str, Any]) -> str:
+    """The country of a member, when it set one (newer ingest images only)."""
+    country = cli.get("country")
+    if not isinstance(country, str) or len(country) != 2:
+        return ""
+    shown = "shown to the network" if cli.get("show_country") else "sent, not shown"
+    return f"Country: {country.upper()} ({shown})"
+
+
+def enrolment(info: dict[str, Any], stack: str) -> tuple[str, str]:
+    """The network state in a few words, and the one command for it ("" when none)."""
+    cli = _dict(info["cli"])
+    if not info["cli"]:
+        return f"unknown: {info['cli_error'] or 'ingest did not answer'}", "docker compose logs ingest"
+    name = cli.get("pseudonym")
+    if info["pending"]:
+        error = info["join_error"]
+        why = f" (last problem: {JOIN_PROBLEMS.get(error, error)})" if error else ""
+        return (
+            f"waiting for the hub to accept this node{why}; it keeps trying by itself",
+            "./suckerpot.sh status --wait",
+        )
+    if info["refused"]:
+        code = info["error_code"] or "unknown"
+        why, fix = ERROR_HELP.get(code, (JOIN_PROBLEMS.get(code, "an unexpected problem"), ""))
+        if code == "pseudonym_taken" and name:
+            why = f"the name '{name}' is already used by another node"
+            fix = "./scripts/participant.sh set-name NEW-NAME"
+        return f"refused: {why} ({code})", _fix(fix or "./scripts/participant.sh join", stack)
+    if not info["member"]:
+        if cli.get("state") == "left":
+            return "left the network", "./scripts/participant.sh join"
+        return "not joined", "./scripts/participant.sh join"
+    standing = cli.get("standing") or "new"
+    who = f" as {name}" if name else " (no name)"
+    return f"accepted{who}, standing {standing}", ""
+
+
+def render_brief(doc: dict[str, Any], info: dict[str, Any], now: datetime) -> str:
+    """A few lines: the stack, the sensors, the network and the first thing to fix."""
+    out: list[str] = []
+    ps = [r for r in _list(doc.get("ps")) if isinstance(r, list) and len(r) >= 2]
+    healthy = sum(1 for r in ps if r[1] == "running" and (len(r) < 3 or r[2] in ("healthy", "")))
+    version = doc.get("version") or "source build"
+    if not ps:
+        out.append("Stack    not running: ./scripts/install.sh --repair")
+    elif healthy == len(ps):
+        out.append(f"Stack    {version}, {len(ps)} services running, all healthy")
+    else:
+        out.append(f"Stack    {version}, {healthy} of {len(ps)} services healthy: ./scripts/status.sh")
+    sensors = info["sensors"]
+    bad = [n for n, st in sensors.items() if st != "healthy"]
+    names = ", ".join(sensors)
+    if not sensors:
+        out.append("Sensors  none running")
+    elif bad:
+        out.append(f"Sensors  {len(sensors) - len(bad)} of {len(sensors)} healthy; not healthy: {', '.join(bad)}")
+    else:
+        out.append(f"Sensors  {len(sensors)} healthy: {names}")
+    if info["stack"] == "participant" or info["cli"]:
+        text, fix = enrolment(info, info["stack"])
+        out.append(f"Network  {text}")
+        cli = _dict(info["cli"])
+        if info["member"]:
+            extra: list[str] = []
+            line = _country_line(cli)
+            if line:
+                extra.append(line.replace("Country: ", "country "))
+            sent = [s for s in _list(cli.get("sent")) if isinstance(s, dict)]
+            if sent:
+                extra.append(f"last batch {sent[0].get('day')} ({_n(sent[0].get('sources')):,} sources)")
+            else:
+                extra.append("no batch sent yet (the first one follows the first full day)")
+            contact = _when(info["hub"].get("last_contact"))
+            extra.append(f"hub contact {_ago(contact, now)}" if contact else "no hub contact yet")
+            if cli.get("profile_synced") is False:
+                extra.append("name or country not sent to the hub yet")
+            out.append("         " + "; ".join(extra))
+            code = info["error_code"]
+            if code and code not in QUIET_ERRORS:
+                why, fix = ERROR_HELP.get(code, ("an unexpected problem", "docker compose logs ingest"))
+                out.append(f"         last error: {code}, {why}")
+        if fix:
+            out.append(f"         next: {fix}")
+    attention = needs_attention(doc, info) if info["stack"] == "participant" else []
+    for problem, command in attention[:2]:
+        out.append(f"Fix      {problem}: {command}")
+    if len(attention) > 2:
+        out.append(f"         and {len(attention) - 2} more: ./scripts/status.sh")
+    status = {0: "OK", 1: "WARNING", 2: "ERROR"}[info["exit"]]
+    out.append(f"Overall  {status}   (details: ./scripts/status.sh)")
+    return "\n".join(out)
+
+
 def main(argv: list[str]) -> int:
     try:
         doc = _dict(json.loads(sys.stdin.read() or "{}"))
@@ -593,6 +692,8 @@ def main(argv: list[str]) -> int:
             "exit": info["exit"],
         }
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif "--brief" in argv:
+        print(render_brief(doc, info, now))
     else:
         print(render_text(doc, info, now))
     return int(info["exit"])

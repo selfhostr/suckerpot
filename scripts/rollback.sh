@@ -71,7 +71,13 @@ alembic_before=$(state_get "$STATE" alembic_before)
 # A dump name that is set must be a plain file name, whatever the database decision is.
 [ -z "$dump" ] || [[ $dump =~ ^suckerpot-[A-Za-z0-9._-]+\.dump$ ]] || die "the state file has a bad dump name"
 [[ $from_version =~ ^[A-Za-z0-9._-]+$ ]] || die "the state file has a bad version"
-git rev-parse -q --verify "$from_ref^{commit}" > /dev/null || die "commit $from_ref is not in this checkout"
+layout=$(state_get "$STATE" layout)
+if [ "$layout" = bundle ]; then
+  [ -f "$STATE_DIR/bundle-before.tar.gz" ] || [ "$from_ref" = "$(bundle_get commit)" ] \
+    || die "the files before the update are not in $STATE_DIR/bundle-before.tar.gz"
+else
+  git rev-parse -q --verify "$from_ref^{commit}" > /dev/null || die "commit $from_ref is not in this checkout"
+fi
 
 # Did the schema move? Compare the revision recorded before the update with the live one.
 alembic_now=$(dc exec -T db sh -c \
@@ -125,7 +131,9 @@ if [ "$assume_yes" = 0 ]; then
 fi
 
 echo "[1/4] Restoring the previous code"
-if [ -n "$from_branch" ] && [ "$(git rev-parse -q --verify "refs/heads/$from_branch" 2> /dev/null || true)" = "$(git rev-parse "$from_ref^{commit}")" ]; then
+if [ "$layout" = bundle ]; then
+  if [ -f "$STATE_DIR/bundle-before.tar.gz" ]; then bundle_unpack "$STATE_DIR/bundle-before.tar.gz" || die "could not put the files back"; fi
+elif [ -n "$from_branch" ] && [ "$(git rev-parse -q --verify "refs/heads/$from_branch" 2> /dev/null || true)" = "$(git rev-parse "$from_ref^{commit}")" ]; then
   with_public_umask git checkout --quiet "$from_branch"
 else
   with_public_umask git checkout --quiet --detach "$from_ref"

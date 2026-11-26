@@ -116,7 +116,16 @@ from_version=$(env_get SUCKERPOT_VERSION)
 cur_major=${from_version#v}
 cur_major=${cur_major%%.*}
 
-git fetch --tags --quiet || record failed fetch_failed
+# The releases to look at: a git checkout fetches the tags; a node bundle install (no git) asks
+# GitHub for the newest release only.
+code_ref() { if layout_bundle; then bundle_get commit; else git rev-parse HEAD; fi; }
+if layout_bundle; then
+  release_tags=$(latest_release_fetch) || record failed fetch_failed
+  mkdir -p "$STATE_DIR" && printf '%s\n' "$release_tags" > "$STATE_DIR/latest-release"
+else
+  git fetch --tags --quiet || record failed fetch_failed
+  release_tags=$(git tag -l 'v*.*.*' --sort=-v:refname)
+fi
 
 # Eligible candidates, newest first: same major, newer than the running one, not marked bad.
 candidates=()
@@ -127,7 +136,7 @@ while IFS= read -r tag; do
   ver_ge "${tag#v}" "${from_version#v}" || continue
   if [ -f "$BAD" ] && grep -qxF "$tag" "$BAD"; then continue; fi
   candidates+=("$tag")
-done < <(git tag -l 'v*.*.*' --sort=-v:refname)
+done <<< "$release_tags"
 [ "${#candidates[@]}" -gt 0 ] || record ok up_to_date
 
 # mark_bad TAG REASON: never try TAG again; the reason goes to bad-versions.log.
@@ -151,7 +160,10 @@ for tag in "${candidates[@]}"; do
   to_version=$tag
   log "candidate: $from_version -> $tag"
   vr_rc=0
-  vr_out=$(bash scripts/verify-release.sh --auto "$tag") || vr_rc=$?
+  # A bundle install has no tag to compare the code with: update.sh checks the bundle itself.
+  vr_flags=(--auto)
+  if layout_bundle; then vr_flags+=(--no-code); fi
+  vr_out=$(bash scripts/verify-release.sh "${vr_flags[@]}" "$tag") || vr_rc=$?
   printf '%s\n' "$vr_out"
   case $vr_rc in
     0) target=$tag; break ;;
@@ -201,7 +213,7 @@ if [ -f "$ATTEMPTS" ] && [ "$(awk 'NR == 1 { print $1 }' "$ATTEMPTS")" = "$targe
   exit 0
 fi
 
-head_before=$(git rev-parse HEAD)
+head_before=$(code_ref)
 up_rc=0
 bash scripts/update.sh --yes --auto "$target" || up_rc=$?
 if [ "$up_rc" -eq 0 ]; then rm -f "$ATTEMPTS"; record updated ""; fi
@@ -236,7 +248,7 @@ mark_completed() {
   chmod 600 "$tmp"
   mv -f "$tmp" "$STATE"
 }
-if [ "$(git rev-parse HEAD)" = "$head_before" ]; then
+if [ "$(code_ref)" = "$head_before" ]; then
   # The code never changed (backup, verification or checkout failed): nothing to put back.
   if [ -f "$STATE" ] && grep -q '"completed": false' "$STATE"; then mark_completed; fi
   record failed update_failed

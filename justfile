@@ -267,6 +267,18 @@ http-test:
 install *args:
     bash scripts/install.sh "$@"
 
+# The menu of this node: install, status, edit, update, ports, logs, remove (same as ./suckerpot.sh).
+menu:
+    bash scripts/suckerpot.sh
+
+# Change a setting of this node and apply it: just edit [name|country|sensors|vpn|auto-update|firewall [VALUE]]
+edit *args: _need-project
+    bash scripts/edit.sh "$@"
+
+# Remove SuckerPot from this machine; the data volumes and .env stay unless you say so: just uninstall --help
+uninstall *args: _need-project
+    bash scripts/uninstall.sh "$@"
+
 # Safe update: backup, new code and images, restart, health check: just update [vX.Y.Z] [--yes]
 update *args: _need-project
     bash scripts/update.sh "$@"
