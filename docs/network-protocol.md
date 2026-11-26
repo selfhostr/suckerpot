@@ -93,7 +93,7 @@ The answer is bound to the whole request, not only to its nonce. A man in the mi
 
 Which answers are signed:
 
-- Answers to a request that passed authentication are always signed. This includes `unknown_node`: a node that sends `DELETE /v1/node` and gets a signed `unknown_node` knows that the hub holds nothing of its own.
+- Answers to a request that passed authentication are always signed. This includes `unknown_node`: a node that sends `DELETE /v1/node` and gets a signed `unknown_node` knows that the hub holds nothing of its own. A member that gets a signed `unknown_node` on any other request knows that the hub expired its membership (no request for `HUB_MEMBER_EXPIRE_DAYS`, at most 30, or an operator's `node expire`): it enrols again with the same key. An unsigned `unknown_node` is ignored (`hub_signature`).
 - Answers to a request whose authentication failed (`too_large`, `stale_timestamp`, `bad_signature`, malformed headers, an unknown route) are not signed. A node treats an unsigned error as "not authenticated", never as a statement by the hub. It retries later.
 - An unsigned endpoint answer is signed only when the request carried a well-formed `X-SPN-Nonce`.
 
@@ -136,6 +136,7 @@ The node records these codes itself. The hub never sends them.
 | `guard_failed` | The whole batch failed the identity check, so nothing was sent |
 | `no_settings_key` | The settings encryption key is not usable, so no key can be stored |
 | `leave_unconfirmed` | The leave could not be confirmed at the hub, so the node wiped its data anyway |
+| `membership_expired` | The hub answered a signed `unknown_node`: it no longer holds this membership. The node enrols again by itself (the owner never left) |
 
 ## Endpoints
 

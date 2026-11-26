@@ -625,7 +625,7 @@ async def load(session: AsyncSession, s: Settings, today: date) -> ObservatoryIn
     )
     # Nodes.
     # Dormant members (hub/hub/dormant.py) are not counted.
-    active = await dormant.count_params(session, today)
+    active = await dormant.count_params(session, today, s.member_dormant_days)
     inp.members = int(
         (
             await session.execute(

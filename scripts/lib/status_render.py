@@ -84,6 +84,7 @@ JOIN_PROBLEMS = {
     "pseudonym_invalid": "the pseudonym is not allowed",
     "no_settings_key": "the settings key is missing",
     "unsupported_protocol": "the hub speaks a protocol this version does not support",
+    "membership_expired": "the hub had removed this node after a long silence; it is joining again",
 }
 NEW_NAME = "./scripts/participant.sh join --pseudonym NEW-NAME"
 # The last network error of a member or a refused join: (plain explanation, fix or "").
@@ -118,6 +119,11 @@ ERROR_HELP = {
     "internal_error": ("a network step failed inside ingest", "docker compose logs ingest"),
     "guard_failed": ("a guard stopped a batch before it left", "docker compose logs ingest"),
     "hub_signature": ("the hub's answer failed the signature check", "just update"),
+    "membership_expired": (
+        "the hub removed this node after 30 days without contact (or its operator did); "
+        "the node joins again by itself, with the same key and name",
+        "",
+    ),
 }
 # Shown elsewhere in the report already (the own address has its own lines).
 QUIET_ERRORS = {"waiting_self_address", "waiting_enrolment"}

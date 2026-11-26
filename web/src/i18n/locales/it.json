@@ -1904,6 +1904,7 @@
   "network_error_guard_failed": "Il controllo della privacy ha fermato l'ultimo lotto, quindi non è stato inviato nulla.",
   "network_error_hub_signature": "La risposta dell'hub non ha potuto essere verificata, quindi è stata ignorata.",
   "network_error_leave_unconfirmed": "Impossibile raggiungere l'hub per confermare che i vostri dati sono stati eliminati.",
+  "network_error_membership_expired": "L'hub aveva rimosso questo sensore dopo 30 giorni senza contatto. Si riunisce da solo, con la stessa chiave e lo stesso nome.",
   "network_error_no_settings_key": "La chiave di cifratura delle impostazioni non è impostata.",
   "network_error_rate_limited": "L'hub ha chiesto a questo sensore di rallentare. Riprova più tardi.",
   "network_explainer_never_title": "Cosa non viene mai condiviso",

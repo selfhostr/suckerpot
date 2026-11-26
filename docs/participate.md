@@ -128,7 +128,7 @@ If something needs your action, the report ends with a **Needs attention** block
 
 By default, your sensor counts toward confirmations after 14 days of regular batches. Until then its standing is `new`.
 
-A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is **dormant**. The hub keeps it, but leaves it out of the member list and of the member counts (network summary, public figures). It counts again from the next weekly snapshot after its next batch.
+A node that enrolled more than 7 days ago and never sent a batch, or that sent no batch for 30 days, is **dormant**. The hub keeps it, but leaves it out of the member list and of the member counts (network summary, public figures). It counts again from the next weekly snapshot after its next batch. A node that made no request to the hub for 30 days is **expired**: the hub deletes it, as for a leave. If it comes back, it joins again by itself with the same key and name (the status shows `membership_expired` meanwhile). See [Dormant and expired members](network.md#dormant-and-expired-members).
 
 ## Automatic updates
 
