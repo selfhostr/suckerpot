@@ -35,7 +35,7 @@ function Card({
       <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
         <span className="min-w-0 space-y-0.5">
           <h2 id={id} className="type-card-title text-fg">
-            {item.recipient.name}
+            {item.provider ?? item.recipient.name}
           </h2>
           <span className="block text-xs text-fg-muted">
             {weekSpanLabel(item.window_start, item.window_end)} · {describeFormItem(item)}
@@ -61,9 +61,10 @@ function Card({
 }
 
 /**
- * Desks that take reports only through their web form: one card per provider and week. The card
- * opens the copy kit. Nothing is submitted by SuckerPot: the owner pastes each field and records
- * the submission with "Submitted".
+ * Desks that take reports only through their web form: one card per provider, covering all its
+ * waiting form reports. The card opens the copy kit. Nothing is submitted by SuckerPot: the owner
+ * pastes each field (or fills them with the browser helper) and records the submission with
+ * "Submitted", which marks every report of the card.
  */
 export function FormQueue() {
   const q = useFormQueue()

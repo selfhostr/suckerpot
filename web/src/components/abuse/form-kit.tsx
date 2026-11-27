@@ -1,6 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Download, ExternalLink, ShieldAlert, TriangleAlert } from "lucide-react"
-import { useMemo, useState } from "react"
+import {
+  Bookmark,
+  Check,
+  ClipboardCopy,
+  Download,
+  ExternalLink,
+  ShieldAlert,
+  TriangleAlert,
+} from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useIpMask } from "@/app/ip-mask"
 import { CopyField } from "@/components/abuse/copy-field"
 import { SkeletonList } from "@/components/skeletons"
 import { Button } from "@/components/ui/button"
@@ -18,7 +27,9 @@ import {
   type FormQueueItem,
   type Kit,
 } from "@/lib/abuse-forms"
+import { bookmarkletHref } from "@/lib/form-fill"
 import { formatNumber } from "@/lib/format"
+import { useCopy } from "@/hooks/use-copy"
 import { todayKeys } from "@/lib/today"
 
 /** The field name, and the form's own label when the shared directory knows it. */
@@ -54,6 +65,67 @@ function LinkRow({ link }: { link: FormLink }) {
         <span className="block font-mono text-xs break-all text-fg-muted">{link.url}</span>
       )}
     </li>
+  )
+}
+
+/** Copies the fill data of the browser helper (the whole kit, or one address). */
+function CopyFillButton({ fill, label }: { fill: string; label: string }) {
+  const { copied, copy } = useCopy()
+  const { masked } = useIpMask()
+  if (masked || !fill) return null
+  return (
+    <Button size="sm" variant="outline" onClick={() => void copy(fill)}>
+      {copied ? <Check aria-hidden /> : <ClipboardCopy aria-hidden />}
+      <span aria-live="polite">{copied ? t("common_copied") : label}</span>
+    </Button>
+  )
+}
+
+/**
+ * The browser fill helper (`lib/form-fill.ts`): a bookmarklet that carries no data, added to the
+ * bookmarks bar once, and the kit's fill data to paste into it on the form's page. It fills
+ * fields and never submits: the owner reviews and submits.
+ */
+function FillHelper({ kit }: { kit: Kit }) {
+  const ref = useRef<HTMLAnchorElement>(null)
+  useEffect(() => {
+    // Set outside React, which refuses a javascript: address in JSX. Never run here: it is only
+    // dragged to the bookmarks bar (a click is cancelled below).
+    ref.current?.setAttribute("href", bookmarkletHref())
+  }, [])
+  if (!kit.fill) return null
+  return (
+    <section
+      aria-label={t("abuse_form_fill_aria")}
+      className="space-y-2 rounded-md border px-3 py-2.5 text-sm"
+    >
+      <p className="font-medium text-fg">{t("abuse_form_fill_title")}</p>
+      <p className="text-fg-muted">{t("abuse_form_fill_howto")}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <a
+          ref={ref}
+          draggable
+          onClick={(e) => e.preventDefault()}
+          title={t("abuse_form_fill_drag")}
+          className="inline-flex cursor-grab items-center gap-1.5 rounded-md border border-dashed px-2.5 py-1 text-sm font-medium text-fg"
+        >
+          <Bookmark aria-hidden className="size-3.5" />
+          {t("abuse_form_fill_bookmark")}
+        </a>
+        <span className="text-xs text-fg-muted">{t("abuse_form_fill_drag")}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <CopyFillButton
+          fill={kit.one_ip_per_submission ? "" : kit.fill}
+          label={t("abuse_form_fill_copy")}
+        />
+        <span className="text-xs text-fg-muted">
+          {kit.one_ip_per_submission
+            ? t("abuse_form_fill_per_address")
+            : t("abuse_form_fill_never")}
+        </span>
+      </div>
+    </section>
   )
 }
 
@@ -113,10 +185,12 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
     setError(null)
     try {
       const everything = chosen.size === all.size
+      // The kit covers every open form report of the provider: they are all recorded.
       await formsApi.submitted(
         kit.public_id,
         kit.revision,
         everything ? undefined : refsOf(kit.sources, chosen),
+        kit.reports,
       )
       await qc.invalidateQueries({ queryKey: abuseKeys.all })
       // The reminder on Today counts the same queue.
@@ -155,6 +229,8 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
           </p>
         ) : null}
       </section>
+
+      <FillHelper kit={kit} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <CopyField label={labelOf(kit, "email", t("abuse_form_field_email"))} value={kit.email} />
@@ -254,6 +330,14 @@ export function FormKit({ item, onDone }: { item: FormQueueItem; onDone: () => v
                       value={s.log_excerpt}
                       multiline
                     />
+                    {s.fill ? (
+                      <div className="md:col-span-2">
+                        <CopyFillButton
+                          fill={s.fill}
+                          label={t("abuse_form_fill_copy_one", { value: s.value })}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </li>

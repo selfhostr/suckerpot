@@ -38,6 +38,12 @@
 #                          form, email, name, abuse_type, addresses, first_seen, last_seen,
 #                          description, log_excerpt, evidence. choices (abuse_type only) maps
 #                          login_attack, exploit, malware and c2 to the form's options
+#                          selector (optional) is a plain CSS selector of the form's field for
+#                          the browser fill helper (not for form or evidence; letters, digits
+#                          and # . [ ] = : > + ~ * ^ $ | ( ) , - _ and spaces, at most 200
+#                          characters, no quotes). Record one only after reading it on the
+#                          form, like the label; without it the helper finds the field by its
+#                          label and by heuristics
 #   source                 https page of the provider that links to the form, on an official
 #                          domain
 #   verified_on            date of the last check by a maintainer (YYYY-MM-DD)

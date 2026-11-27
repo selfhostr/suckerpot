@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Report: a browser fill helper for the form queue. Drag **Fill abuse form** from a kit to the bookmarks bar once; then, per kit, press **Copy fill data**, open the form, click the bookmark and paste into the panel it opens. It fills the fields it recognises (by the shared directory's CSS selector or the form's own label, else by the field's label, name, placeholder and type: email, name, IP addresses, abuse type, description, logs, dates), outlines them and shows "Review and submit yourself". It never submits, never touches a captcha, a consent box, a file field or what you already typed, and names neither the node nor the project. The fill data is built on the server from the kit and passes the identity guard with it. The bookmarklet holds no data. See [Desks that take only a web form](docs/reporting.md#desks-that-take-only-a-web-form).
+- Shared directory of abuse forms: a field may carry an optional `selector` (a plain CSS selector, recorded only after reading it on the form) for the fill helper.
+
+### Changed
+
+- The form queue shows one card per provider: every open form report of a provider (a reviewed one and the new draft, or several mailboxes the shared directory gives to one provider) is one kit with every address and one evidence file, and **Submitted** records them all in one step. `POST /api/v1/abuse/reports/{id}/submitted` takes the kit's `reports` list and refuses a kit that changed since it was read; the queue and the kit return `reports`, and the kit returns `fill`.
+
 ## [0.15.2] - 2026-11-26
 
 ### Added
