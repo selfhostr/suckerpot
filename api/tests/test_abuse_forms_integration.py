@@ -357,3 +357,137 @@ async def test_a_demo_form_report_is_not_counted(client: httpx.AsyncClient) -> N
     await seed_form(demo=True)
     body = (await client.get("/api/v1/today")).json()
     assert body["form_queue"] is None
+
+
+# ---- one kit per provider, and the browser fill helper's data ------------------------------
+
+OLDER_ID = uuid.UUID("77777777-7777-4777-8777-777777777777")
+OLDER_SOURCE = "198.51.100.31"
+
+
+async def seed_older_reviewed() -> int:
+    """A reviewed form report of last week for the same desk (the owner reviewed it from the
+    report page): the queue must still show one card and one kit for the provider."""
+    ev = evidence("id")
+    sub = ev["subjects"][0] | {"kind": "attack_source", "value": OLDER_SOURCE}
+    sub["activities"][0]["src_ip"] = OLDER_SOURCE
+    ev["kind"] = "digest"
+    ev["subjects"] = [sub]
+    rows = await run(
+        "INSERT INTO abuse_reports (public_id, id_seed, recipient_id, kind, status, demo, "
+        "window_start, window_end, subject_count, evidence, content_sha256, guard_ok, channel, "
+        "week, reviewed_at, reviewed_by, reviewed_revision) VALUES (:p, gen_random_uuid(), 1, "
+        "'digest', 'reviewed', false, :t, :t, 1, CAST(:e AS jsonb), 'y', true, 'form', :w, :t, "
+        "'admin', 1) RETURNING id",
+        p=OLDER_ID,
+        t=NOW - timedelta(days=7),
+        e=json.dumps(ev),
+        w=MONDAY - timedelta(days=7),
+    )
+    report = int(rows[0][0])
+    await run(
+        "INSERT INTO abuse_report_subjects (report_id, kind, subject_type, value, first_ts, "
+        "last_ts, sessions, events, xarf_id) VALUES (:r, 'attack_source', 'ip', :v, :f, :f, "
+        "1, 3, gen_random_uuid())",
+        r=report,
+        v=OLDER_SOURCE,
+        f=NOW - timedelta(days=6),
+    )
+    return report
+
+
+async def test_one_card_and_one_kit_per_provider(client: httpx.AsyncClient, lenient: None) -> None:
+    await set_intro(client)
+    await seed_form()
+    await seed_older_reviewed()
+    page = (await client.get("/api/v1/abuse/forms")).json()
+    assert len(page["items"]) == 1
+    item = page["items"][0]
+    assert item["public_id"] == str(OLDER_ID)  # the oldest week leads
+    assert item["subject_count"] == 3
+    assert [r["public_id"] for r in item["reports"]] == [str(OLDER_ID), str(FORM_ID)]
+    # The kit of either report is the provider's kit: every address, one evidence file.
+    for rid in (OLDER_ID, FORM_ID):
+        kit = (await client.get(f"/api/v1/abuse/reports/{rid}/kit")).json()
+        assert set(kit["addresses"].splitlines()) == {*SOURCES, OLDER_SOURCE}
+        assert all(v in kit["evidence"]["content"] for v in (OLDER_SOURCE, *SOURCES))
+        assert [r["public_id"] for r in kit["reports"]] == [str(OLDER_ID), str(FORM_ID)]
+        token = (await client.get(f"/api/v1/abuse/reports/{OLDER_ID}")).json()["reply_token"]
+        assert kit["description"].endswith(f"ref {token}")
+
+
+async def test_submitted_on_the_provider_kit_marks_every_report(
+    client: httpx.AsyncClient, lenient: None
+) -> None:
+    await set_intro(client)
+    draft = await seed_form()
+    older = await seed_older_reviewed()
+    kit = (await client.get(f"/api/v1/abuse/reports/{OLDER_ID}/kit")).json()
+    url = f"/api/v1/abuse/reports/{OLDER_ID}/submitted"
+    # A kit that no longer matches the provider's open reports is refused.
+    stale = [kit["reports"][0]]
+    r = await client.post(url, json={"revision": kit["revision"], "reports": stale})
+    assert r.status_code == 409 and r.json()["code"] == "revision_mismatch"
+    bumped = [kit["reports"][0], kit["reports"][1] | {"revision": 99}]
+    r = await client.post(url, json={"revision": kit["revision"], "reports": bumped})
+    assert r.status_code == 409 and r.json()["code"] == "revision_mismatch"
+    r = await client.post(url, json={"revision": kit["revision"], "reports": kit["reports"]})
+    assert r.status_code == 200, r.text
+    assert (r.json()["submitted"], r.json()["left"], r.json()["reports"]) == (3, 0, 2)
+    async with owner_engine() as owner, owner.connect() as conn:
+        rows = (
+            await conn.execute(
+                text("SELECT id, status, sent_via FROM abuse_reports WHERE id IN (:a, :b)"),
+                {"a": draft, "b": older},
+            )
+        ).all()
+        audit = await conn.scalar(
+            text("SELECT count(*) FROM audit_log WHERE action = 'abuse.form_submitted'")
+        )
+    assert {(s.status, s.sent_via) for s in rows} == {("sent", "form")} and len(rows) == 2
+    assert audit == 2
+    assert (await client.get("/api/v1/abuse/forms")).json()["items"] == []
+
+
+async def test_ticking_some_sources_of_the_provider_kit(
+    client: httpx.AsyncClient, lenient: None
+) -> None:
+    await set_intro(client)
+    draft = await seed_form()
+    older = await seed_older_reviewed()
+    kit = (await client.get(f"/api/v1/abuse/reports/{FORM_ID}/kit")).json()
+    tick = [{"kind": "attack_source", "subject_type": "ip", "value": OLDER_SOURCE}]
+    r = await client.post(
+        f"/api/v1/abuse/reports/{FORM_ID}/submitted",
+        json={"revision": kit["revision"], "reports": kit["reports"], "subjects": tick},
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["submitted"], r.json()["left"], r.json()["reports"]) == (1, 2, 1)
+    async with owner_engine() as owner, owner.connect() as conn:
+        status: dict[int, str] = dict(
+            (
+                await conn.execute(
+                    text("SELECT id, status FROM abuse_reports WHERE id IN (:a, :b)"),
+                    {"a": draft, "b": older},
+                )
+            ).all()
+        )
+    # Only the report that held a ticked source is sent; the other waits as it was.
+    assert status == {older: "sent", draft: "draft"}
+
+
+async def test_the_kit_carries_the_fill_helper_data(
+    client: httpx.AsyncClient, lenient: None
+) -> None:
+    await set_intro(client, form_name="A. Volunteer")
+    await seed_form()
+    kit = (await client.get(f"/api/v1/abuse/reports/{FORM_ID}/kit")).json()
+    data = json.loads(kit["fill"])
+    assert data["format"] == "formfill/1" and data["type"] == kit["type_key"]
+    assert data["values"]["email"] == kit["email"]
+    assert data["values"]["addresses"] == kit["addresses"]
+    assert data["values"]["description"] == kit["description"]
+    one = json.loads(kit["sources"][0]["fill"])
+    assert one["values"]["addresses"] == kit["sources"][0]["value"]
+    blob = kit["fill"].lower()
+    assert "suckerpot" not in blob and "honeypot" not in blob and SELF not in blob

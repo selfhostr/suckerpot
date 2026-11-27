@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import json
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -18,8 +20,10 @@ from suckerpot_reporting.forms import (
     build_kit,
     bundled,
     dumps,
+    fill_data,
     guard_kit,
     main,
+    merge_evidence,
     url_problem,
     validate,
 )
@@ -191,6 +195,12 @@ def test_source_follows_the_same_rules_without_a_query() -> None:
         ({"fields": [{"key": "name", "label": "<script>"}]}, "label: bad_characters"),
         ({"fields": [{"key": "name", "label": "A"}, {"key": "name", "label": "B"}]}, "repeated"),
         ({"fields": [{"key": "name", "label": "A", "script": "x"}]}, "fields[0]"),
+        ({"fields": [{"key": "name", "label": "N", "selector": "a{b}"}]}, "selector"),
+        ({"fields": [{"key": "name", "label": "N", "selector": "[name='x']"}]}, "selector"),
+        ({"fields": [{"key": "name", "label": "N", "selector": ""}]}, "selector"),
+        ({"fields": [{"key": "name", "label": "N", "selector": "#a" * 101}]}, "selector"),
+        ({"fields": [{"key": "evidence", "label": "File", "selector": "#file"}]}, "selector"),
+        ({"fields": [{"key": "form", "label": "Form", "selector": "form"}]}, "selector"),
         ({"verified_on": "yesterday"}, "verified_on"),
         ({"verified_on": "2027-01-01"}, "in the future"),
         ({"template": "{{x}}"}, "unknown keys"),
@@ -372,3 +382,94 @@ def test_directory_json_round_trip() -> None:
     d = validate(doc(entry(fields=[{"key": "name", "label": "Your name"}])), TODAY)
     again = validate(copy.deepcopy(d.to_json()), TODAY)
     assert again == d
+
+
+# --- the browser fill helper's data ------------------------------------------------------------
+
+
+def test_a_field_may_carry_a_css_selector() -> None:
+    fields = [
+        {"key": "email", "label": "Email", "selector": "form#abuse input[name=email]"},
+        {"key": "name", "label": "Name"},
+    ]
+    d = validate(doc(entry(fields=fields)), TODAY)
+    assert [f.selector for f in d.entries[0].fields] == ["form#abuse input[name=email]", None]
+    out = d.to_json()["entries"][0]["fields"]
+    assert out[0]["selector"] == "form#abuse input[name=email]" and "selector" not in out[1]
+    assert validate(copy.deepcopy(d.to_json()), TODAY) == d
+
+
+def test_the_fill_data_carries_the_kit_values_labels_and_selectors() -> None:
+    e = validate(
+        doc(
+            entry(
+                fields=[
+                    {"key": "email", "label": "Your e-mail", "selector": "#reporter-mail"},
+                    {"key": "abuse_type", "label": "Type of abuse"},
+                    {"key": "evidence", "label": "Attachment"},
+                ]
+            )
+        ),
+        TODAY,
+    ).entries[0]
+    kit = build_kit(two_source_evidence(), SETTINGS, entry=e, form_name="A. V", reply_token=REF)
+    data = json.loads(kit.fill)
+    assert data["format"] == "formfill/1"
+    assert data["type"] in ("login_attack", "exploit") and data["type"] == kit.type_key
+    assert data["values"] == {
+        "email": kit.email,
+        "name": kit.name,
+        "abuse_type": kit.abuse_type,
+        "addresses": kit.addresses,
+        "first_seen": kit.first_seen,
+        "last_seen": kit.last_seen,
+        "description": kit.description,
+        "log_excerpt": kit.log_excerpt,
+    }
+    # Only fields the helper fills: never the evidence file input.
+    assert data["labels"] == {"email": "Your e-mail", "abuse_type": "Type of abuse"}
+    assert data["selectors"] == {"email": "#reporter-mail"}
+    assert kit.fill.isascii() and "\n" not in kit.fill
+    # One address per submission: each source has its own fill data.
+    one = json.loads(kit.sources[1].fill)
+    assert one["values"]["addresses"] == "198.51.100.9"
+    assert one["values"]["description"] == kit.sources[1].description
+    assert one["type"] == "exploit" and kit.sources[1].type_key == "exploit"
+
+
+def test_the_fill_data_never_names_the_project() -> None:
+    kit = build_kit(make_evidence(), SETTINGS, reply_token=REF)
+    names = ("suckerpot", "selfhostr", "honeypot", "honey")
+    for _name, value in kit.fills():
+        assert not any(n in value.lower() for n in names)
+    empty = json.loads(fill_data({"email": "", "name": ""}, type_key="malware"))
+    assert empty == {"format": "formfill/1", "type": "malware", "values": {}}
+
+
+def test_the_guard_covers_the_fill_data(terms: SelfTerms, ctx: GuardContext) -> None:
+    kit = build_kit(make_evidence(), SETTINGS, reply_token=REF)
+    assert guard_kit(kit, terms, ctx=ctx).ok
+    planted = json.dumps({"values": {"description": f"see\nhttp://{DYNAMIC_NAME}/"}})
+    assert not guard_kit(replace(kit, fill=planted), terms, ctx=ctx).ok
+    source = replace(kit.sources[0], fill=planted)
+    assert not guard_kit(replace(kit, sources=(source,)), terms, ctx=ctx).ok
+
+
+# --- one kit per provider ------------------------------------------------------------------------
+
+
+def test_merge_evidence_keeps_every_source_once() -> None:
+    a = make_evidence()
+    b = two_source_evidence()
+    b = b.model_copy(update={"window_end": b.window_end + timedelta(days=2)})
+    merged = merge_evidence([a, b])
+    assert merged.kind == "digest"
+    assert sorted(s.value for s in merged.subjects) == [SUBJECT_IP, "198.51.100.9"]
+    assert all(s.kind is not None for s in merged.subjects)
+    assert merged.window_end == b.window_end and merged.window_start == a.window_start
+    assert merge_evidence([a]) is a
+    with pytest.raises(ValueError):
+        merge_evidence([])
+    kit = build_kit(merged, SETTINGS, reply_token=REF)
+    assert kit.addresses.splitlines() == [SUBJECT_IP, "198.51.100.9"]
+    assert "198.51.100.9" in kit.evidence.content and SUBJECT_IP in kit.evidence.content

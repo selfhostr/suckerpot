@@ -119,7 +119,23 @@ _REQUIRED: Final = frozenset(
     {"id", "provider", "match", "official_domains", "form_url", "accepts_mail", "source"}
 )
 _MATCH_KEYS: Final = frozenset({"mailbox_domains", "asns"})
-_FIELD_KEYS: Final = frozenset({"key", "label", "choices"})
+_FIELD_KEYS: Final = frozenset({"key", "label", "choices", "selector"})
+# The kit fields the browser fill helper may write into a form (never the form link or a file).
+FILL_KEYS: Final = (
+    "email",
+    "name",
+    "abuse_type",
+    "addresses",
+    "first_seen",
+    "last_seen",
+    "description",
+    "log_excerpt",
+)
+# A CSS selector of the form's own field, as a maintainer read it on the form (optional). Plain
+# selector characters only: no quotes that could close an attribute, no braces, no backslash.
+_SELECTOR: Final = re.compile(r"^[A-Za-z0-9_#.\[\]=:>+~*^$|(), -]{1,200}$")
+# Marks the fill data the helper reads. Neutral on purpose: the provider's page can see it.
+FILL_FORMAT: Final = "formfill/1"
 
 
 class DirectoryError(ValueError):
@@ -217,6 +233,8 @@ class FormField:
     key: str
     label: str
     choices: Mapping[str, str] = field(default_factory=dict)
+    # The form's own field for this key, for the browser fill helper; None: found by its label.
+    selector: str | None = None
 
 
 @dataclass(frozen=True)
@@ -268,6 +286,7 @@ class FormEntry:
             "max_chars": self.max_chars,
             "fields": [
                 {"key": f.key, "label": f.label, "choices": dict(sorted(f.choices.items()))}
+                | ({"selector": f.selector} if f.selector else {})
                 for f in self.fields
             ],
             "source": self.source,
@@ -438,7 +457,16 @@ def _entry(raw: object, index: int, today: date, problems: list[str]) -> FormEnt
         if bad:
             problems.append(f"{at}.choices: {', '.join(sorted(bad))}")
             continue
-        fields.append(FormField(f["key"], f["label"], dict(choices)))
+        selector = f.get("selector")
+        if selector is not None and (
+            f["key"] not in FILL_KEYS
+            or not isinstance(selector, str)
+            or not _SELECTOR.match(selector)
+            or selector != selector.strip()
+        ):
+            problems.append(f"{at}.selector: a plain CSS selector, for a field the helper fills")
+            continue
+        fields.append(FormField(f["key"], f["label"], dict(choices), selector))
     source = raw["source"]
     if (p := url_problem(source, official, allow_lang=False)) is not None:
         problems.append(f"{where}.source: {p}")
@@ -626,6 +654,8 @@ class KitSource:
     description: str
     log_excerpt: str
     stale: bool
+    type_key: str = "login_attack"  # our abuse type (``ABUSE_TYPES``), for the fill helper
+    fill: str = ""  # the fill data of this source alone (one address per submission)
 
 
 @dataclass(frozen=True)
@@ -643,6 +673,14 @@ class Kit:
     one_ip_per_submission: bool
     max_chars: int
     labels: Mapping[str, str]
+    type_key: str = "login_attack"  # the main abuse type, ours (``ABUSE_TYPES``)
+    fill: str = ""  # the fill data of the whole kit (``fill_data``)
+
+    def fills(self) -> list[tuple[str, str]]:
+        """The fill data of the kit and of each source, by name (JSON)."""
+        out = [("fill", self.fill)] if self.fill else []
+        out += [(f"sources[{i}].fill", s.fill) for i, s in enumerate(self.sources) if s.fill]
+        return out
 
     def texts(self) -> list[tuple[str, str]]:
         """Every text field of the kit, by name, as the owner can copy it."""
@@ -665,6 +703,56 @@ class Kit:
             ]
         out += [(f"labels.{k}", v) for k, v in sorted(self.labels.items())]
         return out
+
+
+def fill_data(values: Mapping[str, str], *, type_key: str, entry: FormEntry | None = None) -> str:
+    """The data the browser fill helper reads (copied by the owner, pasted on the form page).
+
+    Only kit values, already built for this kit, plus what the shared directory knows of the
+    form: its own label and, when a maintainer recorded one, a CSS selector per field. Compact,
+    ASCII-only JSON. Nothing in it names the node or the project: the provider's page sees it.
+    The helper fills fields and never submits (N1)."""
+    doc: dict[str, Any] = {
+        "format": FILL_FORMAT,
+        "type": type_key,
+        "values": {k: values[k] for k in FILL_KEYS if values.get(k)},
+    }
+    if entry is not None:
+        labels = {f.key: f.label for f in entry.fields if f.key in FILL_KEYS}
+        selectors = {f.key: f.selector for f in entry.fields if f.selector}
+        if labels:
+            doc["labels"] = labels
+        if selectors:
+            doc["selectors"] = selectors
+    return json.dumps(doc, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+def merge_evidence(parts: Sequence[Evidence]) -> Evidence:
+    """One evidence from the open form reports of one provider (one kit per provider): every
+    source with its own kind, the widest window, the options of the first report. A source in
+    two reports is kept once (the newest). ``ValueError`` when there are more than
+    ``MAX_SUBJECTS`` sources or no part."""
+    if not parts:
+        raise ValueError("nothing to merge")
+    if len(parts) == 1:
+        return parts[0]
+    seen: dict[tuple[str, str, str], Subject] = {}
+    for ev in parts:
+        for s in ev.subjects:
+            kind = ev.kind_of(s)
+            key = (kind, s.type, s.value)
+            if key not in seen or s.last_ts > seen[key].last_ts:
+                seen[key] = s if s.kind is not None else s.model_copy(update={"kind": kind})
+    first = parts[0]
+    return Evidence(
+        kind="digest",
+        recipient=first.recipient,
+        subjects=tuple(seen.values()),
+        window_start=min(ev.window_start for ev in parts),
+        window_end=max(ev.window_end for ev in parts),
+        demo=any(ev.demo for ev in parts),
+        options=first.options,
+    )
 
 
 def build_kit(
@@ -691,22 +779,37 @@ def build_kit(
     def type_label(t: str) -> str:
         return (entry.choice_of(t) if entry is not None else None) or TYPE_LABELS[t]
 
+    email_text = email
+    name_text = to_ascii((form_name or "").strip())[:100]
     sources: list[KitSource] = []
     for s in subjects:
         lines = evidence_lines(evidence, s, EXCERPT_LINES)
+        key = abuse_type_of(evidence, s)
+        one = {
+            "email": email_text,
+            "name": name_text,
+            "abuse_type": type_label(key),
+            "addresses": s.value,
+            "first_seen": fmt_ts(s.first_ts, opts),
+            "last_seen": fmt_ts(s.last_ts, opts),
+            "description": describe(
+                evidence, [s], max_chars=max_chars, reference=reference, file_name=file_name
+            ),
+            "log_excerpt": "\n".join(lines),
+        }
         sources.append(
             KitSource(
                 kind=evidence.kind_of(s),
                 type=s.type,
                 value=s.value,
-                abuse_type=type_label(abuse_type_of(evidence, s)),
-                first_seen=fmt_ts(s.first_ts, opts),
-                last_seen=fmt_ts(s.last_ts, opts),
-                description=describe(
-                    evidence, [s], max_chars=max_chars, reference=reference, file_name=file_name
-                ),
-                log_excerpt="\n".join(lines),
+                abuse_type=one["abuse_type"],
+                first_seen=one["first_seen"],
+                last_seen=one["last_seen"],
+                description=one["description"],
+                log_excerpt=one["log_excerpt"],
                 stale=s.last_ts <= now - FRESH,
+                type_key=key,
+                fill=fill_data(one, type_key=key, entry=entry),
             )
         )
     counts = Counter(abuse_type_of(evidence, s) for s in subjects)
@@ -719,22 +822,34 @@ def build_kit(
     else:
         evidence_file = render_csv(evidence)
     labels = {f.key: f.label for f in entry.fields} if entry is not None else {}
-    return Kit(
-        email=email,
-        name=to_ascii((form_name or "").strip())[:100],
-        abuse_type=type_label(main),
-        addresses="\n".join(s.value for s in subjects),
-        first_seen=fmt_ts(min(s.first_ts for s in subjects), opts),
-        last_seen=fmt_ts(max(s.last_ts for s in subjects), opts),
-        description=describe(
+    whole = {
+        "email": email_text,
+        "name": name_text,
+        "abuse_type": type_label(main),
+        "addresses": "\n".join(s.value for s in subjects),
+        "first_seen": fmt_ts(min(s.first_ts for s in subjects), opts),
+        "last_seen": fmt_ts(max(s.last_ts for s in subjects), opts),
+        "description": describe(
             evidence, subjects, max_chars=max_chars, reference=reference, file_name=file_name
         ),
-        log_excerpt="\n\n".join(s.log_excerpt for s in sources),
+        "log_excerpt": "\n\n".join(s.log_excerpt for s in sources),
+    }
+    return Kit(
+        email=whole["email"],
+        name=whole["name"],
+        abuse_type=whole["abuse_type"],
+        addresses=whole["addresses"],
+        first_seen=whole["first_seen"],
+        last_seen=whole["last_seen"],
+        description=whole["description"],
+        log_excerpt=whole["log_excerpt"],
         evidence=evidence_file,
         sources=tuple(sources),
         one_ip_per_submission=entry.one_ip_per_submission if entry is not None else False,
         max_chars=max_chars,
         labels=labels,
+        type_key=main,
+        fill=fill_data(whole, type_key=main, entry=entry),
     )
 
 
@@ -745,16 +860,19 @@ def guard_kit(
     ctx: GuardContext | None = None,
     links: Sequence[str] = (),
 ) -> GuardResult:
-    """The identity check of a kit: every field on its own, the evidence file, the form links,
-    and everything together once more (a term split across two fields is still one text)."""
+    """The identity check of a kit: every field on its own, the evidence file, the fill data of
+    the browser helper, the form links, and everything together once more (a term split across
+    two fields is still one text)."""
     file_fmt: ArtifactFormat = "csv" if kit.evidence.media_type == "text/csv" else "text"
     parts: list[tuple[str, str | bytes, ArtifactFormat]] = [
         (name, value, "text") for name, value in kit.texts()
     ]
     parts.append((kit.evidence.name, kit.evidence.content, file_fmt))
+    parts += [(name, value, "json") for name, value in kit.fills()]
     parts += [(f"link[{i}]", url, "text") for i, url in enumerate(links)]
     result = guard_parts(parts, terms, ctx=ctx)
-    whole = "\n".join([v for _n, v in kit.texts()] + [kit.evidence.content, *links])
+    fills = [v for _n, v in kit.fills()]
+    whole = "\n".join([v for _n, v in kit.texts()] + [kit.evidence.content, *fills, *links])
     if terms is not None:
         result = result.merge(guard(whole, terms, fmt="text", ctx=ctx))
     return result

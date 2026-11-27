@@ -57,7 +57,7 @@ describe("labels and sentences", () => {
 
   it("counts the queue", () => {
     expect(describeFormQueue(0)).toBe("Nothing to submit by form.")
-    expect(describeFormQueue(2)).toMatch(/^2 provider weeks/)
+    expect(describeFormQueue(2)).toMatch(/^2 providers/)
   })
 })
 

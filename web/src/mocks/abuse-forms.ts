@@ -1,5 +1,5 @@
 /**
- * MSW handlers for the form-only desks queue (M38): one provider week with two sources, its copy
+ * MSW handlers for the form-only desks queue (M38): one provider with two sources, its copy
  * kit, and "Submitted". Stateful for the page load. Every value is a placeholder (documentation
  * addresses, example.* names).
  */
@@ -46,6 +46,8 @@ const item: FormQueueItem = {
   guard: { ok: true, codes: [] },
   form_host: "www.example-hosting.example",
   form_origin: "directory",
+  provider: "Example Hosting",
+  reports: [{ public_id: ID, revision: 3 }],
 }
 
 const kit: Kit = {
@@ -110,8 +112,25 @@ const kit: Kit = {
   one_ip_per_submission: false,
   max_chars: 2000,
   labels: { abuse_type: "Type of abuse", description: "Comments" },
+  type_key: "login_attack",
+  reports: [{ public_id: ID, revision: 3 }],
   guard: { ok: true, codes: [] },
 }
+// The browser helper's data, as the server builds it from the kit (forms.fill_data).
+kit.fill = JSON.stringify({
+  format: "formfill/1",
+  labels: { abuse_type: "Type of abuse", description: "Comments" },
+  type: "login_attack",
+  values: {
+    abuse_type: kit.abuse_type,
+    addresses: kit.addresses,
+    description: kit.description,
+    email: kit.email,
+    first_seen: kit.first_seen,
+    last_seen: kit.last_seen,
+    log_excerpt: kit.log_excerpt,
+  },
+})
 
 export const abuseFormHandlers: RequestHandler[] = [
   http.get("/api/v1/abuse/forms", async () => {

@@ -21,6 +21,7 @@ const ADMIN: AuthUser = {
 }
 
 const ID = "8b8b8b8b-0000-4000-8000-000000000001"
+const OTHER = "8b8b8b8b-0000-4000-8000-000000000002"
 
 const item = (over: Partial<FormQueueItem> = {}): FormQueueItem => ({
   public_id: ID,
@@ -101,6 +102,12 @@ const kit = (over: Partial<Kit> = {}): Kit => ({
   one_ip_per_submission: false,
   max_chars: 1000,
   labels: { description: "Comments" },
+  type_key: "login_attack",
+  fill: '{"format":"formfill/1","type":"login_attack","values":{"email":"reports@example.org"}}',
+  reports: [
+    { public_id: ID, revision: 4 },
+    { public_id: OTHER, revision: 2 },
+  ],
   guard: { ok: true, codes: [] },
   ...over,
 })
@@ -165,7 +172,7 @@ async function openKit() {
 }
 
 describe("FormQueue", () => {
-  it("lists one card per provider and week", async () => {
+  it("lists one card per provider", async () => {
     stub([item()])
     renderQueue()
     expect(await screen.findByText("Example Hosting")).toBeInTheDocument()
@@ -273,16 +280,46 @@ describe("FormQueue", () => {
     expect(post?.body).toEqual({
       revision: 4,
       subjects: [{ kind: "attack_source", subject_type: "ip", value: "198.51.100.23" }],
+      reports: [
+        { public_id: ID, revision: 4 },
+        { public_id: OTHER, revision: 2 },
+      ],
     })
   })
 
-  it("sends no list when every address was submitted", async () => {
+  it("sends no address list when every address was submitted, and every report of the kit", async () => {
     const calls = stub([item()])
     renderQueue()
     await openKit()
     await userEvent.click(await screen.findByRole("button", { name: "Submitted" }))
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/submitted"))).toBe(true))
-    expect(calls.find((c) => c.url.endsWith("/submitted"))?.body).toEqual({ revision: 4 })
+    expect(calls.find((c) => c.url.endsWith("/submitted"))?.body).toEqual({
+      revision: 4,
+      reports: [
+        { public_id: ID, revision: 4 },
+        { public_id: OTHER, revision: 2 },
+      ],
+    })
+  })
+
+  it("names the provider of a card that covers several of its mailboxes", async () => {
+    stub([item({ provider: "Example Net" })])
+    renderQueue()
+    expect(await screen.findByRole("heading", { name: "Example Net" })).toBeInTheDocument()
+  })
+
+  it("offers the fill button and the kit's fill data, and the button never runs here", async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    stub([item()])
+    renderQueue()
+    await openKit()
+    const region = await screen.findByRole("region", { name: "Fill the form in your browser" })
+    const bookmark = within(region).getByText("Fill abuse form").closest("a")
+    expect(bookmark?.getAttribute("href")).toMatch(/^javascript:/)
+    expect(bookmark?.getAttribute("href")).not.toMatch(/198\.51\.100|reports%40example/)
+    await userEvent.click(within(region).getByRole("button", { name: "Copy fill data" }))
+    expect(writeText).toHaveBeenCalledWith(kit().fill)
   })
 
   it("starts with nothing ticked for a form that takes one address at a time", async () => {

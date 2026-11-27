@@ -2,7 +2,9 @@
  * The form-only desks queue (M38, docs/dev/design/m38.md section 6): shapes of `/abuse/forms`,
  * `/abuse/reports/{id}/kit` and `/abuse/reports/{id}/submitted`, the sentences of the queue and the
  * suggestion text for the shared directory. Nothing here submits a form: the owner opens the form,
- * pastes each field and records the submission.
+ * pastes each field (or fills them with the browser helper, `form-fill.ts`, which never submits)
+ * and records the submission. One card and one kit per provider: a kit covers every open form
+ * report of its provider (`reports`), and "Submitted" marks them all.
  */
 import { getJson, sendJson } from "./api"
 import type { GuardResult, Recipient, ReportKind } from "./abuse"
@@ -47,6 +49,15 @@ export interface FormQueueItem {
   guard: GuardResult
   form_host?: string | null
   form_origin?: "directory" | "reply" | null
+  /** The provider's name (the directory's when the card covers several of its mailboxes). */
+  provider?: string
+  /** Every open form report of the provider the card covers, first report first. */
+  reports?: ReportRef[]
+}
+
+export interface ReportRef {
+  public_id: string
+  revision: number
 }
 
 export interface FormQueue {
@@ -65,6 +76,10 @@ export interface KitSource {
   log_excerpt: string
   /** Older than 7 days. */
   stale: boolean
+  /** Our abuse type: login_attack, exploit, malware or c2. */
+  type_key?: string
+  /** The browser helper's data for this address alone (JSON, checked by the identity guard). */
+  fill?: string
 }
 
 export interface Kit {
@@ -92,6 +107,11 @@ export interface Kit {
   max_chars: number
   /** The form's own label of a kit field, from the shared directory. */
   labels: Record<string, string>
+  type_key?: string
+  /** The browser helper's data for the whole kit (JSON, checked by the identity guard). */
+  fill?: string
+  /** Every open form report of the provider the kit covers; "Submitted" marks them all. */
+  reports?: ReportRef[]
   guard: GuardResult
 }
 
@@ -106,6 +126,8 @@ export interface Submitted {
   submitted: number
   left: number
   sent_at: string
+  /** Form reports marked sent. */
+  reports?: number
 }
 
 export const formKeys = {
@@ -116,10 +138,11 @@ export const formKeys = {
 export const formsApi = {
   queue: () => getJson<FormQueue>("/abuse/forms"),
   kit: (id: string) => getJson<Kit>(`/abuse/reports/${id}/kit`),
-  submitted: (id: string, revision: number, subjects?: SubjectRef[]) =>
+  submitted: (id: string, revision: number, subjects?: SubjectRef[], reports?: ReportRef[]) =>
     sendJson<Submitted>("POST", `/abuse/reports/${id}/submitted`, {
       revision,
       ...(subjects ? { subjects } : {}),
+      ...(reports && reports.length > 0 ? { reports } : {}),
     }),
   /** The owner sends a desk to the form queue by hand (true) or back to mail (false). */
   setFormOnly: (recipientId: number, on: boolean) =>
